@@ -13,18 +13,22 @@
  <title>Installation Overview</title>
  <abstract>
   <para>
-   FIXME
+   Before actually deploying &productname;, there are a few requirements to be
+   met and security considerations to be made. Make sure to thoroughly read
+   this chapter&mdash;some decisions need to be made
+   <emphasis>before</emphasis> deploying &cloud;, since you cannot change them
+   afterwards.
   </para>
  </abstract>
  <sect1 id="sec.depl.inst.requires">
   <title>Requirements</title>
   <para>
    While it is easy to deploy additional &compnode;s and &stornode;s to
-   &cloud; while it is running (see FIXME), it is more difficult to update the
+   a running &cloud; (see FIXME), it is more difficult to update the
    administrative part of the &cloud; infrastructure (the &admserv; and the
    &contrnode;) on the fly. Whats more, changing the network setup is not
    possible without re-deploying the complete setup. Therefore it is essential
-   to thoroughly plan your cloud setup. 
+   to thoroughly plan your cloud setup before deploying it.. 
   </para>
   <sect2 id="sec.depl.inst.requires.hardware">
    <title>Hardware Requirements</title>
@@ -48,9 +52,10 @@
     GB of RAM. Also see <xref linkend="sec.depl.inst.requires.storage"/>.
    </para>
    <para>
-    All &cloud; nodes need to be physical machine. Although the &admserv; and
+    All &cloud; nodes need to be physical machines. Although the &admserv; and
     the &contrnode; can be virtualized in test environments, this is not
-    supported for production systems.
+    supported for production systems. &cloud; currently only runs on
+    <literal>x86_64</literal> hardware.
    </para>
    <itemizedlist id="li.depl.inst.requires.hardware.admserv">
     <title>Hardware Requirements for &admserv;</title>
@@ -69,26 +74,24 @@
     </listitem>
     <listitem>
      <para>
-      Harddisk: at least 40 GB
+      Harddisk: at least 40 GB. Putting <filename>/srv</filename> on a
+      separate partition with at least 25 GB space is recommended.
      </para>
     </listitem>
     <listitem>
      <para>
-      <remark condition="clarity">
-       2012-08-01 - fs: Please review
-      </remark>
-      Number of network cards: 2
+      Number of network cards: 1 or more, depending on your network topology
      </para>
      <important>
-      <title>Teaming support</title>
+      <title>Bonding support</title>
       <para>
        <remark condition="clarity">
         2012-08-01 - fs: Is this correct?
        </remark>
-       The network card used as <systemitem
-       class="resource">eth0</systemitem> needs to support <literal>NIC
-       Teaming</literal>. If you are deploying the &admserv; on a virtual
-       machine, be aware that fully virtualized NICs may not support teaming.
+       The network card used as <systemitem class="resource">eth0</systemitem>
+       needs to support <literal>mode 6 bonding</literal>. If you are
+       deploying the &admserv; on a virtual machine for testing purposes, be
+       aware that fully virtualized NICs may not support mode 6 bonding.
       </para>
      </important>
     </listitem>
@@ -111,8 +114,8 @@
     <listitem>
      <para>
       <remark condition="clarity">
-       2012-08-06 - fs: Can the images also be stored on the storage nodes
-       when swift is enabled?
+       2012-08-10 - fs: Storing images on the swift nodes is not supported in
+                        &productname; 1.0
       </remark>
       Harddisk: the operating system and the &ostack; services require no more
       than 4 GB of disk space. However, the images you can launch in order to
@@ -120,15 +123,12 @@
       control node (by default under
       <filename>/var/lib/glance/images</filename>). Make sure to equip the
       &contrnode; with enough hard disk space to host all images you want to
-      launch.  
+      launch (e.g. an LVM volume).  
      </para>
     </listitem>
     <listitem>
      <para>
-      <remark condition="clarity">
-       2012-08-01 - fs: Please review
-      </remark>
-      Number of network cards: 2
+      Number of network cards: 1 or more, depending on your network topology
      </para>
     </listitem>
    </itemizedlist>
@@ -136,24 +136,70 @@
 
   <sect2 id="sec.depl.inst.requires.storage">
    <title>Storage Requirements</title>
-   <para/>
-   
-   <remark condition="clarity">
-    2012-08-06 - fs: How to set up nova volume?
-   </remark>
-   
+   <para>
+    <remark condition="clarity">
+     2012-08-10 - fs: How to set up nova volume? Can it be hosted on a SAN? How
+     to configure with partition/device/directory to use?
+    </remark>
+    This section describes the storage requirements for the compute and
+    storage nodes. See <xref
+    linkend="li.depl.inst.requires.hardware.admserv"/> and <xref
+    linkend="li.depl.inst.requires.hardware.contrnode"/> for storage
+    requirements of the administrative nodes.
+   </para>
+
    <screen>
-    - admin node: smt repodata: separate partition/LVM 25 GB
-    - control node:
-      * separate partition/LVM for glance images (/var/lib/glance/images)
-    - compute nodes:
-      * space for ephemeral disks (always bound to the machine where the VM
-        was started)
-      * space for images copied from glance. Only applies to VMs with no root
-        disk (minimal flavor)
     - storage nodes: ??
     - nova volume: ??
    </screen>
+   
+   <sect3 id="sec.depl.inst.requires.storage.compute">
+    <title>&compnode;s</title>
+    <para>
+     Each &vmguest; is started with at least one disk&mdash;a copy of the
+     image from which it has been started. Depending on the flavor you start,
+     the &vmguest; may also have a second, so-called <quote>ephemeral</quote>
+     disk. The actual size of the root image depends on the image itself,
+     while ephemeral disks are always created as sparse image files.
+    </para>
+    <para>
+     Both disks, root images and ephemeral disk, are directly bound to the
+     &vmguest; and are deleted when the &vmguest; is terminated. Therefore
+     these disks are bound to the &compnode; on which the &vmguest; has been
+     started. These disks are created under <filename>/var/lib/nova</filename>
+     on the &compnode;. Therefore your &compnode;s should be equipped with
+     enough disk space to store the root images and ephemeral disks.
+    </para>
+    <note>
+     <title>Persistent Storage</title>
+     <para>
+      Persistent block devices that can be mounted after the &vmguest; has
+      been started are provided by Ceph or Nova Volume. Snapshots of instances
+      or volumes are also stored within Ceph or Nova Volume.
+     </para>
+    </note>
+   </sect3>
+
+   
+   <sect3 id="sec.depl.inst.requires.storage.store">
+    <title>Storage Nodes</title>
+    <para/>
+     <remark condition="clarity">
+      2012-08-10 - fs: How to tell swift which partition/device/storage to
+      use?
+      How to tell ceph to use a SAN?
+      If using a SAN for Swift and/or Ceph, would one dedicated storage
+      machine for both services be sufficient?
+     </remark>
+     <screen>
+      Ceph:
+        - can use a device for storage, needs to be the same on all nodes
+          (e.g. /dev/sdb)
+     </screen>
+   </sect3>
+   
+
+   
   </sect2>
   
   <sect2 id="sec.depl.inst.requires.network">
@@ -187,15 +233,17 @@
     <listitem>
      <para>
       <systemitem class="etheraddress">192.168.125/24</systemitem> (vLAN,
-      network for &store; (Swift), internal only)
+      network for &store; (Swift and Ceph), internal only)
      </para>
     </listitem>
    </itemizedlist>
    <para>
-    If these default IP ranges do not met your requirements and/or if you
-    follow the network proposal described at FIXME, you need to adjust the
-    network configuration templates <emphasis>prior</emphasis> to running
-    the &cloud; setup script. See FIXME for instructions.
+    A more complex network setup is discussed at <xref
+    linkend="app.deploy.network"/>. If you need to change the default IP
+    addresses listed above, you need to adjust the network configuration
+    templates <emphasis>prior</emphasis> to running the &cloud; setup
+    script. See <xref linkend="sec.depl.admin_server.install.os.crowbar"/> for
+    instructions.
    </para>
    <para>
     Any additional network card (<systemitem
@@ -295,7 +343,7 @@
     <title>Access to Update Repositories</title>
     
     <remark condition="clarity">
-     2012-08-08 - fs: Other alternatives?
+     2012-08-08 - fs: Other alternatives for update repositories?
      Both remote alternatives require to adjust autoyast.xml.erb
     </remark>
     
@@ -330,6 +378,36 @@
    
   </sect2>
  </sect1>
+ 
+ <sect1 id="sec.depl.arch.security">
+  <title>Security Considerations</title>
+
+  <para>FIXME</para>
+  <screen>
+   * https://github.com/SUSE/cloud/wiki/Common-issues
+   * https://github.com/SUSE/cloud/wiki/Nova-compute
+   * enabling SSL
+  </screen>
+
+<!-- SSL support:
+
+* vuntz tries to reinstall everything from scratch, with ssl by default
+<Magic> vuntz: Would you do me a favor and document (in short notes) what is needed in the different stages of the installation to support SSL? That would make documenting it much easier for me.
+<vuntz> Magic: I assume it's just chosing the right options for the keystone, glance, nova and nova_dashboard proposals
+<vuntz> choosing
+<bmwiedemann> yes. clicking "HTTPS" dropdowns in crowbar-dashboard
+<bmwiedemann> the hard part is generating trusted key+crt files
+<bmwiedemann> as the autogenerated ones are just self-signed
+<Magic> Would the following be sufficient as a lilnk to point to when it comes to generating certificates? http://docserv.suse.de/documents/SLES/SLES-admin/htmlsingle/#sec.apache2.ssl
+<Magic> (Much of it is about creating a self-signed certificate, I know, but there also is a section on getting an officially signed one)
+<Magic> Do the certificates for Cloud have to be placed in the default location ( /etc/apache2/ssl.crt/) or somewhere special?
+<vuntz> Magic: I assume it's enough, yes
+<iartarisi> ping thomas / thomas1
+<vuntz> Magic: iirc, we have options in the barclamps to tell the path to the certificates
+
+-->
+ </sect1>
+
  <sect1 id="sec.depl.inst.installation">
   <title>Installation Process</title>
 
