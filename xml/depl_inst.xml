@@ -82,18 +82,6 @@
      <para>
       Number of network cards: 1 or more, depending on your network topology
      </para>
-     <important>
-      <title>Bonding support</title>
-      <para>
-       <remark condition="clarity">
-        2012-08-01 - fs: Is this correct?
-       </remark>
-       The network card used as <systemitem class="resource">eth0</systemitem>
-       needs to support <literal>mode 6 bonding</literal>. If you are
-       deploying the &admserv; on a virtual machine for testing purposes, be
-       aware that fully virtualized NICs may not support mode 6 bonding.
-      </para>
-     </important>
     </listitem>
    </itemizedlist>
    <itemizedlist id="li.depl.inst.requires.hardware.contrnode">
@@ -136,10 +124,9 @@
 
   <sect2 id="sec.depl.inst.requires.storage">
    <title>Storage Requirements</title>
-   <para>
+    <para>  
     <remark condition="clarity">
-     2012-08-10 - fs: How to set up nova volume? Can it be hosted on a SAN? How
-     to configure with partition/device/directory to use?
+     2012-08-10 - fs: Todo: SAN/iSCSI configuration
     </remark>
     This section describes the storage requirements for the compute and
     storage nodes. See <xref
@@ -147,11 +134,6 @@
     linkend="li.depl.inst.requires.hardware.contrnode"/> for storage
     requirements of the administrative nodes.
    </para>
-
-   <screen>
-    - storage nodes: ??
-    - nova volume: ??
-   </screen>
    
    <sect3 id="sec.depl.inst.requires.storage.compute">
     <title>&compnode;s</title>
@@ -179,27 +161,36 @@
      </para>
     </note>
    </sect3>
-
-   
+  
    <sect3 id="sec.depl.inst.requires.storage.store">
     <title>Storage Nodes</title>
-    <para/>
+    <para>
+     The block-storage service Ceph and the object storage service Swift need
+     to be deployed onto dedicated nodes&mdash;it is not possible to mix these
+     services. Each storage service requires at least two machines (more are
+     recommended), otherwise it would not be possible to store the data
+     redundant.
+    </para>
+    <para>
      <remark condition="clarity">
-      2012-08-10 - fs: How to tell swift which partition/device/storage to
-      use?
-      How to tell ceph to use a SAN?
-      If using a SAN for Swift and/or Ceph, would one dedicated storage
-      machine for both services be sufficient?
+      2012-08-17 - fs: @devs: How to make sure &sls; is installed on the disk
+      the admin has chosen for this task? If I have a machine with a 100GB
+      disk for OS installation and several 1 TB disks, how to make sure the OS
+      is installed on the 100 GB disk?
      </remark>
-     <screen>
-      Ceph:
-        - can use a device for storage, needs to be the same on all nodes
-          (e.g. /dev/sdb)
-     </screen>
+     Each Ceph/Swift storage node needs at least two hard disks. The first one
+     (<filename>/dev/sda</filename> will be used for the operating system
+     installation, while the others can be used for storage purposes. While
+     you can configure which devices Ceph uses for storage, Swift always uses
+     all devices available.
+    </para>
+    <para>
+     If you choose to use Nova Volume rather than Ceph for storage, the
+     &contrnode; needs to be equipped with sufficient disk space on spare
+     disks. Nova volume does not provide redundancy and only runs on the
+     &contrnode;.
+    </para>
    </sect3>
-   
-
-   
   </sect2>
   
   <sect2 id="sec.depl.inst.requires.network">
@@ -237,6 +228,7 @@
      </para>
     </listitem>
    </itemizedlist>
+   <!--
    <para>
     A more complex network setup is discussed at <xref
     linkend="app.deploy.network"/>. If you need to change the default IP
@@ -245,6 +237,7 @@
     script. See <xref linkend="sec.depl.admin_server.install.os.crowbar"/> for
     instructions.
    </para>
+   -->
    <para>
     Any additional network card (<systemitem
     class="resource">eth1</systemitem>+) on the &admserv; that is used to
@@ -368,17 +361,22 @@
      </listitem>
      <listitem>
       <para>
-       Export the directories mirroring the repositories via NFS for example
-       and mount them on the nodes. This requires that the exported directories
-       can be mounted from all &cloud; nodes.
+       Export the repositories from an existing SMT server via NFS and mount
+       them on the &admserv;.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <command>rsync</command> the repositories from an existing SMT server
+       to the &admserv;.
       </para>
      </listitem>
     </itemizedlist>
    </sect3>
-   
   </sect2>
  </sect1>
- 
+
+<!--
  <sect1 id="sec.depl.arch.security">
   <title>Security Considerations</title>
 
@@ -387,6 +385,13 @@
    * https://github.com/SUSE/cloud/wiki/Common-issues
    * https://github.com/SUSE/cloud/wiki/Nova-compute
    * enabling SSL
+
+    Which communication will be encrypted?
+
+   
+     Needs a certificate
+      -> point to SLES Apache doc for HowTo
+      -> sufficient to put it on Admin node in /etc/apache2/ssl.*/
 
 Passwords:
 
@@ -416,13 +421,25 @@ Passwords:
     * Click Apply and confirm you want to apply the changes.
  - nodes root-Password (change in autoyast.xml.erb -> how? hashed, clear text?)
 
+* Keystone
+  - "Regular User" Name/Password
+  - "Administrator" Name/Password
+  Change via Keystone Barclamp
 
+* Glance
+  - Service User: Glance User in Keystone
+  - Service Password: PW for Service User
+  Change via Glance Barclamp
+
+* Swift
+  Cluster Admin Password
+  Change via Swift Barclamp
     
 
 
    
   </screen>
-
+-->
 <!-- SSL support:
 
 * vuntz tries to reinstall everything from scratch, with ssl by default
@@ -440,7 +457,7 @@ Passwords:
 <vuntz> Magic: iirc, we have options in the barclamps to tell the path to the certificates
 
 -->
- </sect1>
+
 
  <sect1 id="sec.depl.inst.installation">
   <title>Installation Process</title>
@@ -467,8 +484,8 @@ Passwords:
    <title>High Level Overview of the &cloud; Installation</title>
    <step>
     <para>
-     Install &sls; on the &admserv; with the Add-On products &smtool; (&smt;)
-     and &cloud;.
+     Install &sls; on the &admserv; with the Add-On products &smtool; (&smt;,
+     optional) and &cloud;.
     </para>
     <substeps>
      <step>

@@ -11,125 +11,1173 @@
 ]>
 <chapter id="cha.depl.nodes">
  <title>Deploying the &ostack; Nodes</title>
- <para/>
- <screen>
- - before you start:
-   Write down the MAC address of each host and note which host should serve
-   which function (controller, storage ceph, storage swift, compute)
-   -> make ist easier to identify nodes during installation
+ <para>
+  The &ostack; nodes represent the actual cloud infrastructure. Node
+  installation and service deployment is done automatically from the
+  &admserv;. We can distinguish between three different types of nodes:
+ </para>
+ <simplelist>
+  <member>
+   <emphasis role="bold">Controller:</emphasis> The central management node
+   interacting with all other nodes
+  </member>
+  <member>
+   <emphasis role="bold">Compute:</emphasis> The nodes on which the &vmguest;s
+   are started
+  </member>
+  <member>
+   <emphasis role="bold">Storage:</emphasis> Nodes providing object or block
+   storage
+  </member>
+ </simplelist>
 
-==> Special needs: adjust autoyast.xml.erb
-
-   
-  Booting:
-  - PXE-boot the &ostack; nodes (must be in the 10.11.20/24 network)
-    (either all in one go or one after another: Recommended: booting all)
-    * will boot into the SLES "sledgehammer" image and deploy crowbar and chef ??
-      onto the node
-      - during that deployment node will be listed in the crowbar webUI
-        Nodes as being in state "Discovering" (gray bullet) 
-        -> a lot of chef log messages to be seen on the node
-        --> hostnames = MAC address
-        --> Group-name = part of MAC 
-      - once node is ready for allocation it will be listed as being in state
-        "Discovered" (yellow bullet)
-         -> on the host: message block with network parameters ending with
-            NODE_STATE=false will appear again and again
-   Allocating:
-   - once all nodes are in state "discovered" (yellow bullet) allocate them with
-     Nodes -> Bulk Edit; to allocate a single node click on it's name
-   - Specify a self-explaing alias (control, compute1, compute2,
-     stor_obj1, stor_block1,.... Will be used to list clients in node
-     dashboard and as CNAME in DNS --> STRONGLY recommended
-     alos recommended: Description, will be shown as hover in Dashboard
-     (default: MAC, same as $HOSTNAME), tick Allocate and Save
-     
-      --> to allocate a single node, click it's name -> Edit-> fill in -> Save)
-   - return to Dashboard by clicking Nodes
-   - automatic installation of all notes is triggered -> no user interaction
-     is required
-   - Dashboard status: Installing (half yellow, half green bullet)
-   - installation Finished: Dashboard status "Ready" (green bullet), login
-     prompt at client
-
-
-Editing Nodes:
-  - Deleting:
-     -> node name -> Edit -> Forget
-       (will "delete" node from dashboard, if it is rebooted a new
-       installation will be triggered)
-     -> deallocate ??
-     -> reinstall ??
-
-
-Group Management:
-  - Create group: (e.g. control, compute, storage)
-    Nodes->Dashborad->Enter new group name -> Add Group
-    Drag and Drop Nodes onto new group title
-    Drag and Drop more nodes on the title
-
-    Admin group is reserved for the admin node
-
-
-Maybe add a small section on barclamps:
-- how to access
-  Menu Barclamps
-- what is a proposal
-  == configuration you can create and then deploy
-  -> give it a title and a description (optional, but recommened, defaults:
-  proposal, Created On _DATE_)
-  -> Click "create" and edit (page name: Edit Proposal)
-     - either via WebUi
-     - or by editing barclamp file with "Raw"
-- how to deploy
-  Section Node Deployment on Edit Proposal Page
-  -> Drag and drop Node from Available Nodes Column (left) to Role Title in
-     the right column
-     use input field to filter Available Nodes column on the fly
-
-  -> Delete a node from the Role column by clicking the "Remove Node" icon in
-     the corresponding line
-     
-- how to edit existing
-  Barclamps -> OpenStack -> _Name_ -> title
-  Shows Proposal summary
-  -> Edit Proposal to adjust
-  
-
-To deploy the nodes go to Barclamps -> OpenStack
-     
-   
- </screen>
- <sect1 id="sec.depl.nodes.controller">
-  <title>&contrnode;</title>
-
+ <tip>
+  <title>Preparations</title>
   <para>
-   <remark condition="clarity">
-    2012-06-29 - fs:
-    including some level of configuration recommendation 
-   </remark>
+   Before you start deploying the &ostack; nodes, you should make a note of
+   the MAC address and the purpose (controller, storage ceph, storage swift,
+   compute) of each node. This will make deploying the &ostack; services a lot
+   easier and less error-prone, since each node is initially listed with the
+   MAC address as it's name. 
   </para>
-  <screen>
-   1. Deploy Database:
-      Click "Database" to open proposal creating option
-      -> Give it a new title
-  </screen>
+ </tip>
+ 
+ <sect1 id="sec.depl.nodes.alloc">
+  <title>Allocating and Installing Nodes</title>
+  <para>
+   Before deploying the &ostack; services, you need to install &sls; on every
+   node. in order to do so, each node needs to be PXE booted using the
+   <systemitem class="resource">tftp</systemitem> server from the
+   &admserv;. Afterwards you can allocate the nodes and trigger the operating
+   system installation. 
+  </para>
+  <important>
+   <title>BIOS Boot Settings</title>
+   <para>
+    Make sure PXE-booting (booting from the network) is enabled and configured
+    as the <emphasis>primary</emphasis> boot-option for each node. The nodes
+    will boot twice from the network during the allocation and installation
+    phase. 
+   </para>
+  </important>
+  <para>
+   The nodes are installed using &ay; with the profile located at
+   <filename>/opt/dell/chef/cookbooks/provisioner/templates/default/autoxast.xml.erb</filename>. If
+   you need to make adjustments to this file, do so <emphasis>prior</emphasis>
+   to allocating the nodes. An &ay; manual can be found at <ulink
+   url="http://www.suse.com/documentation/sles11/book_autoyast/data/book_autoyast.html"/>. Having
+   changed <filename>autoxast.xml.erb</filename> you need to re-upload it to
+   chef, using the follwing command: 
+  </para>
+  <screen>knife cookbook upload -o /opt/dell/chef/cookbooks/ provisioner</screen>
 
+  <procedure>
+   <remark condition="clarity">
+    2012-08-16 - fs: Screenshots?
+   </remark>
+   <step>
+    <para>
+     PXE-boot all nodes you want to deploy. Although it is possible to
+     allocate nodes one-by-one, doing this in bulk-mode is recommended,
+     because it is much faster. the nodes will boot into the
+     <quote>SLEShammer</quote> image which performs initial hardware
+     discovery.
+    </para>
+   </step>
+   <step>
+    <para>
+     Open a browser and point it to the &crow; web interface available at port
+     <literal>3000</literal> of the &admserv;, for example <ulink
+     url="http://192.168.124.10:3000/"/>. Log in as user <systemitem
+     class="username">crowbar</systemitem>. The password defaults to
+     <literal>crowbar</literal>, if you have not changed it.
+    </para>
+    <para>
+     Click on <menuchoice> <guimenu>Nodes</guimenu>
+     <guimenu>Dashboard</guimenu> </menuchoice> to open the <guimenu>Node
+     Dashboard</guimenu>. 
+    </para>
+   </step>
+   <step>
+    <para>
+     Each node that has successfully booted will be listed as being in state
+     <literal>Discovered</literal>, indicated by a yellow bullet. The nodes
+     will be listed with their MAC address as a name. Wait until all nodes are
+     listed as being <literal>Discovered</literal> before proceeding.
+    </para>
+   </step>
+   <step>
+    <para>
+     Although this step is optional, it is recommended to properly group your
+     nodes at this stage, since it allows you to clearly arrange all
+     nodes. Grouping the nodes by role (for example control, compute, object
+     storage (swift) and block storage (ceph)) would be one option. 
+    </para>
+    <substeps>
+     <step>
+      <para>
+       Enter the name of a new group into the <guimenu>New Group</guimenu>
+       input field and click <guimenu>Add Group</guimenu>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Drag and drop a node onto the title of the newly created group and
+       repeat this step for each node you would like to put into the group.
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     To allocate the nodes click on <menuchoice> <guimenu>Nodes</guimenu>
+     <guimenu>Bulk Edit</guimenu> </menuchoice>. If you prefer to allocate the
+     nodes one-by-one, click on a node name followed by a click on
+     <guimenu>Edit</guimenu>instead. 
+    </para>
+   </step>
+   <step>
+    <para>
+     Provide a meaningful<guimenu>Alias</guimenu> and a
+     <guimenu>Description</guimenu> for each node and tick the
+     <guimenu>Allocate</guimenu> box. The entries for <guimenu>BIOS</guimenu>
+     and <guimenu>RAID</guimenu> are currently not used.
+    </para>
+    <tip>
+     <title>Alias Names</title>
+     <para>
+      Providing an alias name will change the default node names (MAC address)
+      to the name you provided, making it easier to identify the
+      node. Furthermore, this alias will also be used as a
+      DNS <literal>CNAME</literal> for the node in the admin network. As a
+      result, you will be able to access the node via this alias when, for
+      example, logging in via SSH. 
+     </para>
+    </tip>
+   </step>
+   <step>
+    <para>
+     Once you have filled in the data for all nodes, click
+     <guimenu>Save</guimenu>. The nodes will reboot and commence the
+     &ay;-based &sls; installation via a second PXE boot. Click <menuchoice>
+     <guimenu>Nodes</guimenu>
+     <guimenu>Dashboard</guimenu> </menuchoice> to return to the <guimenu>Node
+     Dashboard.</guimenu>
+    </para>
+   </step>
+   <step>
+    <para>
+     Nodes that are being installed are listed with the status
+     <literal>Installing</literal> (yellow/green bullet). Once the
+     installation of a node has finished, it is listed as being
+     <literal>Ready</literal>, indicated by a green bullet. Wait until all
+     nodes are listed as being <literal>Ready</literal> before proceeding.
+    </para>
+   </step>
+  </procedure>
+
+  <sect2 id="sec.depl.nodes.alloc.trouble">
+   <title>Troubleshooting</title>
+   <para>
+    In case you run into trouble allocating and installing nodes, check the
+    following list:
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>
+      All nodes fail to PXE-boot with <literal>Could not find kernel image:
+      ../suse-11.2/install/boot/x86_64/loader/linux</literal>
+     </term>
+     <listitem>
+      <para>
+       <filename>/srv/tftpboot/suse-11.2/install</filename> on your admin node
+       has not been set up correctly to contain the SLES11 SP2 installation
+       media. Please review <xref
+       linkend="sec.depl.admin_server.install.local_repos"/>.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>
+      A node hangs at <literal>Unpacking initramfs</literal> during PXE-boot
+     </term>
+     <listitem>
+      <para>
+       Your node probably does not have enough RAM. Try increasing to at least
+       2GB.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>
+     A node hangs at <literal>Executing &ay; script:
+     /var/adm/autoinstall/init.d/crowbar_join</literal>
+     </term>
+     <listitem>
+      <para>
+       Go to the &crow; web interface and open the <guimenu>Node
+       Dashboard</guimenu>. Click on the name of the hanging node and look for
+       its <guimenu>admin (eth0)</guimenu> <guimenu>PI Adress</guimenu>. Login
+       to that IP address via ssh as user &rootuser; and check the
+       <filename>/var/log/crowbar-join*</filename> log files for errors.
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+
+  <sect2 id="sec.depl.nodes.alloc.post">
+   <title>Post Installation Configuration</title>
+   <para>
+    The following lists some <emphasis>optional</emphasis> configuration steps
+    like configuring node access and SSL-enablement. You may entirely skip the
+    following steps or perform them at any later stage.
+   </para>
+   
+   <sect3 id="sec.depl.nodes.alloc.post.access">
+    <title>Accessing the Nodes</title>
+    <para>
+     By default, the &rootuser; account on the nodes has no password assigned,
+     so &rootuser; login is only possible via ssh public keys (for example from
+     the &admserv;). To add custom public ssh keys to &rootuser;'s
+    <filename>authorized_keys</filename> file on all nodes (including the
+    &admserv;), proceed as follows:
+    </para>
+    <procedure>
+     <title>Copying ssh Keys to all Nodes</title> 
+     <step>
+      <para>
+       Login to the &crow; web interface available at port
+       <literal>3000</literal> of the &admserv;, for example <ulink
+       url="http://192.168.124.10:3000/"/> (username and default password:
+       <literal>crowbar</literal>).
+      </para>
+     </step>
+     <step>
+      <para>
+       Open the &barcl; menu by clicking <menuchoice>
+       <guimenu>Barclamps</guimenu> <guimenu>All Barclamps</guimenu>
+       </menuchoice>. Now click on the <guimenu>Provisioner</guimenu> &barcl;
+       entry and <guimenu>Edit</guimenu> the <guimenu>Default</guimenu>
+       proposal. 
+      </para>
+     </step>
+     <step>
+      <para>
+       Copy &amp; paste the ssh keys into the <guimenu>Additional SSH
+       Keys</guimenu> input field. Each key needs to be placed on a new line.
+      </para>
+     </step>
+     <step>
+      <para>
+       Click <guimenu>Apply</guimenu> to deploy the keys and save your changes
+       to the proposal.
+      </para>
+     </step>
+    </procedure>
+    <para>
+     Alternatively, you can enable a direct root login by providing a password
+     for &rootuser;. Proceed as follows:
+    </para>
+    <procedure>
+     <title>Enabling Direct &rootuser; Login</title>
+     <step>
+      <para>
+       Create an md5-hashed &rootuser;-password, for example by using
+       <command>mkpasswd <option>-5</option></command>
+       (<command>mkpasswd</command> is provided by the package <systemitem
+       class="resource">whois</systemitem>).
+      </para>
+     </step>
+     <step>
+      <para>
+       Login to the &crow; web interface available at port
+       <literal>3000</literal> of the &admserv;, for example <ulink
+       url="http://192.168.124.10:3000/"/> (username and default password:
+       <literal>crowbar</literal>).
+      </para>
+     </step>
+     <step>
+      <para>
+       Open the &barcl; menu by clicking <menuchoice>
+       <guimenu>Barclamps</guimenu> <guimenu>All Barclamps</guimenu>
+       </menuchoice>. Now click on the <guimenu>Provisioner</guimenu> &barcl;
+       entry and <guimenu>Edit</guimenu> the <guimenu>Default</guimenu>
+       proposal. 
+      </para>
+     </step>
+     <step>
+      <para>
+       Click <guimenu>Raw</guimenu> to edit the configuration file.
+      </para>
+     </step>
+     <step>
+      <para>
+       Add the following line within the first block of the file:
+      </para>
+      <screen>"default_password_hash": "<replaceable>HASHED_PASSWORD</replaceable>"</screen>
+      <para>
+       replacing "<replaceable>HASHED_PASSWORD</replaceable>" with the
+       password you generated in the first step.
+      </para>
+     </step>
+    </procedure>
+   </sect3>
+   <sect3 id="sec.depl.nodes.alloc.post.ssl">
+    <title>Enabling SSL</title>
+    <para>
+     <remark condition="clarity">
+      2012-08-16 - fs: @devs: Please check
+     </remark>
+     By default communication from within &cloud; to the public is not
+     encrypted. To encrypt all public communication, you can enable SSL for
+     all relevant &ostack; services. The following services can make use of
+     SSL:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       Keystone
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Glance
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Nova
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       VNC
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Nova Dashboard
+      </para>
+     </listitem>
+    </itemizedlist>
+    <para>
+     Each service requires valid and signed certificates. You may either use
+     the same certificates for all services or use dedicates certificates for
+     each service. See <ulink
+       url="http://www.suse.com/documentation/sles11/book_sle_admin/data/sec_apache2_ssl.html"/>
+       for instructions on how to create certificates and get them signed by a
+       trusted organization.
+    </para>
+    <para>
+     The certificate file and the key file need to be copied to the controller
+     node into the following locations:
+    </para>
+    <variablelist>
+     <varlistentry>
+      <term>SSL Certificate File</term>
+      <listitem>
+       <para>
+        <filename>/etc/apache2/ssl.crt/</filename>
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>SSL Key File</term>
+      <listitem>
+       <para>
+        <filename>/etc/apache2/ssl.key/</filename>
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+   </sect3>
+  </sect2>
+  
+  <sect2 id="sec.depl.nodes.alloc.edit">
+   <title>Editing Allocated Nodes</title>
+   <para>
+    All nodes that have been allocated can be decommissioned or
+    re-installed. Click on a node name in the <guimenu>Node
+    Dashboard</guimenu> and then on <guimenu>Edit</guimenu>. The following
+    options are available: 
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term><guimenu>Forget</guimenu></term>
+     <listitem>
+      <para>
+       Delete a node from the pool. If you want to re-use this node again, it
+       needs to be reallocated and reinstalled from scratch.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><guimenu>Deallocate</guimenu></term>
+     <listitem>
+      <para>
+       Temporarily remove the node from the pool of nodes. Once you reallocate
+       the node it will take its former role. Useful to add additional
+       machines in times of high load or to decommission machines in times of
+       low load.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><guimenu>Reinstall</guimenu></term>
+     <listitem>
+      <para>
+       Trigger a reinstallation. The machine stays allocated.
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  
+   <warning>
+    <title>Editing Nodes in a Production System</title>
+    <para>
+     When deallocating nodes providing essential services, the complete cloud
+     will become unusable. While it is uncritical to disable single storage
+     nodes (provided you have not disabled redundancy) or single compute
+     nodes, disabling the controller node will <quote>kill</quote> the
+     complete cloud. You should also not disable nodes providing ceph
+     monitoring services or the nodes providing swift ring and proxy services.  
+    </para>
+   </warning>
+  </sect2>
+
+
+  <sect2 id="sec.depl.nodes.alloc.barclamps">
+   <title>Barclamps</title>
+   <para>
+    The &ostack; services are deployed onto the nodes by using so-called
+    &barcl;s&mdash;a set of recipes, templates and installation
+    instructions. All existing &barcl; can be accessed from the &crow; web interface by clicking on <guimenu>Barclamps</guimenu>. To edit a
+    &barcl; proceed as follows:
+   </para>
+   <procedure>
+    <step>
+     <para>
+      Open a browser and point it to the &crow; web interface available at port
+      <literal>3000</literal> of the &admserv;, for example <ulink
+      url="http://192.168.124.10:3000/"/>. Log in as user <systemitem
+      class="username">crowbar</systemitem>. The password defaults to
+      <literal>crowbar</literal>, if you have not changed it.
+     </para>
+     <para>
+      Click on <guimenu>Barclamps</guimenu> to open the <guimenu>All
+      Barclamps</guimenu> menu. Alternatively you may filter the list to
+      <guimenu>Crowbar</guimenu> or <guimenu>&ostack;</guimenu> &barcl; by
+      choosing the respective option from <guimenu>Barclamps</guimenu>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Click on the name of a &barcl;. You can either <guimenu>Create</guimenu>
+      a proposal or <guimenu>Edit</guimenu> an existing one.
+     </para>
+     <para>
+      When creating a new proposal, it is strongly recommended to give it a
+      meaningful name and description. You can create several proposals,
+      e.g. for testing purposes.
+     </para>
+     <para>
+      Most &barcl; consist of two sections: the <guimenu>Attributes</guimenu>
+      section lets you change the configuration, the <guimenu>Node
+      Deployment</guimenu> section lets you choose onto which nodes to deploy
+      the &barcl;.
+     </para>
+    </step>
+    <step>
+     <para>
+      To edit the <guimenu>Attributes</guimenu> section change the values via
+      the web form. Alternatively you can directly edit the configuration file
+      by clicking on <guimenu>Raw</guimenu>. However, the latter should only
+      be done in case an option cannot be change via web form, because no syntax
+      checks are performed.
+     </para>
+     <para>
+      In the <guimenu>Node Deployment</guimenu> section you can drag &amp;
+      drop nodes from the <guimenu>Available Nodes</guimenu> column to the
+      desired role. You need to drop the node onto the role name. Do
+      <emphasis>not</emphasis> drop a node onto the input field, this is
+      rather used to filter the list of <guimenu>Available Nodes</guimenu>!
+      To remove a node from a role, click the respective
+      <guimenu>Remove</guimenu> icon. Sometimes it's necessary to remove a
+      node from a certain role before you can assign it to a new role.
+     </para>
+     <para>
+      The <guimenu>Node Deployment</guimenu> can also be changed by editing
+      the configuration file in <guimenu>Raw</guimenu> mode.
+     </para>
+     
+     <tip>
+      <title>Save Before Switching the Edit Mode</title>
+      <para>
+       If you switch between <guimenu>Raw</guimenu> mode and web form
+       (<guimenu>Custom</guimenu> mode), make sure to <guimenu>Save</guimenu>
+       your changes before switching, otherwise they will be lost.
+      </para>
+     </tip>
+     
+    </step>
+    <step>
+     <para>
+      To save and deploy your edits, click <guimenu>Apply</guimenu>. To just
+      save your changes without deploying them, click
+      <guimenu>Save</guimenu>. To remove the complete proposal, click
+      <guimenu>Deactivate</guimenu>. A proposal that already has been deployed
+      cannot be deleted, but rather be deactivated.
+     </para>
+     <para>
+      If you deploy a proposal onto a node where a previous one is still
+      active, the new proposal will overwrite the old one.
+     </para>
+    </step>
+   </procedure>
+   
+   <warning>
+    <title>Barclamp Deployment Failure</title>
+    <para>
+     In case the deployment of a &barcl; fails, make sure to fix the reason
+     that has caused the failure and deploy the &barcl; again. Refer to the
+     respective troubleshooting section for help. A deployment
+     failure may leave your node in an inconsistent state.
+    </para>
+   </warning>
+   
+  </sect2>
+ </sect1>
+
+ <sect1 id="sec.depl.nodes.controller">
+  <title>Deploying the &contrnode;</title>
+  <para>
+   The first &ostack; node that needs to be set up is the &contrnode;. In the
+   following we assume that you only use one machine to control your
+   &cloud;. Alternatively you may deploy the services onto separate controller
+   nodes.
+  </para>
+  <note>
+   <title>Scope of Operation</title>
+   <para>
+    It is perfectly reasonable to deploy all services controlling the cloud
+    (including storage management and control services) onto one physical
+    machine acting as the &contrnode;. However, you should
+    <emphasis>not</emphasis> use your &contrnode; as a compute or storage
+    host. Here is a list with services that should <emphasis>not</emphasis> be
+    deployed onto the &contrnode;:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <guimenu>Swift-storage</guimenu>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <guimenu>Ceph-store</guimenu>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <guimenu>Nova-multi-compute</guimenu>
+     </para>
+    </listitem>
+   </itemizedlist>
+  </note>
+  <para>
+   The &ostack; services need to be deployed in a given order. Make sure to
+   closely follow it, otherwise some services may not work or need to be
+   deployed twice:
+  </para>
+  <orderedlist>
+   <listitem>
+    <para>
+     <guimenu>Database</guimenu>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <guimenu>Keystone</guimenu>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <guimenu>Swift</guimenu>, <guimenu>Ceph</guimenu> (both optional)
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <guimenu>Glance</guimenu>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <guimenu>Nova</guimenu>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+    <guimenu> Nova Dashboard</guimenu>
+    </para>
+   </listitem>
+  </orderedlist>
+  <para>
+   For general instructions on how to edit and deploy &barcl; refer to <xref
+   linkend="sec.depl.nodes.alloc.barclamps"/>.
+  </para>
+  
+  <sect2 id="sec.depl.nodes.controller.db">
+   <title>Database</title>
+   <para>
+    The very first service that needs to be deployed is the
+    <guimenu>Database</guimenu>. The database service is used by all other
+    services. &cloud; only supports <guimenu>&postgres;</guimenu> as an
+    <guimenu>SQL Engine</guimenu>, so this value must not be
+    changed. <guimenu>Database</guimenu> needs to be deployed onto the
+    &contrnode;.
+   </para>
+  </sect2>
 
   
+  <sect2 id="sec.depl.nodes.controller.keystone">
+   <title>Keystone</title>
+   <para>
+    <guimenu>Keystone</guimenu> is another core component that is used by all
+    other &ostack; services. It provides authentication and authorization
+    services. <guimenu>Keystone</guimenu> needs to be deployed onto the
+    &contrnode;. You can configure the following parameters of this &barcl;:
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term><guimenu>SQL Engine</guimenu></term>
+     <listitem>
+      <para>
+       Must be set to <guimenu>&postgres;/MySQL</guimenu>, This is the default.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><guimenu>SQL Instance</guimenu></term>
+     <listitem>
+      <para>
+       Name of the proposal you deployed in the previous step (see <xref
+       linkend="sec.depl.nodes.controller.db"/>). The default value should be
+       correct. 
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><guimenu>Default Tenant</guimenu></term>
+     <listitem>
+      <para>
+       Tenant for the users. Do not change the default value of
+       <literal>openstack</literal>. 
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Regular User/Administrator Username/Password</term>
+     <listitem>
+      <para>
+       Username and password for the regular user and the administrator. Both
+       accounts can be used to log into the &dash; to manage Keystone users
+       and access.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><guimenu>Administrator Token (long-lived)</guimenu></term>
+     <listitem>
+      <para>
+       The permanent administrator token (random string).
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><guimenu>Administrator Token Expiration</guimenu></term>
+     <listitem>
+      <para>
+       Expiration Date for the administrator token. Must be entered in the
+       form
+       <replaceable>YYYY-MM-DD</replaceable>T<replaceable>HH:MM</replaceable>,
+       e.g. 2015-03-31T12:00.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><guimenu>Security Attributes</guimenu></term>
+     <listitem>
+      <para>
+       When sticking with the default value <literal>HTTP</literal>, public
+       communication will not be encrypted. Choose <literal>HTTPS</literal> to
+       use SSL for encryption and specify the path to the certificate
+       files. Note that you need to create and copy the certificate prior to
+       deploying Keystone, see <xref linkend="sec.depl.nodes.alloc.post.ssl"/>
+       for instructions.
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+ 
+  <sect2 id="sec.depl.nodes.controller.storage">
+   <title>Swift and Ceph</title>
+   <para>
+    Detailed instructions on the <guimenu>Swift</guimenu> and
+    <guimenu>Ceph</guimenu> deployment are available at <xref
+    linkend="sec.depl.nodes.storage"/>. Although recommended, deploying these
+    two services is optional&mdash;a basic block-storage service without
+    redundancy can also be provided by nova-volume.
+   </para>
+   <para>
+    Apart from the storage role itself (<guimenu>Ceph-store</guimenu>,
+    <guimenu>Swift-storage</guimenu>), which should be deployed on the storage
+    nodes, both Swift and Ceph, need additional management roles. These
+    management roles should be deployed onto the &contrnode;:
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term><guimenu>Swift-ring-compute</guimenu></term>
+     <listitem>
+      <para>
+       The ring maintains the information about the location of objects,
+       replicas, and devices. It can be compared to an index, that is used by
+       various &ostack; services to look up the physical location of objects.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><guimenu>Swift-proxy-acct</guimenu></term>
+     <listitem>
+      <para>
+       The Swift proxy server takes care of routing requests to Swift.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><guimenu>Ceph-mon-master</guimenu></term>
+     <listitem>
+      <para>
+       Master Management node for Ceph. An additional two or four nodes also
+       need to run the <guimenu>Ceph-mon</guimenu> service. The sum of the
+       <guimenu>Ceph-mon-master</guimenu> and the <guimenu>Ceph-mon</guimenu>
+       nodes must always be an odd number.
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <note>
+    <title>Nova Volume</title>
+    <para>
+     When deploying Ceph, Nova Volume, which runs on the &contrnode; will
+     automatically use Ceph. If you choose to not deploy Ceph, you must make
+     sure to provide enough disk space on the &contrnode;.
+    </para>
+   </note>
+  </sect2>
+  <sect2 id="sec.depl.nodes.controller.glance">
+   <title>Glance</title>
+   <para>  
+    Glance provides discovery, registration, and delivery services for virtual
+    disk images. An image is needed to start a &vmguest;&mdash; it's it
+    pre-installed root-partition. All images you want to use in your cloud to
+    boot &vmguest;s from, are provided by Glance.
+   </para>
+   <para>
+    Glance should be deployed onto the &contrnode;. There are a lot of options
+    to configure Glance. The most important ones are explained below&mdash;for
+    a complete reference refer to <ulink url="https://github.com/dellcloudedge/crowbar/wiki/Glance--barclamp"/>. 
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>Image Store Directory</term>
+     <listitem>
+      <para>
+       Directory in which all images uploaded to Glance are stored. If you
+       want to put the images onto a separate partition or volume, you need to
+       mount this partition or volume on the &contrnode; prior to deploying
+       the Glance proposal. Specify the mount point of the partition or volume
+       here. 
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><guimenu>Security Attributes</guimenu></term>
+     <listitem>
+      <para>
+       When sticking with the default value <literal>HTTP</literal>, public
+       communication will not be encrypted. Choose <literal>HTTPS</literal> to
+       use SSL for encryption and specify the path to the certificate
+       files. Note that you need to create and copy the certificate prior to
+       deploying Glance, see <xref linkend="sec.depl.nodes.alloc.post.ssl"/>
+       for instructions.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>API/Registry <guimenu>Bind to All Addresses</guimenu></term>
+     <listitem>
+      <para>
+       Set these two options to <literal>true</literal> to enable image
+       uploads to Glance.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Caching</term>
+     <listitem>
+      <para>
+       Enable and configure image caching in this section. By default image
+       caching is disabled. Learn more about Glance's caching feature at
+       <ulink url="http://docs.openstack.org/developer/glance/cache.html"/>.
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+  
+  <sect2 id="sec.depl.nodes.controller.nova">
+   <title>Nova</title>
+   <para>     
+     Detailed instructions on the <guimenu>Nova</guimenu> deployment are
+     available at <xref linkend="sec.depl.nodes.compute"/>. The Nova &barcl;
+     deploys two roles: <guimenu>Nova-multi-controller</guimenu> and
+     <guimenu>Nova-multi-compute</guimenu>. While the latter need to be
+     deployed onto the compute nodes, <guimenu>Nova-multi-controller</guimenu>
+     needs to be deployed onto the &contrnode;.
+   </para>
+  </sect2>
+  
+  <sect2 id="sec.depl.nodes.controller.dash">
+   <title>Nova Dashboard</title>
+   <para>     
+    The last service that needs to be deployed is the Nova Dashboard. It
+    provides a web interface for users to start and stop &vmguest;s and for
+    administrators to manage users, groups, roles, etc. Nova Dashboard should
+    be deployed onto the &contrnode;. The following attributes can be
+    configured:
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term><guimenu>SQL Engine</guimenu></term>
+     <listitem>
+      <para>
+       Must be set to <guimenu>&postgres;/MySQL</guimenu>, This is the default.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>SQL/Keystone Instance</term>
+     <listitem>
+      <para>
+       Name of the proposal for <guimenu>Database</guimenu> and
+       <guimenu>Keystone</guimenu>you deployed in the previous steps. The
+       default value should be correct.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Disable SSL Certification Verification</term>
+     <listitem>
+      <para>
+       Should always be set to <literal>false</literal> (default), in
+       production environments. Only use it for testing purposes.
+      </para>
+     </listitem>
+    </varlistentry>
+    
+    <varlistentry>
+     <term><guimenu>Apache Attributes</guimenu></term>
+     <listitem>
+      <para>
+       When sticking with the default value <guimenu>HTTP</guimenu> equals
+       <literal>true</literal>, public communication will not be
+       encrypted. Set <literal>HTTPS</literal> to <literal>true</literal> to
+       use SSL for encryption and specify the path to the certificate
+       files. Note that you need to create and copy the certificate prior to
+       deploying Keystone, see <xref linkend="sec.depl.nodes.alloc.post.ssl"/>
+       for instructions.
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>  
  </sect1>
+
  <sect1 id="sec.depl.nodes.compute">
   <title>&compnode;</title>
-
-  <para></para>
- </sect1>
- <sect1 id="sec.depl.nodes.storage">
-  <title>&stornode;</title>
-
   <para>
-   <remark condition="clarity">
-    2012-06-29 - fs: aka "Swift"
-   </remark>
+   The &compnode;s are the <quote>workhorses</quote> of the cloud&mdash;each
+   &vmguest;s is started on a &compnode;. This functionality is provided by
+   the <guimenu>Nova-multi-compute</guimenu> role that needs to be deployed
+   onto every compute node via the Nova &barcl;. Distributing and scheduling
+   the &vmguest;s is managed by the <guimenu>Nova-multi-controller</guimenu>
+   role that needs to be deployed onto the &contrnode;.
   </para>
+  <para>
+   There are a lot of options to configure Nova. The most important ones are
+   explained below&mdash;for a complete reference refer to <ulink
+   url="https://github.com/dellcloudedge/crowbar/wiki/Nova--barclamp"/>. You
+   will also find details about Nova's network modes on that page.
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term><guimenu>Hypervisor</guimenu></term>
+    <listitem>
+     <para>
+      Choose between the <literal>KVM</literal> and <literal>Xen</literal>
+      hypervisors. At the moment &productname; does not support choosing more
+      than one hypervisor.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Choose disks for nova-volume storage volume group</term>
+    <listitem>
+     <para>
+      In case you have not deployed Ceph, you need to use Nova Volume for
+      block storage (refer to <xref linkend="sec.depl.nodes.storage"/> for
+      more information on storage). Specify which disks to use with this
+      option. If Ceph was already deployed, it is used automatically and you
+      will not be able to choose any disks here.
+     </para>
+     
+     <note>
+      <title>Nova Volume</title>
+      <para>
+       Nova Volume only runs on the host onto which
+       <guimenu>Nova-multi-controller</guimenu> is deployed. Make sure it is
+       provided with enough spare disks.
+      </para>
+     </note>
+     
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><guimenu>Security Attributes</guimenu></term>
+    <listitem>
+     <para>
+      When sticking with the default value <literal>HTTP</literal>, public
+      communication will not be encrypted. Choose <literal>HTTPS</literal> to
+      use SSL for encryption and specify the path to the certificate
+      files. Note that you need to create and copy the certificate prior to
+      deploying Nova, see <xref linkend="sec.depl.nodes.alloc.post.ssl"/>
+      for instructions.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>noVNC Security Attributes</term>
+    <listitem>
+     <para>
+      After having started a &vmguest; you can display its VNC console in the
+      Nova &dash; via browser using the <literal>noVNC</literal>
+      implementation. By default this connection is not encrypted and can
+      potentially be eavesdropped. To encrypt it, you can make use of SSL by
+      setting <guimenu>noVNC via SSL</guimenu> to <literal>true</literal>. If
+      you do not specify any additional certificates, the same ones as for
+      Nova (see previous step) will be used.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
  </sect1>
+
+ <sect1 id="sec.depl.nodes.storage">
+  <title>Deploying the &stornode;</title>
+  <para>
+   &ostack; provides two storage services: block-storage (Ceph) and object
+   storage (Swift). Block storage is used to store persistent devices that can
+   be mounted from &vmguest;s. Object storage is used to store single files
+   such as images or snapshots.
+  </para>
+  <para>
+   Both storage services offer high data security by storing the data
+   redundant upon a pool of storage nodes. Deploying Ceph and Swift is
+   optional, but highly recommended. Block storage can alternatively be
+   provided by Nova Volume, but Nova Volume offers neither redundancy nor
+   distributed storage (Nova Volume solely runs on the &contrnode;). When Ceph
+   is deployed, Nova Volume automatically makes use of it.
+  </para>
+  <para>
+   In order to provide redundancy you need at least two dedicated nodes for
+   each of the services. It is not possible to deploy the ceph and Swift
+   storage services onto the same machine! All storage nodes need at least two
+   disks with all disks that should be used for storage being unmounted.
+  </para>
+  
+  <warning>
+   <title>Ceph and Swift Need Dedicated Machines</title>
+   <para>
+    Never deploy Swift and Ceph storage services (<guimenu>Ceph-store</guimenu>,
+    <guimenu>Swift-storage</guimenu>) onto the same node!
+   </para>
+  </warning>
+
+  <sect2 id="sec.depl.nodes.compute.ceph">
+   <title>Deploying Ceph</title>
+   <para>
+    The Ceph barclamp only has one configuration option: telling ceph which
+    devices to use on the nodes. Edit the barclamp in <guimenu>Raw</guimenu>
+    and search for the following the lines
+   </para>
+   <screen>  "devices": [
+   
+  ],</screen>
+   <para>
+    Add a comma-separated list of devices that should be used by Ceph, for
+    example: 
+   </para>
+   <screen>  "devices": [
+    "/dev/sdb", "/dev/sdc", "/dev/sdd"
+  ],</screen>
+  
+   <important>
+    <title>Devices</title>
+    <para>
+     Note that not all of these devices need to exist on all nodes, but all
+     devices matching the list configured in the &barcl; must not be
+     mounted. Any data stored on these devices will be lost.
+    </para>
+   </important>
+   
+   <para>
+    You need to deploy three different roles for
+    Ceph. <guimenu>Ceph-store</guimenu> should be deployed to all storage
+    nodes dedicated to Ceph. The minimum number of nodes is two. It is
+    recommended to deploy <guimenu>Ceph-mon-master</guimenu> onto the
+    &contrnode;. <guimenu>Ceph-mon</guimenu> should be deployed onto two of the
+    storage nodes. Note that you can not delete or deallocate the nodes hosting
+    <guimenu>Ceph-mon</guimenu> at a later stage. To deploy Ceph proceed as
+    follows. Note that you need to perform the steps in the given order! 
+   </para>
+   <procedure>
+    <step>
+     <para>
+      Edit the &barcl; proposal to specify the devices to be used by Ceph as
+      described above.
+     </para>
+    </step>
+    <step>
+     <para>
+      Drag &amp; drop a node (e.g. the &contrnode;) to the
+      <guimenu>Ceph-mon-master</guimenu> role.
+      role. 
+     </para>
+    </step>
+    <step>
+     <para>
+      Drag &amp; drop two or four nodes to the <guimenu>Ceph-mon</guimenu>
+      role. Note that the maximum number of <guimenu>Ceph-mon</guimenu> nodes
+      cannot exceed four and that the sum of <guimenu>Ceph-mon-master</guimenu>
+      and <guimenu>Ceph-mon</guimenu> nodes must be odd.
+     </para>
+    </step>
+    <step>
+     <para>
+      Drag &amp; drop all dedicated Ceph storage nodes to the
+      <guimenu>Ceph-store</guimenu> (at least two). You may also use the nodes
+      with the <guimenu>Ceph-mon</guimenu> roles, but not the
+      <guimenu>Ceph-mon-master</guimenu> node (you can add that one later).
+     </para>
+    </step>
+    <step>
+     <para>
+      Click <guimenu>Apply</guimenu> to deploy your proposal.This can take some
+      time.  
+     </para>
+    </step>
+    <step>
+     <para>
+      If you also want to use the <guimenu>Ceph-mon-master</guimenu> as a
+      storage node, drag &amp; drop it to the <guimenu>Ceph-store</guimenu>
+      role and click <guimenu>Apply</guimenu> again. Note that it is not
+      recommended to use the &contrnode; for non-management purposes such as
+      storage or compute.
+     </para>
+    </step>
+   </procedure>
+  </sect2>
+
+  <sect2 id="sec.depl.nodes.compute.swift">
+   <title>Deploying Swift</title>
+   <para>
+    Swift always uses all unmounted disks available on the storage nodes. It
+    is recommended to not change the defaults in the &barcl; proposal (except
+    from the <guimenu>Cluster Admin Password</guimenu>) unless
+    you exactly know what you are doing. Note that you need at least as many
+    storage nodes as <guimenu>Zones</guimenu> (default: 2).
+   </para>
+   <para>
+    It is recommended to deploy the roles
+    <guimenu>Swift-ring-compute</guimenu> and
+    <guimenu>Swift-proxy-acct</guimenu> onto the controller node. Deploy
+    <guimenu>Swift-storage</guimenu> onto all dedicated Swift storage nodes.
+   </para>
+  </sect2>
+ </sect1>
+
+ 
+ <sect1 id="sec.depl.nodes.trouble">
+  <title>Troubleshooting &ostack; Node Deployment</title>
+  <para>
+   When deploying a barclamp proposal fails you need to look at the log files
+   to find the cause of the failure. A first look should always go into
+   <filename>/var/log/chef/client.log</filename>. This should at least hint to
+   the service that caused the error. More details can be found in the log
+   files for the &ostack; services which can be found at the following
+   locations:  
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     Keystone: <filename>/var/log/keystone/keystone.log</filename>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Nova: <filename>/var/log/nova/*</filename>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Ceph: <filename>/var/log/ceph/*</filename>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Nova &dash;: <filename>/var/log/apache2/openstack-dashboard-*</filename>
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   You should be able to log in to a node with <command>ssh
+   root@<replaceable>NAME</replaceable></command> where
+   <replaceable>NAME</replaceable> is the name (alias) of the node. If name
+   resolution does not work,  proceed as follows:
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Go to the &crow; web interface and open the <guimenu>Node
+     Dashboard</guimenu>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Click on the name of the node and look for its <guimenu>admin
+     (eth0)</guimenu> <guimenu>PI Adress</guimenu>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Login to that IP address via ssh as user &rootuser;.
+    </para>
+   </step>
+   
+  </procedure>
+ </sect1>
+ 
+
 </chapter>
