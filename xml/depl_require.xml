@@ -10,16 +10,647 @@
   %entities;
 ]>
 <chapter id="cha.depl.inst">
- <title>Installation Overview</title>
+ <title>Considerations and Requirements</title>
  <abstract>
   <para>
    Before deploying &productname;, there are a few requirements to be
-   met and security considerations to be made. Make sure to thoroughly read
+   met and considerations to be made. Make sure to thoroughly read
    this chapter&mdash;some decisions need to be made
    <emphasis>before</emphasis> deploying &cloud;, since you cannot change them
    afterwards.
   </para>
  </abstract>
+ 
+ <sect1 id="sec.depl.req.network">
+  <title>Network</title>
+  <para>
+   The network configuration on the nodes in the &cloud; network is entirely
+   controlled by &crow;. Any network configuration not done with &crow;
+   (e.g. with &yast;) will automatically be overwritten. Once the cloud is
+   deployed, network settings cannot be changed anymore!
+  </para>
+  <informalfigure>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="cloud_network_overview.pdf" width="90%" format="PDF"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="cloud_network_overview.png" width="75%" format="PNG"/>
+    </imageobject>
+   </mediaobject>
+  </informalfigure>
+  <para>
+   The following networks are defined when setting up &productname;. The IP
+   addresses listed are the default addresses and can be changed using the
+   &yast; &crow; module (see FIXME). 
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term>
+     Admin Network (<systemitem
+     class="etheraddress">192.168.124/24</systemitem>)
+    </term>
+    <listitem>
+     <para>
+      A private network to access the &admserv; and all nodes for
+      administration purposes. The default setup lets you also access the BMC
+      (Baseboard management controller) data via IPMI (Intelligent Platform
+      Management Interface) from this network. If required, BMC access can be
+      swapped to a separate network.
+     </para>
+     <para>
+      To access this network, you have the following options:
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        do not allow access from the outside and keep the admin network
+        completely separated.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        allow access from a single network (e.g. your company's administration
+        network) via the <quote>bastion network</quote> option configured on
+        an additional network card with a fixed IP address
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        allow access from one or more networks via a gateway
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>
+     Storage Network (<systemitem
+     class="etheraddress">192.168.125/24</systemitem>)
+    </term>
+    <listitem>
+     <para>
+      Private, &cloud; internal virtual network. This network is used by Ceph,
+      Swift, and Nova volume only. This network should not be accessed by
+      users.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>
+     Private Network (nova-fixed, <systemitem
+     class="etheraddress">192.168.123/24</systemitem>)
+    </term>
+    <listitem>
+     <para>
+      Private, &cloud; internal virtual network. This network is used for
+      inter-&vmguest; communication only. The gateway required is also
+      automatically provided by &cloud;.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>
+     Public Network (nova-floating, public, <systemitem
+     class="etheraddress">192.168.122/24</systemitem>)
+    </term>
+    <listitem>
+     <para>
+      The only public network provided by &cloud;. You can access the Nova
+      &dash; as well as &vmguest;s (provided they have been equipped with a
+      floating IP) on this network. This network can only be accessed via a
+      gateway that needs to be provided externally. All &cloud; users and
+      administrators need to be able to access the public network.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  <informalfigure>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="cloud_network_detail.pdf" width="100%" format="PDF"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="cloud_network_detail.png" width="75%" format="PNG"/>
+    </imageobject>
+   </mediaobject>
+  </informalfigure>
+  
+  <sect2 id="sec.depl.req.network.allocation">
+   <title>Network Address Allocation</title>
+   <para>
+    The default networks set up in &cloud; are class C networks with 256 IP
+    addresses each. This number is sufficient to start the maximum number of
+    &vmguest;s &productname; &productnumber; supports. Addresses within the
+    networks are allocated as outlined in the following table. Use the &yast;
+    &crow; module to customize (see FIXME). The <systemitem
+    class="etheraddress">.255</systemitem> address for each network is always
+    reserved as the broadcast address. This assignment cannot be changed.
+   </para>
+   
+   <remark condition="clarity">
+    2012-09-11 - fs: @devs
+    Please check the remarks whether they are true or whether something needs
+    to be  
+   </remark>
+   
+   <table>
+    <title>
+     <systemitem class="etheraddress">192.168.124.0/24</systemitem> (Admin/BMC)
+     Network Address Allocation
+    </title>
+    <tgroup cols="3">
+     <colspec colnum="1" colname="1" colwidth="20*"/>
+     <colspec colnum="2" colname="2" colwidth="33*"/>
+     <colspec colnum="3" colname="3" colwidth="47*"/>
+     <thead>
+      <row>
+       <entry><para>Function</para></entry>
+       <entry><para>Address</para></entry>
+       <entry><para>Remark</para></entry>
+      </row>
+     </thead>
+     <tbody>
+      <row>
+       <entry><para>Router</para></entry>
+       <entry>
+        <para>
+         <systemitem class="etheraddress">192.168.124.1</systemitem>
+        </para>
+       </entry>
+       <entry><para></para></entry>
+      </row>
+      <row>
+       <entry><para>admin</para></entry>
+       <entry>
+        <para>
+         <systemitem class="etheraddress">192.168.124.10</systemitem> -
+         <systemitem class="etheraddress">192.168.124.11</systemitem>
+        </para>
+       </entry>
+       <entry><para>Fixed addresses reserved for the &admserv;</para></entry>
+      </row>
+      <row>
+       <entry><para>dhcp</para></entry>
+       <entry>
+        <para>
+         <systemitem class="etheraddress">192.168.124.21</systemitem> -
+         <systemitem class="etheraddress">192.168.124.80</systemitem>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         Address range reserved for node allocation/installation. Determines
+         the maximum number of parallel allocations/installations.
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry><para>host</para></entry>
+       <entry>
+        <para>
+         <systemitem class="etheraddress">192.168.124.81</systemitem> -
+         <systemitem class="etheraddress">192.168.124.160</systemitem>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         Fixed addresses for the &ostack; nodes. Determines the maximum
+         number of &ostack; nodes that can be deployed.
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry><para>bmc vlan host</para></entry>
+       <entry>
+        <para>
+         <systemitem class="etheraddress">192.168.124.161</systemitem>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         Fixed addresses for the BMC VLAN.
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry><para>bmc host</para></entry>
+       <entry>
+        <para>
+         <systemitem class="etheraddress">192.168.124.162</systemitem> -
+         <systemitem class="etheraddress">192.168.124.240</systemitem>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         Fixed addresses for the &ostack; nodes. Determines the maximum
+         number of &ostack; nodes that can be deployed.
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry><para>switch</para></entry>
+       <entry>
+        <para>
+         <systemitem class="etheraddress">192.168.124.241</systemitem> -
+         <systemitem class="etheraddress">192.168.124.250</systemitem>
+        </para>
+       </entry>
+       <entry><para></para></entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+   <table>
+    <title>
+     <systemitem class="etheraddress">192.168.125/24</systemitem> (Storage)
+     Network Address Allocation
+    </title>
+    <tgroup cols="3">
+     <colspec colnum="1" colname="1" colwidth="20*"/>
+     <colspec colnum="2" colname="2" colwidth="33*"/>
+     <colspec colnum="3" colname="3" colwidth="47*"/>
+     <thead>
+      <row>
+       <entry><para>Function</para></entry>
+       <entry><para>Address</para></entry>
+       <entry><para>Remark</para></entry>
+      </row>
+     </thead>
+     <tbody>
+      <row>
+       <entry><para>host</para></entry>
+       <entry>
+        <para>
+         <systemitem class="etheraddress">192.168.125.10</systemitem> -
+         <systemitem class="etheraddress">192.168.125.239</systemitem>
+       </para></entry>
+       <entry><para></para></entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+   <table>
+    <title>
+     <systemitem class="etheraddress">192.168.123/24</systemitem> (Private
+     Network/nova-fixed) Network Address Allocation
+    </title>
+    <tgroup cols="3">
+     <colspec colnum="1" colname="1" colwidth="20*"/>
+     <colspec colnum="2" colname="2" colwidth="33*"/>
+     <colspec colnum="3" colname="3" colwidth="47*"/>
+     <thead>
+      <row>
+       <entry><para>Function</para></entry>
+       <entry><para>Address</para></entry>
+       <entry><para>Remark</para></entry>
+      </row>
+     </thead>
+     <tbody>
+      <row>
+       <entry><para>router</para></entry>
+       <entry>
+        <para>
+         <systemitem class="etheraddress">192.168.123.1</systemitem> -
+         <systemitem class="etheraddress">192.168.123.49</systemitem>
+        </para>
+       </entry>
+       <entry><para>
+       <remark condition="clarity">
+       2012-09-11 - fs: @devs: ???
+     </remark>
+       
+
+       </para></entry>
+      </row>
+      <row>
+       <entry><para>dhcp</para></entry>
+       <entry>
+        <para>
+         <systemitem class="etheraddress">192.168.123.50</systemitem> -
+         <systemitem class="etheraddress">192.168.123.254</systemitem>
+        </para>
+       </entry>
+       <entry><para>Address range for &vmguest;s.</para></entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>    
+   <table>
+    <title>
+     <systemitem class="etheraddress">192.168.122/24</systemitem> (Public
+     Network nova-floating, public) Network Address Allocation
+    </title>
+    <tgroup cols="3">
+     <colspec colnum="1" colname="1" colwidth="20*"/>
+     <colspec colnum="2" colname="2" colwidth="33*"/>
+     <colspec colnum="3" colname="3" colwidth="47*"/>
+     <thead>
+      <row>
+       <entry><para>Function</para></entry>
+       <entry><para>Address</para></entry>
+       <entry><para>Remark</para></entry>
+      </row>
+     </thead>
+     <tbody>
+      <row>
+       <entry><para>public host</para></entry>
+       <entry>
+        <para>
+         <systemitem class="etheraddress">192.168.122.2</systemitem> -
+         <systemitem class="etheraddress">192.168.122.49</systemitem>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         Public address range for &cloud; services. With a default setup two
+         addresses from this range are used for the &dash; and the API. 
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry><para>public dhcp</para></entry>
+       <entry>
+        <para>
+         <systemitem class="etheraddress">192.168.122.50</systemitem> -
+         <systemitem class="etheraddress">192.168.122.127</systemitem>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         Public address range for &vmguest;s. These addresses are automatically
+         assigned to the &vmguest;s to e.g. allow them to access the
+         internet. Not to be confused with the floating IP addresses that are
+         assigned by users and allow to login to the &vmguest; from the
+         outside. Determines the maximum number of &vmguest;s that can be
+         started concurrently. 
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry><para>floating host</para></entry>
+       <entry>
+        <para>
+         <systemitem class="etheraddress">192.168.122.129</systemitem> -
+         <systemitem class="etheraddress">192.168.122.191</systemitem>
+        </para>
+       </entry>
+       <entry>
+        <para>
+         Floating IP address range. Floating IPs can be manually assigned to a
+         running &vmguest; to allow to access the guest from the
+         outside. Determines the maximum number of &vmguest;s that can
+         concurrently be accessed from the outside. 
+        </para>
+        <note>
+         <title>nova_floating Network</title>
+         <para>
+          The nova_floating network is set up with a netmask of
+          255.255.255.192, allowing a maximum number of 61 IP addresses. This
+          range is already fully utilized by default.
+         </para>
+        </note>
+       </entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+  </sect2>
+  <sect2 id="sec.depl.req.network.modes">
+   <title>Network Modes</title>
+   <para>
+    &productname; supports different network modes: single, dual and
+    teaming. As of &productname; &productnumber; the networking mode is
+    applied to all nodes as well as the &admserv;. That means that all machines
+    need to meet the hardware requirements for the chosen mode. The network
+    mode can be configured using the &yast; &crow; module (see FIXME). The
+    network mode cannot be changed once the cloud is deployed.
+   </para>
+   
+   <sect3 id="sec.depl.req.network.modes.single">
+    <title>Single Network Mode</title>
+    <para>
+     In single mode you just use one ethernet card for all the traffic:
+    </para>
+    <informalfigure>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="cloud_networking_single_mode.pdf" width="70%"
+                  format="PDF"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="cloud_networking_single_mode.png" width="75%"
+                  format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </informalfigure>
+   </sect3>
+
+   <sect3 id="sec.depl.req.network.modes.dual">
+    <title>Dual Network Mode</title>
+    <para>
+     Dual mode needs two ethernet cards and allows you to completely separate
+     traffic to/from the Admin Network and to/from the public network:
+    </para>
+    <informalfigure>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="cloud_networking_dual_mode.pdf" width="100%"
+                  format="PDF"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="cloud_networking_dual_mode.png" width="75%"
+                  format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </informalfigure>
+   </sect3>
+   
+   <sect3 id="sec.depl.req.network.modes.teaming">
+    <title>Teaming Network Mode</title>
+    <para>
+     Teaming mode is almost identical to single mode, except for the fact that
+     you combine several ethernet cards to a <quote>bond</quote> in order to
+     increase the performance. Teaming mode needs two or more ethernet cards. 
+    </para>
+    <informalfigure>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="cloud_networking_team_mode.pdf" width="70%"
+                  format="PDF"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="cloud_networking_team_mode.png" width="75%"
+                  format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </informalfigure>
+   </sect3>
+  </sect2>
+  
+  <sect2 id="sec.depl.req.network.bastion">
+   <title>Accessing the Admin Network via a Bastion Network</title>
+   <para>
+    If you want to allow to access the cloud's admin network from another
+    network, you can do so by providing an external gateway. This option
+    offers a maximum flexibility, but requires additional machines and may be
+    less secure than you require. Therefore &cloud; offers a second option for
+    accessing a single external network (e.g. a dedicated server
+    administration network): the bastion network. You just need a
+    dedicated ethernet card and a static IP address from the external network
+    to set it up. 
+   </para>
+  </sect2>
+  
+  <sect2 id="sec.depl.req.network.dns">
+   <title>DNS and Hostnames</title>
+   <para>
+    The &admserv; acts as a name server for all nodes in the cloud. If you
+    allow access to the admin network from outside, you may want to add
+    additional name servers to your network setup prior to deploying
+    &cloud;. If additional name servers are found on cloud deployment, the
+    name server on the  &admserv; will automatically be configured to forward
+    requests for non-local records to those servers.
+   </para>
+   <para>
+    The &admserv; needs to be configured to have a full-qualified
+    hostname. This hostname must not be changed after $cloud; has been
+    deployed. The &ostack; nodes will be named after their MAC address by
+    default, but you can provide aliases which are easier to remind when
+    allocating the nodes. The aliases for the &ostack; nodes can be changed
+    any time. It is useful to have a list of MAC addresses and the intended
+    use of the corresponding host at hand when deploying the &ostack; nodes. 
+   </para>
+  </sect2>
+  
+  <sect2 id="sec.depl.req.network.summary">
+   <title>Summary: Network Considerations and Requirements</title>
+   <para>
+    As outlined above, there are some important considerations on the network
+    topology to be made before deploying &cloud;. Keep in mind that as of
+    &productname; &productnumber; it is not possible to change the network
+    setup once &cloud; is deployed!
+   </para>
+   <orderedlist>
+    <listitem>
+     <para>
+      If you do not want to stick with the default networks and addresses,
+      define custom networks and addresses. You need four different networks,
+      three of them VLANs. If you need to separate then admin and the BMC
+      network, a fifth network is required. Class C networks are sufficient.
+      See <xref linkend="sec.depl.req.network"/> for details.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Determine how to allocate addresses from your network. Make sure not to
+      allocate IP addresses twice. See <xref
+      linkend="sec.depl.req.network.allocation"/> for the default allocation
+      scheme.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Define which network mode to use. Keep in mind that all machines within
+      the cloud (including the &admserv;) will be set up with the chosen mode
+      and therefore need to meet the hardware requirements. See <xref
+      linkend="sec.depl.req.network.modes"/> for details.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Define how to access the admin and BMC network(s): no access from the
+      outside (no action is required), via an external gateway (gateway needs
+      to be provided), or via bastion network. See <xref
+      linkend="sec.depl.req.network.bastion"/> for details.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Provide a gateway to access the public network (public, nova-floating).
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Make sure the admin server's hostname is correctly configured
+      (<command>hostname <option>-f</option></command> needs to return a full
+      qualified hostname).
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Prepare a list of MAC addresses and the intended use of the
+      corresponding host for all &ostack; nodes.
+     </para>
+    </listitem>
+   </orderedlist>
+  </sect2>
+ </sect1>
+
+ <sect1 id="sec.depl.req.repos">
+  <title>Update Repositories</title>
+  <para>
+   The &admserv; as well as the &ostack; nodes need to get security updates
+   and patches for the operating system (&sls;) as well as for &productname;
+   itself. In &productname; the &admserv; is designed to work as the single
+   source for all update repositories. Depending on your network
+   setup&mdash;the repositories need to be available on the admin
+   network&mdash;there are several possibilities to provide up-to-date
+   repositories on the &admserv;:
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term><quote>Sneakernet</quote></term>
+    <listitem>
+     <para>
+      If you choose to completely seal off your admin network from all other
+      networks, you need to manually update the repositories from removable
+      media.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Installing a &smtool; (&smt;) Server</term>
+    <listitem>
+     <para>
+      The &smt; server, a free add-on product for &sls;, regularly
+      synchronizes repository data from &ncc; with your local
+      host. Installing the &smt; server on the &admserv; is recommended if you
+      have not got access to update repositories from elsewhere within your
+      organization. This option requires the &admserv; to be able to access
+      the internet. &smtool; 11 SP2 is available from <ulink
+      url="http://download.novell.com/"/>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Utilizing Existing Repositories</term>
+    <listitem>
+     <para>
+      If you can access existing repositories from within your company network
+      from the &admserv;, you can either mount or sync these repositories to
+      the required locations on the &admserv;.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+
+ <sect1 id="sec.depl.req.storage">
+  <title>Storage</title>
+  <para>
+   
+  </para>
+ </sect1> 
+
+ 
+ <sect1 id="sec.depl.req.ssl">
+  <title>SSL Encryption</title>
+  <para>
+   
+  </para>
+ </sect1>
+ 
  <sect1 id="sec.depl.inst.requires">
   <title>Requirements</title>
   <para>
@@ -209,377 +840,7 @@
     </para>
    </sect3>
   </sect2>
-  
-  <sect2 id="sec.depl.inst.requires.network">
-   <title>Network Requirements</title>
-   <para>
-    The network configuration on the nodes in the &cloud; network is
-    entirely controlled by &crow;. Any network configuration not done with
-    &crow; (e.g. with &yast;) will automatically be overwritten. Once the
-    cloud is deployed, network settings cannot be changed anymore!
-    </para>
-    <informalfigure>
-     <mediaobject>
-      <imageobject role="fo">
-       <imagedata fileref="cloud_network_overview.pdf" width="90%" format="PDF"/>
-      </imageobject>
-      <imageobject role="html">
-       <imagedata fileref="cloud_network_overview.png" width="75%"
-                  format="PNG"/>
-      </imageobject>
-     </mediaobject>
-    </informalfigure>
-    
-    <para>
-     The following networks are defined when setting up &productname;. The IP
-     addresses listed are the default addresses and can be changed using the
-     &yast; Crowbar module (see FIXME).
-    </para>
-    <variablelist>
-     <varlistentry>
-      <term>
-       Admin Network (<systemitem
-       class="etheraddress">192.168.124/24</systemitem>)
-      </term>
-      <listitem>
-       <para>
-        A private network to access the &admserv; and all nodes for
-        administration purposes. The default setup lets you also access the
-        BMC (Baseboard management controller) data via IPMI (Intelligent
-        Platform Management Interface) from this network. If required, BMC
-        access can be swapped to a separate network.
-       </para>
-       <para>
-        To access this network, you have the following options:
-       </para>
-       <itemizedlist>
-        <listitem>
-         <para>
-          do not allow access from the outside and keep the admin network
-          completely separated. 
-         </para>
-        </listitem>
-        <listitem>
-         <para>
-          allow access from a single network (e.g. your company's
-          administration network) via the <quote>bastion network</quote>
-          option configured on an additional network card
-         </para>
-        </listitem>
-        <listitem>
-         <para>
-          allow access from one or more networks via a gateway
-         </para>
-        </listitem>
-       </itemizedlist>
-      </listitem>
-     </varlistentry>
-     <varlistentry>
-      <term>
-       Storage Network (<systemitem
-       class="etheraddress">192.168.125/24</systemitem>)
-      </term>
-      <listitem>
-       <para>
-        Private, &cloud; internal virtual network. This network is used by Ceph,
-        Swift, and Nova volume only. This network should not be accessed by
-        users. 
-       </para>
-      </listitem>
-     </varlistentry>
-     <varlistentry>
-      <term>
-       Private Network (nova-fixed, <systemitem
-       class="etheraddress">192.168.123/24</systemitem>)
-      </term>
-      <listitem>
-       <para>
-        Private, &cloud; internal virtual network. This network is used for
-        inter-&vmguest; communication only. The gateway required is also
-        automatically provided by &cloud;.
-       </para>
-      </listitem>
-     </varlistentry>
-     <varlistentry>
-      <term>
-       Public Network (nova-floating, public, <systemitem
-       class="etheraddress">192.168.122/24</systemitem>)
-      </term>
-      <listitem>
-       <para>
-        The only public network provided by &cloud;. You can access the Nova
-        &dash; as well as &vmguest;s (provided they have been equipped with a
-        floating IP) on this network. This network can only be accessed via a
-        gateway that needs to be provided externally. All &cloud; users and
-        administrators need to be able to access the public network.
-       </para>
-      </listitem>
-     </varlistentry>
-    </variablelist>
-    <informalfigure>
-     <mediaobject>
-      <imageobject role="fo">
-       <imagedata fileref="cloud_network_detail.pdf" width="100%" format="PDF"/>
-      </imageobject>
-      <imageobject role="html">
-       <imagedata fileref="cloud_network_detail.png" width="75%" format="PNG"/>
-      </imageobject>
-     </mediaobject>
-    </informalfigure>
-    <para>
-     The default networks set up in &cloud; are class C networks with 256 IP
-     addresses each. This number is sufficient to start the maximum number of
-     &vmguest;s &productname; &productversion; supports. Addresses within the
-     networks are allocated as outlined in the following table. Use the &yast;
-     Crowbar module to customize (see FIXME). The <systemitem
-     class="etheraddress">.255</systemitem> address for each network is always
-     reserved as the broadcast address. This assignment cannot be changed.
-    </para>
-    <table>
-     <title>Admin Network Address Allocation</title>
-     <tgroup cols="3">
-      <colspec colnum="1" colname="1" colwidth="20*"/>
-      <colspec colnum="2" colname="2" colwidth="33*"/>
-      <colspec colnum="3" colname="3" colwidth="33*"/>
-      <thead>
-       <row>
-        <entry><para>Function</para></entry>
-        <entry><para>Address</para></entry>
-        <entry><para>Remark</para></entry>
-       </row>
-      </thead>
-      <tbody>
-       <row>
-        <entry><para>Router</para></entry>
-        <entry>
-         <para>
-          <systemitem class="etheraddress">192.168.124.1</systemitem>
-        </para>
-        </entry>
-        <entry><para></para></entry>
-       </row>
-       <row>
-        <entry><para>admin</para></entry>
-        <entry>
-         <para>
-          <systemitem class="etheraddress">192.168.124.10</systemitem> -
-          <systemitem class="etheraddress">192.168.124.11</systemitem>
-         </para>
-        </entry>
-        <entry><para>Fixed addresses reserved for the &admserv;</para></entry>
-       </row>
-       <row>
-        <entry><para>dhcp</para></entry>
-        <entry>
-         <para>
-          <systemitem class="etheraddress">192.168.124.21</systemitem> -
-          <systemitem class="etheraddress">192.168.124.80</systemitem>
-         </para>
-        </entry>
-        <entry>
-         <para>
-          Address range reserved for node allocation/installation. Determines
-          the maximum number of parallel allocations/installations.
-         </para>
-        </entry>
-       </row>
-       <row>
-        <entry><para>host</para></entry>
-        <entry>
-         <para>
-          <systemitem class="etheraddress">192.168.124.81</systemitem> -
-          <systemitem class="etheraddress">192.168.124.160</systemitem>
-         </para>
-        </entry>
-        <entry>
-         <para>
-          Fixed addresses for the &ostack; nodes. Determines the maximum
-          number of &ostack; nodes that can be deployed.
-        </para>
-        </entry>
-       </row>
-       <row>
-        <entry><para>switch</para></entry>
-        <entry>
-         <para>
-          <systemitem class="etheraddress">192.168.124.241</systemitem> -
-          <systemitem class="etheraddress">192.168.124.250</systemitem>
-         </para>
-        </entry>
-        <entry><para></para></entry>
-       </row>
-      </tbody>
-     </tgroup>
-    </table>
-    <!--
-    <table>
-     <title>Admin Network Address Allocation</title>
-     <tgroup cols="3">
-      <colspec colnum="1" colname="1" colwidth="33*"/>
-      <colspec colnum="2" colname="2" colwidth="33*"/>
-      <colspec colnum="3" colname="3" colwidth="33*"/>
-      <thead>
-       <row>
-        <entry><para>Function</para></entry>
-        <entry><para>Address</para></entry>
-        <entry><para>Remark</para></entry>
-       </row>
-      </thead>
-      <tbody>
-       <row>
-        <entry><para></para></entry>
-        <entry><para></para></entry>
-        <entry><para></para></entry>
-       </row>
-       <row>
-        <entry><para></para></entry>
-        <entry><para></para></entry>
-        <entry><para></para></entry>
-       </row>
-       <row>
-        <entry><para></para></entry>
-        <entry><para></para></entry>
-        <entry><para></para></entry>
-       </row>
-       <row>
-        <entry><para></para></entry>
-        <entry><para></para></entry>
-        <entry><para></para></entry>
-       </row>
-       <row>
-        <entry><para></para></entry>
-        <entry><para></para></entry>
-        <entry><para></para></entry>
-       </row>
-      </tbody>
-     </tgroup>
-    </table>    
-
-    <table>
-     <title>Admin Network Address Allocation</title>
-     <tgroup cols="3">
-      <colspec colnum="1" colname="1" colwidth="33*"/>
-      <colspec colnum="2" colname="2" colwidth="33*"/>
-      <colspec colnum="3" colname="3" colwidth="33*"/>
-      <thead>
-       <row>
-        <entry><para>Function</para></entry>
-        <entry><para>Address</para></entry>
-        <entry><para>Remark</para></entry>
-       </row>
-      </thead>
-      <tbody>
-       <row>
-        <entry><para></para></entry>
-        <entry><para></para></entry>
-        <entry><para></para></entry>
-       </row>
-       <row>
-        <entry><para></para></entry>
-        <entry><para></para></entry>
-        <entry><para></para></entry>
-       </row>
-       <row>
-        <entry><para></para></entry>
-        <entry><para></para></entry>
-        <entry><para></para></entry>
-       </row>
-       <row>
-        <entry><para></para></entry>
-        <entry><para></para></entry>
-        <entry><para></para></entry>
-       </row>
-       <row>
-        <entry><para></para></entry>
-        <entry><para></para></entry>
-        <entry><para></para></entry>
-       </row>
-      </tbody>
-     </tgroup>
-    </table>
- -->   
-<!--
-    <sect3 id="sec.depl.inst.requires.network.bastion">
-     <title>Setting up a Bastion Network</title>
-
-
-also see https://bugzilla.novell.com/show_bug.cgi?id=771343
-
-
-     
-     <para>
-      The private Admin Network is by default completely separated from other
-      networks. However, you can configure it
-
-
-      from which you can access
-      the &admserv; and all nodes, can either be accessed via an externally
-      provided network or via a so called bastion network
-     </para>
-    </sect3>
-
-bastion network also allows to use services from teh other nework such as DNS,
-repos, etc
- -->   
-
-    
-   <para>
-    Any additional network card (<systemitem
-    class="resource">eth1</systemitem>+) on the &admserv; that is used to
-    access other networks, must have a static IP address&mdash;DHCP is
-    currently not supported. These interfaces will be shut down up 
-    <remark>taroth 2012-08-17: hm, seems to me either "down" or "up" is right,
-    from the next sentence it probably must be "down" here - DEVs, your call :)
-    </remark>by &crow; during the &cloud; setup process and will only be set up
-    <emphasis>after</emphasis> the &admserv; installation has been
-    finished. As a consequence, external repositories (if configured at the
-    time you run the &cloud; installation script) need to be accessible from
-    the first network card (<systemitem class="resource">eth0</systemitem>).
-   </para>
-   <para>
-    If you install the &smt; Add-On product you need to be able to access
-    the Internet from one of the network interfaces on the &admserv;.
-   </para>
-   <important>
-    <title>Network Requirements Summary</title>
-    <itemizedlist>
-     <listitem>
-      <para>
-       Network setup is completely controlled by &crow;
-      </para>
-     </listitem>
-     <listitem>
-      <para>
-       Network setup cannot be changed once &cloud; is deployed
-      </para>
-     </listitem>
-     <listitem>
-      <para>
-       NIC used for <systemitem class="resource">eth0</systemitem> needs to
-       support teaming
-      </para>
-     </listitem>
-     <listitem>
-      <para>
-       external repositories need to be accessible via <systemitem
-       class="resource">eth0</systemitem>
-      </para>
-     </listitem>
-     <listitem>
-      <para>
-       additional network interfaces <systemitem
-       class="resource">eth1</systemitem>+ need to be have a static IP address
-      </para>
-     </listitem>
-     <listitem>
-      <para>
-       If the &smt; server is installed, Internet access is required
-      </para>
-     </listitem>
-    </itemizedlist>
-   </important>
-  </sect2>
-  
+ 
   <sect2 id="sec.depl.inst.requires.software">
    <title>Software Requirements</title>
    <para>
