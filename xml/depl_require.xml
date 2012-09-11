@@ -639,8 +639,159 @@
  <sect1 id="sec.depl.req.storage">
   <title>Storage</title>
   <para>
-   
+   When talking about <quote>storage</quote> on &productname;, there are two
+   completely different aspects to discuss: the block and object storage
+   services &cloud; offers on the one hand and the hardware related storage
+   aspects on the different node types.
   </para>
+  
+  <sect2 id="sec.depl.req.storage.services">
+   <title>Cloud Storage Services</title>
+   <para>
+    As mentioned above, &cloud; offers two different types of storage
+    services: object and block storage. Object storage lets you upload and
+    download files (similar to an FTP server), whereas a block storage
+    provides mountable devices (similar to a harddisk partition). Furthermore
+    &cloud; provides a repository to store the virtual disk images used to
+    start &vmguest;s.
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>Object Storage with Swift</term>
+     <listitem>
+      <para>
+       The object storage service of &cloud; is called Swift. Swift needs to
+       be deployed on dedicated nodes where no other cloud services run. In
+       order to be able to store the objects redundantly, it is required to
+       display at least two Swift nodes. Swift always uses all unused disks on
+       a node for storage. Offering object storage with Swift is optional.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Block Storage with Ceph or Nova Volume</term>
+     <listitem>
+      <para>
+       &cloud; offers two block storage services which are mutually
+       exclusive. Nova Volume provides basic functionality with no redundancy
+       and runs on the &contrnode;. The &contrnode; needs to be equipped with
+       one or more disks or a volume dedicated for Nova Volume.
+      </para>
+      <para>
+       Ceph, on the other hand, offers more security and speed by storing the
+       devices redundant on different servers. Ceph needs to be deployed on
+       dedicated nodes where no other cloud services run. In order to be able
+       to store the objects redundantly, it is required to display at least
+       two Ceph nodes. You can configure which devices &ceph; uses for storage.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>The Glance Image Repository</term>
+     <listitem>
+      <para>
+       Glance provides a catalog and repository for virtual disk images used
+       to start the &vmguest;s. Glance is usually installed on the
+       &contrnode;. The image repository resides in a directory on the
+       filesystem by default&mdash;it is recommended to mount a partition or
+       volume to that directory.
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+  <sect2 id="sec.depl.req.storage.services.hardware">
+   <title>Storage Hardware Requirements</title>
+   <para>
+    Apart from sufficient disk space to install the &sls; operating system,
+    each node in &cloud; has to store additional data. requirements and
+    recommendations for the various node types are listed below.
+   </para>
+   
+   <sect3 id="sec.depl.req.storage.services.hardware.admin">
+    <title>&admserv;</title>   
+    <para>
+     If you store the update repositories directly on the &admserv; (see <xref
+     linkend="sec.depl.req.repos"/> for details), it is recommended to mount
+     <filename>/srv</filename> to a separate partition or volume with at least
+     25 GB space.
+    </para>
+   </sect3>
+
+   <sect3 id="sec.depl.req.storage.services.hardware.control">
+    <title>&admserv;</title>   
+    <para>
+     The virtual disk image repository resides under
+     <filename>/var/lib/glance/images</filename> by default. It is recommended
+     to mount a separate partition or volume into this directory that provides
+     enough space to host all virtual disk images needed. 
+    </para>
+    <para>
+     If you use Nova Volume instead of &ceph; you need to provide one or more
+     spare disks with sufficient space. You can configure which devices to use
+     for Nova Volume when deploying the Nova services.
+    </para>
+   </sect3>
+   
+   <sect3 id="sec.depl.req.storage.services.hardware.compute">
+    <title>&compnode;s</title>
+    <para>
+     Each &vmguest; is started with at least one disk&mdash;a copy of the
+     image from which it has been started. Depending on the flavor you start,
+     the &vmguest; may also have a second, so-called <quote>ephemeral</quote>
+     disk. The size of the root image depends on the image itself,
+     while ephemeral disks are always created as sparse image files that grow
+     (up to a defined size) when being <quote>filled</quote>. By default
+     ephemeral disks have a size of 10 GB. 
+    </para>
+    <remark condition="clarity">
+     2012-09-11 - fs: @devs: Does the scheduler also check for available disk
+     space when deploying a VM? Are overcommits possible? If so, what happens
+     if disk space for ephemeral disks is used up?  
+    </remark>
+    <para>
+     Both disks, root images and ephemeral disk, are directly bound to the
+     &vmguest; and are deleted when the &vmguest; is terminated. Therefore
+     these disks are bound to the &compnode; on which the &vmguest; has been
+     started. The disks are created under <filename>/var/lib/nova</filename>
+     on the &compnode;. Your &compnode;s should be equipped with
+     enough disk space to store the root images and ephemeral disks.
+    </para>
+    <note>
+     <title>Ephemeral Disks vs. Block Storage</title>
+     <para>
+      Do not confuse ephemeral disks with persistent block storage. In
+      addition to an ephemeral disk, which is automatically provided with most
+      &vmguest; flavors, you can optionally add a persistent storage device
+      provided by &ceph; or Nova Volume. Ephemeral
+      disks are deleted when the &vmguest; terminates, while persistent
+      storage devices can be reused in another &vmguest;.
+     </para>
+    </note>
+   </sect3>
+   <sect3 id="sec.depl.req.storage.services.hardware.store">
+    <title>Storage Nodes</title>
+    <para>
+     The block-storage service &ceph; and the object storage service Swift need
+     to be deployed onto dedicated nodes&mdash;it is not possible to mix these
+     services. Each storage service requires at least two machines (more are
+     recommended) to be able to store data redundant.
+    </para>
+    <para>
+     <remark condition="clarity">
+      2012-08-17 - fs: @devs: How to make sure &sls; is installed on the disk
+      the admin has chosen for this task? If I have a machine with a 100GB
+      disk for OS installation and several 1 TB disks, how to make sure the OS
+      is installed on the 100 GB disk?
+     </remark>
+     Each &ceph;/Swift &stornode; needs at least two hard disks. The first one
+     (<filename>/dev/sda</filename>) will be used for the operating system
+     installation, while the others can be used for storage purposes. While
+     you can configure which devices &ceph; uses for storage, Swift always uses
+     all devices.
+    </para>
+   </sect3>
+  </sect2>  
  </sect1> 
 
  
@@ -765,81 +916,12 @@
    <title>&stornode;</title>
    <para>
     The &stornode;s are sufficiently equipped with a single CPU and one or two
-    GB of RAM. Also see <xref linkend="sec.depl.inst.requires.storage"/>.
+    GB of RAM. Also see <xref linkend="sec.depl.req.storage.services.hardware.store"/>.
    </para>
    </sect3>
   </sect2>
 
-  <sect2 id="sec.depl.inst.requires.storage">
-   <title>Storage Requirements</title>
-    <para>  
-    <remark condition="clarity">
-     2012-08-10 - fs: Todo: SAN/iSCSI configuration
-    </remark>
-    This section describes the storage requirements for the Compute and
-    &stornode;s. For storage requirements of the &admserv; and &contrnode;, see
-    <xref
-    linkend="sec.depl.inst.requires.hardware.admserv"/> and <xref
-    linkend="sec.depl.inst.requires.hardware.contrnode"/>, respectively. 
-   </para>
-   
-   <sect3 id="sec.depl.inst.requires.storage.compute">
-    <title>&compnode;s</title>
-    <para>
-     Each &vmguest; is started with at least one disk&mdash;a copy of the
-     image from which it has been started. Depending on the flavor you start,
-     the &vmguest; may also have a second, so-called <quote>ephemeral</quote>
-     disk. The size of the root image depends on the image itself,
-     while ephemeral disks are always created as sparse image files.
-    </para>
-    <para>
-     Both disks, root images and ephemeral disk, are directly bound to the
-     &vmguest; and are deleted when the &vmguest; is terminated. Therefore
-     these disks are bound to the &compnode; on which the &vmguest; has been
-     started. The disks are created under <filename>/var/lib/nova</filename>
-     on the &compnode;. Therefore your &compnode;s should be equipped with
-     enough disk space to store the root images and ephemeral disks.
-    </para>
-    <note>
-     <title>Persistent Storage</title>
-     <para>
-      &ceph; or Nova Volume provide persistent block devices that can be mounted 
-      after the &vmguest; has been started are provided. Snapshots of instances
-      or volumes are also stored within &ceph; or Nova Volume.
-     </para>
-    </note>
-   </sect3>
-  
-   <sect3 id="sec.depl.inst.requires.storage.store">
-    <title>Storage Nodes</title>
-    <para>
-     The block-storage service &ceph; and the object storage service Swift need
-     to be deployed onto dedicated nodes&mdash;it is not possible to mix these
-     services. Each storage service requires at least two machines (more are
-     recommended), otherwise it would not be possible to store the data
-     redundant.
-    </para>
-    <para>
-     <remark condition="clarity">
-      2012-08-17 - fs: @devs: How to make sure &sls; is installed on the disk
-      the admin has chosen for this task? If I have a machine with a 100GB
-      disk for OS installation and several 1 TB disks, how to make sure the OS
-      is installed on the 100 GB disk?
-     </remark>
-     Each &ceph;/Swift &stornode; needs at least two hard disks. The first one
-     (<filename>/dev/sda</filename>) will be used for the operating system
-     installation, while the others can be used for storage purposes. While
-     you can configure which devices &ceph; uses for storage, Swift always uses
-     all devices.
-    </para>
-    <para>
-     If you choose to use Nova Volume rather than &ceph; for storage, the
-     &contrnode; needs to be equipped with sufficient disk space on spare
-     disks. Nova volume does not provide redundancy and only runs on the
-     &contrnode;.
-    </para>
-   </sect3>
-  </sect2>
+
  
   <sect2 id="sec.depl.inst.requires.software">
    <title>Software Requirements</title>
