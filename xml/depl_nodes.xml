@@ -32,7 +32,8 @@
  <para>
   The &ostack; services need to be deployed in the following order. For
   general instructions on how to edit and deploy &barcl; refer to <xref
-  linkend="sec.depl.ostack.barclamps"/>.
+  linkend="sec.depl.ostack.barclamps"/>. Deploying &swift; and &ceph; is
+  optional, all other services must be deployed.
  </para>
  <orderedlist>
   <listitem>
@@ -58,16 +59,22 @@
    <para>
     <xref linkend="sec.depl.ostack.ceph" xrefstyle="select:title nopage"/>
    </para>
+   <important>
+    <title>&ceph; not Supported</title>
+    <para>
+     As of &productname; &productversion; &ceph; is not officially
+     supported but rather included as a technical preview, so using Nova
+     Volume instead is recommended.
+    </para>
+   </important>
   </listitem>
-  <!--
   <listitem>
--->
    <!-- Glance -->
-<!--
    <para>
     <xref linkend="sec.depl.ostack.glance" xrefstyle="select:title nopage"/>
    </para>
   </listitem>
+  <!--
   <listitem>
    -->
    <!-- Nova -->
@@ -87,7 +94,7 @@
   -->
  </orderedlist>  
  <sect1 id="sec.depl.ostack.barclamps">
-  <title>Barclamps</title>
+  <title>&barcl;</title>
   <para>
    The &ostack; services are automatically installed on the nodes by using
    so-called &barcl;s&mdash;a set of recipes, templates and installation
@@ -178,11 +185,21 @@
      If you deploy a proposal onto a node where a previous one is still
      active, the new proposal will overwrite the old one.
     </para>
+    
+    <note>
+     <title>Always Wait Until a Proposal has been Deployed</title>
+     <para>
+      Deploying a proposal might take some time (up to several
+      minutes). Always wait until you see the note <quote>Successfully applied
+      the proposal</quote> before proceeding on to the next proposal.
+     </para>
+    </note>
+    
    </step>
   </procedure>
   
   <warning>
-   <title>Barclamp Deployment Failure</title>
+   <title>&barcl; Deployment Failure</title>
    <para>
     In case the deployment of a &barcl; fails, make sure to fix the reason
     that has caused the failure and deploy the &barcl; again. Refer to the
@@ -321,12 +338,6 @@
    storing the data redundant on a pool of &stornode;s&mdash;therefore &swift;
    needs to be installed on at least two dedicated nodes.
   </para>
-  <warning>
-   <title>&swift; Needs Dedicated Machines</title>
-   <para>
-    Never deploy &swift; on a node that runs other &ostack; services.
-   </para>
-  </warning>
   <para>
    It is recommended to not change the defaults in the &barcl; proposal,
    unless you exactly know what you are doing. However you should change the
@@ -367,201 +378,245 @@
        The virtual object storage service. Install this role on all dedicated
        &swift; &stornode;s (at least two), but not on any other node.
       </para>
+      <warning>
+       <title>Swift-storage Needs Dedicated Machines</title>
+       <para>
+        Never install the Swift-storage service on a node that runs other
+        &ostack; services.
+       </para>
+      </warning>
      </listitem>
     </varlistentry>
   </variablelist>
  </sect1>
  <sect1 id="sec.depl.ostack.ceph">
-  <title>Deploying &ceph; (optional)</title>
+  <title>Deploying &ceph; (optional, unsupported)</title>
   <para>
    &ceph; adds a redundant block storage service to &cloud;.  It lets you
-   store persistent devices that can be mounted from &vmguest;s.
-
-
-   <!-- fs 2012-09-21: 
-     TBC from here
+   store persistent devices that can be mounted from &vmguest;s. It offers
+   high data security by storing the data redundant on a pool of
+   &stornode;s&mdash;therefore &ceph; needs to be installed on at least two
+   dedicated nodes. 
+  </para>
+<!-- fs 2012-09-25: Preserve for 2.0
+Block storage can alternatively be provided by Nova Volume, but Nova Volume
+offers neither redundancy nor distributed storage (Nova Volume solely runs on
+the &contrnode;). When &ceph; is deployed, Nova Volume automatically makes use
+of it.
 -->
+  <important>
+   <title>&ceph; not Supported</title>
+   <para>
+    As of &productname; &productversion; &ceph; is not officially
+    supported but rather included as a technical preview, so using Nova
+    Volume instead is recommended.
+   </para>
+  </important>
+  <para>
+   The &ceph; &barcl; only has one configuration option: telling &ceph; which
+   devices to use on the nodes. Edit the &barcl; in <guimenu>Raw</guimenu> and
+   search for the following the lines
   </para>
-<!--
+  <screen>  "devices": [
    
-   single files such as images or snapshots. It offers high data security by
-   storing the data redundant on a pool of &stornode;s&mdash;therefore &swift;
-   needs to be installed on at least two dedicated nodes.
+  ],</screen>
+  <para>
+    Add a comma-separated list of devices that should be used by &ceph;. For
+    example:
   </para>
-  <warning>
-   <title>&swift; Needs Dedicated Machines</title>
-   <para>
-    Never deploy &swift; on a node that runs other &ostack; services.
-   </para>
-  </warning>
-
-
+  <screen>  "devices": [
+    "/dev/sdb", "/dev/sdc", "/dev/sdd"
+  ],</screen>
   
-    
-    <varlistentry>
-     <term><guimenu>&ceph;-mon-master</guimenu></term>
-     <listitem>
+  <important>
+   <title>Devices</title>
+   <para>
+    Not all of the devices used for &ceph; need to exist on all nodes. All
+    devices from a node matching the list will be used. They must
+    <emphasis>not</emphasis> be mounted prior to deploying &ceph;. Any data
+    stored on these devices will be lost.
+   </para>
+  </important>
+
+  <para>
+   The &ceph; service consists of three different roles:
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term>><guimenu>Ceph-mon-master</guimenu></term>
+    <listitem>
+     <para>
+      Master cluster monitor daemon for the &ceph; distributed file
+      system. <guimenu>Ceph-mon-master</guimenu> must only be installed on a
+      single node; it is recommended to use the the &contrnode;.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><guimenu>Ceph-mon</guimenu></term>
+    <listitem>
+     <para>
+      Cluster monitor daemon for the &ceph; distributed file
+      system. <guimenu>Ceph-mon</guimenu> needs to be installed on two or four
+      &stornode;s.
+     </para>
+     <important>
+      <title>Number of &ceph; Monitor Nodes</title>
       <para>
-       Master Management node for &ceph;. An additional two or four nodes also
-       need to run the <guimenu>&ceph;-mon</guimenu> service. The sum of the
-       <guimenu>&ceph;-mon-master</guimenu> and the <guimenu>&ceph;-mon</guimenu>
-       nodes must always be an odd number.
+       In addition to the node running the &ceph;-mon-master service an
+       additional two or four nodes also need to run the
+       <guimenu>&ceph;-mon</guimenu> service. The sum of the
+       <guimenu>&ceph;-mon-master</guimenu> and the
+       <guimenu>&ceph;-mon</guimenu> nodes must always be an odd number
+       (either three or five). 
       </para>
-     </listitem>
-    </varlistentry>
-   </variablelist>
-   <note>
-    <title>Nova Volume</title>
+      <para>
+       Nodes running <guimenu>Ceph-mon</guimenu> cannot be deleted or
+       temporarily be disabled.
+      </para>
+     </important>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><guimenu>Ceph-store</guimenu></term>
+    <listitem>
+     <para>
+      The virtual block storage service. Install this role on all dedicated
+       &ceph; &stornode;s (at least two), but not on any other node.
+     </para>
+     <warning>
+      <title><guimenu>Ceph</guimenu>-store Needs Dedicated Machines</title>
+      <para>
+       Never deploy <guimenu>Ceph-store</guimenu> on a node that runs other
+       non-&ceph; &ostack; services. The only service that may be deployed
+       together with it is <guimenu>Ceph-mon</guimenu>.
+      </para>
+     </warning> 
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  <para>
+   Deploying &ceph; requires to perform the steps in a given order:
+  </para>
+  <procedure>
+   <step>
     <para>
-     When &ceph; is deployed, Nova Volume, which runs on the &contrnode;, will
-     automatically use &ceph;. If you choose to not deploy &ceph;, you must make
-     sure to provide enough disk space on the &contrnode;.
+     Edit the &barcl; proposal to specify the devices to be used by &ceph; as
+     described above.
     </para>
-   </note>
-  </sect2>
-  <sect2 id="sec.depl.nodes.controller.glance">
-   <title>Glance</title>
-   <para>  
-    Glance provides discovery, registration, and delivery services for virtual
-    disk images. An image is needed to start a &vmguest;&mdash; it is its
-    pre-installed root-partition. All images you want to use in your cloud to
-    boot &vmguest;s from, are provided by Glance.
-   </para>
-   <para>
-    Glance should be deployed onto the &contrnode;. There are a lot of options
-    to configure Glance. The most important ones are explained below&mdash;for
-    a complete reference refer to <ulink url="http://github.com/dellcloudedge/crowbar/wiki/Glance\-\-barclamp"/>. 
-   </para>
-   <variablelist>
-    <varlistentry>
-     <term><guimenu>Image Store Directory</guimenu></term>
-     <listitem>
-      <para>
-       Directory in which all images uploaded to Glance are stored. If you
-       want to put the images onto a separate partition or volume, you need to
-       mount this partition or volume on the &contrnode; prior to deploying
-       the Glance proposal. Specify the mount point of the partition or volume
-       here. 
-      </para>
-     </listitem>
-    </varlistentry>
-    <varlistentry>
-     <term><guimenu>Security Attributes</guimenu></term>
-     <listitem>
-      <para>
-       When sticking with the default value <literal>HTTP</literal>, public
-       communication will not be encrypted. Choose <literal>HTTPS</literal> to
-       use SSL for encryption and specify the path to the certificate
-       files. Note that you need to create and copy the certificate prior to
-       deploying Glance, see <xref linkend="sec.depl.inst.nodes.post.ssl"/>
-       for instructions.
-      </para>
-     </listitem>
-    </varlistentry>
-    <varlistentry>
-     <term>API/Registry <guimenu>Bind to All Addresses</guimenu></term>
-     <listitem>
-      <para>
-       Set these two options to <literal>true</literal> to enable image
-       uploads to Glance.
-      </para>
-     </listitem>
-    </varlistentry>
-    <varlistentry>
-     <term><guimenu>Caching</guimenu></term>
-     <listitem>
-      <para>
-       Enable and configure image caching in this section. By default image
-       caching is disabled. Learn more about Glance's caching feature at
-       <ulink url="http://docs.openstack.org/developer/glance/cache.html"/>.
-      </para>
-     </listitem>
-    </varlistentry>
-   </variablelist>
-  </sect2>
-  
-  <sect2 id="sec.depl.nodes.controller.nova">
-   <title>Nova</title>
-   <para>     
-     Detailed instructions on the <guimenu>Nova</guimenu> deployment are
-     available at <xref linkend="sec.depl.nodes.compute"/>. The Nova &barcl;
-     deploys two roles: <guimenu>Nova-multi-controller</guimenu> and
-     <guimenu>Nova-multi-compute</guimenu>. While the latter needs to be
-     deployed onto the &compnode;s, <guimenu>Nova-multi-controller</guimenu>
-     needs to be deployed onto the &contrnode;.
-   </para>
-  </sect2>
-  
-  <sect2 id="sec.depl.nodes.controller.dash">
-   <title>Nova Dashboard</title>
-   <para>     
-    The last service that needs to be deployed is the Nova Dashboard. It
-    provides a Web interface for users to start and stop &vmguest;s and for
-    administrators to manage users, groups, roles, etc. Nova Dashboard should
-    be deployed onto the &contrnode;. The following attributes can be
-    configured:
-   </para>
-   <variablelist>
-    <varlistentry>
-     <term><guimenu>SQL Engine</guimenu></term>
-     <listitem>
-      <para>
-       Must be set to <guimenu>&postgres;/MySQL</guimenu>. This is the default.
-      </para>
-     </listitem>
-    </varlistentry>
-    <varlistentry>
-     <term>SQL/Keystone Instance</term>
-     <listitem>
-      <para>
-       Name of the proposal for <guimenu>Database</guimenu> and
-       <guimenu>Keystone</guimenu> you deployed in the previous steps. The
-       default value should be correct.
-      </para>
-     </listitem>
-    </varlistentry>
-    <varlistentry>
-     <term><guimenu>Disable SSL Certification Verification</guimenu></term>
-     <listitem>
-      <para>
-       Should always be set to <literal>false</literal> (default) in
-       production environments. Only use it for testing purposes.
-      </para>
-     </listitem>
-    </varlistentry>
-    
-    <varlistentry>
-     <term><guimenu>Apache Attributes</guimenu></term>
-     <listitem>
-      <para>
-       When sticking with the default value <guimenu>HTTP</guimenu> equals
-       <literal>true</literal>, public communication will not be
-       encrypted. Set <literal>HTTPS</literal> to <literal>true</literal> to
-       use SSL for encryption and specify the path to the certificate
-       files. Note that you need to create and copy the certificate prior to
-       deploying Keystone, see <xref linkend="sec.depl.inst.nodes.post.ssl"/>
-       for instructions.
-      </para>
-     </listitem>
-    </varlistentry>
-   </variablelist>
-  </sect2>  
+   </step>
+   <step>
+    <para>
+     Drag and drop a node (for example, the &contrnode;) to the
+     <guimenu>&ceph;-mon-master</guimenu> role.  role.
+    </para>
+   </step>
+   <step>
+    <para>
+     Drag and drop two or four nodes to the <guimenu>&ceph;-mon</guimenu>
+     role. Note that the maximum number of <guimenu>&ceph;-mon</guimenu> nodes
+     cannot exceed four and that the sum of
+     <guimenu>&ceph;-mon-master</guimenu> and <guimenu>&ceph;-mon</guimenu>
+     nodes must be odd.
+    </para>
+   </step>
+   <step>
+    <para>
+     Drag and drop all dedicated &ceph; &stornode;s to the
+     <guimenu>&ceph;-store</guimenu> (at least two). You may also use the
+     nodes with the <guimenu>&ceph;-mon</guimenu> roles, but not the
+     <guimenu>&ceph;-mon-master</guimenu> node (you can add that one later).
+    </para>
+   </step>
+   <step>
+    <para>
+     Click <guimenu>Apply</guimenu> to deploy your proposal. This can take some
+     time.  
+    </para>
+   </step>
+   <step>
+    <para>
+     If you also want to use the <guimenu>&ceph;-mon-master</guimenu> as a
+     &stornode;, drag and drop it to the <guimenu>&ceph;-store</guimenu> role
+     and click <guimenu>Apply</guimenu> again. Note that it is not recommended
+     to use the &contrnode; for non-management purposes such as storage or
+     compute.
+    </para>
+   </step>
+  </procedure>
  </sect1>
-
- <sect1 id="sec.depl.nodes.compute">
-  <title>&compnode;</title>
-  <para>
-   The &compnode;s are the <quote>workhorses</quote> of the cloud&mdash;each
-   &vmguest;s is started on a &compnode;. This functionality is provided by
-   the <guimenu>Nova-multi-compute</guimenu> role that needs to be deployed
-   onto every &compnode; via the Nova &barcl;. Distributing and scheduling
-   the &vmguest;s is managed by the <guimenu>Nova-multi-controller</guimenu>
-   role that needs to be deployed onto the &contrnode;.
+ <sect1 id="sec.depl.ostack.glance">
+  <title>Deploying Glance</title>
+  <para>  
+   Glance provides discovery, registration, and delivery services for virtual
+   disk images. An image is needed to start a &vmguest;&mdash;it is its
+   pre-installed root-partition. All images you want to use in your cloud to
+   boot &vmguest;s from, are provided by Glance.
   </para>
   <para>
-   There are a lot of options to configure Nova. The most important ones are
-   explained below&mdash;for a complete reference refer to <ulink
-   url="https://github.com/dellcloudedge/crowbar/wiki/Nova\-\-barclamp"/>. You
+   Glance should be deployed onto the &contrnode;. There are a lot of options
+   to configure Glance. The most important ones are explained below&mdash;for
+   a complete reference refer to <ulink
+   url="http://github.com/dellcloudedge/crowbar/wiki/Glance--barclamp"/>.
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term><guimenu>Image Store Directory</guimenu></term>
+    <listitem>
+     <para>
+      Directory in which all images uploaded to Glance are stored. If you want
+      to put the images onto a separate partition or volume, you need to mount
+      this partition or volume on the &contrnode; prior to deploying the
+      Glance proposal (see <xref
+      linkend="sec.depl.inst.nodes.post.contrnode"/>). Specify the mount point
+      of the partition or volume here.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><guimenu>Security Attributes</guimenu></term>
+    <listitem>
+     <para>
+      When sticking with the default value <literal>HTTP</literal>, public
+      communication will not be encrypted. Choose <literal>HTTPS</literal> to
+      use SSL for encryption and specify the path to the certificate
+      files. Note that you need to create and copy the certificate prior to
+      deploying Glance, see <xref linkend="sec.depl.inst.nodes.post.ssl"/> for
+      instructions.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>API/Registry <guimenu>Bind to All Addresses</guimenu></term>
+    <listitem>
+     <para>
+      Set these two options to <literal>true</literal> to enable image uploads
+      to Glance.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><guimenu>Caching</guimenu></term>
+    <listitem>
+     <para>
+      Enable and configure image caching in this section. By default image
+      caching is disabled. Learn more about Glance's caching feature at <ulink
+      url="http://docs.openstack.org/developer/glance/cache.html"/>.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+  
+ <sect1 id="sec.depl.ostack.nova">
+  <title>Deploying Nova</title>
+  <para>
+   Nova provides key services for managing the &cloud;, sets up the
+   &compnode;s and provides a block storage service that either makes use of
+   &ceph; (if deployed) or uses local disks. There are a lot of options to
+   configure Nova. The most important ones are explained below&mdash;for a
+   complete reference refer to <ulink
+   url="https://github.com/dellcloudedge/crowbar/wiki/Nova--barclamp"/>. You
    will also find details about Nova's network modes on that page.
   </para>
   <variablelist>
@@ -569,9 +624,10 @@
     <term><guimenu>Hypervisor</guimenu></term>
     <listitem>
      <para>
-      Choose between the <literal>KVM</literal> and <literal>Xen</literal>
-      hypervisors. At the moment &productname; does not support choosing more
-      than one hypervisor.
+      Choose between the <guimenu>&kvm;</guimenu> and <guimenu>&xen;</guimenu>
+      hypervisors (other available options are currently not supported by
+      &suse;). As of &productname; &productnumber; choosing more than one
+      hypervisor is not supported.
      </para>
     </listitem>
    </varlistentry>
@@ -579,22 +635,20 @@
     <term>Choose disks for nova-volume storage volume group</term>
     <listitem>
      <para>
-      In case you have not deployed &ceph;, you need to use Nova Volume for
-      block storage (refer to <xref linkend="sec.depl.nodes.storage"/> for
-      more information on storage). Specify which disks to use with this
+      In case you have not deployed &ceph;, Nova Volume will use local disks
+      to provide block storage. Specify which disks to use with this
       option. If &ceph; was already deployed, it is used automatically and you
       will not be able to choose any disks here.
      </para>
-     
      <note>
       <title>Nova Volume</title>
       <para>
        Nova Volume only runs on the host onto which
        <guimenu>Nova-multi-controller</guimenu> is deployed. Make sure it is
-       equipped with enough spare disks.
+       equipped with enough spare disks. See <xref
+       linkend="sec.depl.req.storage.services"/> for more information.
       </para>
      </note>
-     
     </listitem>
    </varlistentry>
    <varlistentry>
@@ -620,148 +674,93 @@
       potentially be eavesdropped. To encrypt it, you can make use of SSL by
       setting <guimenu>noVNC via SSL</guimenu> to <literal>true</literal>. If
       you do not specify any additional certificates, the same ones as for
-      Nova (see previous step) will be used.<remark>taroth 2012-08-20: fs, it is
-      unclear what you mean with "previous step" here</remark>
+      Nova will be used.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  <para>
+   The &nova; service consists of two different roles:
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term><guimenu>Nova-multi-controller</guimenu></term>
+    <listitem>
+     <para>
+      Distributing and scheduling the &vmguest;s is managed by the
+      <guimenu>Nova-multi-controller</guimenu>. It also provides networking
+      and messaging services. <guimenu>Nova-multi-controller</guimenu> needs
+      to be installed on the &contrnode;.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><guimenu>Nova-multi-compute</guimenu></term>
+    <listitem>
+     <para>
+      Provides the hypervisor (&kvm; or &xen;) and tools needed to manage the
+      &vmguest;s. <guimenu>Nova-multi-compute</guimenu> needs to be installed
+      on every &compnode;. The &compnode;s are the <quote>workhorses</quote>
+      of the cloud&mdash;each &vmguest;s is started on a &compnode;.
      </para>
     </listitem>
    </varlistentry>
   </variablelist>
  </sect1>
-
- <sect1 id="sec.depl.nodes.storage">
-  <title>Deploying the &stornode;</title>
-  <para>
-   &ostack; provides two storage services: block-storage (&ceph;) and object
-   storage (Swift). Block storage is used to store persistent devices that can
-   be mounted from &vmguest;s. Object storage is used to store single files
-   such as images or snapshots.
+ <sect1 id="sec.depl.ostack.dash">
+  <title>Deploying the Nova Dashboard</title>
+  <para>     
+   The last service that needs to be deployed is the Nova Dashboard. It
+   provides a Web interface for users to start and stop &vmguest;s and for
+   administrators to manage users, groups, roles, etc. Nova Dashboard should
+   be deployed onto the &contrnode;. The following attributes can be
+   configured:
   </para>
-  <para>
-   Both storage services offer high data security by storing the data
-   redundant upon a pool of &stornode;s. Deploying &ceph; and Swift is
-   optional, but highly recommended. Block storage can alternatively be
-   provided by Nova Volume, but Nova Volume offers neither redundancy nor
-   distributed storage (Nova Volume solely runs on the &contrnode;). When &ceph;
-   is deployed, Nova Volume automatically makes use of it.
-  </para>
-  <para>
-   In order to provide redundancy you need at least two dedicated nodes for
-   each of the services. It is not possible to deploy the &ceph; and Swift
-   storage services onto the same machine! All &stornode;s need at least two
-   disks. All disks that should be used for storage must be unmounted.
-  </para>
-  
-  <warning>
-   <title>&ceph; and Swift Need Dedicated Machines</title>
-   <para>
-    Never deploy Swift and &ceph; storage services (<guimenu>&ceph;-store</guimenu>,
-    <guimenu>Swift-storage</guimenu>) onto the same node!
-   </para>
-  </warning>
-
-  <sect2 id="sec.depl.nodes.compute.ceph">
-   <title>Deploying &ceph;</title>
-   <para>
-    The &ceph; &barcl; only has one configuration option: telling &ceph; which
-    devices to use on the nodes. Edit the &barcl; in <guimenu>Raw</guimenu>
-    and search for the following the lines
-   </para>
-   <screen>  "devices": [
-   
-  ],</screen>
-   <para>
-    Add a comma-separated list of devices that should be used by &ceph;. For
-    example: 
-   </para>
-   <screen>  "devices": [
-    "/dev/sdb", "/dev/sdc", "/dev/sdd"
-  ],</screen>
-  
-   <important>
-    <title>Devices</title>
-    <para>
-     Not all of the devices used for &ceph; need to exist on all nodes. All
-     devices matching the list configured in the &barcl; must 
-     <emphasis>not</emphasis> be mounted. Any data stored on these devices will 
-     be lost.
-    </para>
-   </important>
-   
-   <para>
-    You need to deploy three different roles for
-    &ceph;. <guimenu>&ceph;-store</guimenu> should be deployed to all &stornode;s 
-    dedicated to &ceph;. The minimum number of nodes is two. It is
-    recommended to deploy <guimenu>&ceph;-mon-master</guimenu> onto the
-    &contrnode;. <guimenu>&ceph;-mon</guimenu> should be deployed onto two of the
-    &stornode;s. Note that you can not delete or deallocate the nodes hosting
-    <guimenu>&ceph;-mon</guimenu> at a later stage. To deploy &ceph; proceed as
-    follows:  
-   </para>
-   <procedure>
-   <important><para>The steps must be performed in the given order!</para></important>
-    <step>
+  <variablelist>
+   <varlistentry>
+    <term><guimenu>SQL Engine</guimenu></term>
+    <listitem>
      <para>
-      Edit the &barcl; proposal to specify the devices to be used by &ceph; as
-      described above.
+      Must be set to <guimenu>&postgres;/MySQL</guimenu>. This is the default.
      </para>
-    </step>
-    <step>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>SQL/Keystone Instance</term>
+    <listitem>
      <para>
-      Drag and drop a node (for example, the &contrnode;) to the
-      <guimenu>&ceph;-mon-master</guimenu> role.
-      role. 
+      Name of the proposal for <guimenu>Database</guimenu> and
+      <guimenu>Keystone</guimenu> you deployed in the previous steps. The
+      default value should be correct.
      </para>
-    </step>
-    <step>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><guimenu>Disable SSL Certification Verification</guimenu></term>
+    <listitem>
      <para>
-      Drag and drop two or four nodes to the <guimenu>&ceph;-mon</guimenu>
-      role. Note that the maximum number of <guimenu>&ceph;-mon</guimenu> nodes
-      cannot exceed four and that the sum of <guimenu>&ceph;-mon-master</guimenu>
-      and <guimenu>&ceph;-mon</guimenu> nodes must be odd.
+      Usually SSL certificates are checked whether they have been signed by a
+      trusted organization. Use this option to turn off checks. Useful in
+      testing environments when using self-signed certificates. In production
+      environments you should always use signed certificates and set this
+      option to <guimenu>false</guimenu> (default).
      </para>
-    </step>
-    <step>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><guimenu>Apache Attributes</guimenu></term>
+    <listitem>
      <para>
-      Drag and drop all dedicated &ceph; &stornode;s to the
-      <guimenu>&ceph;-store</guimenu> (at least two). You may also use the nodes
-      with the <guimenu>&ceph;-mon</guimenu> roles, but not the
-      <guimenu>&ceph;-mon-master</guimenu> node (you can add that one later).
+      When sticking with the default value <guimenu>HTTP</guimenu> equals
+      <literal>true</literal>, public communication will not be encrypted. Set
+      <literal>HTTPS</literal> to <literal>true</literal> to use SSL for
+      encryption and specify the path to the certificate files. Note that you
+      need to create and copy the certificate prior to deploying Nova
+      Dashboard, see <xref linkend="sec.depl.inst.nodes.post.ssl"/> for
+      instructions.
      </para>
-    </step>
-    <step>
-     <para>
-      Click <guimenu>Apply</guimenu> to deploy your proposal. This can take some
-      time.  
-     </para>
-    </step>
-    <step>
-     <para>
-      If you also want to use the <guimenu>&ceph;-mon-master</guimenu> as a
-      &stornode;, drag and drop it to the <guimenu>&ceph;-store</guimenu>
-      role and click <guimenu>Apply</guimenu> again. Note that it is not
-      recommended to use the &contrnode; for non-management purposes such as
-      storage or compute.
-     </para>
-    </step>
-   </procedure>
-  </sect2>
-
-  <sect2 id="sec.depl.nodes.compute.swift">
-   <title>Deploying Swift</title>
-   <para>
-    Swift always uses all unmounted disks that are available on the &stornode;s. It
-    is recommended to not change the defaults in the &barcl; proposal (except
-    from the <guimenu>Cluster Admin Password</guimenu>) unless
-    you exactly know what you are doing. Note that you need at least as many
-    &stornode;s as <guimenu>Zones</guimenu> (default: 2).
-   </para>
-   <para>
-    It is recommended to deploy the roles
-    <guimenu>Swift-ring-compute</guimenu> and
-    <guimenu>Swift-proxy-acct</guimenu> onto the &contrnode;. Deploy
-    <guimenu>Swift-storage</guimenu> onto all dedicated Swift &stornode;s.
-   </para>
-  </sect2>
-  -->
+    </listitem>
+   </varlistentry>
+  </variablelist>
  </sect1>
 </chapter>
