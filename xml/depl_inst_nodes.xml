@@ -1,0 +1,419 @@
+<?xml version="1.0" encoding="utf-8"?>
+<?xml-stylesheet
+href="urn:x-daps:xslt:profiling:novdoc-profile.xsl" 
+type="text/xml"
+title="Profiling step"?>
+<!DOCTYPE chapter PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN" "novdocx.dtd"
+[
+<!ENTITY % NOVDOC.DEACTIVATE.IDREF "IGNORE">
+<!ENTITY % entities SYSTEM "entity-decl.ent">
+%entities;
+]>
+<chapter id="cha.depl.inst.nodes">
+ <title>Installing the &ostack; Nodes</title>
+ <para>
+  The &ostack; nodes represent the actual cloud infrastructure. Node
+  installation and service deployment is done automatically from the
+  &admserv;. Before deploying the &ostack; services, you need to install
+  &sls; on every node. In order to do so, each node needs to be PXE booted
+  using the <systemitem class="resource">tftp</systemitem> server from the
+  &admserv;. Afterwards you can allocate the nodes and trigger the operating
+  system installation. There are three different types of nodes:
+ </para>
+ <simplelist>
+  <member>
+   <emphasis role="bold">&contrnode;:</emphasis> The central management node
+   interacting with all other nodes.
+  </member>
+  <member>
+   <emphasis role="bold">&compnode;s:</emphasis> The nodes on which the
+   &vmguest;s are started.
+  </member>
+  <member>
+   <emphasis role="bold">&stornode;s:</emphasis> Nodes providing object or
+   block storage.
+  </member>
+ </simplelist>
+ 
+ <sect1 id="sec.depl.inst.nodes.prep">
+  <title>Preparations</title>
+  <variablelist>
+   <varlistentry>
+    <term>Meaningful Node names</term>
+    <listitem>
+     <para>
+      Make a note of the MAC address and the purpose of each node (for
+      example, controller, storage &ceph;, storage &swift;, compute). This will
+      make deploying the &ostack; services a lot easier and less error-prone,
+      since it allows you to assign meaningful names (aliases) to the nodes
+      which are otherwise listed with the MAC address by default.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>BIOS Boot Settings</term>
+    <listitem>
+     <para>
+      Make sure PXE-booting (booting from the network) is enabled and
+      configured as the <emphasis>primary</emphasis> boot-option for each
+      node. The nodes will boot twice from the network during the allocation
+      and installation phase.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Custom Node Configuration</term>
+    <listitem>
+     <para>
+      All nodes are installed using &ay; with the same configuration located
+      at
+      <filename>/opt/dell/chef/cookbooks/provisioner/templates/default/autoyast.xml.erb</filename>. If
+      this configuration does not match your needs (for example if you need
+      special 3rd party drivers) you need to make adjustments to this
+      file. An &ay; manual can be found at <ulink
+      url="http://www.suse.com/documentation/sles11/book_autoyast/data/book_autoyast.html"/>. Having
+      change the &ay; config file, you need to re-upload it to &chef;, using
+      the following command:
+     </para>
+     <screen>knife cookbook upload -o /opt/dell/chef/cookbooks/ provisioner</screen>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Direct &rootuser; Login</term>
+    <listitem>
+     <para>
+      By default, the &rootuser; account on the nodes has no password
+      assigned, so a direct &rootuser; login is not possible. Logging in on
+      the nodes as &rootuser; is only possible via SSH public keys (for
+      example, from the &admserv;).
+     </para>
+     <para>
+      If you want to allow direct &rootuser; login, you can set a password
+      that will be used for the &rootuser; account on all &ostack; nodes
+      before deploying the nodes. This must be done before the nodes are
+      deployed, setting a &rootuser; password at a later stage is not
+      possible.
+     </para>
+     <!-- fs 2012-09-20: Stupid NovDoc does not allow procedures in
+          variablelists, so using an orderedlist instead ;-(( -->
+     <orderedlist>
+      <title>Setting a &rootuser; Password for the &ostack; Nodes</title>
+      <listitem>
+       <para>
+        Create an md5-hashed &rootuser;-password, for example by using
+        <command>mkpasswd <option>--method=md5</option></command>
+        (<command>mkpasswd</command> is provided by the package <systemitem
+        class="resource">whois</systemitem> which is not installed by
+        default).
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Open a browser and point it to the &crow; Web interface available at
+        port <literal>3000</literal> of the &admserv;, for example <ulink
+        url="http://192.168.124.10:3000/"/>. Log in as user <systemitem
+        class="username">crowbar</systemitem>. The password defaults to
+        <literal>crowbar</literal>, if you have not changed it during the
+        installation.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Open the &barcl; menu by clicking <menuchoice>
+        <guimenu>Barclamps</guimenu> <guimenu>All Barclamps</guimenu>
+        </menuchoice>. Click the <guimenu>Provisioner</guimenu> &barcl;
+        entry and <guimenu>Edit</guimenu> the <guimenu>Default</guimenu>
+        proposal. 
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Click <guimenu>Raw</guimenu> to edit the configuration file.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Add the following line within the first block of the file:
+       </para>
+       <screen>"root_password_hash": "<replaceable>HASHED_PASSWORD</replaceable>"</screen>
+       <para>
+        replacing "<replaceable>HASHED_PASSWORD</replaceable>" with the
+        password you generated in the first step.
+       </para>
+      </listitem>
+     </orderedlist>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect1>
+
+ <sect1 id="sec.depl.inst.nodes.install">
+  <title>Node Installation</title>
+  <para>
+   To install a node, you need to PXE boot it first. It will be booted with
+   an image that allows the &admserv; to discover the node and make it
+   available for installation. Once you have allocated the node, it will PXE
+   boot again and the automatic installation will start.
+  </para>
+  <procedure>
+   <remark condition="clarity">
+    2012-08-16 - fs: Screenshots?
+   </remark>
+   <step>
+    <para>
+     PXE-boot all nodes you want to deploy. Although it is possible to
+     allocate nodes one-by-one, doing this in bulk-mode is recommended,
+     because it is much faster. The nodes will boot into the
+     <quote>SLEShammer</quote> image which performs initial hardware
+     discovery.
+    </para>
+   </step>
+   <step>
+    <para>
+     Open a browser and point it to the &crow; Web interface available at
+     port <literal>3000</literal> of the &admserv;, for example <ulink
+     url="http://192.168.124.10:3000/"/>. Log in as user <systemitem
+     class="username">crowbar</systemitem>. The password defaults to
+     <literal>crowbar</literal>, if you have not changed it.
+    </para>
+    <para>
+     Click <menuchoice> <guimenu>Nodes</guimenu>
+     <guimenu>Dashboard</guimenu> </menuchoice> to open the <guimenu>Node
+     Dashboard</guimenu>. 
+    </para>
+   </step>
+   <step>
+    <para>
+     Each node that has successfully booted will be listed as being in state
+     <literal>Discovered</literal>, indicated by a yellow bullet. The nodes
+     will be listed with their MAC address as a name. Wait until all nodes
+     are listed as being <literal>Discovered</literal> before proceeding.
+    </para>
+   </step>
+   <step>
+    <para>
+     Although this step is optional, it is recommended to properly group your
+     nodes at this stage, since it allows you to clearly arrange all
+     nodes. Grouping the nodes by role would be one option, for example
+     control, compute, object storage (&swift;) and block storage (&ceph;) .
+    </para>
+    <substeps>
+     <step>
+      <para>
+       Enter the name of a new group into the <guimenu>New Group</guimenu>
+       input field and click <guimenu>Add Group</guimenu>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Drag and drop a node onto the title of the newly created group.  Repeat 
+       this step for each node you would like to put into the group.
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     To allocate the nodes click on <menuchoice> <guimenu>Nodes</guimenu>
+     <guimenu>Bulk Edit</guimenu></menuchoice>. If you prefer to allocate the
+     nodes one-by-one, click a node's name followed by a click on
+     <guimenu>Edit</guimenu> instead. 
+    </para>
+   </step>
+   <step>
+    <para>
+     Provide a meaningful <guimenu>Alias</guimenu> and a
+     <guimenu>Description</guimenu> for each node and tick the
+     <guimenu>Allocate</guimenu> box. The entries for <guimenu>BIOS</guimenu>
+     and <guimenu>RAID</guimenu> are currently not used.
+    </para>
+    <tip>
+     <title>Alias Names</title>
+     <para>
+      Providing an alias name will change the default node names (MAC
+      address) to the name you provided, making it easier to identify the
+      node. Furthermore, this alias will also be used as a DNS
+      <literal>CNAME</literal> for the node in the admin network. As a
+      result, you will be able to access the node via this alias when, for
+      example, logging in via SSH.
+     </para>
+    </tip>
+   </step>
+   <step>
+    <para>
+     Once you have filled in the data for all nodes, click
+     <guimenu>Save</guimenu>. The nodes will reboot and commence the
+     &ay;-based &sls; installation via a second PXE boot. Click <menuchoice>
+     <guimenu>Nodes</guimenu>
+     <guimenu>Dashboard</guimenu> </menuchoice> to return to the <guimenu>Node
+     Dashboard.</guimenu>
+    </para>
+   </step>
+   <step>
+    <para>
+     Nodes that are being installed are listed with the status
+     <literal>Installing</literal> (yellow/green bullet). Once the
+     installation of a node has finished, it is listed as being
+     <literal>Ready</literal>, indicated by a green bullet. Wait until all
+     nodes are listed as being <literal>Ready</literal> before proceeding.
+    </para>
+   </step>
+  </procedure>
+ </sect1>
+ 
+ <sect1 id="sec.depl.inst.nodes.post">
+  <title>Post-Installation Configuration</title>
+  <para>
+   The following lists some <emphasis>optional</emphasis> configuration steps
+   like configuring node access and SSL-enablement. You may entirely skip the
+   following steps or perform the steps necessary for accessing the nodes or
+   the SSL enablement at any later stage.
+  </para>
+  
+  <sect2 id="sec.depl.inst.nodes.post.contrnode">
+   <title>
+    Providing a Volume or Separate Partition for the Glance Image Repository
+   </title>
+   <para>
+    If you plan to host the Glance Image Repository on a separate volume
+    (recommended) or partition, you need to prepare the &contrnode; before
+    deploying the Glance service. 
+   </para>
+   <para>
+    Login to the &contrnode; as &rootuser; via SSH from the &admserv; (see
+    <xref linkend="sec.depl.trouble.faq.ostack"/> for detailed
+    instructions). Set up the volume or format the partition and mount it to
+    <filename>/var/lib/glance/images</filename> (if you do not use &yast; for
+    this tasks, you need to create the directory prior to mounting).
+   </para>
+  </sect2>
+  
+  <sect2 id="sec.depl.inst.nodes.post.access">
+   <title>Accessing the Nodes</title>
+   <para>
+    By default, the &rootuser; account on the nodes has no password assigned,
+    so &rootuser; login in is only possible via SSH. The default setup allows
+    to execute the <command>ssh</command> command as user &rootuser; from the
+    &admserv; (see <xref linkend="var.depl.trouble.faq.ostack.login"/>). In
+    order to be able to execute the <command>ssh</command> command as a
+    different user, you need to add this user's public SSH keys to
+    &rootuser;'s <filename>authorized_keys</filename> file on all
+    nodes. Proceed as follows:
+   </para>
+   <procedure>
+    <title>Copying SSH Keys to all Nodes</title> 
+    <step>
+     <para>
+      Log in to the &crow; Web interface available at port
+      <literal>3000</literal> of the &admserv;, for example <ulink
+      url="http://192.168.124.10:3000/"/> (username and default password:
+      <literal>crowbar</literal>).
+     </para>
+    </step>
+    <step>
+     <para>
+      Open the &barcl; menu by clicking <menuchoice>
+      <guimenu>Barclamps</guimenu> <guimenu>All Barclamps</guimenu>
+      </menuchoice>. Click the <guimenu>Provisioner</guimenu> &barcl;
+      entry and <guimenu>Edit</guimenu> the <guimenu>Default</guimenu>
+      proposal. 
+     </para>
+    </step>
+    <step>
+     <para>
+      Copy and paste the SSH keys into the <guimenu>Additional SSH
+      Keys</guimenu> input field. Each key needs to be placed on a new line.
+     </para>
+    </step>
+    <step>
+     <para>
+      Click <guimenu>Apply</guimenu> to deploy the keys and save your changes
+      to the proposal.
+     </para>
+    </step>
+   </procedure>
+  </sect2>
+  <sect2 id="sec.depl.inst.nodes.post.ssl">
+   <title>Enabling SSL</title>
+   <para>
+    In order to enable SSL to encrypt communication within the cloud (see
+    <xref linkend="sec.depl.req.ssl"/> for details), the respective
+    certificates need to be available on the nodes.
+   </para>
+   <para>
+    The certificate file and the key file need to be copied to the &contrnode; 
+    into the following locations:
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>SSL Certificate File</term>
+     <listitem>
+      <para>
+       <filename>/etc/apache2/ssl.crt/</filename>
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>SSL Key File</term>
+     <listitem>
+      <para>
+       <filename>/etc/apache2/ssl.key/</filename>
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+ </sect1>
+ 
+ <sect1 id="sec.depl.inst.nodes.edit">
+  <title>Editing Allocated Nodes</title>
+  <para>
+   All nodes that have been allocated can be decommissioned or
+   re-installed. Click a node's name in the <guimenu>Node
+   Dashboard</guimenu> and then click <guimenu>Edit</guimenu>. The following
+   options are available: 
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term><guimenu>Forget</guimenu></term>
+    <listitem>
+     <para>
+      Deletes a node from the pool. If you want to re-use this node again, it
+      needs to be reallocated and re-installed from scratch.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><guimenu>Deallocate</guimenu></term>
+    <listitem>
+     <para>
+      Temporarily removes the node from the pool of nodes. Once you reallocate
+      the node it will take its former role. Useful to add additional
+      machines in times of high load or to decommission machines in times of
+      low load.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><guimenu>Reinstall</guimenu></term>
+    <listitem>
+     <para>
+      Triggers a reinstallation. The machine stays allocated.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  
+  <warning>
+   <title>Editing Nodes in a Production System</title>
+   <para>
+    When deallocating nodes that provide essential services, the complete cloud
+    will become unusable. While it is uncritical to disable single storage
+    nodes (provided you have not disabled redundancy) or single compute
+    nodes, disabling the &contrnode; will <quote>kill</quote> the
+    complete cloud. You should also not disable nodes providing &ceph;
+    monitoring services or the nodes providing swift ring and proxy services.  
+   </para>
+  </warning>
+ </sect1>
+</chapter>
