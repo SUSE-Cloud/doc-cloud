@@ -11,6 +11,13 @@
 ]>
 <appendix id="app.deploy.network_json">
  <title>The Network Barclamp Template File</title>
+
+<!--
+The Network barclamp provides two functions for the system. The first is a
+common role to instantiate network interfaces on the crowbar managed
+systems. The other function is address pool management.
+-->
+
  <para>
   Complex network setups require to manually edit the network barclamp
   template file at <filename>bc-template-network.json</filename>. This section
@@ -112,7 +119,7 @@
    The following global attributes exist:
   </para>
   <screen>        "id" : "bc-template-network",<co id="global.id"/>
-        "description" : "Instantiates network interfaces on the crowbar managed systems. Also manages the address pool",<co id="global.description"/>
+        "description" : "Instantiates network interfaces on the crowbar ...",<co id="global.description"/>
         "start_up_delay" : 30,<co id="global.startup"/>
          "mode": "single",<co id="global.mode"/>
          "teaming" : { "mode" : 6 },<co id="global.bonding"/></screen>
@@ -170,23 +177,19 @@
    configuration.
   </para>
   <screen>            {
-               "pattern" : "<replaceable>MY SERVER</replaceable>"<co id="interface.pattern"/>,
+               "pattern" : "PowerEdge R610"<co id="interface.pattern"/>,
                "bus_order" : [<co id="interface.bus"/>
-	          "0000:00:1c.0/0000:09:00.2",
-		  "0000:00:1c.0/0000:09:00.0",
-		  "0000:00:1c.0/0000:09:00.1",
-		  "0000:00:1c.0/0000:09:00.3"
+                  "0000:00/0000:00:01",
+                  "0000:00/0000:00:03"
                ]
-            } </screen>
+            }</screen>
   <calloutlist>
    <callout arearefs="interface.pattern">
     <para>
      Hardware specific identifier. This identifier can be obtained by running
-     the following command on the machine you want to identify (adding quotes
-     to the dmidecode output ensures that leading and trailing spaces are not
-     getting lost):
+     the command <command>dmidecode <option>-s
+     system-product-name</option></command> on the machine you want to identify.
     </para>
-    <screen>echo \"$(dmidecode -s system-product-name)\"</screen>
    </callout>
    <callout arearefs="interface.bus">
     <para>
@@ -195,12 +198,6 @@
      be obtained by listing the contents of
      <filename>/sys/class/net/</filename>.
     </para>
-    <screen>~ # ls -lgG /sys/class/net/ | grep eth
-lrwxrwxrwx 1 0 Jun 19 08:43 eth0 -> ../../devices/pci0000:00/0000:00:1c.0/0000:09:00.0/net/eth0
-lrwxrwxrwx 1 0 Jun 19 08:43 eth1 -> ../../devices/pci0000:00/0000:00:1c.0/0000:09:00.1/net/eth1
-lrwxrwxrwx 1 0 Jun 19 08:43 eth2 -> ../../devices/pci0000:00/0000:00:1c.0/0000:09:00.2/net/eth2
-lrwxrwxrwx 1 0 Jun 19 08:43 eth3 -> ../../devices/pci0000:00/0000:00:1c.0/0000:09:00.3/net/eth3
-</screen>
    </callout>
   </calloutlist>
    
@@ -228,17 +225,100 @@ lrwxrwxrwx 1 0 Jun 19 08:43 eth3 -> ../../devices/pci0000:00/0000:00:1c.0/0000:0
    <guimenu>Apply</guimenu>.
    </para>
   </note>
+
+  <sect2 id="sec.deploy.network_json.interface_map.examples">
+   <title>Interface Map Example</title>
+   <para/>
+   <example id="interface_map.example">
+    <title>
+     Changing the Network Interface Order on a Machine with four NICs
+    </title>
+    <orderedlist>
+     <listitem>
+      <para>
+       Get the machine identifier by running the following command on the
+       machine to which the map should be applied:
+      </para>
+      <screen>~ # dmidecode -s system-product-name
+AS 2003R
+</screen>
+      <para>
+       The resulting string needs to be entered on the
+       <guimenu>pattern</guimenu> line of the map. It is interpreted as a
+       regular expression. Unless the pattern starts with <literal>^</literal>
+       and ends with <literal>$</literal> a substring match is performed
+       against the name return from the above commands.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       List the interface devices in <filename>/sys/class/net</filename> to
+       get the current order and the Bus id of each interface:
+      </para>
+    <screen>~ # ls -lgG /sys/class/net/ | grep eth
+lrwxrwxrwx 1 0 Jun 19 08:43 eth0 -> ../../devices/pci0000:00/0000:00:1c.0/0000:09:00.0/net/eth0
+lrwxrwxrwx 1 0 Jun 19 08:43 eth1 -> ../../devices/pci0000:00/0000:00:1c.0/0000:09:00.1/net/eth1
+lrwxrwxrwx 1 0 Jun 19 08:43 eth2 -> ../../devices/pci0000:00/0000:00:1c.0/0000:09:00.2/net/eth2
+lrwxrwxrwx 1 0 Jun 19 08:43 eth3 -> ../../devices/pci0000:00/0000:00:1c.0/0000:09:00.3/net/eth3
+</screen>
+      <para>
+       The bus id is included in the path of the link target&mdash;it's the
+       following string: <filename>../../devices/pci0000:00/<replaceable>BUS ID</replaceable>/net/eth0</filename> 
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Create an interface map with the bus id listed in the order the
+       interfaces should be used. In the following example the interface order
+       is <systemitem class="resource">eth2</systemitem>, <systemitem
+       class="resource">eth0</systemitem>, <systemitem
+       class="resource">eth1</systemitem> and <systemitem
+       class="resource">eth2</systemitem>. 
+      </para>
+      <screen>            {
+               "pattern" : "AS 2003R",
+               "bus_order" : [
+	          "0000:00:1c.0/0000:09:00.2",
+		  "0000:00:1c.0/0000:09:00.0",
+		  "0000:00:1c.0/0000:09:00.1",
+		  "0000:00:1c.0/0000:09:00.3"
+               ]
+            } </screen>
+     </listitem>
+    </orderedlist>
+   </example>
+  </sect2>  
+  
  </sect1>
  
  <sect1 id="sec.deploy.network_json.conduits">
   <title>Network Conduits</title>
   <para>
    Network conduits define network modes and the way the physical network
-   interfaces are to be used. The mode that is
-   specified with <literal>mode</literal> in the global attributes section is
-   deployed on all nodes in &cloud;. It is not possible to use a different
-   mode for a certain node.
+   interfaces are to be used. Each conduit consists of a
+   <guimenu>pattern</guimenu> setting a mode name and two entries (the number if
+   network interfaces and the node role) defining criteria that must be
+   matched by the nodes.
   </para>
+  <para>
+   The mode name that is specified with <literal>mode</literal> in the global
+   attributes section is deployed on all nodes in &cloud;. It is not possible
+   to use a different mode for a certain node. However, you can define
+   <quote>sub</quote> modes with the same name that only match machines with a
+   certain number of physical network interfaces or machines with certain
+   roles (all &compnode;s for example).
+  </para>
+
+<!--
+Single means to use the first interface (usually eth0) as the only interface
+for all networks. VLANs and bridges will be added on top of this single
+interface. Dual means that the first interface should be used as the admin
+interface and the second interface should be used for the other
+interfaces. Team means that the first two interfaces should be bonded together
+and all VLANs run over it.
+-->
+
+
   <para>
    Several network modes are already pre-defined. The most important ones are
    named <literal>single</literal>, <literal>dual</literal> and
@@ -275,12 +355,10 @@ lrwxrwxrwx 1 0 Jun 19 08:43 eth3 -> ../../devices/pci0000:00/0000:00:1c.0/0000:0
   <calloutlist>
    <callout arearefs="conduit.pattern">
     <para>
-     Conduit lists are specified for each of the three networking modes
-     (<literal>single</literal>, <literal>dual</literal> and
-     <literal>team</literal>). This line specifies the mode. The value for
-     pattern must follow the following form:
+     This line contains the pattern definition for a mode. The value for
+     pattern must have the following form:
     </para>
-    <screen><replaceable>mode_name</replaceable>/<replaceable>number_of_nics</replaceable>/<replaceable>chef_role</replaceable></screen>
+    <screen><replaceable>mode_name</replaceable>/<replaceable>number_of_nics</replaceable>/<replaceable>node_role</replaceable></screen>
     <variablelist>
      <varlistentry>
       <term><replaceable>mode_name</replaceable></term>
@@ -302,84 +380,153 @@ lrwxrwxrwx 1 0 Jun 19 08:43 eth3 -> ../../devices/pci0000:00/0000:00:1c.0/0000:0
 	network interfaces. This option allows you to create modes for nodes
 	with a given number of interfaces.
        </para>
-       <para>
-	The following example defines a network mode named
-	<literal>my_mode</literal> for nodes with 6, 3 and an arbitrary number
-	of network interfaces. Since the first mode that matches is applied,
-	it is important that the specific modes (for 6 and 3 NICs) are listed
-	before the general one:
-       </para>
-       <screen>            {
-               "pattern" : "my_mode/6/.*",
-               "conduit_list" : {
-                  ...
-               }
-            },
-            {
-               "pattern" : "my_mode/3/.*",
-               "conduit_list" : {
-                  ...
-               }
-            },
-            {
-               "pattern" : "my_mode/.*/.*",
-               "conduit_list" : {
-                  ...
-               }
-            },</screen>
       </listitem>
      </varlistentry>
      <varlistentry>
-      <term><replaceable>chef_role</replaceable></term>
+      <term><replaceable>node_role</replaceable></term>
       <listitem>
        <para>
-	FIXME
+	This part of the pattern let's you create matches for a certain node
+	role. This allows you to create network modes for certain roles, for
+	example the &compnode;s (role: <guimenu>nova-multi-compute</guimenu>)
+	or the &swift; nodes (role: <guimenu>swift-storage</guimenu>). 
        </para>
+
+<!--
+<vuntz> Magic: database-server rabbitmq-server keystone-server glance-server cinder-controller cinder-volume quantum-server nova-multi-controller nova-multi-compute nova_dashboard-server swift-proxy swift-dispersion swift-ring-compute swift-storage
+<vuntz> Magic: that would really be the relevant ones (most other roles are either for the admin node, or for all nodes)
+<Magic> vuntz: Cool, thanks! What about the ceph roles?
+<vuntz> Magic: ah, and you have roles like "crowbar-d52-54-00-1e-35-49_cloud_fs" (ie "crowbar-${hostname-fqdn}" with "." replaced by "_")
+<vuntz> such roles are specific to each node
+<vuntz> Magic: hrm, don't have ceph right here
+<vuntz> and I don't know if the names of the role will be the same once we get it
+<Magic> It used to be ceph-mon, ceph-mon-master and ceph-store in Cloud 1.0
+-->
+
+
       </listitem>
      </varlistentry>
     </variablelist>
    </callout>
    <callout arearefs="conduit.name">
     <para>
-     Network interface identifier. This identifier must be unique and will
-     also be referenced in the network definition section. It is recommended
-     to stick with the pre-defined naming scheme with <literal>intf0</literal>
-     for <quote>Interface 0</quote>, <literal>intf1</literal> for
-     <quote>Interface 1</quote>, etc.. If you change the name (not
-     recommended), you also need to change all references in the network
-     definition section.
+     The logical network interface definition. Each conduit list must contain at
+     least one such definition. This lines defines the name of the logical
+     interface. This identifier must be unique and will also be referenced in
+     the network definition section. It is recommended to stick with the
+     pre-defined naming scheme with <literal>intf0</literal> for
+     <quote>Interface 0</quote>, <literal>intf1</literal> for <quote>Interface
+     1</quote>, etc.. If you change the name (not recommended), you also need
+     to change all references in the network definition section.
     </para>
    </callout>
    <callout arearefs="conduit.interface">
     <para>
-     
+     This lines maps one or more <emphasis>physical</emphasis>
+     to the logical interface. Each entry represents a physical interface. If
+     more than one entry exist, the interfaces are bonded&mdash;either with
+     the default bonding mode defined with <guimenu>teaming</guimenu>
+     attribute defined either in this mode or in the general attributes section.
     </para>
-<!--
-Interface specification. Each entry represents a physical interface which is specified as follows:
-[+-?]1g1:
-  +/-/?:
-'+' interface of at least the speed specified after the '+' sign. +1g1 means the first interface that is 1Gig or faster
-'-' interface of the speed after the '-' sign, or slower
-'?' interface of any speed
-If no '?', '-' or '+' is present only interfaces of exactly that speed are considered.
-  1g == Gigabit interface (other possible values: 10m, 100m, 10G)
-  1  == First physical interface of that speed (either in /sys/class/net or as defined in a machine specific interface map, see above)
-At least one interace needs to be specified per identifier. If more than one interface is listed
-(comma seperated: "if_list" : ["1g1", "1g2"]) they will be bonded. By default the bonding mode specified in the gklobal attributes section will be used. To overwrite this global setting for an interface specify as follows:
- 
-"intf2" : {
-                     "if_list" : [
-                        "1g1",
-                        "1g2"
-                     ],
-                     "team_mode" : 6
-
--->
-
-
+    <para>
+     The physical interfaces definition needs to fit the following pattern:
+    </para>
+    <screen>[Quantifier][Speed][Interface Number]</screen>
+    <para>
+     Valid examples are <literal>+1g2</literal>, <literal>10g1</literal> or
+     <literal>?1g2</literal>.
+    </para>
+    <variablelist>
+     <varlistentry>
+      <term>Quantifier</term>
+      <listitem>
+       <para>
+	Specifying the quantifier is optional. The following values may be
+	entered: 
+       </para>
+       <simplelist>
+	<member><literal>+</literal>: at least the speed specified afterwards
+	(specified value or higher)</member>
+	<member><literal>-</literal>: at most the speed specified afterwards
+	(specified value or lower)</member>
+	<member><literal>?</literal>: any speed (speed specified afterwards is
+	ignored)</member>
+       </simplelist>
+       <para>
+	If no quantifier is specified, the exact speed specified is used.  
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>Speed</term>
+      <listitem>
+       <para>
+	Specifying the interface speed is mandatory (even if using the
+	<literal>?</literal> quantifier). The following values may
+	be entered:
+       </para>
+       <simplelist>
+	<member><literal>10m</literal>: 10 Mbit</member>
+	<member><literal>100m</literal>: 100 Mbit</member>
+	<member><literal>1g</literal>: 1 Gbit</member>
+	<member><literal>10g</literal>: 10 Gbit</member>
+       </simplelist>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>Order</term>
+      <listitem>
+       <para>
+	Position in the interface order. Specifying this value is
+	mandatory. The interface order is defined by the order in which the
+	interfaces appear in <filename>/sys/class/net</filename> (default) or,
+	if existing, by an interface map. The order is also linked to the
+	speed in this context, so <literal>1g1</literal> means <quote>The
+	first 1Gbit interface</quote>, <literal>+1g1</literal> means
+	<quote>The first 1Gbit or 10Gbit
+	interface</quote>. <literal>?1g1</literal> would match the very first
+	interface, regardless of its speed.
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
    </callout>
-   
+   <callout arearefs="conduit.bonding">
+    <para>
+     FIXME
+    </para>
+   </callout>
   </calloutlist>
+
+  <sect2 id="sec.deploy.network_json.conduits.examples">
+   <title>Network Conduit Examples</title>
+   <para>
+    
+   </para>
+   <example id="ex.conduits.nic_number">
+    <title>Network Modes for Different NIC Numbers</title>
+    <para>
+     The following example defines a network mode named
+     <literal>my_mode</literal> for nodes with 6, 3 and an arbitrary number of
+     network interfaces. Since the first mode that matches is applied, it is
+     important that the specific modes (for 6 and 3 NICs) are listed before
+     the general one:
+    </para>
+    <screen>            {
+               "pattern" : "my_mode/6/.*",
+               "conduit_list" : { ... }
+            },
+            {
+               "pattern" : "my_mode/3/.*",
+               "conduit_list" : { ... }
+            },
+            {
+               "pattern" : "my_mode/.*/.*",
+               "conduit_list" : { ... }
+            },</screen>
+   </example>
+  </sect2>
+  
  </sect1>
 
  <sect1 id="sec.deploy.network_json.networks">
