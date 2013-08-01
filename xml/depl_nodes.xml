@@ -32,7 +32,7 @@
   The &ostack; services need to be deployed in the following order. For
   general instructions on how to edit and deploy &barcl;, refer to
   <xref
-  linkend="sec.depl.ostack.barclamps"/>. Deploying &swift; and
+  linkend="sec.depl.ostack.barclamps"/>. Deploying &o_objstore; and
   &ceph; is optional; all other services must be deployed.
  </para>
  <orderedlist>
@@ -383,13 +383,13 @@
   </variablelist>
  </sect1>
  <sect1 id="sec.depl.ostack.swift">
-  <title>Deploying &swift; (optional)</title>
+  <title>Deploying &o_objstore; (optional)</title>
 
   <para>
-   &swift; adds an object storage service to &cloud; that lets you store
+   &o_objstore; adds an object storage service to &cloud; that lets you store
    single files such as images or snapshots. It offers high data security by
    storing the data redundantly on a pool of &stornode;s&mdash;therefore
-   &swift; needs to be installed on at least two dedicated nodes.
+   &o_objstore; needs to be installed on at least two dedicated nodes.
   </para>
 
   <para>
@@ -401,7 +401,7 @@
   </para>
 
   <para>
-   The &swift; service consists of four different roles:
+   The &o_objstore; service consists of four different roles:
   </para>
 
   <variablelist>
@@ -423,7 +423,7 @@
     </term>
     <listitem>
      <para>
-      The &swift; proxy server takes care of routing requests to &swift;.
+      The &o_objstore; proxy server takes care of routing requests to &o_objstore;.
       Installing a single instance of <guimenu>Swift-proxy</guimenu> on
       a &contrnode; is recommended.
      </para>
@@ -434,7 +434,7 @@
     </term>
     <listitem>
      <para>
-      The &swift; dispersion tools are needed to measure the health of the
+      The &o_objstore; dispersion tools are needed to measure the health of the
       cluster. Swift-dispersion needs to be installed on the same node as
       Swift-proxy, installing both on a &contrnode; is recommended.
      </para>
@@ -446,7 +446,7 @@
     <listitem>
      <para>
       The virtual object storage service. Install this role on all dedicated
-      &swift; &stornode;s (at least two), but not on any other node.
+      &o_objstore; &stornode;s (at least two), but not on any other node.
      </para>
      <warning>
       <title>Swift-storage Needs Dedicated Machines</title>
@@ -458,6 +458,26 @@
     </listitem>
    </varlistentry>
   </variablelist>
+  <para>
+   In order to be able to properly configure &o_objstore; it's important to
+   understand how it places the data. Data is always stored redundantly within
+   the hierarchy. The &o_objstore; hierarchy in &cloud; is formed out of
+   zones, nodes, hard drives and logical partitions. Zones are physically
+   separated clusters, for example different server rooms each with it's own
+   power supply and network segment. A failure of one zone must not affect
+   another zone. The next level in the hierarchy are the individual
+   &o_objstore; storage nodes (on which <guimenu>Swift-storage</guimenu> has
+   been deployed) followed by the hard drives. Logical partitions come last.
+  </para>
+  <para>
+   &o_objstore; automatically places three copies of each object on the
+   highest hierarchy level possible. If three zones are available, the each
+   copy of the object will be placed in a different zone. In a one zone setup
+   with more than two nodes, the object copies will each be stored on a
+   different node. In a one zone setup with two nodes, the copies will be
+   distributed on different hard disks. If no other hierarchy element fits,
+   logical partitions are used.
+  </para>
   <para>
    The following attributes can be set to configure &o_objstore;:
   </para>
@@ -477,31 +497,48 @@
     <term><guimenu>Zones</guimenu></term>
     <listitem>
      <para>
-      FIXME
-      <!--  http://searchcloudstorage.techtarget.com/answer/OpenStack-Swift-object-storage-How-does-data-placement-work -->
+      Number of zones (see above). If you do not have different independent
+      installations of storage nodes, set the number of zones to
+      <literal>1</literal>.
      </para>
-     <warning>
-      <title>Number of Zones</title>
-      <para>
-       You must have at least as much &o_objstore; nodes as zones.
-      </para>
-     </warning>
-     
     </listitem>
    </varlistentry>
    <varlistentry>
     <term>Partitions</term>
     <listitem>
      <para>
-      FIXME
+      Number of logical partitions to be created in the cluster. it's
+      recommended to use a minimum of 100 partitions per disk. Multiply the
+      number of disks from all swift nodes with 100 and then round up to the
+      nearest power of two. Keep in mind that the first disk of each node is
+      not used by swift, but rather for the operating system.
      </para>
+     <formalpara>
+      <title>Example: 10 &o_objstore; nodes with 5 HDD each</title>
+      <para>
+       Four hard disks on each node are used for &o_objstore;, so there is a
+       total of forty disks. Multiplied with 100 gives 4000. Rounded up to the
+       nearest power of two makes it 4096 (2^12).  
+      </para>
+     </formalpara>
     </listitem>
    </varlistentry>
    <varlistentry>
     <term>Minimum Partitions per Hour</term>
     <listitem>
      <para>
-      FIXME
+      This option sets the number of hours before a logical partition is
+      considered for relocation. <literal>24</literal> is the recommended
+      value.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><guimenu>Replicas</guimenu></term>
+    <listitem>
+     <para>
+      The number of copies generated for each object. Set this value to
+      <literal>3</literal>, the tested and recommended value.
      </para>
     </listitem>
    </varlistentry>
@@ -517,7 +554,7 @@
     <term>Cluster Admin Password</term>
     <listitem>
      <para>
-      FIXME
+      The &o_objstore; administrator password.
      </para>
     </listitem>
    </varlistentry>
@@ -541,7 +578,8 @@
     <term>Debug</term>
     <listitem>
      <para>
-      Shows debugging output in the log files when set to true.
+      Shows debugging output in the log files when set to
+      <literal>true</literal>.
      </para>
     </listitem>
    </varlistentry>
@@ -556,7 +594,7 @@
     <term><guimenu>S3</guimenu></term>
     <listitem>
      <para>
-      FIXME
+      Provides an S3 compatible API on top of &o_objstore;. 
      </para>
     </listitem>
    </varlistentry>
@@ -564,7 +602,14 @@
     <term><guimenu>StaticWeb</guimenu></term>
     <listitem>
      <para>
-      FIXME
+      Enables to serve container data as a static web site with an index file
+      and optional file listings. See <ulink
+      url="http://docs.openstack.org/developer/swift/misc.html#module-swift.common.middleware.staticweb"/>
+      for details.
+     </para>
+     <para>
+      This middleware requires to set <guimenu>Allow Public
+      Containers</guimenu> to <literal>true</literal>.
      </para>
     </listitem>
    </varlistentry>
@@ -572,7 +617,10 @@
     <term><guimenu>TempURL</guimenu></term>
     <listitem>
      <para>
-      FIXME
+      Enables to create URLs to provide time limited access to objects. See
+      <ulink
+	url="http://docs.openstack.org/developer/swift/misc.html#module-swift.common.middleware.tempurl"/>
+      for details.
      </para>
     </listitem>
    </varlistentry>
@@ -588,7 +636,11 @@
     <term><guimenu>Domain Remap</guimenu></term>
     <listitem>
      <para>
-      FIXME 
+      Translates container and and account parts of a domain to path
+      parameters that the &o_objstore; proxy server understands.
+      See <ulink
+      url="http://docs.openstack.org/developer/swift/misc.html#module-swift.common.middleware.domain_remap"/>
+      for details.
       <!-- <guimenu>Path root</guimenu> <guimenu>Storage Domain</guimenu> -->
      </para>
     </listitem>
@@ -597,7 +649,12 @@
     <term>CNAME Lookup</term>
     <listitem>
      <para>
-      FIXME
+      CNAME Lookup translates an unknown domain in the host header to
+      something that ends with the configured <guimenu>Storage
+      Domain</guimenu> by looking up the given domain's CNAME record in
+      DNS. See <ulink
+      url="http://docs.openstack.org/developer/swift/misc.html#module-swift.common.middleware.cname_lookup"/>
+      for details.
       <!-- <guimenu>Lookup depth</guimenu> <guimenu>Storage Domain</guimenu> -->
      </para>
     </listitem>
@@ -606,7 +663,9 @@
     <term>Ratelimit</term>
     <listitem>
      <para>
-      FIXME <!-- lots of attributes -->
+      Ratelimit enables you to throttle resources. See <ulink
+      url="http://docs.openstack.org/developer/swift/ratelimit.html"> for
+      details. 
      </para>
     </listitem>
    </varlistentry>
