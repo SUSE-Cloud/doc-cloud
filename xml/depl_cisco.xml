@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <?xml-stylesheet
- href="urn:x-daps:xslt:profiling:novdoc-profile.xsl" 
+ href="urn:x-daps:xslt:profiling:novdoc-profile.xsl"
  type="text/xml"
  title="Profiling step"?>
 <!DOCTYPE appendix PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN" "novdocx.dtd"
@@ -10,7 +10,7 @@
   %entities;
 ]>
 <appendix id="app.deploy.cisco">
- <title>Using Cisco Nexus switches with &o_netw;</title>
+ <title>Using Cisco Nexus Switches with &o_netw;</title>
  <para/>
  <sect1 id="app.deploy.cisco.requirements">
   <title>Requirements</title>
@@ -24,50 +24,225 @@
      Cisco Nexus series 3000, 5000 or 7000
     </para>
    </listitem>
+   <listitem>
+    <para>
+     All &compnode;s must be equipped with at least two network cards.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     The switch needs to have the XML management interface enabled. SSH access
+     to the management interface must be enabled (refer to the switch's
+     documentation for details).
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Enable VLAN trunking for all &o_netw; managed VLANs on the switch port to
+     which the controller node running &o_netw; is connected to.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     If VLAN configurations for &o_netw; managed VLANs already exist on the
+     switch (for example from a previous &cloud; deployment), you need to
+     delete them via the switch's management interface prior to deploying
+     &o_netw;.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     When using the cisco plugin, &o_netw; re-configures the VLAN trunk
+     configuration on all ports used for the <literal>nova-fixed</literal>
+     traffic (the traffic between the &vmguest;s). This requires configure
+     separate network interfaces exclusively used by
+     <literal>nova-fixed</literal>. This can be achieved by adjusting
+     <filename>/etc/crowbar/network.json</filename> (refer to <xref
+     linkend="app.deploy.network_json"/>). The following example shows an
+     appropriate configuration for dual mode, where
+     <guimenu>nova-fixed</guimenu> has bee mapped to conduit
+     <guimenu>intf1</guimenu> and all other networks to other
+     conduits. Configuration attributes not relevant in this context have been
+     replaced with <literal>...</literal>.
+    </para>
+    <example>
+     <title>
+      Exclusively Mapping <guimenu>nova-fixed</guimenu> to conduit
+      <guimenu>intf1</guimenu> in dual mode
+     </title>
+     <screen>{
+   "attributes" : {
+      "network" : {
+         "conduit_map" : [
+            <replaceable>...</replaceable>
+         ],
+         "mode" : "single",
+         "networks" : {
+            "nova_fixed" : {
+              <replaceable>...</replaceable>,
+	      "conduit" : "intf1"
+            },
+            "nova_floating" : {
+              <replaceable>...</replaceable>,
+	      "conduit" : "intf0"
+            },
+            "public" : {
+              <replaceable>...</replaceable>,
+	      "conduit" : "intf0"
+            },
+            "storage" : {
+              <replaceable>...</replaceable>,
+	      "conduit" : "intf0"
+            },
+            "os_sdn" : {
+              <replaceable>...</replaceable>,
+	      "conduit" : "intf0"
+            },
+            "admin" : {
+              <replaceable>...</replaceable>,
+	      "conduit" : "intf0"
+            },
+            "bmc" : {
+              <replaceable>...</replaceable>,
+	      "conduit" : "bmc"
+            },
+            "bmc_vlan" : {
+              <replaceable>...</replaceable>,
+	      "conduit" : "intf2"
+            },
+         },
+	 <replaceable>...</replaceable>,
+      },
+   }
+}</screen>
+    </example>
+   </listitem>
+   <listitem>
+    <para>
+     Make a note of all switch ports to which the interfaces using the
+     <literal>nova-fixed</literal> network on the &compnode;s are
+     connected. This information will be needed when deploying &o_netw;.
+    </para>
+   </listitem>
   </itemizedlist>
-<!--
-
-* The crowbar network needs to be setup in a way that the network
-  communication between cloud instances happens on a separate interface. That
-  means the "nova_fixed" network needs to be on its own NIC on the compute
-  nodes and the controller. In the "dual" network mode you achieve  this
-  e.g. by mapping all networks apart from "nova_fixed" to the "intf0" conduit
-  in the "networks" section (leaving "nova_fixed" on conduit "intf1").This is
-  needed because the nexus plugin for quantum/neutron will reconfigure the
-  VLAN trunk configuration on the switch ports which are used for the
-  "nova_fixed" traffic.
-* for the compute nodes write down which switch ports the nodes use for the
-  "nova_fixed" network. This information is needed later on when deploying the
-  quantum barclamp.
-* The switch needs to have the XML management interface and ssh access to that
-  interface enabled (see the Switch's documentation for details on how to
-  achieve that)
-* Delete any existing VLAN configuration for VLANs that you want to have
-  managed via quantum (https://bugzilla.novell.com/show_bug.cgi?id=838398)
-* Enable VLAN trunking for all VLANs that you want quantum to manage on the
-  switch port that connects the controller node with the "nova_fixed" network.
-
--->
  </sect1>
-<!--
-Deploying Quantum:
-Create a quantum proposal in the Crowbar Management interface.
-Select "cisco" as the networking plugin and "vlan" for mode.
-In the "Cisco Switch Credentials" table enter the IP address of the switch's management interface and the TCP port at which it is reachable via ssh. Enter the username and password that are required for accessing the switch. If you have mulitple switches add configuration for each switch that you want managed by quantum.
-Apply the proposal
-Now you need to continue the process of installing SUSE Cloud by the creating and applying proposal for the remaining barclamps (up to and including "nova")
-After the configuration "nova" configuration was successfully applied go back to the quantum barclamp
-You should now see an additional table in the proposal UI labeled "Assign Switch Ports" which lists all compute nodes in your cloud
-Now, for all of those nodes select with switch to which it is connected (if you setup more than one switch) and enter the switch port to which it is connected in the same from as the switch uses in its management interface (usually this is something like "1/13" or "Eth1/20")
-Reapply the quantum barclamp
-If you add more compute nodes to nova lateron, remember to also always update the quantum proposal's configuration for those.
+ <sect1 id="app.deploy.cisco.deploy">
+  <title>Deploying &o_netw; with the Cisco Plugin</title>
+  <procedure>
+   <step>
+    <para>
+     Create a &o_netw; barcl; proposal in the &crow; Web interface.
+    </para>
+   </step>
+   <step>
+    <para>
+     Select <guimenu>cisco</guimenu> as the <guimenu>Plugin</guimenu> and
+     <guimenu>vlan</guimenu> for <guimenu>Mode</guimenu>.
+    </para>
+   </step>
+   <step>
+    <para>
+     The <guimenu>Cisco Switch Credentials</guimenu> table will we faded
+     in. Enter the <guimenu>IP Address</guimenu>, the SSH
+     <guimenu>Port</guimenu> number and the login credentials for the switch's
+     management interface. If you have mulitple switches, open a new row in
+     the table by clicking <guimenu>Add</guimenu> and enter the data for
+     another switch.
+    </para><figure>
+    <title>The &o_netw; &barcl;: Cisco Plugin</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="depl_barclamp_network_cisco.png" width="75%"
+		 format="png"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="depl_barclamp_network_cisco.png" width="75%"
+		 format="png"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+   </step>
+   <step>
+    <para>
+     Choose whether to encrypt public communication (<guimenu>HTTPS</guimenu>)
+     or not (<guimenu>HTTP</guimenu>). If choosing
+     <guimenu>HTTPS</guimenu>,refer to <xref
+     linkend="sec.depl.ostack.keystone.ssl"/> for configuration details.
+    </para>
+   </step>
+   <step>
+    <para>
+     Choose a node for deployment and <guimenu>Apply</guimenu> the proposal.
+    </para>
+   </step>
+   <step>
+    <para>
+     Deploy &o_comp; (see <xref linkend="sec.depl.ostack.nova"/>), &o_dash;
+     (see <xref linkend="sec.depl.ostack.dash"/> and all other remaining
+     &barcl;.
+    </para>
+   </step>
+   <step>
+    <para>
+     Once all &barcl; have been deployed, return to the &o_netw; &barcl; by
+     choosing <menuchoice> <guimenu>Barclamps</guimenu>
+     <guimenu>OpenStack</guimenu> <guimenu>Neutron</guimenu>
+     <guimenu>Edit</guimenu> </menuchoice>. The proposal now contains an
+     additional table named <guimenu>Assign Switch Ports</guimenu>, listing
+     all &compnode;s.
+    </para>
+    <para>
+     For each &compnode; enter the switch it is connected to and the port
+     number from the notes you took earlier. The values have to be entered
+     like the following: <literal>1/13</literal> or
+     <literal>Eth1/20</literal>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Once you have entered the data for all &compnode;s, re-apply the
+     proposal.
+    </para>
+    <important>
+     <title>Deploying Additional &compnode;s</title>
+     <para>
+      Whenever you deploy additional &compnode;s to an active &cloud;
+      deployment using the Cisco plugin with &o_netw;, you need to update the
+      &o_netw; &barcl; proposal by entering their port data as described in
+      the previous step.
+     </para>
+    </important>
+   </step>
+  </procedure>
 
-Verifying that it works:
-Launch a VM instance using nova or the Openstack Dashboard
-Find out which VLAN quantum assigned to the network that you assigned to the interface
-e.g. by: quantum net-show fixed. it should return a "segementation_id" which matches the VLAN id of that network
-SSH to your switch and display the VLAN configuration. You should see now that Port which connects the compute nodes on which the new instance is started is in trunk mode for the above VLAN.
-
-Some more information on the Nexus support in Openstack is available here: https://wiki.openstack.org/wiki/Cisco-qo.com/wiki/OpenStack:Quantum)uantum
--->
+  <note>
+   <title>Verifying the Setup</title>
+   <para>
+    In order to verify if &o_netw; was correctly deployed, do the following:
+   </para>
+   <orderedlist>
+    <listitem>
+     <para>
+      Launch a &vmguest; (refer to <xref linkend="sec.user.dash.inst.launch"/>
+      for instructions).
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Find out which VLAN was assigned to the network by running the command
+      <command>quantum net-show fixed</command>. The result lists a
+      <guimenu>segmentation_id</guimenu> matching the VLAN.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Login to the switch's management interface and list the VLAN
+      configuration. If the setup was deployed correctly, the port of the
+      &compnode; the &vmguest; is running on, is in trunk mode for the
+      matching VLAN.
+     </para>
+    </listitem>
+   </orderedlist>
+  </note>
+ </sect1>
 </appendix>
