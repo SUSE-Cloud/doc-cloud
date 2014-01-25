@@ -939,6 +939,225 @@ title="Profiling step"?>
 
 -->
 
+  <sect2 id="sec.depl.inst.nodes.post.ceph_ext">
+   <title>Using an Externally Managed &ceph; Cluster</title>
+   <para>
+    While deploying &ceph; from within &cloud; is only included as an
+    unsupported technical preview, leveraging an external &ceph; cluster is
+    fully supported. Follow the instructions below to make use of the &ceph;
+    cluster in &productname;.
+   </para>
+   <sect3 id="sec.depl.inst.nodes.post.ceph_ext.requirements">
+    <title>Requirements</title>
+    <variablelist>
+     <varlistentry>
+      <term>&ceph; Release</term>
+      <listitem>
+       <para>
+	&cloud; uses &ceph; clients from the &ceph; <quote>Dumpling</quote>
+	release. Since other &ceph; releases may not fully work with
+	<quote>Dumpling</quote> clients, the external &ceph; installation must
+	run a <quote>Dumpling</quote> release, too. Other releases are not
+	supported.
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>Network Configuration</term>
+      <listitem>
+       <para>
+	The external ceph cluster needs to be connected to a separate VLAN,
+	which is mapped to the &cloud; storage VLAN (see <xref
+	linkend="sec.depl.req.network"/> for more information).
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+   </sect3>
+   <sect3 id="sec.depl.inst.nodes.post.ceph_ext.install">
+    <title>Making &ceph; Available on the &cloud; Nodes</title>
+    <para>
+     &ceph; can be used from the KVM &compnode;s and with &o_img;,
+     &o_blockstore;. The following installation steps need to be executed on
+     each node accessing &ceph;:
+    </para>
+    
+    <important>
+     <title>Installation Workflow</title>
+     <para>
+      The following steps need to be executed before the &barcl; get deployed.
+     </para>
+    </important>
+    
+    <warning>
+     <title>Do not deploy the &ceph; &barcl;</title>
+     <para>
+      If using an external &ceph; cluster, you must not deploy the &cloud;
+      &ceph; &barcl;. An external and an internal &ceph; cluster cannot be
+      used together.
+     </para>
+    </warning>
+    
+    <procedure>
+     <step>
+      <para>
+       Log in as user &rootuser; to a machine in the &ceph; cluster and
+       generate keyring files for the &o_img; (optional, only needed when
+       using &o_img; with &ceph;/Rados) and &o_blockstore; users. The keyring
+       file that will be generated for &o_blockstore; will also be used on
+       the &compnode;s.  To do so, you need to specify pool names and user
+       names for both services. The default names are:
+      </para>
+      
+      <table>
+       <title></title>
+       <tgroup cols="3">
+	<colspec colnum="1" colname="1" colwidth="33*"/>
+	<colspec colnum="2" colname="2" colwidth="33*"/>
+	<colspec colnum="3" colname="3" colwidth="33*"/>
+	<thead>
+	 <row>
+	  <entry><para/></entry>
+	  <entry><para>&o_img;</para></entry>
+	  <entry><para>&o_blockstore;</para></entry>
+	 </row>
+	</thead>
+	<tbody>
+	 <row>
+	  <entry><para><emphasis role="bold">User</emphasis></para></entry>
+	  <entry><para>glance</para></entry>
+	  <entry><para>volumes</para></entry>
+	 </row>
+	 <row>
+	  <entry><para><emphasis role="bold">Pool</emphasis></para></entry>
+	  <entry><para>images</para></entry>
+	  <entry><para>volumes</para></entry>
+	 </row>
+	</tbody>
+       </tgroup>
+      </table>
+      <para>
+       Make a note of user and pool names in case you do not use the default
+       values&mdash;you will need this information later, when deploying
+       &o_img; and &o_blockstore;.
+      </para>
+      <para>
+       Create the keyring file with the following commands. Re-run the
+       commands for &o_img;, too, if needed.
+      </para>
+      <substeps>
+       <step>
+	<para>
+	 Generate a key:
+	</para>
+	<screen>ceph auth get-or-create-key client.<replaceable>USERNAME</replaceable> mon "allow r"  osd 'allow class-read object_prefix rbd_children, allow rwx pool=<replaceable>POOLNAME</replaceable>'</screen>
+	<para>
+	 Replace <replaceable>USERNAME</replaceable> and
+	 <replaceable>POOLNAME</replaceable> with the respective values.
+	</para>
+       </step>
+       <step>
+	<para>
+	 Use the key to generate the keyring file
+	 <filename>/etc/ceph/ceph.client.<replaceable>USERNAME</replaceable>.keyring</filename>:
+	</para>
+	<screen>ceph-authtool /etc/ceph/ceph.client.<replaceable>USERNAME</replaceable>.keyring --create-keyring --name=client.<replaceable>USERNAME</replaceable>> --add-key=<replaceable>KEY</replaceable></screen>
+	<para>
+	 Replace <replaceable>USERNAME</replaceable> with the respective value.
+	</para>
+       </step>
+      </substeps>
+     </step>
+     <step>
+      <para>
+       Copy the &ceph; configuration file <filename>ceph.conf</filename>
+       (usually located in <filename>/etc/ceph</filename>) and the keyring
+       file(s) generated in the previous step to a temporary location on the
+       &admserv;, for example <filename>/root/tmp/</filename>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Login to the &crow; Web interface and check whether the nodes which
+       should have access to the &ceph; cluster already have an IP address
+       from the storage network. Do so by going to the
+       <guimenu>Dashboard</guimenu> and clicking on the node name. An
+       <guimenu>IP address</guimenu> should be listed for
+       <guimenu>storage</guimenu>. Make a note of the <guimenu>Full
+       name</guimenu> of each node that has <emphasis>no</emphasis> storage
+       network IP address.
+      </para>
+     </step>
+     <step>
+      <para>
+       Log in to the &admserv; as user &rootuser; and run the following command
+       for all nodes you noted down in the previous step:
+      </para>
+      <screen>crowbar network allocate_ip "default" <replaceable>NODE</replaceable> "storage" "host"
+chef-client</screen>
+      <para>
+       <replaceable>NODE</replaceable> needs to be replaced by the node's
+       name.
+      </para>
+     </step>
+     <step>
+      <para>
+       After having executed the command in the previous step for all affected
+       nodes, run the command <command>chef-client</command> on the &admserv;.
+      </para>
+     </step>
+     <step>
+      <para>
+       Log in to each affected node as user &rootuser;. See <xref
+       linkend="var.depl.trouble.faq.ostack.login"/> for instructions. On each
+       node, do the following:
+      </para>
+      <substeps>
+       <step>
+	<para>
+	 Copy the ceph.conf file from the &admserv; to
+	 <filename>/etc/ceph</filename>:
+	</para>
+	<screen>mkdir -p /etc/ceph
+scp root@admin:/root/tmp/ceph.conf /etc/ceph
+chmod 664 /etc/ceph/ceph.conf</screen>
+       </step>
+       <step>
+	<para>
+	 Copy the keyring file too <filename>/etc/ceph</filename>. The keyring
+	 file created for &o_blockstore; needs to be copied to the &contrnode;
+	 on which &o_blockstore; will be deployed as well as to all KVM
+	 nodes. The keyring file created for &o_img; needs to be copied to the
+	 &contrnode; on which &o_img; will be deployed. For example:
+	</para>
+	<screen>scp root@admin:/root/tmp/ceph.volumes.keyring /etc/ceph
+chmod 640 /etc/ceph/ceph.volumes.keyring</screen>
+       </step>
+       <step>
+	<para>
+	 Adjust the ownership of the keyring file as follows:
+	</para>
+	<simplelist>
+	 <member>
+	  <emphasis role="bold">&o_img;</emphasis>: <command>chmod
+	  root.openstack-glance /etc/ceph/ceph.volumes.keyring</command>
+	 </member>
+	 <member>
+	  <emphasis role="bold">&o_blockstore;</emphasis>: <command>chmod
+	  root.openstack-cinder /etc/ceph/ceph.glance.keyring</command>
+	 </member>
+	 <member>
+	  <emphasis role="bold">KVM &compnode;s</emphasis>: <command>chmod
+	  root.openstack-nova /etc/ceph/ceph.volumes.keyring</command>
+	 </member>
+	</simplelist>
+       </step>
+      </substeps>
+     </step>
+    </procedure>
+   </sect3>
+  </sect2>
+
   <sect2 id="sec.depl.inst.nodes.post.access">
    <title>Accessing the Nodes</title>
    <para>
