@@ -282,11 +282,19 @@
     <para>Specifying Image Properties. </para>
     <para>You can do so during image upload (using <command>glance&nbsp;image-create</command>)
      or with <command>glance&nbsp;image-update</command> after the image has already been
-     uploaded. <!--For details, refer to <xref linkend="sec.adm.cli.img.props"/>.--> </para>
+     uploaded.   </para>
     <important>
+     <title>Properties for Architecture, Hypervisor and VM Mode</title>
      <para>
       &ostack; &img; does <emphasis>not</emphasis> check any image properties during upload.
       Therefore you need to specify the image's properties. </para>
+     <para>Getting the image properties right is especially relevant when using mixed virtualization
+      environments. For example, to make sure that an image is only launched on appropriate
+      hypervisors, set properties referring to a certain architecture, hypervisor type, or
+      application binary interface (ABI) that the image requires.</para>
+     <para>You can do so either during image upload or afterwards. For details, refer to <xref
+      linkend="pro.adm.cli.img.upload"/> and 
+      <xref linkend="pro.adm.cli.img.props.modify"/>.</para>
       </important>
    </step>
   </procedure>
@@ -519,6 +527,12 @@
    </para>
   </sect2>
 
+  <sect2 id="sec.adm.cli.img.props">
+   <title>Image Properties</title>
+   <!-- taroth 2013-08-29: fix for https://bugzilla.novell.com/show_bug.cgi?id=828862-->
+   &img-props;
+   </sect2>
+  
   <sect2 id="sec.adm.cli.img.upload">
    <title>Adding Images</title>
    <para>
@@ -528,8 +542,9 @@
     <xref
      linkend="pro.adm.cli.img.upload"/>. 
    </para>
-   <para>If you use &hyper;, convert any <literal>qcow2</literal> or <literal>raw</literal>
-    images before uploading them to &productname;.</para>
+   <para>If you use &hyper;, convert any <literal>qcow2</literal> 
+   images before uploading them to &productname;.</para>
+   
    <procedure id="pro.adm.cli.img.convert">
     <title>Converting Disk Images to Different Formats</title>
     <step>
@@ -576,17 +591,61 @@
     </listitem>
     </itemizedlist>
     </step>-->
+   
    <procedure id="pro.adm.cli.img.upload">
     <title>Uploading Disk Images to &productname;</title>
     <para>
-     The following procedure shows how to upload a disk image using the
-     <command>glance</command> command line tool that is contained in the
+    Upload a disk image using the <command>glance</command> command line tool that is contained in the
      package <systemitem class="resource">python-glanceclient</systemitem>.
     </para>
     
     &img-ownership;
-
-        <step>
+    <!--taroth 2013-10-17: fix for https://bugzilla.novell.com/show_bug.cgi?id=838040#c18-->
+    <tip>
+     <title>Using Different Storage Backends</title>
+     <para>
+      By adding the <option>--store</option> option you can specify a
+      different storage backend than the default storage backend that is
+      configured. Possible values for <option>--store</option> are:
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        filesystem
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        http
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        rbd
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        s3
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        swift
+       </para>
+      </listitem>
+     </itemizedlist>
+    </tip>
+        
+    <para>Getting the image properties right is especially relevant when using mixed virtualization
+     environments. For example, to make sure that an image is only launched on appropriate
+     hypervisors, specify properties referring to a certain architecture, hypervisor type, or
+     application binary interface (ABI) that the image requires. </para>
+    <para>Set or modify those properties with the
+       <option>--property&nbsp;<replaceable>key</replaceable>=<replaceable>value</replaceable></option>
+     option. You can do so either directly during image upload (as shown in the examples below) or
+     after the image has been uploaded, see <xref linkend="pro.adm.cli.img.props.modify"/>.</para>
+    <step>
      <para>
       In a shell, source the &ostack; RC file for the project that you want
       to upload an image to. For details, refer to
@@ -595,85 +654,66 @@
     </step>
     <step id="step.adm.cli.img.upload">
      <para>
-      Upload the image by using one of the following commands:<remark>taroth 2014-02-17: todo (see
-       bnc#863876): Missing an example for Xen (check with Bernhard)</remark>
+      Upload the image using <command>glance image-create</command>. Find some example commands for
+      different hypervisors below:
      </para>
      <itemizedlist>
       <listitem>
-       <para>
-        For a <literal>qcow2</literal> image (for use with &kvm;):
-       </para>
-<screen>glance image-create --name="<replaceable>IMAGE_NAME</replaceable>" --progress \
+       <para> For &kvm;: </para>
+       <screen>glance image-create --name="<replaceable>IMAGE_NAME</replaceable>" --progress \
   --is-public=True --container-format=bare \
   --disk-format=qcow2 &lt; <replaceable>PATH_TO_FINAL_IMAGE_FILE</replaceable>.qcow2&nbsp;</screen>
+       <remark>taroth 2014-02-20: todo - image props are missing</remark>
       </listitem>
       <listitem>
-       <para>
-        For a <literal>vhd</literal> image (for use with &hyper;):
-       </para>
-<screen>glance image-create --name="<replaceable>IMAGE_NAME</replaceable>" --progress \
+       <para> For &xen;: </para>
+       <screen>glance image-create --name="<replaceable>IMAGE_NAME</replaceable>" --progress \
   --is-public=True --container-format=bare \
+  --property&nbsp;architecture=x86_64 \
+  --property&nbsp;hypervisor_type=xen \
+  --property&nbsp;vm_mode=xen
+  --disk-format=qcow2 &lt; <replaceable>PATH_TO_FINAL_IMAGE_FILE</replaceable>.qcow2&nbsp;</screen>
+       <important>
+        <title>Value of <option>vm_mode</option></title>
+        <para>For &xen; PV image import, use <option>vm_mode=xen</option>, for &xen; HVM
+         image import use <option>vm_mode=hvm</option>.</para>
+       </important>
+       <!--taroth 2013-10-17: Xen:
+        http://docserv.nue.suse.com/documents/SLES/SLES-xen/single-html/#sec.xen.config.disk-->
+      </listitem>
+      <listitem>
+       <para> For &hyper;: </para>
+       <screen>glance image-create --name="<replaceable>IMAGE_NAME</replaceable>" --progress \
+  --is-public=True --container-format=bare \
+  --property&nbsp;architecture=x86_64 \
+  --property&nbsp;hypervisor_type=hyperv \
+  --property&nbsp;vm_mode=hvm
   --disk-format=vhd &lt; <replaceable>PATH_TO_FINAL_IMAGE_FILE</replaceable>.vhd</screen>
       </listitem>
       <listitem>
-       <para>
-        For a <literal>vmdk</literal> image (for use with &vmware;):
-       </para>
-<screen>glance image-create --name="<replaceable>IMAGE_NAME</replaceable>"  --progress \ 
+       <para> For &vmware;: </para>
+       <screen>glance image-create --name="<replaceable>IMAGE_NAME</replaceable>"  --progress \ 
   --is-public=true --container-format=bare \
-  --disk-format=vmdk&nbsp;--file&nbsp;<replaceable>PATH_TO_FINAL_IMAGE_FILE</replaceable>.vmdk
-       </screen>
-<!--taroth 2013-10-17: fix for https://bugzilla.novell.com/show_bug.cgi?id=838040#c18-->
-       <tip>
-        <title>Using Different Storage Backends</title>
-        <para>
-         With the option <option>--store</option> you can specify a
-         different storage backend than the default storage backend that is
-         configured. Possible values for <option>--store</option> are:
-        </para>
-        <itemizedlist>
-         <listitem>
-          <para>
-           filesystem
-          </para>
-         </listitem>
-         <listitem>
-          <para>
-           http
-          </para>
-         </listitem>
-         <listitem>
-          <para>
-           rbd
-          </para>
-         </listitem>
-         <listitem>
-          <para>
-           s3
-          </para>
-         </listitem>
-         <listitem>
-          <para>
-           swift
-          </para>
-         </listitem>
-        </itemizedlist>
-       </tip>
+  --property&nbsp;vmware_adaptertype="lsiLogic" \
+  --property vmware_disktype="preallocated" \
+  --property hypervisor_type=vmware  
+  --disk-format=vmdk&nbsp;--file&nbsp;<replaceable>PATH_TO_FINAL_IMAGE_FILE</replaceable>.vmdk</screen>
+       <note>
+        <title>Value of <literal>vmware_disktype</literal></title>
+        <para>Depending on which disk type you use, adjust the value of
+         <literal>vmware_disktype</literal> accordingly. For an overview which values to use, refer
+         to <ulink url="http://docs.openstack.org/havana/config-reference/content/vmware.html"/>,
+         <citetitle>Table 2.23. &ostack; Image Service disk type settings</citetitle>.</para>
+       </note>
       </listitem>
-<!--taroth 2013-10-17: Xen:
-       http://docserv.nue.suse.com/documents/SLES/SLES-xen/single-html/#sec.xen.config.disk-->
      </itemizedlist>
      <para>
-      For specifying additional image properties, refer to
-      <xref
-       linkend="pro.adm.cli.img.props.modify"/>.
+      If the image upload has been successful, a message appears, displaying
+      the ID that has been assigned to the image.
      </para>
     </step>
    </procedure>
-   <para>
-    If the image upload has been successful, a message appears, displaying
-    the ID that has been assigned to the image.
-   </para>
+   
   
    <note>
     <title>Updating Images</title>
@@ -690,15 +730,10 @@
      and use the snapshot as a new image.
     </para>
    </note>
-  </sect2>
-
-  <sect2 id="sec.adm.cli.img.props">
-   <title>Modifying Image Properties</title>
-<!-- taroth 2013-08-29: fix for https://bugzilla.novell.com/show_bug.cgi?id=828862-->
-   &img-props;
-  
+   
+   
    <procedure id="pro.adm.cli.img.props.modify">
-    <title>Setting Image Properties for Architecture, Hypervisor and VM Mode</title>
+    <title>Modifying Image Properties</title>
     <para>
      Setting image properties is especially relevant when using mixed
      virtualization environments. For example, to make sure that an image is
@@ -724,7 +759,7 @@
       If you do not know the ID or the exact name of the image whose
       properties you want to modify, look it up with:
      </para>
-<screen>glance&nbsp;image-list</screen>
+     <screen>glance&nbsp;image-list</screen>
     </step>
     <step>
      <para>
@@ -734,37 +769,45 @@
       different hypervisors:
      </para>
      <itemizedlist>
+      <listitem><para>For &kvm;:</para>
+       <para>
+        <remark>taroth 2014-02-20: todo - image props are missing</remark>
+       </para>
+       <screen>glance&nbsp;image-update&nbsp;<replaceable>IMAGE_ID_OR_NAME</replaceable>&nbsp;\
+        --property&nbsp;architecture=x86_64 \
+        --property&nbsp;hypervisor_type=??? \
+      </screen></listitem>
       <listitem>
        <para>For &xen;:</para>
-<screen>glance&nbsp;image-update&nbsp;<replaceable>IMAGE_ID_OR_NAME</replaceable>&nbsp;\
-  --property&nbsp;architecture=x86_64 \
-  --property&nbsp;hypervisor_type=xen \
-  --property&nbsp;vm_mode=xen</screen>
+       <screen>glance&nbsp;image-update&nbsp;<replaceable>IMAGE_ID_OR_NAME</replaceable>&nbsp;\
+        --property&nbsp;architecture=x86_64 \
+        --property&nbsp;hypervisor_type=xen \
+        --property&nbsp;vm_mode=xen</screen>
        <para>For &xen; PV image import, use <option>vm_mode=xen</option>, for &xen; HVM
         image import use <option>vm_mode=hvm</option>.</para> 
-             </listitem>
+      </listitem>
       <listitem>
        <para>For &vmware;:</para>
-<screen>glance&nbsp;image-update&nbsp;<replaceable>IMAGE_ID_OR_NAME</replaceable>&nbsp;\
-  --property&nbsp;vmware_adaptertype="lsiLogic" \
-  --property vmware_disktype="preallocated" \
-  --property hypervisor_type=vmware</screen>
+       <screen>glance&nbsp;image-update&nbsp;<replaceable>IMAGE_ID_OR_NAME</replaceable>&nbsp;\
+        --property&nbsp;vmware_adaptertype="lsiLogic" \
+        --property vmware_disktype="preallocated" \
+        --property hypervisor_type=vmware</screen>
        <!--taroth 2014-02-05: fix for https://bugzilla.novell.com/show_bug.cgi?id=862165#c3,
         as discussed with mjura-->
        <note>
         <title>Value of <literal>vmware_disktype</literal></title>
         <para>Depending on which disk type you use, adjust the value of
-          <literal>vmware_disktype</literal> accordingly. For an overview which values to use, refer
+         <literal>vmware_disktype</literal> accordingly. For an overview which values to use, refer
          to <ulink url="http://docs.openstack.org/havana/config-reference/content/vmware.html"/>,
-          <citetitle>Table 2.23. &ostack; Image Service disk type settings</citetitle>.</para>
+         <citetitle>Table 2.23. &ostack; Image Service disk type settings</citetitle>.</para>
        </note>
       </listitem>
       <listitem>
        <para>For &hyper;:</para>
-<screen>glance&nbsp;image-update&nbsp;<replaceable>IMAGE_ID_OR_NAME</replaceable>&nbsp;\
-  --property&nbsp;architecture=x86_64 \
-  --property&nbsp;hypervisor_type=hyperv \
-  --property&nbsp;vm_mode=hvm</screen>
+       <screen>glance&nbsp;image-update&nbsp;<replaceable>IMAGE_ID_OR_NAME</replaceable>&nbsp;\
+        --property&nbsp;architecture=x86_64 \
+        --property&nbsp;hypervisor_type=hyperv \
+        --property&nbsp;vm_mode=hvm</screen>
       </listitem>
      </itemizedlist>
      <para>
@@ -780,16 +823,17 @@
      <para>
       To list all of the image's metadata, use:
      </para>
-<screen>glance image-show <replaceable>IMAGE_ID_OR_NAME</replaceable>&nbsp;</screen>
+     <screen>glance image-show <replaceable>IMAGE_ID_OR_NAME</replaceable>&nbsp;</screen>
     </step>
     <step>
      <para>
       If you need to remove image properties, use the following command:
      </para>
-<screen>glance image-update <replaceable>IMAGE_ID_OR_NAME</replaceable> --purge-props</screen>
+     <screen>glance image-update <replaceable>IMAGE_ID_OR_NAME</replaceable> --purge-props</screen>
     </step>
    </procedure>
   </sect2>
+
 
   <sect2 id="sec.adm.cli.img.view">
    <title>Viewing Images and Image Properties, Deleting Images</title>
