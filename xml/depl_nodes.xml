@@ -14,9 +14,13 @@
  <para>
   Once the nodes are installed and configured you can start deploying the
   &ostack; services in order to finalize the installation. The services need
-  to be deployed in a given order, because they depend on one another.
-  Deployment is done from the &crow; Web interface through recipes,
-  so-called <quote>&barcl;s</quote>.
+  to be deployed in a given order, because they depend on one another. The
+  <guimenu>Pacemaker</guimenu> service for an &hasetup; is the only exception
+  from this rule&mdash;it can be setup at any time. However, when deploying
+  &productname; from scratch, it is recommended to deploy the
+  <guimenu>Pacemeker</guimenu> proposal(s) first. Deployment for all services
+  is done from the &crow; Web interface through recipes, so-called
+  <quote>&barcl;s</quote>.
  </para>
  <para>
   The services controlling the cloud (including storage management and control
@@ -30,13 +34,26 @@
   on dedicated nodes.
  </para>
  <para>
+  When deploying an &hasetup; the controller nodes are replaced by one or more
+  controller clusters consisting of at least two nodes (three are
+  recommended). Setting up three separate clusters&mdash;for data, services,
+  and networking&mdash;is recommended. See FIXME for more information on
+  requirements and recommendations for an &hasetup;.
+ </para>
+ <para>
   The &ostack; services need to be deployed in the following order. For
-  general instructions on how to edit and deploy &barcl;, refer to
-  <xref
-  linkend="sec.depl.ostack.barclamps"/>. Deploying &o_objstore; and
-  &ceph; is optional; all other services must be deployed.
+  general instructions on how to edit and deploy &barcl;, refer to <xref
+  linkend="sec.depl.ostack.barclamps"/>. Deploying Pacemaker (only needed for
+  an &hasetup;), &o_objstore; and &ceph; is optional; all other services must
+  be deployed.
  </para>
  <orderedlist>
+  <listitem>
+<!-- Pacemaker -->
+   <para>
+    <xref linkend="sec.depl.ostack.pacemaker" xrefstyle="select:title nopage"/>
+   </para>
+  </listitem>
   <listitem>
 <!-- Database -->
    <para>
@@ -222,6 +239,174 @@
    </para>
   </sect2>
  </sect1>
+
+
+ <sect1 id="sec.depl.ostack.pacemaker">
+  <title>Deploying Pacemaker (&hasetup; Only)</title>
+  <para>
+   By setting up one or more clusters by deploying Pacemaker, you can make the
+   &cloud; control controller functions highly available (see FIXME for
+   details). Since it is possible (and recommended) to deploy more than one
+   cluster, a proposal needs to be created for each cluster.
+  </para>
+  <para>
+   To create a proposal, go to <menuchoice> <guimenu>Barclamps</guimenu>
+   <guimenu>OpenStack</guimenu> </menuchoice> and click
+   <guimenu>Edit</guimenu> for the <guimenu>Edit</guimenu> for the Pacemaker
+   &barcl;. A drop-down box where you can enter a name and a description for
+   the proposal opens. Click <guimenu>Create</guimenu> to open the
+   configuration screen for the proposal. 
+  </para>
+  <informalfigure>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="depl_barclamp_pacemaker_proposal.png" width="75%"
+		format="png"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="depl_barclamp_pacemaker_proposal.png" width="75%"
+		format="png"/>
+    </imageobject>
+   </mediaobject>
+  </informalfigure>
+  
+  <important>
+   <title>Proposal Name</title>
+   <para>
+    The name you enter for the proposal will be used to generate hostnames for
+    the virtual IPs of HAProxy. The name uses the following scheme:
+   </para>
+   <screen><replaceable>NAME</replaceable>.cluster-<replaceable>PROPOSAL NAME</replaceable>.<replaceable>FQDN</replaceable></screen>
+   <para>
+    When the proposal name is set to <literal>data</literal>, this results
+    in, for example, <literal>controller.cluster-data.&exampledomain;</literal>.
+   </para>
+  </important>
+  
+  <para>
+   The following options are configurable in the Pacemaker configuration screen:
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term><guimenu>Password for hacluster user in Hawk</guimenu></term>
+    <listitem>
+     <para>
+      The password for the user <systemitem
+      class="username">hacluster</systemitem>. The default value is
+      <literal>crowbar</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>Setup non-web GUI</term>
+    <listitem>
+     <para>
+      Pacemaker supports two GUIs to monitor the cluster status. A Web
+      interface GUI that can be installed by deploying the hawk-server role
+      (see below), and the Pacemaker GUI application. The latter can be
+      installed on the cluster by setting this option to
+      <literal>true</literal>. To access the GUI, log in to a cluster node
+      with <command>ssh -X</command> as user <systemitem
+      class="username">hacluster</systemitem> and start
+      <command>crm_gui</command>. Note that the GUI on &cloud; can only be
+      used to monitor the cluster status and not to change its configuration.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  <figure>
+   <title>The Pacemaker &barcl;</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="depl_barclamp_pacemaker.png" width="75%"
+		format="png"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="depl_barclamp_pacemaker.png" width="75%"
+		format="png"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+  <para>
+   The Pacemaker service consists of three different roles. Deploying the
+   <guimenu>hawk-server</guimenu> role is optional:
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term><guimenu>pacemaker-cluster-founder</guimenu></term>
+    <listitem>
+     <para>
+      <remark condition="clarity">
+       2014-03-26 - fs: This role might not be necessary in the future
+      </remark>
+      This role is used internally by &crow; to orchestrate the cluster
+      setup. It must only be deployed on a single node that should become
+      member of the cluster. 
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><guimenu>pacemaker-cluster-member</guimenu></term>
+    <listitem>
+     <para>
+      Deploy this role on all nodes that should become member of the cluster
+      except for the one where <guimenu>pacemaker-cluster-founder</guimenu> is
+      deployed. 
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><guimenu>hawk-server</guimenu></term>
+    <listitem>
+     <para>
+      Deploying this role is optional. If deployed, sets up the Hawk Web
+      interface which lets you monitor the status of the cluster. The Web
+      interface can be accessed via
+      <literal>http://<replaceable>IP-ADDRESS</replaceable>:7630</literal>.
+      Note that the GUI on &cloud; can only be used to monitor the cluster
+      status and not to change its configuration.
+     </para>
+     <para>
+      <guimenu>hawk-server</guimenu> may be deployed on at least one cluster
+      node. It is recommended to deploy it on all cluster nodes.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  <figure>
+   <title>The Pacemaker &barcl;: Node deployment Example</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="depl_barclamp_pacemaker_node_deployment.png" width="75%"
+		format="png"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="depl_barclamp_pacemaker_node_deployment.png" width="75%"
+		format="png"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+  <para>
+   Once a cluster has been successfully deployed, it is listed under
+   <guimenu>Available Clusters</guimenu> in the <guimenu>Deployment</guimenu>
+   section and can be used for role deployment like a regular node. 
+  </para>
+  <figure>
+   <title>Available Clusters in the Deployment Section</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="depl_barclamp_database_cluster_deployment.png" width="75%"
+		format="png"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="depl_barclamp_database_cluster_deployment.png" width="75%"
+		format="png"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+ </sect1>
+ 
+
  <sect1 id="sec.depl.ostack.db">
   <title>Deploying the Database</title>
 
