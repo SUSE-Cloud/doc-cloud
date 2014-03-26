@@ -1486,6 +1486,218 @@
    </listitem>
   </itemizedlist>
  </sect1>
+ <sect1 id="sec.depl.req.ha">
+  <title>&ha; Requirements</title>
+ <para>Several components and services in &productname; are potential single
+ point of failures that may cause system downtime and/or data loss if they fail.</para>
+ <para>You can prevent this by different mechanism to make sure that the crucial
+ components are services are highly available. </para>
+  <sect2 id="sec.depl.req.ha.admin">
+   <title>&ha; of the &admserv;</title>
+   <para>The &admserv; provides all services needed to manage and deploy all
+    other nodes in the cloud. If the &admserv; is not available, new
+    cloud nodes cannot be allocated, and you cannot add new roles to cloud
+    nodes.</para>
+   <para>However, only two services on the &admserv; are single point of
+    failures, without which the cloud cannot continue to run properly: DNS and
+    NTP.</para>
+   <para>To remove this single point of failure, deploy multiple nodes with the
+     <systemitem>dns-server</systemitem> and <systemitem>ntp-server</systemitem>
+     roles.</para>
+   <para>All nodes with a <systemitem>dns-server</systemitem> and
+     <systemitem>ntp-server</systemitem> role need to have access to the
+    external network, so they can reach the external DNS and NTP servers. If
+    there is no route to get out and reach these external servers via the admin
+    network, you can also allocate a public IP for the relevant
+    nodes:</para>
+   <screen>crowbar network allocate_ip default $NODE public host</screen>
+   <para>That way, they will be able to use the public gateway to reach the
+    external servers. </para>
+   <para>To minimize recovery time for the &admserv;, follow the backup and
+    restore recommendations described in FIXME. 
+    <remark>taroth 2014-03-25: todo - check with Frank where this will be
+     documented and add link</remark></para>
+   <!--taroth 2014-03-28: copied from http://etherpad.cloud.suse.de/p/cloud-HA-user-docs-->
+    
+     </sect2>
+  <sect2 id="sec.depl.reg.ha.control">
+   <title>&ha; of the &contrnode;(s)</title>
+   <para></para>
+   <!--taroth 2014-03-28: explain main concepts? add link to SLE HA HA Guide  etc.-->
+   <!--taroth 2014-03-28: copied from http://etherpad.cloud.suse.de/p/cloud-HA-user-docs-->
+   <!-- 
+    we recommend to use a cluster for the following roles if HA is wanted:
+    
+    database-server (database barclamp)
+    
+    keystone-server (keystone barclamp)
+    
+    rabbitmq-server (rabbitmq barclamp)
+    
+    swift-proxy (swift barclamp)
+    
+    glance-server (glance barclamp)
+    
+    cinder-controller (cinder barclamp)
+    
+    neutron-server (neutron barclamp)
+    
+    neutron-l3 (neutron barclamp)
+    
+    nova-multi-controller (nova barclamp)
+    
+    nova_dashboard-server (nova_dashboard barclamp)
+    
+    ceilometer-server (ceilometer barclamp)
+    
+    ceilometer-cagent (ceilometer barclamp)
+    
+    heat-server (heat barclamp)
+    
+    it's fine to use the same cluster for all of these, but people might want to put database and rabbitmq on a different cluster 
+    (as all other roles are related to API / schedulers) and should likely use a different cluster for neutron-l3 
+    (as this can have heavy network load, and cpu impact)
+    
+    Note about HA for rabbitmq / database:
+    
+    DRBD & shared storage will be an option
+    
+    it's critical that the UID and GID for rabbitmq and database are the same on each node of the cluster! 
+    For postgresql, this should be always fine; for rabbitmq, it might require manual work!
+    
+    when using shared storage, it's critical to manually chown the directory for shared storage to the right user!
+    
+    Note about HA for glance:
+    
+    if using the file backend, then the directory containing the images must be on shared storage (nfs_client barclamp can help too)
+    
+    shared storage mean network access needs to be HA
+    
+    swift and ceph backends just work
+    
+    for full HA of cinder:
+    
+    we recommend deploying several nodes with the cinder-volume role
+    
+    if using several nodes, the raw  backend can't work (disks won't be shared), the file backend needs  shared storage (like glance), using other backends is fine
+    
+    the backend used for storage must be non local (a SAN, ceph, etc.); this way, instances do not mount volumes directly from cinder-volume nodes and these nodes can go down
+    
+    FIXME: needs to be confirmed
+    
+    for full HA of neutron:
+    
+    Need to clarify which agents we support for HA. Main question currently: Do we want to support HA with the vmware-agent from the beginning?
+    
+    FIXME: depends on what we do for neutron-l3
+    
+    if one node with the neutron-l3 role goes down, then another neutron-l3 node will be used for the traffic of existing instances
+    
+    Reiterate the above point about the cloud operator not bypassing Pacemaker
+    when starting/stopping services managed by Pacemaker.-->
+
+   <!--
+     Once pacemaker assumes control of a service, the cloud operator should NOT directly start or stop that service - they should only do it 
+     through Hawk, crmsh, or hb_gui, or by first placing the relevant resources in maintenance mode.  Operators who violate this contract as 
+     documented at https://www.suse.com/documentation/sle_ha/book_sleha/data/sec_ha_configuration_basics_resources.html 
+     get to keep all the pieces of their broken cloud :-)
+    -->
+  
+  </sect2>
+  <sect2 id="sec.depl.reg.ha.compute">
+   <title>&ha; of the &compnode;(s)</title>
+   <para></para>
+   <!--taroth 2014-03-28: copied from http://etherpad.cloud.suse.de/p/cloud-HA-user-docs-->
+   <!-- 
+    there is no support for HA on compute nodes at this point. If a compute node goes down, then all its instances will go down too. 
+    It is recommended to write cloud applications accordingly.
+    
+    FIXME: The instances can be rescheduled if needed, I think. Need to document the command.
+     -->
+  </sect2>
+  <sect2 id="sec.depl.reg.ha.storage">
+   <title>&ha; of the &stornode;(s)</title>
+   <para></para>
+   <!--taroth 2014-03-28: copied from http://etherpad.cloud.suse.de/p/cloud-HA-user-docs-->
+   
+   <!-- 
+    swift:
+    
+    by design, swift replicates the data (make sure to use the right options in the barclamp)
+    
+    FIXME: which options?
+    
+    this means that simply adding multiple nodes to the swift-storage role is enough to get HA
+    
+    if the swift-proxy role is assigned to a cluster, then the API will also be HA
+    
+    there is no need for HA for swift-ring-compute and swift-dispersion
+    
+    ceph: by design, ceph is HA-enabled. You just need to add enough nodes
+    
+    FIXME: what is "enough"?   -->
+  </sect2>
+  <sect2 id="sec.depl.reg.ha.general">
+   <title>General Requirements</title>
+   <para></para>
+   <!-- taroth 2014-03-28: copied from  http://etherpad.cloud.suse.de/p/cloud-HA-user-docs-->
+ 
+   <!-- 
+    We strongly recommend an odd number of cluster nodes.
+   
+   However 2-node clusters are supported in certain cases:
+   
+   FIXME: decide restrictions - need to ask HAE guys about this
+   
+   SBD with reboot loop protection is a big help
+   
+   A minimum of one STONITH device per node is required for HA to be supported! Please refer to the HA guide!!! Make sure the user had read the HA guide. The HA guide must have been read. Got it? :-)
+   
+   This includes https://www.suse.com/documentation/sle_ha/book_sleha/data/sec_ha_fencing_recommend.html
+   
+   We strongly recommend multiple STONITH devices per node, unless SBD is used.
+   
+   stonith-enabled has to be true, of course.
+   
+   why does it need to be in the doc? It's done by the cookbook already.
+   
+   startup-fencing should always be true
+   
+   why does it need to be in the doc?
+   
+   We strongly recommend redundant cluster communication channels; this is required for a cluster to be supported in production.
+   
+   only setup HA-enabled roles on a cluster. If a non-cluster-enabled role is added to a cluster, then things can go bad because of STONITH (where the node will be shut down)
+   
+   and when using HA-enabled roles, they must be used by assigning the cluster, not individual nodes (except for roles like swift-storage and cinder-volume which are HA-ready another way)
+   
+   for instance, if a nova-multi-compute-kvm role is added to the node, then instances on that node might be killed when STONITH is used
+   
+   we probably want to recommend a specific networking setup to ensure communication is not lost (teaming?)
+   
+   I think teaming would be less reliable than separate communication channels, since then the teamed interface becomes a SPoF
+   
+   can you clarify what would be the issue? And how would we implement separate communication channels? (it just doesn't match crowbar networking model, afaik)
+   
+   This might work. Though I am not sure if that's what pacemaker can work with:
+   
+   set up an additional network in the network.json
+   
+   make sure that that network is assigned to a different conduit and ends up on a different physical NIC than the admin network
+   
+   have the pacemaker barclamp allocate an IP on this network for all cluster node
+   
+   configure it as an alternate communication channel so that both, the admin network and the new network are used for cluster communication
+   
+   Make sure that both networks connect to different switches. (In a two node cluster this can AFAIK also be a direct crosslink between the two nodes)
+   -->
+  </sect2>
+ <!-- <sect2 id="sec.depl.reg.ha.network">
+   <title>Network Requirements</title>
+  <para></para>
+  </sect2>
+ -->
+ </sect1>
  <sect1 id="sec.depl.req.summary">
   <title>Summary: Considerations and Requirements</title>
 
