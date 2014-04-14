@@ -1489,9 +1489,9 @@
  <sect1 id="sec.depl.req.ha">
   <title>&ha;</title>
   <para>Several components and services in &productname; can become single
-   point of failures that may cause system downtime and/or data loss if they
+   points of failure that may cause system downtime and/or data loss if they
    fail.</para>
-  <para>You can prevent this by different mechanism to make sure that the
+  <para>&productname; provides various mechanisms which can ensure that the
    crucial components and services are highly available. The following sections
    provide an overview of which components on each node you should consider to
    make highly available. For making the &contrnode; functions highly
@@ -1526,7 +1526,7 @@
       <para>If there is no route to get out and reach these external servers via
        the admin network, you can also allocate a public IP for the relevant
        nodes:</para>
-      <screen>crowbar network allocate_ip default $NODE public host</screen>
+      <screen>crowbar network allocate_ip default `hostname -f` public host</screen>
       <para>That way, they will be able to use the public gateway to reach the
        external servers. </para>
      </step>
@@ -1616,8 +1616,8 @@
        &barcl;)</para>
      </listitem>
     </itemizedlist>
-    <para>Instead of deploying these roles to individual cloud nodes, you can
-     deploy them to one or several &ha; clusters. &productname; will
+    <para>Instead of assigning these roles to individual cloud nodes, you can
+     assign them to one or several &ha; clusters. &productname; will
      then use the Pacemaker cluster stack (shipped with the &sle;
      &hasi;) to manage the services and to fail them over to another
      &contrnode; in case one &contrnode; fails. For details on the
@@ -1658,21 +1658,51 @@
       </sect3>
    <sect3 id="sec.depl.reg.ha.control.recover">
     <title>&contrnode;(s)&mdash;Recovery</title>
-    <para>Recovery of the &contrnode;(s) id done automatically by the
+    <para>Recovery of the &contrnode;(s) is done automatically by the
      cluster software: if one &contrnode; fails, Pacemaker will fail over
-     the services to another &contrnode;. </para>
+     the services to another &contrnode;. If a failed &contrnode; is
+     repaired and rebuilt via &crow;, it will be automatically configured to
+     join the cluster, at which point Pacemaker will have the option to fail
+     services back if required.</para>
    </sect3>
   </sect2>
   <sect2 id="sec.depl.reg.ha.compute">
    <title>&ha; of the &compnode;(s)</title>
    <para>If a &compnode; fails, all VMs running on that node will go down,
-    too. 
-    <remark>taroth 2014-03-27:
-     http://etherpad.cloud.suse.de/p/cloud-HA-user-docs: "It is recommended to
-     write cloud applications accordingly. FIXME: The instances can be
-     rescheduled if needed, I think. Need to document the command." - DEVs,
-     please see my questions in Etherpad</remark>
-   </para>
+    too. In that case, you can relaunch all instances that are hosted on the
+    failed node if you use shared storage for
+     <filename>/var/lib/nova/instances</filename>. For instructions on how to do
+    so, see <ulink
+     url="http://docs.openstack.org/trunk/openstack-ops/content/maintenance.html#compute_node_failures"
+    />, section <citetitle>Compute Node Failures and Maintenance</citetitle>. In
+    addition, you can use &o_orch; to monitor VM instances and auto-restart
+    them if required.
+    <!-- aspiers 2014-04-02: However, there seems to be limited docs on this upstream.  
+     None of the stuff I found was yet polished user-facing material suitable for linking to from our docs
+     - taroth 2014-04-14: including the links here anyway -->
+    For more information, see the following links:</para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <ulink url="https://wiki.openstack.org/wiki/Heat/HA"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <ulink
+       url="http://docs.openstack.org/developer/heat/getting_started/index.html"
+      />
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <ulink url="https://wiki.openstack.org/wiki/Heat"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+   <!--aspiers 2014-04-02: https://wiki.openstack.org/wiki/NovaResiliency is also relevant 
+   although probably not directly very useful for writing user docs.   -->
+
    <sect3 id="sec.depl.reg.ha.compute.recovery">
     <title>&compnode;(s)&mdash;Recovery</title>
     <para>A &compnode; can be recovered with the following steps:</para>
@@ -1681,9 +1711,8 @@
       <para>If required, install new hardware on the &compnode;.</para>
      </step>
      <step>
-      <para>Reinstall the &compnode; from &crow; via &ay;. For more information, refer to
-       <xref linkend="sec.depl.inst.nodes.edit"/>.
-      </para>
+      <para>Reinstall the &compnode; from &crow; via &ay;. For more
+       information, refer to <xref linkend="sec.depl.inst.nodes.edit"/>. </para>
      </step>
      <step>
       <para>Restart the instances that had been running on the failed
@@ -1702,14 +1731,19 @@
 
    <sect3 id="sec.depl.reg.ha.storage.swift">
     <title>&swift;&mdash;Avoiding Points of Failure </title>
-    <para>If deployed correctly, the &ostack; &objstore; replicates the
-     data by design. 
-     <remark>taroth 2014-03-27:
-      http://etherpad.cloud.suse.de/p/cloud-HA-user-docs: : "make sure to use
-      the right options in the barclamp" - DEVs: which options? please see my
-      questions in Etherpad</remark>
-    </para>
-
+    <para>The &ostack; &objstore; replicates the data by design,
+     provided the following requirements are met:</para>
+    <itemizedlist>
+     <listitem>
+      <para>The option <guimenu>Replicas</guimenu> in the Pacemaker &barcl;
+       must be set to a value greater than <literal>1</literal>.</para>
+     </listitem>
+     <listitem>
+      <para>The number of &stornode; must be greater than the value set in
+       the <guimenu>Replicas</guimenu> option.</para>
+     </listitem>
+    </itemizedlist>
+    
     <procedure>
      <step>
       <para>To avoid single points of failure, assign the
@@ -1719,16 +1753,10 @@
       <para>To make the API highly available, too, assign the
         <systemitem>swift-proxy</systemitem> role to a cluster instead of
        assigning it to a single &contrnode;. See <xref
-        linkend="sec.depl.reg.ha.control.spof"/>.</para>
-     </step>
-     <step>
-      <para>If you deploy <systemitem>swift-dispersion</systemitem>, too
-       (optional), deploy it on the same node or cluster as
-        <systemitem>swift-proxy</systemitem>.</para>
+       linkend="sec.depl.reg.ha.control.spof"/>. Other swift roles must not be
+       deployed on a cluster.</para>
      </step>
     </procedure>
-    <remark>taroth 2014-03-27: "there is no need for HA for swift-ring-compute
-     and swift-dispersion" - DEVs, please see my questions on Etherpad</remark>
    </sect3>
    <sect3 id="sec.depl.reg.ha.storage.ceph">
     <title>&ceph;&mdash;Avoiding Points of Failure </title>
@@ -1747,7 +1775,7 @@
     &haguide; for &sle; &hasi; 11 SP3. The guide is available at
      <ulink url="https://www.suse.com/documentation/sle_ha/"/>. If you want to
     make the &contrnode; functions highly available, the requirements listed
-    there also apply to &productname;. Note that with buying
+    there also apply to &productname;. Note that by buying
     &productname;, you automatically get an entitlement for &sle;
     &hasi;.</para>
    <para>Especially note the following requirements: </para>
@@ -1771,14 +1799,14 @@
     <varlistentry>
      <term>&stonith;</term>
      <listitem>
+      <para>The cluster software will shut down <quote>misbehaving</quote> nodes
+       in a cluster to prevent them from causing trouble. This mechanism is
+       referred to as <literal>fencing</literal> or <xref
+        linkend="gloss.stonith" xrefstyle="select:titel nopage"/>.</para>
       <important>
        <title>No Support Without &stonith;</title>
        <para> A cluster without &stonith; is not supported. </para>
       </important>
-      <para>The cluster software will shut down <quote>misbehaving</quote> nodes
-       in a cluster to prevent them from causing trouble. This mechanism is
-       referred to as <literal>fencing</literal> or &stonith; (<quote>Shoot
-        the other node in the head</quote>).</para>
       <para>For a supported &hasetup;, ensure the following:</para>
       <itemizedlist>
        <listitem>
@@ -1825,8 +1853,9 @@
        least one communication channel. </para>
       <important>
        <title>Redundant Communication Paths</title>
-       <para> However, it is highly recommended to set up cluster communication
-        via two or more redundant paths. This can be done via: </para>
+       <para> However, for a supported &hasetup;, it is required to set up
+        cluster communication via two or more redundant paths. This can be done
+        via: </para>
        <itemizedlist>
         <listitem>
          <para>Network Device Bonding. <remark>taroth 2014-03-28: DEVs, how are
