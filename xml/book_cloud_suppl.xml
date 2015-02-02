@@ -22,8 +22,523 @@
   <xi:include href="copyright_suse_cloud.xml" xmlns:xi="http://www.w3.org/2001/XInclude"/>
   <xi:include href="authors.xml" xmlns:xi="http://www.w3.org/2001/XInclude"/>
  </bookinfo>
- <chapter>
-  <title></title>
-  <para></para>
+ 
+ <chapter id="cha.adm.cli.img">
+  <title>Managing Images</title> &images; &img-manage; <para>Managing images for
+   &productname; requires the following basic steps: </para>
+  <procedure>
+   <step>
+    <para>
+     <xref linkend="sec.adm.cli.img.build" xrefstyle="select:title"/>. </para>
+    <para>For general and hypervisor-specific requirements, refer to <xref
+      linkend="sec.adm.cli.img.build.req"/>. </para>
+   </step>
+   <step>
+    <para>
+     <xref linkend="pro.adm.cli.img.upload" xrefstyle="select:title"/>. </para>
+    <para> Images can either be uploaded to &productname; with the <command>glance</command>
+     command line tool or with the &productname; &dash;. As the &dash; comes with some
+     limitations with regards to image upload and modification of properties, it is recommended to
+     use the <command>glance</command> command line tools for comprehensive image management.
+    </para>
+   </step>
+   <step>
+    <para>Specifying Image Properties. You can do so during image upload (using
+     <command>glance&nbsp;image-create</command>) or with
+     <command>glance&nbsp;image-update</command> after the image has already been uploaded.
+     Refer to <xref linkend="pro.adm.cli.img.upload"/> and <xref
+      linkend="pro.adm.cli.img.props.modify"/>. </para> &note-img-props; </step>
+  </procedure>
+  <sect1 id="sec.adm.cli.img.build.req">
+   <title>Image Requirements</title>
+   <para>To build the images to use within the cloud, use &susestudio; or &suseonsite; as
+    they provide automatic insertion of management scripts and agents. Make sure any images that you
+    build for &productname; fulfill the following requirements. </para>
+   <sect2 id="vl.adm.img.req.general">
+    <title>General Image Requirements</title>
+    <itemizedlist>
+     <listitem>
+      <para> The network is set to DHCP. </para>
+     </listitem>
+     <listitem>
+      <para> The image does not include &yast;2 Firstboot. </para>
+     </listitem>
+     <listitem>
+      <para> The image does not include any end-user license agreement (EULA) dialogs. </para>
+     </listitem>
+     <listitem>
+      <para> The image contains the <systemitem class="resource">cloud-init</systemitem> package.
+       The package will be automatically added to the image if the following check box in
+       &susestudio; or &suseonsite; is enabled: <guimenu>Integrate with
+        &productname;/OpenStack</guimenu>. </para>
+      <para> The <systemitem class="resource">cloud-init</systemitem> package contains tools used
+       for communication with the instance metadata API, which is provided by &comp;. The
+       metadata API is only accessible from inside the VM. The package is needed to pull keypairs
+       into the virtual machine that will run the image. </para>
+     </listitem>
+    </itemizedlist>
+    <para> If you intend to manage the image by the &orch; module, you also need to include the
+     following package: <systemitem class="resource">openstack-heat-cfntools</systemitem> (part of
+     the &productname; ISO). </para>
+   </sect2>
+   <sect2 id="vl.adm.img.req.virt">
+    <title>Image Requirements Depending on Hypervisor</title>
+    <para> Depending on the virtualization platform on which you want to use the image, make sure
+     the image also fulfills the following requirements. </para>
+    <variablelist>
+     <varlistentry>
+      <term>&kvm;</term>
+      <listitem>
+       <para> Appliance format: If you are using &susestudio; or &suseonsite; 1.3 to build
+        images, use the <literal>&productname;/OpenStack/&kvm; (.qcow2)</literal> format.
+       </para>
+      </listitem>
+     </varlistentry>
+     <!--https://bugzilla.novell.com/show_bug.cgi?id=863876-->
+     <varlistentry>
+      <term>&xen;</term>
+      <listitem>
+       <para> Appliance format: If you are using &susestudio; or &suseonsite; 1.3 to build
+        images, use the <literal>&productname;/OpenStack/&kvm; (.qcow2)</literal> format.
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>&vmware;</term>
+      <listitem>
+       <para> Appliance format: If you are using &susestudio; or &suseonsite; 1.3 to build
+        images, use the <literal>VMware/VirtualBox/KVM (.vmdk)</literal> format. </para>
+       <!--taroth 2014-02-05: fix for https://bugzilla.novell.com/show_bug.cgi?id=862165#c3,
+        as discussed with mjura-->
+       <para> If you are using &susestudio; or &suseonsite; to build images, the resulting
+        image will be a monolithic <literal>sparse</literal> file.</para>
+       <note>
+        <title>Image Conversion</title>
+        <para>Sparse images can be uploaded to &ostack; &img;. However, it is recommended to
+         convert sparse images into a different format before uploading them to &ostack;
+         &img; (because starting VMs from sparse images may take longer).</para>
+        <para>For a list of supported image types, refer to <ulink
+          url="http://docs.openstack.org/icehouse/config-reference/content/vmware.html"/>, section
+          <citetitle>Supported image types</citetitle>.</para>
+        <para>For details on how to convert a sparse image into different formats, refer to <ulink
+          url="http://docs.openstack.org/icehouse/config-reference/content/vmware.html"/>, section
+          <citetitle>Optimize images</citetitle>. </para>
+       </note>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>&hyper;</term>
+      <listitem>
+       <para> Appliance format: If you are using &susestudio; or &suseonsite; 1.3 to build
+        images, use the <literal>Hyper-V (.vhd)</literal>, or
+         <literal>&productname;/OpenStack/&kvm; (.qcow2)</literal> format. </para>
+       <para> As &hyper; only supports images in <filename>*.vhd</filename> format, convert any
+         <literal>qcow2</literal> images before uploading them to &productname;. For details,
+        refer to <xref linkend="pro.adm.cli.img.convert" xrefstyle="select:label"/>. </para>
+       <!--taroth 2013-10-17: fix for https://bugzilla.novell.com/show_bug.cgi?id=836765#c21-->
+       <para> To ensure that an image is bootable on &hyper;, check the
+         <literal>INITRD_MODULES</literal> lines in <filename>/etc/sysconfig/kernel</filename> for
+        the parameters <literal>hv_storvsc</literal> and <literal>mkinitrd</literal>. If the
+        parameters are missing, add them. Otherwise the Kernel module for storage devices will not
+        be loaded and the root file system will not be available. </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+   </sect2>
+   <sect2 id="tip.adm.img.req.virt.mult">
+    <!--https://bugzilla.novell.com/show_bug.cgi?id=836765#22-->
+    <title>Images for Use With Multiple Hypervisors</title>
+    <para> If you build the images for &productname; in &susestudio; or &suseonsite;,
+     they are compatible with multiple hypervisors by default&mdash;even if you may have to
+     convert the resulting image formats before uploading them to &ostack; &img;. See <xref
+      linkend="pro.adm.cli.img.convert"/> for details. </para>
+    <para> If your image is not made in &susestudio; or &suseonsite;, configure the image as
+     follows to create an image that can be booted on &kvm;, &xen;, and &hyper;, for
+     example: </para>
+    <variablelist>
+     <varlistentry>
+      <term><filename>/etc/sysconfig/kernel</filename>
+       </term>
+      <listitem>
+       <screen>INITRD_MODULES="virtio_blk virtio_pci ata_piix ata_generic hv_storvsc"</screen>
+       <para> The resulting disk device will be called <filename>/dev/sda</filename> on &hyper;.
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term><filename>/boot/grub/menu.lst</filename>
+       </term>
+      <listitem>
+       <para> To name the partition that should be booted, use: </para>
+       <screen>root=UUID=...</screen>
+       <para> To find the respective UUID value to use, execute the following command: </para>
+       <screen>tune2fs -l /dev/sda2|grep UUID</screen>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term><filename>/etc/fstab</filename>
+       </term>
+      <listitem>
+       <para> Do not use device names (<filename>/dev/...</filename>), but
+         <literal>UUID=...</literal> or <literal>LABEL=root</literal> entries. For the latter, add
+        the label <literal>root</literal> to the root file system of your image (in this case,
+         <filename>/dev/sda2</filename>): </para>
+       <screen>tune2fs -L root /dev/sda2</screen>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>Disk Format</term>
+      <listitem>
+       <para>Use <filename>*.qcow2</filename> as disk format for your image. </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>Image Properties in &ostack; &img;</term>
+      <listitem>
+       <para>To upload the image to &productname; only once and to use the same image for
+        &kvm;, &xen;, and &hyper;, specify the following image options during or after
+        upload: </para>
+       <screen>--is-public=True --container-format=bare \
+  --property&nbsp;architecture=x86_64 \
+  --property vm_mode=hvm \
+  --disk-format=qcow2</screen>
+      </listitem>
+     </varlistentry>
+
+    </variablelist>
+   </sect2>
+  </sect1>
+  <sect1 id="sec.adm.cli.img.build">
+   <title>Building Images with &susestudio;</title>
+   <para> When creating an appliance for &productname; the following steps are essential: </para>
+   <procedure>
+    <step>
+     <para> In &susestudio; or &suseonsite;, switch to the <menuchoice>
+       <guimenu>Configuration</guimenu>
+       <guimenu>Appliance</guimenu>
+      </menuchoice> tab. </para>
+    </step>
+    <step>
+     <para> Enable the <guimenu>Integrate with &productname;/OpenStack</guimenu> check box.
+     </para>
+    </step>
+    <step>
+     <para> On the <guimenu>Build</guimenu> tab, choose the respective appliance format. It mainly
+      depends on the hypervisor on which you want to use the image&mdash;see <xref
+       linkend="vl.adm.img.req.virt"/>. </para>
+    </step>
+   </procedure>
+   <para> For more detailed information on how to build appliance images, refer to the
+     <citetitle>&suseonsite; Quick Start</citetitle> or the <citetitle>&suseonsite; User
+     Guide</citetitle>, available at <ulink url="http://www.suse.com/documentation/suse_studio/"/>.
+   </para>
+  </sect1>
+  <sect1 id="sec.adm.cli.img.props">
+   <title>Image Properties</title>
+   <!-- taroth 2013-08-29: fix for https://bugzilla.novell.com/show_bug.cgi?id=828862-->
+   &img-props; </sect1>
+  <sect1 id="sec.adm.cli.img.upload">
+   <title>Uploading Images</title>
+   <para> If you have created an image for <literal>&productname;/OpenStack/&kvm;</literal>
+    with &susestudio; or with &suseonsite; 1.3, you can upload the image directly as
+    described in <xref linkend="pro.adm.cli.img.upload"/>. </para>
+   <para>If you use &hyper;, convert any <literal>qcow2</literal> images before uploading them
+    to &productname;.</para>
+
+   <procedure id="pro.adm.cli.img.convert">
+    <title>Converting Disk Images to Different Formats</title>
+    <step>
+     <!--taroth 2013-08-30: for the records and later revisions: package
+      virt-utils is called qemu-tools in openSUSE or newer (info by dmueller) -->
+     <para> Make sure the <systemitem class="resource">virt-utils</systemitem> package is installed
+      on the machine used for conversion. </para>
+    </step>
+    <step>
+     <para> Download the image from &susestudio;. </para>
+    </step>
+    <step>
+     <para>To convert <literal>qcow2</literal> to <literal>vhd</literal> images, use the following
+      command:</para>
+     <screen>qemu-img convert -O vpc&nbsp;<replaceable>CURRENT_IMAGE_FILE</replaceable>&nbsp;<replaceable>FINAL_IMAGE_FILE</replaceable>.vhd</screen>
+    </step>
+   </procedure>
+   <!--taroth 2014-02-20: converting from raw to qcow2 should not be necessary anymore, still only
+    comenting the following step in case it is needed again-->
+   <!--<step>
+    <para>
+    To convert the image to a different format, use either of the
+    following commands:
+    </para>
+    <itemizedlist>
+    <listitem>
+    <para>
+    For conversion from <literal>raw</literal> to
+    <literal>qcow2</literal>:
+    </para>
+    <screen>qemu-img convert -c -f raw -O&nbsp;qcow2&nbsp;\
+    <replaceable>CURRENT_IMAGE_FILE</replaceable>&nbsp;<replaceable>FINAL_IMAGE_FILE</replaceable>.qcow2</screen>
+    </listitem>
+    <listitem>
+    <para>
+    For conversion from <literal>raw</literal> or
+    <literal>qcow2</literal> to <literal>vhd</literal>:
+    </para>
+    <screen>qemu-img convert -O vpc&nbsp;<replaceable>CURRENT_IMAGE_FILE</replaceable>&nbsp;<replaceable>FINAL_IMAGE_FILE</replaceable>.vhd</screen>
+    </listitem>
+    </itemizedlist>
+    </step>-->
+
+   <procedure id="pro.adm.cli.img.upload">
+    <title>Uploading Disk Images to &productname;</title>
+    <para> Upload a disk image using the <command>glance</command> command line tool that is
+     contained in the package <systemitem class="resource">python-glanceclient</systemitem>. </para>
+    &img-ownership; <!--taroth 2013-10-17: fix for https://bugzilla.novell.com/show_bug.cgi?id=838040#c18-->
+    <!--taroth 2014-02-21: commenting on behalf of vuntz, see https://bugzilla.novell.com/show_bug.cgi?id=863876#c3
+     <tip>
+     <title>Using Different Storage Backends</title>
+     <para>
+      By adding the <option>-/-store</option> option you can specify a
+      different storage backend than the default storage backend that is
+      configured. Possible values for <option>-/-store</option> are:
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        filesystem
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        http
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        rbd
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        s3
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        swift
+       </para>
+      </listitem>
+     </itemizedlist>
+    </tip>-->
+    <para>Set or modify hypervisor-specific properties with the
+       <option>--property&nbsp;<replaceable>key</replaceable>=<replaceable>value</replaceable></option>
+     option. This can be done directly during image upload (as shown in the examples below). To
+     change the properties after image upload, refer to <xref linkend="pro.adm.cli.img.props.modify"
+     />.</para>
+    <step>
+     <para> In a shell, source the &ostack; RC file for the project that you want to upload an
+      image to. For details, refer to <ulink url="http://docs.openstack.org/user-guide/content/cli_openrc.html"></ulink>. </para>
+    </step>
+    <step id="step.adm.cli.img.upload">
+     <para> Upload the image using <command>glance image-create</command>. Find some example
+      commands for different hypervisors below: </para>
+     <itemizedlist>
+      <!--taroth 2014-20-21: CAVE, the same hypervisor-specific props are mentioned in 2 procedures: 
+       pro.adm.cli.img.upload and pro.adm.cli.img.props.modify -->
+      <listitem>
+       <para> For &kvm;: </para>
+       <screen>glance image-create --name="<replaceable>IMAGE_NAME</replaceable>" --progress \
+  --is-public=True --container-format=bare \
+  --property&nbsp;architecture=x86_64 \
+  --property&nbsp;hypervisor_type=kvm \
+  --disk-format=qcow2 &lt; <replaceable>PATH_TO_FINAL_IMAGE_FILE</replaceable>.qcow2&nbsp;</screen>
+      </listitem>
+      <listitem>
+       <para> For &xen;: </para>
+       <screen>glance image-create --name="<replaceable>IMAGE_NAME</replaceable>" --progress \
+  --is-public=True --container-format=bare \
+  --property&nbsp;architecture=x86_64 \
+  --property&nbsp;hypervisor_type=xen \
+  --property&nbsp;vm_mode=xen \
+  --disk-format=qcow2 &lt; <replaceable>PATH_TO_FINAL_IMAGE_FILE</replaceable>.qcow2&nbsp;</screen>
+       &note-vm_mode;
+       <!--taroth 2013-10-17: Xen:
+        http://docserv.nue.suse.com/documents/SLES/SLES-xen/single-html/#sec.xen.config.disk-->
+      </listitem>
+      <listitem>
+       <para> For &hyper;: </para>
+       <screen>glance image-create --name="<replaceable>IMAGE_NAME</replaceable>" --progress \
+  --is-public=True --container-format=bare \
+  --property&nbsp;architecture=x86_64 \
+  --property&nbsp;hypervisor_type=hyperv \
+  --property&nbsp;vm_mode=hvm \
+  --disk-format=vhd &lt; <replaceable>PATH_TO_FINAL_IMAGE_FILE</replaceable>.vhd</screen>
+      </listitem>
+      <listitem>
+       <para> For &vmware;: </para>
+       <screen>glance image-create --name="<replaceable>IMAGE_NAME</replaceable>"  --progress \ 
+  --is-public=true --container-format=bare \
+  --property&nbsp;vmware_adaptertype="lsiLogic" \
+  --property vmware_disktype="preallocated" \
+  --property hypervisor_type=vmware \
+  --disk-format=vmdk&nbsp;--file&nbsp;<replaceable>PATH_TO_FINAL_IMAGE_FILE</replaceable>.vmdk</screen>
+       &note-vmware_disktype;</listitem>
+     </itemizedlist>
+     <para> If the image upload has been successful, a message appears, displaying the ID that has
+      been assigned to the image. </para>
+    </step>
+   </procedure>
+
+   <!--taroth 2013-08-29: DEVs, is the following still true or can SUSE Studio inject any
+    files into an image which make it possible to change the image?- taroth 2013-10-01: for the records:
+    according to aj, studio can inject anything but it cannot change an image-->
+   <note>
+    <title>Updating Images</title>
+    <para> After having uploaded an image to &cloud;, the image contents cannot be
+     modified&mdash;only the image&apos;s metadata, see <xref
+      linkend="pro.adm.cli.img.props.modify" xrefstyle="select:label"/>. To update image contents,
+     you need to delete the current image and upload a modified version of the image. You can also
+     launch an instance from the respective image, change it, create a snapshot of the instance and
+     use the snapshot as a new image. </para>
+   </note>
+  </sect1>
+  <sect1 id="sec.adm.cli.img.props.modify">
+   <title>Modifying Image Properties</title>
+
+   <para>Set or modify hypervisor-specific properties with the
+      <option>--property&nbsp;<replaceable>key</replaceable>=<replaceable>value</replaceable></option>
+    option. This can be done directly during image upload (see <xref
+     linkend="pro.adm.cli.img.upload" xrefstyle="select:label"/>) or after the image has been
+    uploaded (as described below).</para>
+
+
+   <procedure id="pro.adm.cli.img.props.modify">
+    <title>Modifying Image Properties</title>
+    <step>
+     <para> In a shell, source the &ostack; RC file for the project that you want to upload an
+      image to. For details, refer to 
+      <ulink url="http://docs.openstack.org/user-guide/content/cli_openrc.html"/>. </para>
+    </step>
+    <step>
+     <para> If you do not know the ID or the exact name of the image whose properties you want to
+      modify, look it up with: </para>
+     <screen>glance&nbsp;image-list</screen>
+    </step>
+    <step>
+     <para> Use the <command>glance&nbsp;image-update</command> command to set the properties
+      for architecture, hypervisor type, and virtual machine mode. In the following, find some
+      examples with properties for different hypervisors: </para>
+     <itemizedlist>
+      <!--taroth 2014-20-21: CAVE, the same hypervisor-specific props are mentioned in 2 procedures: 
+       pro.adm.cli.img.upload and pro.adm.cli.img.props.modify -->
+      <listitem>
+       <para>For &kvm;:</para>
+       <screen>glance&nbsp;image-update&nbsp;<replaceable>IMAGE_ID_OR_NAME</replaceable>&nbsp;\
+  --property&nbsp;architecture=x86_64 \
+  --property&nbsp;hypervisor_type=kvm</screen>
+      </listitem>
+      <listitem>
+       <para>For &xen;:</para>
+       <screen>glance&nbsp;image-update&nbsp;<replaceable>IMAGE_ID_OR_NAME</replaceable>&nbsp;\
+  --property&nbsp;architecture=x86_64 \
+  --property&nbsp;hypervisor_type=xen \
+  --property&nbsp;vm_mode=xen</screen>
+       &note-vm_mode; </listitem>
+      <listitem>
+       <para>For &vmware;:</para>
+       <screen>glance&nbsp;image-update&nbsp;<replaceable>IMAGE_ID_OR_NAME</replaceable>&nbsp;\
+  --property&nbsp;vmware_adaptertype="lsiLogic" \
+  --property vmware_disktype="preallocated" \
+  --property hypervisor_type=vmware</screen>
+       &note-vmware_disktype; </listitem>
+      <listitem>
+       <para>For &hyper;:</para>
+       <screen>glance&nbsp;image-update&nbsp;<replaceable>IMAGE_ID_OR_NAME</replaceable>&nbsp;\
+        --property&nbsp;architecture=x86_64 \
+        --property&nbsp;hypervisor_type=hyperv \
+        --property&nbsp;vm_mode=hvm</screen>
+      </listitem>
+     </itemizedlist>
+    </step>
+   </procedure>
+   <para> For more information about the <systemitem>architecture</systemitem>,
+     <systemitem>hypervisor_type</systemitem>, and <systemitem>vm_mode</systemitem> properties,
+    refer to <ulink url="http://docs.openstack.org/image-guide/content/image-metadata.html"/>.
+   </para>
+  </sect1>
+  <sect1 id="sec.adm.cli.img.view">
+   <title>Viewing Images and Image Properties, Deleting Images</title>
+   <para> In the following, find some examples on how to view images or image properties or how to
+    remove images from &ostack; &img;. </para>
+   <variablelist>
+    <varlistentry>
+     <term>Listing Images</term>
+     <listitem>
+      <screen>glance image-list</screen>
+      <para> Lists ID, name, disk format, and container format for all images in &img; that the
+       current user can access. </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Showing Metadata for a Particular Image</term>
+     <listitem>
+      <screen>glance image-show <replaceable>IMAGE_ID_OR_NAME</replaceable>&nbsp;</screen>
+      <para> Shows metadata of the specified image. </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Removing Image Properties</term>
+     <listitem>
+      <screen>glance image-update <replaceable>IMAGE_ID_OR_NAME</replaceable> --purge-props</screen>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term>Deleting an Image</term>
+     <listitem>
+      <screen>glance image-delete <replaceable>IMAGE_ID_OR_NAME</replaceable>&nbsp;</screen>
+      <para> Removes the specified image from &ostack; &img;. </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect1>
+  <sect1 id="sec.adm.cli.img.member">
+   <title>Viewing and Modifying Membership of Private Images</title>
+   <para> In the following, find some examples on how to view or modify membership of private
+    images: </para>
+   <variablelist>
+    <varlistentry>
+     <term>Listing Members a Private Image is Shared With</term>
+     <listitem>
+      <screen>glance member-list --image-id <replaceable>IMAGE_ID</replaceable>&nbsp;</screen>
+      <para> Lists the IDs of the projects whose members have access to the private image. </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Listing Private Images Shared With a Member</term>
+     <listitem>
+      <screen>glance member-list --tenant-id <replaceable>PROJECT_ID</replaceable>&nbsp;</screen>
+      <para> Lists the IDs of private images that members of the specified project can access.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Granting Members Access to a Private Image</term>
+     <listitem>
+      <screen>glance member-create [--can-share]&nbsp;<replaceable>IMAGE_ID_OR_NAME</replaceable>&nbsp;<replaceable>PROJECT_ID_OR_NAME</replaceable>&nbsp;</screen>
+      <para> Grants the specified member access to the specified private image. </para>
+      <para> By adding the <option>--can-share</option> option, you can allow the members to further
+       share the image. <remark>taroth 2012-08-08: however that may work, no idea...</remark>
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Revoking Member Access to a Private Image</term>
+     <listitem>
+      <screen>glance&nbsp;member-delete&nbsp;<replaceable>IMAGE_ID_OR_NAME</replaceable>&nbsp;<replaceable>PROJECT_ID_OR_NAME</replaceable>&nbsp;</screen>
+      <para> Revokes the access of the specified member to the specified private image. </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect1>
  </chapter>
 </book>
