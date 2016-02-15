@@ -43,11 +43,12 @@
   </step>
   <step>
    <para>Create a custom <filename>keystone_policy.json</filename> file for the
-    &o_dash; service. <remark>taroth 2016-02-11: can that be the same file
-     as CUSTOM_policy.json? TODO: check in trello/bugzilla</remark> On the node
-    where the <literal>nova_dashboard-server</literal> role is deployed, copy
-    the custom <filename>keystone_policy.json</filename> file to FIXME. For
-    details, see <xref linkend="sec.deploy.keystone_policy_json.edit"/>.</para>
+    &o_dash; service. On the node where the
+     <literal>nova_dashboard-server</literal> role is deployed, copy the custom
+    <filename>keystone_policy.json</filename> file to
+    <filename>/srv/www/openstack-dashboard/openstack_dashboard/conf/</filename>
+    (default directory for policy files in &o_dash;). For details, see
+     <xref linkend="sec.deploy.keystone_policy_json.edit"/>.</para>
   </step>
   <step>
    <para>Make the &o_ident; service aware of the
@@ -63,112 +64,55 @@
   </step>
  </procedure>
 
-
- <!--copied from https://bugzilla.suse.com/show_bug.cgi?id=926253: 
-  The following steps are needed to create this "ProjectAdmin" role: 
-  1) in the barclamp-keystone raw view, there's a new parameter which can point to a
-  custom policy file. the parameter is called "policy_file". Be careful and
-  don't use "policy.json" because that's the default and changes there will be
-  overwritten with a package update. 
-  
-  2) provide a policy file with the name
-  mentioned in "policy_file" in /etc/keystone . Attached is an example with a
-  "ProjectAdmin" role defined 
-  
-  3) Now create a user and a project for which the
-  new user is "ProjectAdmin":-->
- <!--<screen> 
-  keystone tenant-create -/-name project1
-  keystone user-create -/-name user1 -/-tenant project1 -/-pass secret -/-enabled true
-  keystone role-create -/-name ProjectAdmin
-  keystone user-role-add -/-user user1 -/-role ProjectAdmin -/-tenant project1</screen>-->
-
- <!-- Now "user1" can assign the "Member" role to other users (i.e. user2):
-  
-  openstack -/-os-identity-api 3 role add -/-user user2 -/-project project1 Member
-  
-  
-  "user2" should now be able to i.e. list instances with "nova list" in the poject "project1" -->
-
-
  <sect1 xml:id="sec.deploy.policy_json.edit">
   <title>Editing <filename>policy.json</filename></title>
 
   <para> The <filename>policy.json</filename> file is located in
     <filename>/etc/keystone/</filename> on the node where the
-    <filename>keystone-server</filename> role is deployed. The template has the
-   following general structure: </para>
-
-  <screen>{
-  <!-- "attributes" : {
-      "mode" : "<replaceable>value</replaceable>",
-      "start_up_delay" : <replaceable>value</replaceable>,
-      "teaming" : { "mode": <replaceable>value</replaceable> },<co xml:id="1structure.general"/>
-      "network" : {
-         "interface_map"<co xml:id="1structure.interface_map"/> : [
-            ...
-         ],
-         "conduit_map"<co xml:id="1structure.conduit"/> : [
-            ...
-         ],
-         "networks"<co xml:id="1structure.networks"/> : {
-            ...
-         },
-      }
-   }
-}--></screen>
-
-  <!--<calloutlist>
-   <callout arearefs="structure.general">
-    <para>
-     General attributes. Refer to
-     <xref linkend="sec.deploy.network_json.global"/> for details.
-    </para>
-   </callout>
-   <callout arearefs="structure.interface_map">
-    <para>
-     Interface map section. Defines the order in which the physical network
-     interfaces are to be used. Refer to
-     <xref linkend="sec.deploy.network_json.interface_map"/> for details.
-    </para>
-   </callout>
-   <callout arearefs="structure.conduit">
-    <para>
-     Network conduit section defining the network modes and the network
-     interface usage. Refer to
-     <xref linkend="sec.deploy.network_json.conduits"/> for details.
-    </para>
-   </callout>
-   <callout arearefs="structure.networks">
-    <para>
-     Network definition section. Refer to
-     <xref linkend="sec.deploy.network_json.networks"/> for details.
-    </para>
-   </callout>
-  </calloutlist>-->
-
-  <note>
-   <title>Order of Elements</title>
-   <para><remark>taroth 2016-02-12: check if the following is true for
-     policy.json</remark> The order in which the entries in the
-     <filename>*.json</filename> file appear may differ from the one listed
-    above. Use your editor's search function to find certain entries. </para>
-  </note>
-
+    <filename>keystone-server</filename> role is deployed. </para>
   <procedure>
    <step>
     <para>Copy <filename>/etc/keystone/policy.json</filename> and save it under
      a different name, for example
-      <filename><replaceable>CUSTOM_</replaceable>policy.json</filename>.
-    </para>
+      <filename><replaceable>CUSTOM_</replaceable>policy.json</filename>. </para>
     <important>
      <para>If you use the same name as the original file, your custom file will
       be overwritten by the next package update.</para>
     </important>
    </step>
    <step>
-    <para>To edit the file, open it in an editor of your choice. FIXME: add
-     example of what to add or adjust</para>
+    <para>To edit the file, open it in an editor of your choice. </para>
+   </step>
+   <step>
+    <para>To add the new role, enter the following two lines at the beginning of
+     the file:</para>
+    <screen>{
+  "subadmin": "role:ProjectAdmin",
+  "projectadmin": "rule:subadmin and project_id:%(target.project.id)s",
+  [...]</screen>
+   </step>
+   <step>
+    <para>Adjust the other rules in the file accordingly:</para>
+    <screen>  "identity:get_domain": "rule:admin_required or rule:subadmin",
+  [...]
+  "identity:get_project": "rule:admin_required or rule:projectadmin",
+  [...]
+  "identity:list_user_projects": "rule:admin_or_owner or rule:projectadmin",
+  [...]
+  "identity:update_project": "rule:admin_required or rule:projectadmin",
+  [...]
+  "identity:get_user": "rule:admin_required or rule:projectadmin",
+  "identity:list_users": "rule:admin_required or rule:subadmin",
+  [...]
+  "identity:list_groups": "rule:admin_required or rule:subadmin",
+  [...]
+  "identity:list_roles": "rule:admin_required or rule:subadmin",
+  [...]
+  "identity:list_grants": "rule:admin_required or (rule:subadmin and project_id:%(target.project.id)s)",
+  "identity:create_grant": "rule:admin_required or (rule:subadmin and project_id:%(target.project.id)s and 'Member':%(target.role.name)s)",
+  "identity:revoke_grant": "rule:admin_required or (rule:subadmin and project_id:%(target.project.id)s and 'Member':%(target.role.name)s)",
+  [...]
+  "identity:list_role_assignments": "rule:admin_required or rule:subadmin",</screen>
    </step>
    <step>
     <para>Save the changes and copy the file to
@@ -183,44 +127,21 @@
  <sect1 xml:id="sec.deploy.keystone_policy_json.edit">
   <title>Editing <filename>keystone_policy.json</filename></title>
 
-  <para> The <filename>keystone_policy.json</filename> file is located in
-    <filename>FIXME</filename> on the node where the
-    <literal>nova_dashboard-server</literal> role is deployed. The template has
-   the following general structure: </para>
-
-  <screen>{
-   <!-- "attributes" : {
-    "mode" : "<replaceable>value</replaceable>",
-    "start_up_delay" : <replaceable>value</replaceable>,
-    "teaming" : { "mode": <replaceable>value</replaceable> },<co xml:id="1structure.general"/>
-    "network" : {
-    "interface_map"<co xml:id="1structure.interface_map"/> : [
-    ...
-    ],
-    "conduit_map"<co xml:id="1structure.conduit"/> : [
-    ...
-    ],
-    "networks"<co xml:id="1structure.networks"/> : {
-    ...
-    },
-    }
-    }
-    }--></screen>
-
-
-
-  <note>
-   <title>Order of Elements</title>
-   <para><remark>taroth 2016-02-12: todo - check if the following is true for
-     keystone_policy.json?</remark> The order in which the entries in the
-     <filename>*.json</filename> file appear may differ from the one listed
-    above. Use your editor's search function to find certain entries. </para>
-  </note>
+  <para>By default, the <filename>keystone_policy.json</filename> file is
+   located in
+    <filename>/srv/www/openstack-dashboard/openstack_dashboard/conf/</filename>
+   on the node where the <literal>nova_dashboard-server</literal> role is
+   deployed. It is similar (but not identical) to
+    <filename>policy.json</filename> and defines which actions the user with a
+   certain role is allowed to execute in &o_dash;. If the user is not
+   allowed to execute a certain action, the &ostack; &dash; will show an
+   error message.</para>
 
   <procedure>
    <step>
-    <para>Copy <filename>/FIXME/keystone_policy.json</filename> and save it
-     under a different name, for example
+    <para>Copy
+      <filename>/srv/www/openstack-dashboard/openstack_dashboard/conf/keystone_policy.json</filename>
+     and save it under a different name, for example
        <filename><replaceable>CUSTOM_</replaceable>keystone_policy.json</filename>. </para>
     <important>
      <para>If you use the same name as the original file, your custom file will
@@ -228,12 +149,32 @@
     </important>
    </step>
    <step>
-    <para>To edit the file, open it in an editor of your choice. FIXME: add
-     example of what to add or adjust</para>
+    <para>To edit the file, open it in an editor of your choice.</para>
+   </step>
+   <step>
+    <para>To add the new role, enter the following two lines at the beginning of
+     the file:</para>
+    <screen>{
+  "subadmin": "role:ProjectAdmin",
+  "projectadmin": "rule:subadmin and project_id:%(target.project.id)s",
+  [...]</screen>
+   </step>
+   <step>
+    <para>Adjust the other rules in the file accordingly:</para>
+    <screen>  "identity:get_project": "rule:admin_required or rule:projectadmin",
+  [...]
+  "identity:list_user_projects": "rule:admin_or_owner or rule:projectadmin",
+  [...]
+  "identity:get_user": "rule:admin_required or rule:projectadmin",
+  "identity:list_users": "rule:admin_required or rule:subadmin",
+  [...]
+  "identity:list_roles": "rule:admin_required or rule:subadmin",
+  [...]
+  "identity:list_role_assignments": "rule:admin_required or rule:subadmin",</screen>
    </step>
    <step>
     <para>Save the changes and copy the file to
-       <filename>/FIXME/<replaceable>CUSTOM_</replaceable>keystone_policy.json</filename>
+       <filename>/srv/www/openstack-dashboard/openstack_dashboard/conf/<replaceable>CUSTOM_</replaceable>keystone_policy.json</filename>
      on the node where the <literal>nova_dashboard-server</literal> role is
      deployed.</para>
    </step>
@@ -304,9 +245,7 @@
      point to the directory where you copied the newly added
        <filename><replaceable>CUSTOM_</replaceable>keystone_policy.json</filename>
      file. By default, its value is an empty string&mdash;this means that
-     the default directory will be used. <remark> taroth 2016-02-12: @aplanas:
-      which is the default directory? unfortunately ('conf' ROOT_PATH of the
-      django project) does not mean anything to me...</remark>
+     the default directory will be used. 
     </para>
    </step>
    <step>
@@ -323,14 +262,6 @@
     "orchestration": "heat_policy.json",
     "network": "neutron_policy.json",
     "telemetry": "ceilometer_policy.json"</screen>
-    <!--copied from https://bugzilla.suse.com/show_bug.cgi?id=931856:
-     By default is the empty string and this means that the default
-     directory will be used ('conf' ROOT_PATH of the django project) - Inside the
-     'polivy_file' hash we can find 'identity', 'compute', 'volume', 'image',
-     'orchestration' and 'network' fields. These contains the file names of the
-     policy files that Horizon use to adapt the UI. Control the visual rules of
-     actions, but the real action-enabled is the one that is stored in
-     Keystone-->
    </step>
    <step>
     <para>
