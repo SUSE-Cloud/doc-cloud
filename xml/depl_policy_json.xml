@@ -1,0 +1,269 @@
+<?xml version="1.0" encoding="utf-8"?>
+<?xml-stylesheet
+ href="urn:x-daps:xslt:profiling:novdoc-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<!DOCTYPE appendix PUBLIC "-//Novell//DTD NovDoc XML V1.0//EN" "novdocx.dtd"
+[
+<!ENTITY % NOVDOC.DEACTIVATE.IDREF "IGNORE">
+<!ENTITY % entities SYSTEM "entity-decl.ent">
+%entities;
+]>
+<appendix id="app.deploy.policy_json">
+ <title>Configuring Role Based Access Control (RBAC)</title>
+ <para>To limit users' access rights or to define more fine-grained access
+  rights, you can use Role Based Access Control (RBAC) (only available with
+  Keystone v3).In the example below, we will create a new role
+   (<literal>ProjectAdmin</literal>) that allows users with this role to add and
+  remove other users to the <literal>Member</literal> role on the same project.
+  Because some limitations on the RBAC policy granularity, this
+   <literal>ProjectAdmin</literal> subadmin can change the name and description
+  of the project, but cannot change quotas, create new project or delete
+  projects.</para>
+ <para>To create a new role that can be assigned to a user-project pair, the
+  following basic steps are needed:</para>
+ <procedure>
+  <step>
+   <para>Create a custom <filename>policy.json</filename> file for the
+    &o_ident; service. On the node where the <filename>keystone-server</filename> role is
+    deployed, copy the file to
+    <filename>/etc/keystone/<replaceable>CUSTOM_</replaceable>policy.json</filename>.
+    For details, see <xref linkend="sec.deploy.policy_json.edit"/>.
+   </para>
+  </step>
+  <step>
+   <para>Create a custom <filename>keystone_policy.json</filename> file for the
+    &o_dash; service. On the node where the
+     <literal>nova_dashboard-server</literal> role is deployed, copy the custom
+    <filename>keystone_policy.json</filename> file to
+    <filename>/srv/www/openstack-dashboard/openstack_dashboard/conf/</filename>
+    (default directory for policy files in &o_dash;). For details, see
+     <xref linkend="sec.deploy.keystone_policy_json.edit"/>.</para>
+  </step>
+  <step>
+   <para>Make the &o_ident; service aware of the
+      <filename><replaceable>CUSTOM_</replaceable>policy.json</filename> file by
+    editing and reapplying the <guimenu>Keystone</guimenu> &barcl;. For details,
+    see <xref linkend="sec.deploy.policy_json.keystone"/>.</para>
+  </step>
+  <step>
+   <para>Make the &o_dash; service aware of the
+     <filename>keystone_policy.json</filename> file by editing and reapplying
+    the <guimenu>Horizon</guimenu> &barcl;. For details, see
+    <xref linkend="sec.deploy.policy_json.horizon"/>.</para>
+  </step>
+ </procedure>
+
+ <sect1 id="sec.deploy.policy_json.edit">
+  <title>Editing <filename>policy.json</filename></title>
+
+  <para> The <filename>policy.json</filename> file is located in
+    <filename>/etc/keystone/</filename> on the node where the
+    <filename>keystone-server</filename> role is deployed. </para>
+  <procedure>
+   <step>
+    <para>Copy <filename>/etc/keystone/policy.json</filename> and save it under
+     a different name, for example
+      <filename><replaceable>CUSTOM_</replaceable>policy.json</filename>. </para>
+    <important>
+     <para>If you use the same name as the original file, your custom file will
+      be overwritten by the next package update.</para>
+    </important>
+   </step>
+   <step>
+    <para>To edit the file, open it in an editor of your choice. </para>
+   </step>
+   <step>
+    <para>To add the new role, enter the following two lines at the beginning of
+     the file:</para>
+    <screen>{
+  "subadmin": "role:ProjectAdmin",
+  "projectadmin": "rule:subadmin and project_id:%(target.project.id)s",
+  [...]</screen>
+   </step>
+   <step>
+    <para>Adjust the other rules in the file accordingly:</para>
+    <screen>  "identity:get_domain": "rule:admin_required or rule:subadmin",
+  [...]
+  "identity:get_project": "rule:admin_required or rule:projectadmin",
+  [...]
+  "identity:list_user_projects": "rule:admin_or_owner or rule:projectadmin",
+  [...]
+  "identity:update_project": "rule:admin_required or rule:projectadmin",
+  [...]
+  "identity:get_user": "rule:admin_required or rule:projectadmin",
+  "identity:list_users": "rule:admin_required or rule:subadmin",
+  [...]
+  "identity:list_groups": "rule:admin_required or rule:subadmin",
+  [...]
+  "identity:list_roles": "rule:admin_required or rule:subadmin",
+  [...]
+  "identity:list_grants": "rule:admin_required or (rule:subadmin and project_id:%(target.project.id)s)",
+  "identity:create_grant": "rule:admin_required or (rule:subadmin and project_id:%(target.project.id)s and 'Member':%(target.role.name)s)",
+  "identity:revoke_grant": "rule:admin_required or (rule:subadmin and project_id:%(target.project.id)s and 'Member':%(target.role.name)s)",
+  [...]
+  "identity:list_role_assignments": "rule:admin_required or rule:subadmin",</screen>
+   </step>
+   <step>
+    <para>Save the changes and copy the file to
+       <filename>/etc/keystone/<replaceable>CUSTOM_</replaceable>policy.json</filename>
+     on the node where the <filename>keystone-server</filename> role is deployed
+     (usually a &contrnode; or a cluster if you use an &ha;
+     setup).</para>
+   </step>
+  </procedure>
+ </sect1>
+
+ <sect1 id="sec.deploy.keystone_policy_json.edit">
+  <title>Editing <filename>keystone_policy.json</filename></title>
+
+  <para>By default, the <filename>keystone_policy.json</filename> file is
+   located in
+    <filename>/srv/www/openstack-dashboard/openstack_dashboard/conf/</filename>
+   on the node where the <literal>nova_dashboard-server</literal> role is
+   deployed. It is similar (but not identical) to
+    <filename>policy.json</filename> and defines which actions the user with a
+   certain role is allowed to execute in &o_dash;. If the user is not
+   allowed to execute a certain action, the &ostack; &dash; will show an
+   error message.</para>
+
+  <procedure>
+   <step>
+    <para>Copy
+      <filename>/srv/www/openstack-dashboard/openstack_dashboard/conf/keystone_policy.json</filename>
+     and save it under a different name, for example
+       <filename><replaceable>CUSTOM_</replaceable>keystone_policy.json</filename>. </para>
+    <important>
+     <para>If you use the same name as the original file, your custom file will
+      be overwritten by the next package update.</para>
+    </important>
+   </step>
+   <step>
+    <para>To edit the file, open it in an editor of your choice.</para>
+   </step>
+   <step>
+    <para>To add the new role, enter the following two lines at the beginning of
+     the file:</para>
+    <screen>{
+  "subadmin": "role:ProjectAdmin",
+  "projectadmin": "rule:subadmin and project_id:%(target.project.id)s",
+  [...]</screen>
+   </step>
+   <step>
+    <para>Adjust the other rules in the file accordingly:</para>
+    <screen>  "identity:get_project": "rule:admin_required or rule:projectadmin",
+  [...]
+  "identity:list_user_projects": "rule:admin_or_owner or rule:projectadmin",
+  [...]
+  "identity:get_user": "rule:admin_required or rule:projectadmin",
+  "identity:list_users": "rule:admin_required or rule:subadmin",
+  [...]
+  "identity:list_roles": "rule:admin_required or rule:subadmin",
+  [...]
+  "identity:list_role_assignments": "rule:admin_required or rule:subadmin",</screen>
+   </step>
+   <step>
+    <para>Save the changes and copy the file to
+       <filename>/srv/www/openstack-dashboard/openstack_dashboard/conf/<replaceable>CUSTOM_</replaceable>keystone_policy.json</filename>
+     on the node where the <literal>nova_dashboard-server</literal> role is
+     deployed.</para>
+   </step>
+  </procedure>
+ </sect1>
+ <sect1 id="sec.deploy.policy_json.keystone">
+  <title>Adjusting the <guimenu>&o_ident;</guimenu> &Barcl;
+   Proposal</title>
+  <procedure>
+   <step>
+    <para>Log in to the &crow; &wi;.</para>
+   </step>
+   <step>
+    <para>Select <menuchoice>
+      <guimenu>&Barcl;s</guimenu>
+      <guimenu>All &barcl;s</guimenu>
+     </menuchoice>.</para>
+   </step>
+   <step>
+    <para>Go to the <guimenu>&o_ident;</guimenu> &barcl; and click
+      <guimenu>Edit</guimenu>.</para>
+   </step>
+   <step>
+    <para>In the <guimenu>Attributes</guimenu> section, click
+     <guimenu>Raw</guimenu>. This shows the complete configuration file
+     and allows you to edit it directly.</para>
+   </step>
+   <step>
+    <para>Adjust the <literal>policy_file</literal> parameter to point to the
+       <filename><replaceable>CUSTOM_</replaceable>policy.json</filename> file.
+     For example:</para>
+    <screen>{
+  [...]
+  "policy_file": "mypolicy.json",</screen>
+   </step>
+   <step>
+    <para>
+     <guimenu>Save</guimenu> and <guimenu>Apply</guimenu> the changes to the
+     &o_ident; &barcl;.</para>
+   </step>
+  </procedure>
+ </sect1>
+
+ <sect1 id="sec.deploy.policy_json.horizon">
+  <title>Adjusting the <guimenu>&o_dash;</guimenu> &Barcl;
+   Proposal</title>
+  <procedure>
+   <step>
+    <para>Log in to the &crow; &wi;.</para>
+   </step>
+   <step>
+    <para>Select <menuchoice>
+      <guimenu>&Barcl;s</guimenu>
+      <guimenu>All &barcl;s</guimenu>
+     </menuchoice>.</para>
+   </step>
+   <step>
+    <para>Go to the <guimenu>&o_dash;</guimenu> &barcl; and click
+      <guimenu>Edit</guimenu>.</para>
+   </step>
+   <step>
+    <para>In the <guimenu>Attributes</guimenu> section, click
+      <guimenu>Raw</guimenu>. This shows the complete configuration file
+     and allows you to edit it directly.</para>
+   </step>
+   <step>
+    <para>Set the <literal>use_keystone_v3</literal> parameter to
+      <literal>true</literal>. Otherwise the newly defined role will not be
+     accepted, as Role Based Access Control is only available with Keystone
+     v3.</para>
+   </step>
+   <step>
+    <para>If needed, adjust the <literal>policy_file_path</literal> parameter to
+     point to the directory where you copied the newly added
+       <filename><replaceable>CUSTOM_</replaceable>keystone_policy.json</filename>
+     file. By default, its value is an empty string&mdash;this means that
+     the default directory will be used. 
+    </para>
+   </step>
+   <step>
+    <para>Enter the new file's name as value of the <literal>identity</literal>
+     parameter within the <literal>policy_file</literal> section (<xref
+     linkend="co.horizon.barcl.policy"/>):</para>
+    <screen>{
+  "policy_file_path": "",
+  "policy_file": {
+    "identity": "mykeystone_policy.json", <co id="co.horizon.barcl.policy"/>
+    "compute": "nova_policy.json",
+    "volume": "cinder_policy.json",
+    "image": "glance_policy.json",
+    "orchestration": "heat_policy.json",
+    "network": "neutron_policy.json",
+    "telemetry": "ceilometer_policy.json"</screen>
+   </step>
+   <step>
+    <para>
+     <guimenu>Save</guimenu> and <guimenu>Apply</guimenu> the changes to the
+     &o_dash; &barcl;.</para>
+   </step>
+  </procedure>
+ </sect1>
+</appendix>
