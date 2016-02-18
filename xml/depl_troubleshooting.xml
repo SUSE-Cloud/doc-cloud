@@ -63,7 +63,7 @@
        deploying the IPMI/BMC network. You need to disable the IPMI
        deployment running the following command:
       </para>
-<screen>/opt/dell/bin/json-edit -r -a "attributes.ipmi.bmc_enable" \
+      <screen>/opt/dell/bin/json-edit -r -a "attributes.ipmi.bmc_enable" \
 -v "false" /opt/dell/chef/data_bags/crowbar/bc-template-ipmi.json</screen>
       <para>
        Re-run <command>install-suse-cloud</command> after having disabled
@@ -322,15 +322,15 @@ EOF</screen>
       <para>
        What to do when a deployed node fails to boot using PXE with the
        following error message: <literal>Could not find kernel image:
-       ../suse-11.3/install/boot/x86_64/loader/linux</literal>?
+       ../suse-12.1/install/boot/x86_64/loader/linux</literal>?
       </para>
      </question>
      <answer>
       <para>
        The installation repository at
-       <filename>/srv/tftpboot/suse-11.3/install</filename> on the
-       &admserv; has not been set up correctly to contain the &sls; 11
-       SP3 installation media. Review the instructions at
+       <filename>/srv/tftpboot/suse-12.1/install</filename> on the
+       &admserv; has not been set up correctly to contain the &cloudos;
+       installation media. Review the instructions at
        <xref linkend="sec.depl.adm_conf.repos.product"/>.
       </para>
      </answer>
@@ -443,19 +443,96 @@ EOF</screen>
     <qandaentry>
      <question>
       <para>
-       How to prevent a node from PXE booting?
+       How to Prevent the &admserv; from Installing the &ostack; nodes
+       (Disable PXE and DNS Services)?
       </para>
      </question>
      <answer>
       <para>
-       An option in the <guimenu>Raw</guimenu> mode of the Provisioner &barcl;
-       lets you disable the PXE boot service on the &admserv;. The option is
-       useful when you don't want to use the provisioning feature of &crow;
-       but rather want to use a custom provisioning tool. When the
-       provisioning is done, the node can be added to pool of &ostack; nodes
-       as described in <xref linkend="sec.depl.inst.nodes.install.external"/>.
+       By default, the &ostack; nodes are installed by PXE booting a discovery
+       image from the &admserv;, getting allocated and then PXE booting into
+       an automatic installation (see <xref
+       linkend="sec.depl.inst.nodes.install"/> for details). If you want to
+       install the &ostack; nodes manually or with a custom provisioning
+       tool, you need to disable the PXE boot service and the DNS service on
+       the &admserv;.
+      </para>
+      <para>
+       As a consequence you also need to provide an external DNS server. Such
+       a server needs to comply with the following requirements:
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+          It needs to handle all domain to IP requests for &cloud;.
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         It needs to handle all IP to domain requests for &cloud;.
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         It needs to forward unknown requests to other DNS servers.
+        </para>
+       </listitem>
+      </itemizedlist>
+      <para>
+       To disable the PXE and DNS services when setting up the &admserv;,
+       proceed as follows:
       </para>
       <procedure>
+       <title>Disabling PXE/DNS when Setting Up the &admserv;</title>
+       <para>
+        The following steps need to be performed <emphasis>before</emphasis>
+        starting the &inst_crow;.
+       </para>
+       <step>
+        <para>
+         Create the file <filename>/etc/crowbar/dns.json</filename> with the
+         following content:
+        </para>
+        <screen>{
+  "attributes": {
+    "dns": {
+      "nameservers": [ "<replaceable>DNS_SERVER</replaceable>", "<replaceable>DNS_SERVER2</replaceable>" ],
+      "auto_assign_server": false
+    }
+  }
+}</screen>
+        <para>
+         Replace <replaceable>DNS_SERVER</replaceable> and
+         <replaceable>DNS_SERVER2</replaceable> with the IP address(es) of the
+         external DNS server(s). Specifying more than one server is optional.
+        </para>
+       </step>
+       <step>
+        <para>
+         Create the file <filename>/etc/crowbar/provisioner.json</filename>
+         with the following content:
+        </para>
+        <screen>{
+  "attributes": {
+    "provisioner": {
+      "enable_pxe": false
+    }
+  }
+}</screen>
+       </step>
+       <step>
+        <para>
+         If these files are present when the &inst_crow; is started, the &admserv;
+         will be set up using external DNS services and no PXE boot server.
+        </para>
+       </step>
+      </procedure>
+      <para>
+       In case you already have deployed &cloud;, proceed as follows to
+       disable the DNS and PXE services on the &admserv;:
+      </para>
+      <procedure>
+       <title>Disabling PXE/DNS on an &admserv; Running &crow;</title>
        <step>
         <para>
          Open a browser and point it to the &crow; Web interface available on
@@ -475,9 +552,10 @@ EOF</screen>
        <step>
         <para>
          Click <guimenu>Raw</guimenu> in the <guimenu>Attributes</guimenu>
-         section and change the value for <guimenu>"enable_pxe":</guimenu> to
-         <literal>false</literal>.
+         section and change the value for <guimenu>enable_pxe</guimenu> to
+         <literal>false</literal>:
         </para>
+        <screen>"enable_pxe": false,</screen>
        </step>
        <step>
         <para>
@@ -487,15 +565,59 @@ EOF</screen>
        </step>
        <step>
         <para>
-         As long as this &barcl; proposal is active, the DHCP and TFTP
-         services on the admin node are disabled. Boot the machine(s) which
-         are not supposed to PXE boot. Re-enable the services by setting
-         <guimenu>"enable_pxe":</guimenu> to <literal>true</literal> and
-         applying the proposal as soon as possible to restore normal
-         operation.
+         Change to the <guimenu>DNS</guimenu> &barcl; via <menuchoice>
+         <guimenu>Barclamps</guimenu> <guimenu>Crowbar</guimenu> </menuchoice>
+         and click <guimenu>Edit</guimenu> in the <guimenu>DNS</guimenu> row.
         </para>
        </step>
+       <step>
+        <para>
+         Click <guimenu>Raw</guimenu> in the <guimenu>Attributes</guimenu>
+         section. Change the value for <guimenu>auto_assign_server</guimenu>to <literal>false</literal> and
+         add the address(es) for the external name server(s):
+        </para>
+        <screen>"auto_assign_server": false,
+"nameservers": [
+  "<replaceable>DNS_SERVER</replaceable>",
+  "<replaceable>DNS_SERVER2</replaceable>"
+],</screen>
+        <para>
+         Replace <replaceable>DNS_SERVER</replaceable> and
+         <replaceable>DNS_SERVER2</replaceable> with the IP address(es) of the
+         external DNS server(s). Specifying more than one server is optional.
+        </para>
+       </step>
+       <step>
+        <para>
+         <guimenu>Save</guimenu> your changes, but do not apply them, yet!
+        </para>
+       </step>
+       <step>
+        <para>
+         In the <guimenu>Deployment</guimenu> section of the &barcl; remove
+         all nodes from the <guimenu>dns-server</guimenu> role, but do not
+         change the assigments for the <guimenu>dns-client</guimenu> role.
+        </para>
+       </step>
+       <step>
+        <para>
+         <guimenu>Apply</guimenu> the &barcl;.
+        </para>
+       </step>
+       <step>
+        <para>
+         When the DNS &barcl; has been successfully applied, log in to the
+         &admserv; and stop the DNS service:
+        </para>
+        <screen>systemctl stop named</screen>
+       </step>
       </procedure>
+      <para>
+       Now that the PXE and DNS services are disabled you can install
+       &cloudos; on the &ostack; nodes. When a node is ready, add it to the
+       pool of nodes as described in <xref
+       linkend="sec.depl.inst.nodes.install.external"/>.
+      </para>
      </answer>
     </qandaentry>
     <qandaentry>
@@ -671,7 +793,7 @@ EOF</screen>
    &stornode; is part of the problem, run
    <command>supportconfig</command> on the affected node as well. For
    details on how to run <command>supportconfig</command>, see
-   <link xlink:href="http://www.suse.com/documentation/sles11/book_sle_admin/data/cha_adm_support.html"/>.
+   <link xlink:href="&suse-onlinedoc;/sles-12/book_sle_admin/data/cha_adm_support.html"/>.
   </para>
 
   <sect2 xml:id="sec.depl.trouble.support.ptf">
@@ -688,9 +810,7 @@ EOF</screen>
     <step>
      <para>
       Download the packages from the location provided by the &suse; L3
-      Support to a temporary location on the &admserv;. Packages may be
-      provided for &slsa; 11 SP3 and/or for &slsa; 12. Be sure to not
-      mix these packages!
+      Support to a temporary location on the &admserv;.
      </para>
     </step>
     <step>
