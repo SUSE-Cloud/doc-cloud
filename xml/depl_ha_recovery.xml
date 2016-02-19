@@ -5,20 +5,163 @@
   %entities;
 ]>
 <!-- Converted by suse-upgrade version 1.1 -->
-<appendix xmlns="http://docbook.org/ns/docbook" 
- xmlns:xi="http://www.w3.org/2001/XInclude" 
- xmlns:xlink="http://www.w3.org/1999/xlink" 
- version="5.0" xml:id="app.deploy.ha_recovery">
+<appendix xmlns="http://docbook.org/ns/docbook"
+ xmlns:xi="http://www.w3.org/2001/XInclude"
+ xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0"
+ xml:id="app.deploy.ha_recovery">
  <title>Recovering Clusters to a Healthy State</title>
  <info>
-<dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
-    <dm:maintainer>taroth</dm:maintainer>
-    <dm:status>editing</dm:status>
-    <dm:deadline/>
-    <dm:priority/>
-    <dm:translation>no</dm:translation>
-    <dm:languages/>
-</dm:docmanager>
-</info>
-<para></para>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:maintainer>taroth</dm:maintainer>
+   <dm:status>editing</dm:status>
+   <dm:deadline/>
+   <dm:priority/>
+   <dm:translation>no</dm:translation>
+   <dm:languages/>
+  </dm:docmanager>
+ </info>
+ <para>If one node in your cluster refuses to rejoin the cluster, it is most
+  likely that the node has not been shut down cleanly. This can either be
+  due to manual intervention or because the node has been fenced (shut down)
+  by the &stonith; mechanism of the cluster, to protect the integrity of
+  data in case of a split-brain scenario.</para>
+ <para>In that case, you need to recover your degraded cluster to full
+  strength as described in FIXME <!--<xref/>-->.</para>
+ <sect1 xml:id="sec.deploy.ha_recovery.contr">
+  <title>&contrnode; Nodes Cluster</title>
+  <para/>
+  <sect2 xml:id="sec.deploy.ha_recovery.contr.symptoms">
+   <title>Symptoms of a Degraded Cluster</title>
+   <para>The following incidents may occur if a &contrnode; in your
+    cluster has been shut down in an unclean state:</para>
+   <itemizedlist>
+    <listitem>
+     <para>A VM reboots although the &cloud; administrator did not
+      trigger this action.</para>
+    </listitem>
+    <listitem>
+     <para>One of the &contrnode; in the &crow; &wi; is in
+      status <literal>Problematic</literal>, signified by a red dot next to
+      the node.</para>
+    </listitem>
+    <listitem>
+     <para>The &hawk; &wi; stops responding on one of the
+      &contrnode;s, while it is still responding on the others.</para>
+    </listitem>
+    <listitem>
+     <para>The SSH connection to one of the &contrnode;s freezes.</para>
+    </listitem>
+    <listitem>
+     <para>The &ostack; services stop responding for a short
+      while.</para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+  
+  <sect2 xml:id="sec.deploy.ha_recovery.contr.">
+   <title>Recovering from the Degraded Cluster</title>
+   <para>This takes the following basic steps:
+    <procedure>
+     <step><!--XREF: Recovering the Pacemaker Cluster-->
+      <para><xref linkend="pro.depl.recover.cluster"/></para>
+     </step>
+     <step><!--XREF: Recovering Crowbar and Chef-->
+      <para><xref linkend="pro.depl.recover.crowb.chef"/></para>
+     </step>
+     <step><!--XREF: Cleaning Up Resources-->
+      <para>In addition, you may need to reset resource failcounts in order
+       to allow resources to start on the node you have re-added to the
+       cluster. See <xref linkend="pro.depl.rsc.cleanup"/>.</para>
+     </step>
+     <step><!--XREF: Removing Maintenance Mode from the Node-->
+      <para>In addition, you may need to manually remove the maintenance mode flag
+       from a node. See <xref linkend="pro.depl.rsc.maint"/>.</para>
+     </step>
+    </procedure>
+   </para>
+   
+   
+   <procedure xml:id="pro.depl.recover.cluster">
+    <title>Re-adding the Node to the Cluster</title>
+    <step>
+     <para>Reboot the node.</para>
+    </step>
+    <step>
+     <para>Connect to the node via SSH (on the VM console via the
+      hypervisor's graphical user interface).</para>
+    </step>
+    <step>
+     <para>Execute the following command:</para>
+     <screen>&prompt.root;rm /var/spool/corosync/block_automatic_start</screen>
+    </step>
+    <step>
+     <para>Start the Pacemaker service on the cluster node:</para>
+     <screen>&prompt.root;<command>systemctl</command> start pacemaker</screen>
+    </step>
+   </procedure>
+   
+   <procedure xml:id="pro.depl.recover.crowb.chef">
+    <title>Recovering &crow; and &chef;</title>
+    <para>Making the Pacemaker node rejoin the cluster is not enough. All
+     nodes in the cloud (including the &admserv;) need to be aware that
+     this node is back online. This requires the following steps for
+     &crow; and &chef;:</para>
+    <step>
+     <para>Log in to the node you have re-added to the cluster.</para>
+    </step>
+    <step>
+     <para>Re-register the node with &crow; by executing:</para>
+     <screen>&prompt.root;service crowbar_join start</screen>
+    </step>
+    <step>
+     <para>Log in to one of the <emphasis>other</emphasis>
+      &contrnode;s.</para>
+    </step>
+    <step>
+     <para>Trigger a &chef; run:</para>
+     <screen>&prompt.root;chef-client</screen>
+    </step>
+   </procedure>
+   
+   <procedure xml:id="pro.depl.rsc.cleanup">
+    <title>Cleaning Up Resources</title>
+    <para> A resource will be automatically restarted if it fails, but each
+     failure increases the resource's failcount. If a
+      <literal>migration-threshold</literal> has been set for the resource,
+     the node will no longer run the resource when the number of failures
+     reaches the migration threshold. To allow the resource to start again
+     on the node, reset the resources failcount by cleaning up the resource
+     manually. You can clean up individual resources by using the &hawk;
+     &wi; or all in one go as described below:</para>
+    <step>
+     <para>
+      <remark>taroth 2016-02-19: aspiers, does it need to be the node that I
+       have re-added before? or can it be any of the controll nodes
+       belonging to the cluster?</remark> Log in to one of the cluster
+      nodes.</para>
+    </step>
+    <step>
+     <para>Clean-up all stopped resources with the following command:</para>
+     <screen>&prompt.root;crm_resource -o | \
+  awk '/\tStopped |Timed Out/ { print $1 }' | \
+  xargs -n1 crm resource cleanup</screen>
+    </step>
+   </procedure>
+   
+   <procedure xml:id="pro.depl.rsc.maint">
+    <title>Removing the Maintenance Mode Flag from a Node</title>
+    <para>During normal operation, chef-client sometimes needs to place a
+     node into maintenance mode. The node is kept in maintenance mode until
+     the chef-client run finishes. However, if the chef-client run fails,
+     the node may be left in maintenance mode. In that case, the cluster
+     management tools like crmsh or &hawk; will show all resources on
+     that node as <literal>unmanaged</literal>. To remove the maintenance
+     flag:</para>
+    <step><para>Log in the cluster node.</para></step>
+    <step><para>Disable the maintenance mode with:</para>
+     <screen>&prompt.root;crm node ready</screen></step>
+   </procedure>
+  </sect2>
+ </sect1>
+ 
 </appendix>
