@@ -199,5 +199,80 @@
    </step>
   </procedure>
  </sect1>
-
+ <sect1 xml:id="sec.deploy.ha_recovery.drbd">
+  <title>
+   Recovering From an Unresolvable DRBD Split Brain Situation
+  </title>
+  <para>
+   Although policies to automatically resolve a DRBD split brain situations
+   exist, there are situations which require to be resolved manually. Such a
+   situation is indicated by a Kernel message like:
+  </para>
+  <screen>kernel: block drbd0: Split-Brain detected, dropping connection!</screen>
+  <para>
+   To resolve the split brain you need to choose a node which data
+   modifications will be discarded. These modifications will be replaced by
+   the data from the <quote>healthy</quote> node and will not be recoverable,
+   so make sure to choose the right node. If in doubt, make a backup of the
+   node before starting the recovery process. Proceed as follows:
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Put the cluster in maintenance mode:
+    </para>
+    <screen>crm configure property maintenance-mode=true</screen>
+   </step>
+   <step>
+    <para>
+     If the chosen node is in primary role, stop all services using this
+     ressource and switch it to secondary role. Skip thios step, if the
+     already is in secondary role.
+    </para>
+    <screen>drbdadm secondary <replaceable>RESSOURCE</replaceable></screen>
+    <para>
+     To check if a node is in primary role, see the output of
+     <command>systemctl status drbd</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     If the node is in state <literal>WFConnection</literal> disconnect
+     the ressource:
+    </para>
+    <screen>drbdadm disconnect <replaceable>RESSOURCE</replaceable></screen>
+    <para>
+     To check if a node is in state <literal>WFConnection</literal>,
+     see the output of <command>systemctl status drbd</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Discard all modifications on the chosen node. This step is
+     irreversible, the modifications on the chosen node will be lost!
+    </para>
+    <screen>drbdadm -- --discard-my-data connect <replaceable>RESSOURCE</replaceable></screen>
+   </step>
+   <step>
+    <para>
+     If the other (healthy) node is in state
+     <literal>WFConnection</literal>, synchronization to the chosen node
+     will start automatically. If not, reconnect the healthy node to start
+     the synchronization.
+    </para>
+    <screen>drbdadm connect <replaceable>RESSOURCE</replaceable></screen>
+    <para>
+     During the synchronization all data modifications on the chosen node
+     will be overwritten with the data from the healthy node.
+    </para>
+   </step>
+   <step>
+    <para>
+     Reset the cluster to normal mode when the synchronization has
+     finished:
+    </para>
+    <screen>crm configure property maintenance-mode=false</screen>
+   </step>
+  </procedure>
+ </sect1>
 </appendix>
