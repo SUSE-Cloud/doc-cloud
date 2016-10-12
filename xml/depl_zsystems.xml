@@ -27,10 +27,17 @@
  </para>
  <para>
   IBM supports different ways to set up the &zseries; side. This document
-  describes the setup outlined in FIXME&mdash;it has been tested by &suse;
-  and is known to work. Additional documentation providing in-depth information
-  to topics also covered in this document are available from IBM and can be
-  retrieved from the IBM Knowledge Center for z/VM 6.3.0:
+  describes the <literal>CMA nm</literal> setup as described in the <link
+  xlink:href="https://www.ibm.com/support/knowledgecenter/en/SSB27U_6.3.0/com.ibm.zvm.v630.hcpo4/cmoover.htm">IBM
+  documentation</link>. It configures the z/VM Cloud Manager Appliance (CMA) to
+  only run the Extreme Cloud Administration Toolkit (&xcat;) and the ZHCP
+  services, because, all &ostack; services are running on external &cloud;
+  servers.
+ </para>
+ <para>
+  Additional documentation providing in-depth information to topics also
+  covered in this document are available from IBM and can be retrieved from the
+  IBM Knowledge Center for z/VM 6.3.0:
  </para>
  <itemizedlist>
   <listitem>
@@ -52,10 +59,10 @@
  <sect1 xml:id="app.deploy.zsystems.setup">
   <title>IBM &zseries;: Supported Setup</title>
   <para>
-   To manage and deploy &vmguest;s on z/VM with &cloud;, a z/VM running the
-   Cloud Manager Appliance (CMA), the Extreme Cloud Administration Toolkit
-   (&xcat;) and a Linux system used to capture an image from, is required.
-   The setup described in this document uses the following components and
+   To manage and deploy &vmguest;s on z/VM with &cloud;, a z/VM running the CMA
+   with the &xcat; and ZHCP services is required. You also need to set up a
+   Linux system running &slsa; 12 SP2 that will be used to capture an image
+   from. The setup described in this document uses the following components and
    configurations:
   </para>
   <itemizedlist>
@@ -75,8 +82,10 @@
    </listitem>
    <listitem>
     <para>
-     The &vmguest; image runs &slsa; 12.1 for IBM &zseries; and uses ECKD for
-     storage.
+     The Linux image capture system needs to run &slsa; 12 SP1 for IBM
+     &zseries; and needs to use ECKD for storage. See <xref
+     linkend="sec.deploy.zsystems.image"/> for a full list of requirements for
+     this system.
     </para>
    </listitem>
   </itemizedlist>
@@ -120,7 +129,8 @@
      <listitem>
       <para>
        Provide seven preformatted Model 9 (or equivalent) system attached mini
-       disks for the CMA.
+       disks for the CMA. These disks will be used by &xcat; and be added to
+       the disk pool XCAT1.
        <remark condition="clarity">
         2016-09-15 - fs: Where to find the README that explains how to set them
         up?
@@ -136,10 +146,9 @@
      </listitem>
      <listitem>
       <para>
-       Provide a storage pool for &vmguest;s.
-       <remark condition="clarity">
-        2016-09-15 - fs: we should be more specific here
-       </remark>
+       Provide a single disk pool for disk space required for the
+       &vmguest;s. It is not possible to use more than one disk pool for this
+       purpose.
       </para>
      </listitem>
      <listitem>
@@ -186,7 +195,7 @@
    <title>Adjusting <filename>DMSSICMO COPY</filename></title>
    <step>
     <para>
-     Log on to the maintenance user ID on the z/VM system.
+     Log on as user MAINT on the z/VM system.
     </para>
    </step>
    <step>
@@ -194,10 +203,6 @@
      Shut down SMAPI with the following command:
     </para>
     <screen>FORCE VSMGUARD</screen>
-    <remark condition="clarity">
-     2016-10-11 - fs: Does this also shut down XCAT? It is supposed not to run
-     when changing DMSSICMO COPY
-    </remark>
    </step>
    <step>
     <para>
@@ -213,12 +218,7 @@
     <important>
      <title>File Location</title>
      <para>
-      The <filename>DMSSICMO COPY</filename> needs to reside on MAINT 193
-      only.
-      <remark condition="clarity">
-       2016-10-11 - fs: Is this condition met by running the commend listed
-       above?
-      </remark>
+      The <filename>DMSSICMO COPY</filename> needs to reside on MAINT 193.
      </para>
     </important>
    </step>
@@ -228,30 +228,12 @@
     </para>
     <variablelist>
      <varlistentry>
-      <term><envar>cmo_admin_password</envar></term>
-      <listitem>
-       <para>
-        The password for the &ostack; account.
-        <remark condition="clarity">
-         2016-10-11 - fs: Does this really need to be set? We do not run
-         OpenStack services and the IBM docs claim it is unnecessary to set
-         this value.
-        </remark>
-       </para>
-       <screen>cmo_admin_password="<replaceable>PASSWORD</replaceable>"</screen>
-      </listitem>
-     </varlistentry>
-     <varlistentry>
       <term><envar>cmo_data_disk</envar></term>
       <listitem>
        <para>
         A space-separated list of volume IDs of minidisks that are to be used
-        by the CMA to store user date
-        <remark condition="clarity">
-         2016-10-11 - fs: What does "user data" mean here?
-        </remark>
-        These are the seven preformatted Model 9 minidisks/two Model 3
-        minidisks (FIXME) you provided for the CMA. See <xref
+        by the CMA to store user data. These are the seven preformatted Model 9
+        mini disks (FIXME) you provided for the CMA. See <xref
         linkend="qa.zsystem.add.disks"/> for detailed instructions.
        </para>
        <screen>cmo_data_disk="<replaceable>volumeID1</replaceable>
@@ -314,7 +296,7 @@ PUT2PROD</screen>
    <title>Adjusting <filename>DMSSICNF COPY</filename></title>
    <step>
     <para>
-     Log on to the maintenance user ID on the z/VM system.
+     Log on as user MAINT on the z/VM system.
     </para>
    </step>
    <step>
@@ -358,7 +340,8 @@ PUT2PROD</screen>
    </step>
    <step>
     <para>
-     It is recommended not to change the default values for
+     It is recommended <emphasis>not</emphasis> to change the default values
+     for
     </para>
     <simplelist>
      <member><envar>XCAT_vswitch</envar>=<literal>XCATVSW1</literal></member>
@@ -521,8 +504,75 @@ XAUTOLOG VSMGUARD</screen>
  <sect1 xml:id="sec.deploy.zsystems.image">
   <title>Capture a &slsa; on &zseries; Image</title>
   <para>
-   TBD
+   To start a &vmguest; an Linux on &zseries; operating system image is
+   required. In order to create such an image, you need to set up a &slsa; 12
+   SP1 system running in the same z/VM than the CMA. Once the system has been
+   intalled and configured, you can shut it down and capture the image. In the
+   following this Linux system used to capture the image from is referred to as
+   the <quote>image capture system</quote>.
   </para>
+
+  <sect2 xml:id="sec.deploy.zsystems.image.requirements">
+   <title>Requirements for the Image Capture System</title>
+   <para>
+    The following requirements for the image capture system need to be met:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Use &slsa; 12 SP1 as an operating system. This system has been tested and
+      is known to work. &slsa; 11 SP4 and RHEL 6.2 - 7.2 may also work but have
+      not been tested by &suse;).
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Use a minidisk with ECKD for storage. FBA is currently not supported by
+      &suse;. The minidisk must <emphasis>not</emphasis> be a full-pack disk
+      and needs to be defined with the virtual address 1100.
+      <remark condition="clarity">
+       2016-10-12 - fs: Correct terminology?
+      </remark>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Network interfaces need to be configured with IPv4. Disabling IPv6 in the
+      network settings is strongly recommended.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      The size of the root disk should not exceed 5 GB. It is also recommended
+      to use a disk size with a full gigabyte value (for example 2GB or 3GB),
+      since &ostack; disks are defined that way. See the <link
+      xlink:href="http://ibmmainframes.com/references/disk.html">Mainframe Disk
+      Capacity Table</link> for values that help to convert blocks or
+      cyclinders to bytes.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      The root disk needs to have a single partition and the root file system
+      must not be on a logical volume.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      The root file system needs to be formatted with Etx2, Etx3, Ext4, or
+      XFS. Btrfs is currently not supported.
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
+  <sect2 xml:id="sec.deploy.zsystems.image.install">
+   <title>Installing and Configuring the Image Capture System</title>
+   <para>
+
+   </para>
+  </sect2>
+
  </sect1>
 
 
@@ -576,6 +626,54 @@ XAUTOLOG VSMGUARD</screen>
 <replaceable>volumeID5</replaceable> <replaceable>volumeID6</replaceable>
 <replaceable>volumeID7</replaceable>"</screen>
      </tip>
+    </answer>
+   </qandaentry>
+   <qandaentry>
+    <question>
+     <para>
+      How to attach disks to SYSTEM CONFIG?
+     </para>
+    </question>
+    <answer>
+     <para>
+      TBD by bg
+     </para>
+    </answer>
+   </qandaentry>
+   <qandaentry>
+    <question>
+     <para>
+      How to give &xcat; appropriate permissions to access SMAPI?
+     </para>
+    </question>
+    <answer>
+     <para>
+      TBD by bg
+     </para>
+    </answer>
+   </qandaentry>
+   <qandaentry>
+    <question>
+     <para>
+      How to create or modify a disk pool for instances for ECKD?
+     </para>
+    </question>
+    <answer>
+     <para>
+      TBD by bg
+     </para>
+    </answer>
+   </qandaentry>
+      <qandaentry>
+    <question>
+     <para>
+      How to create or modify a disk pool for instances for FBA?
+     </para>
+    </question>
+    <answer>
+     <para>
+      TBD by bg
+     </para>
     </answer>
    </qandaentry>
   </qandaset>
