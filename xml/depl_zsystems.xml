@@ -124,7 +124,8 @@
      The &xcat; server and the &cloud; &comp; node need to be able to
      bidirectionally communicate with each other. This can, for example, be
      achieved by assigning the &xcat; and the &comp; node IP addresses from the
-     public cloud network. See FIXME for details.
+     public cloud network. See <xref linkend="sec.deploy.zsys_ostack.neutron"/>
+     for details.
     </para>
    </listitem>
    <listitem>
@@ -140,9 +141,9 @@
    <listitem>
     <para>
      The Linux image capture system needs to run &slsa; 12 SP1 for IBM
-     &zseries; and needs to use ECKD for storage. See <xref
-     linkend="sec.deploy.zsystems.image"/> for a full list of requirements for
-     this system.
+     &zseries; and needs to use ECKD or FBA for storage. See <xref
+     linkend="sec.deploy.zsystems.image.requirements"/> for a full list of
+     requirements for this system.
     </para>
    </listitem>
    <listitem>
@@ -191,7 +192,8 @@
     <para>
      Provide four preformatted Model 9 (or equivalent) system attached mini
      disks for the CMA. These disks will be used by &xcat; and be added to
-     the disk pool XCAT1.
+     the disk pool XCAT1. Refer to <filename>CMA120.FILE</filename> on mdisk
+     400 in MAINT for detailed instructions.
     </para>
    </listitem>
    <listitem>
@@ -209,7 +211,8 @@
     <para>
      Provide a single disk pool for disk space required for the
      &vmguest;s. It is not possible to use more than one disk pool for this
-     purpose.
+     purpose. Supported pool types are ECKD or FBA. All images must use the
+     disk type specified for this pool, mixing ECKD and FBA is not supported.
     </para>
    </listitem>
    <listitem>
@@ -528,10 +531,6 @@ XAUTOLOG VSMGUARD</screen>
    </step>
    <step>
     <para>
-     <remark condition="clarity">
-      2016-09-26 - fs: Is this true? IBM docs claim credentials are admin/admin
-      by default?
-     </remark>
      Log in to the &xcat; GUI as administrator using the credentials
      <literal>admin</literal>/<literal>admin</literal>. At this point it is
      recommended to change the administrator password as described in <link
@@ -1339,27 +1338,316 @@ XAUTOLOG VSMGUARD</screen>
 
 <sect1 xml:id="sec.deploy.zsys_ostack">
  <title>Configuring &cloud;</title>
- <para/>
-
+ <para>
+  Setting up the &cloud; side for deploying &zseries; &vmguest;s requires
+  &productname; to be set up at least up to the point where the &o_netw;
+  &barcl; gets deployed. It is also possible to adjust and re-deploy the
+  &o_netw; and &o_comp; &barcl; in a &cloud; that already has been deployed.
+ </para>
+  <para>
+  To deploy &zseries; &vmguest;s with &cloud; the following steps need to be performed on
+  the &cloud; side:
+ </para>
  <orderedlist>
-  <title>To be done</title>
   <listitem>
    <para>
-    Configuring the Neutron &barcl;
+    <xref linkend="sec.deploy.zsys_ostack.neutron" xrefstyle="select:title
+    nopage"/>
    </para>
   </listitem>
   <listitem>
    <para>
-    Configuring the Nova &barcl;
+    <xref linkend="sec.deploy.zsys_ostack.nova" xrefstyle="select:title
+    nopage"/>
    </para>
   </listitem>
   <listitem>
    <para>
-    Uploading the image
+    <xref linkend="sec.deploy.zsys_ostack.glance" xrefstyle="select:title
+    nopage"/>
    </para>
   </listitem>
  </orderedlist>
 
-</sect1>
+ <sect2 xml:id="sec.deploy.zsys_ostack.neutron">
+  <title>Configuring &o_netw; for IBM &zseries;</title>
+  <para>
+   Refer to <xref linkend="sec.depl.ostack.quantum"/> for general configuration
+   and deployment instructions. The following section describes the
+   z/VM-specific configuration options.
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term><guimenu>xCAT Host/IP Address</guimenu></term>
+    <listitem>
+     <para>
+      Host name or IP address of the xCAT server. Should be the same address as
+      was configured by <envar>XCAT_MN_Addr</envar> in <filename>DMSSICNF
+      COPY</filename> (see <xref linkend="sec.deploy.zsystems.xcat"/>.
+     </para>
+     <para>
+      This IP
+      address is used for the communication between the &xcat; server and the
+      z/VM &compnode;.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>
+     <guimenu>xCAT Username</guimenu> / <guimenu>xCAT Password</guimenu>
+    </term>
+    <listitem>
+     <para>
+      &xcat; admin login credentials. The <guimenu>xCAT Username</guimenu>
+      should be set to <literal>admin</literal>. Set <guimenu>xCAT
+      Password</guimenu> accordingly. The default password is
+      <literal>admin</literal>. Changing this password was recommended after
+      first having logged in to the &xcat; GUI.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>RDEV List for physnet1 vswitch Uplink</term>
+    <listitem>
+     <para>
+      The RDEV address of the OSA cards which are connected to the switch
+      defined as <envar>XCAT_MN_vswitch</envar> in <filename>DMSSICNF
+      COPY</filename> (see <xref linkend="sec.deploy.zsystems.xcat"/>. If you
+      have not changed the default, the switch's name is
+      <literal>XCATVSW2</literal>. Only one active RDEV address must be
+      specified here.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>
+     <guimenu>xCAT IP Address on Management Network</guimenu> / <guimenu>Net
+     Mask of Management Network</guimenu>
+    </term>
+    <listitem>
+     <para>
+      IP address and netmask of the &xcat; management network. For more
+      information refer to the <link
+      xlink:href="https://www.ibm.com/support/knowledgecenter/en/SSB27U_6.3.0/com.ibm.zvm.v630.hcpo4/networkcon.htm">IBM
+      documentation</link> for single flat networks or flat and VLAN mixed
+      networks.
+     </para>
+     <para>
+      This IP address is used for communication between &xcat; and all
+      &vmguest;s that do not have a public IP address.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
 
+  <tip>
+   <title>Adding the &xcat; Management Node to a &cloud; Network</title>
+   <para>
+    Communication between the &xcat; server and the &cloud; services requires a
+    network configuration that allows bidirectional communication between both
+    components. Since the &cloud; networks are isolated from the company
+    network, this requires network adjustments as described in <link
+     xlink:href="https://www.ibm.com/support/knowledgecenter/en/SSB27U_6.3.0/com.ibm.zvm.v630.hcpo4/networkcon.htm">Network Considerations</link>.
+   </para>
+   <para>
+    An alternative to these setups is to make the &xcat; Management Node part
+    of the public network of &cloud;. This can be done following these steps:
+   </para>
+   <procedure>
+    <step>
+     <para>
+      In the <guimenu>Attributes</guimenu> section of the &o_comp; &barcl;,
+      click <guimenu>Raw</guimenu> to edit the configuration file.
+     </para>
+    </step>
+    <step>
+     <para>
+      Search for the <literal>zvm_xcat_network</literal> entry and set the
+      value to the public network, for example:
+     </para>
+     <screen>"zvm": {
+    ...
+    "zvm_xcat_network": "192.168.126/24",
+    ...
+},</screen>
+    </step>
+    <step>
+     <para>
+      Click <guimenu>Save</guimenu> to save your changes and then
+      <guimenu>Custom</guimenu> to return to the &barcl; UI.
+     </para>
+    </step>
+   </procedure>
+  </tip>
+
+  <figure>
+   <title>The &o_netw; &barcl;: z/VM Configuration</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="depl_barclamp_neutron_zsystems.png" width="100%" format="png"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="depl_barclamp_neutron_zsystems.png" width="75%" format="png"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+ </sect2>
+
+ <sect2 xml:id="sec.deploy.zsys_ostack.nova">
+  <title>Configuring  &o_comp; for IBM &zseries;</title>
+  <para>
+   Refer to <xref linkend="sec.depl.ostack.nova"/> for general configuration
+   and deployment instructions. The following section describes the
+   z/VM-specific configuration options.
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term><guimenu>xCAT Host/IP Address</guimenu></term>
+    <listitem>
+     <para>
+      Host name or IP address of the xCAT server. Should be the same address as
+      was configured by <envar>XCAT_MN_Addr</envar> in <filename>DMSSICNF
+      COPY</filename> (see <xref linkend="sec.deploy.zsystems.xcat"/>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>
+     <guimenu>xCAT Username</guimenu> / <guimenu>xCAT Password</guimenu>
+    </term>
+    <listitem>
+     <para>
+      &xcat; admin login credentials. The <guimenu>xCAT Username</guimenu>
+      should be set to <literal>admin</literal>. Set <guimenu>xCAT
+      Password</guimenu> accordingly. The default password is
+      <literal>admin</literal>. Changing this password was recommended after
+      first having logged in to the &xcat; GUI.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><guimenu>z/VM Disk Pool for Ephemeral Disks</guimenu></term>
+    <listitem>
+     <para>
+      Name of the disk pool you set up to be used by the &vmguest;s. Do not
+      confuse this pool with the one for the CMA (XCAT1).
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>z/VM Disk Pool Type for Ephemeral Disks</term>
+    <listitem>
+     <para>
+      Type of the disk pool (ECKD or FBA).
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>z/VM Host Managed By xCAT MN</term>
+    <listitem>
+     <para>
+      Host ID of the z/VM that runs &xcat;.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>User Profile for Creating a z/VM Userid</term>
+    <listitem>
+     <para>
+      Name of the profile used to create new &vmguest;s. Needs to be set to
+      <literal>osdflt</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><guimenu>Default zFCP SCSI Disk Pool</guimenu></term>
+    <listitem>
+     <para>
+      The name of an SCSI disk pool managed by &xcat;. Setting this value is
+      optional. Set it to <literal>none</literal>, because this option is not used in this setup.
+      <remark condition="clarity">
+       2016-10-28 - fs: What's the use of this disk pool?
+      </remark>
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><guimenu>The xCAT MN Node Name</guimenu></term>
+    <listitem>
+     <para>
+      Host name of the &xcat; management node.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>The xCAT MN Node Public SSH Key</term>
+    <listitem>
+     <para>
+      Public SSH key of the &rootuser; user of the &xcat; management node. The
+      key is stored in the file <filename>/root/.ssh/id_rsa.pub</filename> on
+      the &xcat; management node. This key is needed for SSH communication
+      between the &xcat; management node and the &compnode;.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  <figure>
+   <title>The &o_comp; &barcl;: z/VM Configuration</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="depl_barclamp_nova_zsystems.png" width="100%" format="png"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="depl_barclamp_nova_zsystems.png" width="75%" format="png"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+ </sect2>
+
+ <sect2 xml:id="sec.deploy.zsys_ostack.glance">
+  <title>Exporting and Uploading an Image for IBM &zseries; to &o_img;</title>
+  <para>
+   To make the image that was created following the instructions in <xref
+   linkend="sec.deploy.zsystems.image"/> available in &cloud; it needs to be
+   exported to the &compnode; and then be uploaded to &o_img;.
+  </para>
+  <procedure>
+   <step>
+    <para>
+     To export the image to the Nova &compnode;, follow the instructions in the
+     IBM documentation: <link
+     xlink:href="https://www.ibm.com/support/knowledgecenter/en/SSB27U_6.3.0/com.ibm.zvm.v630.hcpo4/exportimage.htm">Export
+     the Image to the Nova Compute Server</link>. Use the
+     <literal>nova</literal> user ID.
+    </para>
+   </step>
+   <step>
+    <para>
+     Log in to the Nova &compnode; for z/VM with SSH via the &cloud;
+     &admserv;. In a shell, source the &ostack; RC file for the project that
+     you want to upload an image to. For details, refer to <link
+     xlink:href="http://docs.openstack.org/user-guide/common/cli_set_environment_variables_using_openstack_rc.html">Set
+     environment variables using the &ostack; RC file</link> in the &ostack;
+     documentation.
+    </para>
+   </step>
+   <step>
+    <para>
+     Upload the image using <command>glance image-create</command>:
+    </para>
+    <screen>glance image-create --name="<replaceable>IMAGE_NAME</replaceable>" --progress \
+  --is-public=True --disk-format=raw --container-format=bare \
+  --property image_type_xcat=linux --property architecture=s390x \
+  --property os_name=Linux --property os_version=sles12.1 \
+  --property provisioning_method=netboot &lt; ~nova/<replaceable>IMAGE_FILE_NAME</replaceable></screen>
+    <para>
+     If the image upload has been successful, a message appears, displaying the
+     ID that has been assigned to the image. Now users can launch &zseries;
+     &vmguest;s as described in the <citetitle>SUSE OpenStack Cloud 6 OpenStack
+     End User Guide</citetitle>.
+    </para>
+   </step>
+  </procedure>
+ </sect2>
+</sect1>
 </appendix>
