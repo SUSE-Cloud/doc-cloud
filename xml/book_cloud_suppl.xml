@@ -1414,5 +1414,410 @@
    </procedure>
   </sect1>
  </chapter>
+ <chapter xml:id="cha.deploy.kubernetes">
+  <title>Deploying Kubernetes</title>
+  <para>
+   By combining &ostack;, Docker, Kubernetes, and Flannel, you get a containers
+   solution which works like other OpenStack services. With &o_container;, Docker
+   and Kubernetes are made available as first class resources in &ostack;.
+  </para>
+  <sect1 xml:id="sec.deploy.kubernetes.cli">
+   <title>Deploying a Kubernetes Cluster from Command Line</title>
+   <para>
+    A cluster (formerly <literal>bay</literal>) is the construct in which
+    &o_container; launches container orchestration engines.
+   </para>
+   <itemizedlist>
+    <title>Requirements</title>
+    <listitem>
+     <para>
+      The <systemitem class="resource">python-openstackclient</systemitem> is
+      installed. After you have sourced an &ostack; RC file, use the command
+      line client to upload images from a machine outside of the cloud.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      To run the
+      <systemitem class="resource">python-openstackclient</systemitem>: An
+      &ostack; RC file containing the credentials for the &ostack; project to
+      which you want to upload the images.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      The <systemitem class="resource">python-magnumclient</systemitem> is installed.
+     </para>
+    </listitem>
+   </itemizedlist>
+
+  <procedure>
+   <step>
+    <para>
+     In a shell, source the &ostack; RC file for the project that you want to
+     upload an image to. For details, refer to
+     <link xlink:href="http://docs.openstack.org/user-guide/common/cli_set_environment_variables_using_openstack_rc.html"/>.
+    </para>
+   </step>
+   <step xml:id="step.deploy.k8s.img.create">
+    <para>
+     Create an image for cluster setup. For example:
+    </para>
+<screen>openstack image create sles-openstack-magnum-kubernetes \
+  --visibility public \
+  --disk-format qcow2 \
+  --os-distro opensuse \
+  --container-format bare \
+  --file ./sles-openstack-magnum-kubernetes.x86_64.qcow2</screen>
+<!--glance image-create -/-name sles-openstack-magnum-kubernetes \
+    -/-visibility public \
+    -/-disk-format qcow2 \
+    -/-os-distro opensuse \
+    -/-container-format bare \
+    -/-file ./sles-openstack-magnum-kubernetes.x86_64.qcow2</screen>-->
+   </step>
+   <step xml:id="step.deploy.k8s.flavor.create">
+    <para>
+     Create a &o_container; flavor. For example:
+    </para>
+ <screen>openstack flavor create --public m1.magnum --id 9 --ram 1024 \
+   --disk 10 --vcpus 1</screen>
+    <!--# nova flavor-create -/-is-public true m1.magnum 9 1024 10 1 -->
+    <!--9 ID| 1024 memory_mb | 10 disk | 1 vcpu-->
+    <para>
+     If you do not have enough resources and RAM on your compute nodes for a
+     flavor of this size, create a smaller flavor instead.
+    </para>
+   </step>
+   <step xml:id="step.deploy.k8s.templ.create">
+    <para>
+     Create a cluster template for Kubernetes. For example:
+     <remark>taroth 2016-12-29: the python-openstackclient does not seem to
+      handle magnum commands yet, therefore keeping the magnum commands here</remark>
+    </para>
+<screen>magnum cluster-template-create --name k8s_template \
+  --image-id sles-openstack-magnum-kubernetes \
+  --keypair-id default \
+  --external-network-id floating \
+  --dns-nameserver 8.8.8.8 \
+  --flavor-id m1.magnum \
+  --master-flavor-id m1.magnum \
+  --docker-volume-size 5 \
+  --network-driver flannel \
+  --coe kubernetes \
+  --master-lb-enabled</screen>
+   </step>
+   <step xml:id="step.deploy.k8s.cluster.create">
+    <para>
+     Create a Kubernetes cluster using the cluster template you have
+     created in the step above. For example:
+    </para>
+<screen>magnum cluster-create --name k8s_cluster --cluster-template k8s_template \
+  --master-count 1 --node-count 2</screen>
+    <para>
+     The resulting cluster will have one master Kubernetes node and two minion
+     nodes.
+    </para>
+   </step>
+  </procedure>
+  </sect1>
+  <sect1 xml:id="sec.deploy.kubernetes.ui">
+   <title>Deploying a Kubernetes Cluster from the &dash;</title>
+   <para>
+    Alternatively, you can deploy a Kubernetes cluster in the &cloud; &dash;
+    by creating a cluster template and creating a Kubernetes cluster afterward.
+   </para>
+   <itemizedlist>
+    <title>Requirements</title>
+    <listitem>
+     <para>
+      You have created an image for cluster setup as described in <xref
+       linkend="sec.deploy.kubernetes.cli" xrefstyle="select:label"/>, <xref
+        linkend="step.deploy.k8s.img.create" xrefstyle="select:label"/>.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      You have created a &o_container; flavor as described in <xref
+       linkend="sec.deploy.kubernetes.cli" xrefstyle="select:label"/>, <xref
+        linkend="step.deploy.k8s.flavor.create" xrefstyle="select:label"/>.
+     </para>
+    </listitem>
+   </itemizedlist>
+   <procedure xml:id="pro.deploy.cluster.templ.ui">
+   <title>Creating a Cluster Template in &cloud; &dash;</title>
+   <step>
+    <para>
+     Log in to &cloud; &dash; and select a project from the drop-down box at
+     the top-level row.
+    </para>
+   </step>
+   <step>
+    <para>
+     Click <menuchoice>
+      <guimenu>Container Infra</guimenu>
+      <guimenu>Cluster Templates</guimenu>
+      <guimenu>Create Cluster Template</guimenu>
+     </menuchoice>.
+    </para>
+    <para>
+     The <guimenu>Create Cluster Template</guimenu> dialog opens, showing
+     the following sections: <guimenu>Info</guimenu>, <guimenu>Node Spec</guimenu>,
+     <guimenu>Network</guimenu>, and <guimenu>Labels</guimenu>.
+    </para>
+   </step>
+   <step>
+    <para>
+     In the <guimenu>Info</guimenu> section:</para>
+    <substeps>
+     <step>
+      <para>
+       Enter a name for the cluster template to create.
+      </para>
+     </step>
+     <step>
+      <para>
+       As <guimenu>Container Orchestration Engine</guimenu>, choose
+       <literal>Kubernetes</literal>.
+      </para>
+     </step>
+     <step>
+      <para>
+       If wanted, activate the following options:
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+         <guimenu>Public</guimenu>: The cluster template will be visible for all
+         users in &ostack;.
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         <guimenu>Enable Registry</guimenu>: The cluster can be built with 
+         Insecure Docker Registry service.
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         <guimenu>Disable TLS</guimenu>: Switch off the SSL protocol for the cluster.
+        </para>
+       </listitem>
+      </itemizedlist>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     In the <guimenu>Node Spec</guimenu> section:
+    </para>
+    <substeps>
+     <step>
+      <para>
+       Choose the <guimenu>Image</guimenu> you have created in <xref
+        linkend="sec.deploy.kubernetes.cli" xrefstyle="select:label"/>, <xref
+         linkend="step.deploy.k8s.img.create" xrefstyle="select:label"/>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Choose a <guimenu>Keypair</guimenu>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Choose the <guimenu>Flavor</guimenu> you have created in <xref
+        linkend="sec.deploy.kubernetes.cli" xrefstyle="select:label"/>, <xref
+        linkend="step.deploy.k8s.flavor.create" xrefstyle="select:label"/>.
+       It will be used for the minion nodes.
+      </para>
+     </step>
+     <step>
+      <para>
+       Choose the same flavor as <guimenu>Master Flavor</guimenu>.
+       It will be used for the master node.
+      </para>
+     </step>
+     <step>
+      <para>
+       As <guimenu>Volume Driver</guimenu>, choose <literal>Cinder</literal>.
+      </para>
+     </step>
+     <step>
+      <para>
+       As <guimenu>Docker Storage Driver</guimenu>, choose
+       <literal>Device Mapper</literal>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Specify the <guimenu>Docker Volume Size (GB)</guimenu>. For example:
+       <literal>5</literal>
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     In the <guimenu>Network</guimenu> section:
+    </para>
+    <substeps>
+     <step>
+      <para>
+       As <guimenu>Network Driver</guimenu>, choose <literal>Flannel</literal>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Leave the <guimenu>HTTP Proxy</guimenu>, <guimenu>HTTPS Proxy</guimenu>, and
+       <guimenu>No Proxy</guimenu> boxes empty or enter the respective addresses
+       to use.
+      </para>
+     </step>
+     <step>
+      <para>
+       As <guimenu>External Network ID</guimenu>, enter <literal>floating</literal>.
+       The network <literal>floating</literal> will be used to connect to the cluster
+       template you are creating.
+      </para>
+     </step>
+     <step>
+      <para>
+       Leave the <guimenu>Fixed Network</guimenu> and <guimenu>Fixed Subnet</guimenu>
+       boxes empty.
+      </para>
+     </step>
+     <step>
+      <para>
+       Enter the <guimenu>DNS</guimenu> server to use for this cluster template.
+       For example: <literal>8.8.8.8.</literal>
+      </para>
+     </step>
+     <step>
+      <para>
+       To deploy the cluster with a load balancer service in front for the cluster
+       services, activate <guimenu>Master LB</guimenu>.
+      </para>
+     </step>
+     <step>
+      <para>
+       To assign floating IP addresses to the nodes in the cluster, activate
+       <guimenu>Floating IP</guimenu>.
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     Confirm your changes to create the cluster template.
+    </para>
+   </step>
+   </procedure>
+
+   <procedure xml:id="pro.deploy.cluster.ui">
+    <title>Creating a Cluster in &cloud; &dash;</title>
+    <para>Based on the cluster template you have created in <xref
+    linkend="pro.deploy.cluster.templ.ui"/>, you can now create a Kubernetes
+    cluster.</para>
+    <step>
+     <para>
+      Log in to &cloud; &dash; and select a project from the drop-down box at
+      the top-level row.
+     </para>
+    </step>
+    <step>
+     <para>
+      Click <menuchoice>
+       <guimenu>Container Infra</guimenu>
+       <guimenu>Clusters</guimenu>
+       <guimenu>Create Cluster</guimenu>
+      </menuchoice>.
+     </para>
+     <para>
+      The <guimenu>Create Cluster</guimenu> dialog opens, showing the following
+      sections: <guimenu>Info</guimenu>, <guimenu>Size</guimenu>,
+      and <guimenu>Misc</guimenu>.
+     </para>
+    </step>
+    <step>
+     <para>
+      In the <guimenu>Info</guimenu> section:</para>
+       <substeps>
+        <step>
+         <para>
+          Enter a <guimenu>Cluster Name</guimenu>.
+         </para>
+        </step>
+        <step>
+         <para>
+          From the <guimenu>Cluster Template</guimenu> list, select the template
+          you have created in <xref linkend="pro.deploy.cluster.templ.ui"/>.
+         </para>
+        </step>
+       </substeps>
+      </step>
+      <step>
+       <para>
+        In the <guimenu>Size</guimenu> section, enter the number of master
+        nodes and minion nodes you want the cluster to have. For example:
+        <literal>1</literal> and  <literal>2</literal>.
+       </para>
+      </step>
+     <step>
+      <para>
+       In the <guimenu>Misc</guimenu> section, you can optionally specify a custom
+       URL for node discovery and a <guimenu>Timeout</guimenu> for cluster creation,
+       if wanted. The default is no timeout.
+      </para>
+     </step>
+    <step>
+     <para>
+      Confirm your changes to create the cluster.</para>
+    </step>
+   </procedure>
+  </sect1>
+  <sect1 xml:id="sec.deploy.kubernetes.without">
+   <title>Deploying a Kubernetes Cluster Without Internet Access</title>
+   <para>
+    In specific scenarios, you may need to deploy a Kubernetes cluster
+    without access to Internet. For those cases, you need to set up a custom
+    Insecure Docker Registry and use no discovery URL. You can do this either
+    from command line (as described below) or from the &cloud; &dash;.
+   </para>
+   <procedure>
+    <step>
+     <para>
+      In a shell, source the &ostack; RC file for the project that you want to
+      upload an image to. For details, refer to
+      <link xlink:href="http://docs.openstack.org/user-guide/common/cli_set_environment_variables_using_openstack_rc.html"/>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Create a cluster template as shown in <xref linkend="sec.deploy.kubernetes.cli"
+      xrefstyle="select:lable"/>, <xref linkend="step.deploy.k8s.templ.create"/>,
+      but add the options <option>--registry-enabled</option>
+      and <option>--labels</option>. For example:
+     </para>
+<screen>magnum cluster-template-create --name k8s_template_reg_enabled \
+ [...]
+ --registry-enabled
+ --labels insecure_registry_url=<replaceable>URL</replaceable></screen>
+    </step>
+    <step>
+     <para>
+      Create a cluster as shown in <xref linkend="sec.deploy.kubernetes.cli"
+      xrefstyle="select:lable"/>, <xref linkend="step.deploy.k8s.cluster.create"/>,
+      but with static IP configuration and setting the option
+      <option>--discovery-url</option> to <literal>none</literal>. For example:
+     </para>
+<screen>magnum cluster-create --name k8s_cluster_without \
+  --cluster-template k8s_template_reg_enabled \
+  [...]
+  --discovery-url none</screen>
+    </step>
+   </procedure>
+  </sect1>
+ </chapter>
  <xi:include href="suppl_docupdates.xml"/>
 </book>
