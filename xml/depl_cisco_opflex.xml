@@ -1,0 +1,475 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE appendix
+[
+  <!ENTITY % entities SYSTEM "entity-decl.ent">
+  %entities;
+]>
+<!-- Converted by suse-upgrade version 1.1 -->
+<appendix xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0" xml:id="app.deploy.cisco_opflex">
+ <title>Cisco ACI Integration with Opflex ML2 and GBP Drivers</title>
+ <info>
+<dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+    <dm:maintainer>fs</dm:maintainer>
+    <dm:status>editing</dm:status>
+    <dm:deadline/>
+    <dm:priority/>
+    <dm:translation>no</dm:translation>
+    <dm:languages/>
+</dm:docmanager>
+</info>
+<para/>
+<sect1 xml:id="sec.deployment">
+  <title>Deployment Into a Cisco ACI Fabric</title>
+
+  <para>
+ SUSE customers who wish to deploy &cloud; into a Cisco Application Centric Infrastructure (ACI) fabric environment can do this by using Cisco OpFlex ML2 or GBP drivers. Cisco ACI options are selected in the Neutron barclamp, which will make your &cloud; installation a member of your Cisco Application Policy Infrastructure Controller (APIC). The drivers are packaged as RPMs for easy installation. This is a technology preview. We have successfully tested these steps on systems directly connected to a switch port on the ACI fabric. After you have set this up you should be able to:
+  </para>
+
+  <itemizedlist mark="bullet" spacing="normal">
+   <listitem>
+    <para>
+    Create &ostack; system objects in the Cisco APIC.
+    </para>
+   </listitem>
+   
+   <listitem>
+    <para>
+     Create &cloud; tenants and networks in the Cisco APIC using the Horizon dashboard.
+    </para>
+   </listitem>
+   
+   <listitem>
+    <para>
+     Create a VXLAN-based network encapsulation in the Cisco ACI fabric.
+    </para>
+   </listitem>
+   
+   <listitem>
+    <para>
+     Start &slsa; instances on different compute nodes that can ping their gateway and each other.
+    </para>
+
+   </listitem>
+  </itemizedlist>
+ </sect1>
+ 
+ <sect1 xml:id="sec.prereqisites">
+  <title>Prequisites</title>
+    <para>
+     As the Cisco ACI fabric is customized and highly-variable per customer's needs, you must have your ACI fabric already set up and working, and you need your own ACI expert administrator.
+    </para>
+    <para>
+    If you are using Cisco UCS B series hardware there are additional prerequisites; please contact Cisco for information.
+    </para>
+    <para>
+    Start with a newly-installed &cloud; with all nodes discovered and allocated, and no barclamps yet deployed. (If you are using an existing installation then pay extra attention to all configurations, and check for duplicates and conflicts.)
+    </para>
+    <para>
+    Make sure the control node has an IP address that allows it to communicate to your Cisco APIC.
+   </para>
+    <para>
+     The examples in this document reference a simplified example network with these nodes:
+ </para>
+ 
+  <itemizedlist>
+   <listitem>
+    <para>
+        Two Cisco ACI leafs.
+    </para>
+   </listitem> 
+   
+   <listitem>
+    <para>
+        One admin node.
+    </para>
+   </listitem> 
+   
+    <listitem>
+    <para>
+        One control node.
+    </para>
+   </listitem> 
+   
+   <listitem>
+    <para>
+        Two compute nodes.
+    </para>
+   </listitem>  
+</itemizedlist>
+
+    <para>
+   The example network uses 192.168.124.0/24 for the admin network. Figure J-1 shows the topology of the example network.
+    </para>
+    
+      <figure>
+     <title>The example network topology.</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="depl_opflex_1.png" width="100%" format="png"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="depl_opflex_1.png" width="75%" format="png"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+</sect1>
+
+    <sect1 xml:id="sec.networking">
+  <title>Configure Networking on Compute Nodes</title>     
+    <para>
+In the example network we have two compute nodes that are connected to our Cisco ACI fabric. Network configuration will be automated in future releases, but for now you must follow these steps to configure networking on all of your compute nodes.
+    </para>
+    
+<procedure>
+    <step>
+        <para>
+            Enter <literal>YAST | System | Network Settings</literal> (Click Continue when you see the Chef client warning).
+    </para>
+   </step> 
+   
+   <step>
+    <para>
+        Highlight the Ethernet device connected to the ACI fabric and press F4 (Edit).
+    </para>
+   </step> 
+   
+    <step>
+    <para>
+        Enable <literal>No Link and IP Setup</literal>.
+    </para>
+   </step> 
+   
+   <step>
+    <para>
+       Go to the General tab and set the MTU to 1600.
+    </para>
+   </step> 
+   
+    <step>
+    <para>
+       Press F10 to continue.
+    </para>
+   </step> 
+</procedure>
+
+
+<para>
+    You should be back at the first screen at <literal>YAST | System | Network Settings</literal>. Press F3 (Add) to open the Hardware Dialog. 
+</para>
+
+  <procedure>
+   <step>
+    <para>
+      Under <literal>Device Type</literal> select VLAN.
+    </para>
+   </step> 
+   
+   <step>
+    <para>
+        Set the <literal>Configuration Name</literal> to match what has been defined in the ACI fabric. In the example network that is <literal>vlan.4093</literal>.
+    </para>
+   </step> 
+   
+    <step>
+    <para>
+        Press F10 (Next) to return to the <literal>Network Card Setup | Address screen.</literal>
+    </para>
+   </step> 
+   
+   <step>
+    <para>
+       Select the Ethernet device that is connected to the ACI fabric  for <literal>Real Interface for VLAN</literal>.
+    </para>
+   </step> 
+   
+    <step>
+    <para>
+       Enter your VLAN ID, which in the example network is 4093.
+    </para>    
+   </step> 
+    
+   <step>
+    <para>
+      Enable <literal>Dynamic Address - DHCP</literal>.
+    </para>
+   </step> 
+   
+    <step>
+    <para>
+      Change to the General tab and set the MTU to 1600.
+    </para>
+   </step> 
+
+    <step>
+    <para>
+      Press F10 to save changes for new VLAN device, and press F10 again to exit Network Settings.
+    </para>
+   </step>    
+</procedure>
+
+
+<para>
+   Now that you have made these changes, re-enter Network Settings and configure routing. 
+</para>
+
+<procedure>
+   <step>
+    <para>
+     Go back into Network Settings (Click Continue when you see the Chef client warning).
+    </para>
+   </step> 
+   
+   <step>
+    <para>
+        Change to the Routing tab and add these entries to the Routing Table:
+        
+        <command>Destination     224.0.0.0
+        Genmask         240.0.0.0
+        Gateway         0.0.0.0
+        Device          vlan.4093 </command>(Select the VLAN device created in the previous steps)
+    </para>
+   </step> 
+   
+    <step>
+    <para>
+     Press F10 to save and exit Network Settings, then press F9 to exit Yast.
+    </para>
+   </step> 
+ </procedure>
+</sect1>
+
+<sect1 xml:id="sec.connectivity">
+  <title>Confirm Correct Connectivity</title>
+
+  <para>
+      Edit the <filename>/etc/dhclient.conf</filename> file on all compute nodes to verify that <literal>send dhcp-client-identifier</literal> has the MAC address of the NIC on the ACI fabric. (Run <command>ip addr show</command> to find the MAC address.) It should look like this, uncommented, with <literal>1:</literal> prepended to your MAC address, followed by a semi-colon, like this example: 
+   </para>
+   
+    <para> 
+        <literal>  
+     send dhcp-client-identifier 1:0:a0:24:ab:fb:9c;
+     </literal>
+  </para>
+  
+  <para>
+     Now install and run <command>lldpd</command>, the Link Layer Discovery Protocol daemon. You will use this to verify correct connectivity between your compute nodes.
+ </para>
+ 
+ <screen><prompt>root #  </prompt><command>zypper in lldpd</command> 
+<prompt>root #  </prompt><command>systemctl start lldpd.service</command> 
+<prompt>root #  </prompt><command>lldpctl</command> </screen>
+
+<para>
+    Give it a few minutes to scan its LLDP neighbors. When the scan is completed make a note of the <literal>PortDescr:</literal> line for the Ethernet interface(s) on the ACI fabric. It should look like this example, with the nodes and port switch detailed:
+</para>   
+  
+<para>
+    <literal>
+    PortDescr: topology/pod-1/paths-102/pathep-[eth1/34]
+    </literal>
+</para> 
+
+<warning>
+    <title>Do not proceed if you do not see proper output from lldpctl</title>
+    <para>If your compute nodes do not see each other in the LLDP scan, go back and check your network settings.
+        </para>
+</warning>
+</sect1>
+
+<sect1 xml:id="sec.openvswitch">
+<title>Install Openvswitch on Control and Compute Nodes</title>
+<para>
+    Install Open vSwitch on your control and compute nodes, version 2.4.1 or greater. The first command installs the necessary packages, and the second command verifies the version number.
+</para>
+<screen><prompt>root # </prompt><command>zypper in openvswitch openvswitch-switch openvswitch-kmp-default</command>
+<prompt>root # </prompt><command>modinfo openvswitch</command>
+</screen>
+
+<para>
+    Create the required OVS (open virtual switch) bridges. Run these commands on the control node:
+</para>
+<screen><prompt>root # </prompt><command>systemctl start openvswitch</command>
+<prompt>root # </prompt><command>systemctl enable openvswitch</command>
+<prompt>root # </prompt><command>ovs-vsctl add-br br-int</command>
+</screen>
+
+<para>
+    On the compute nodes you will also create <literal>vxlan</literal> ports.
+</para>
+
+<screen><prompt>root # </prompt><command>systemctl start openvswitch</command>
+<prompt>root # </prompt><command>systemctl enable openvswitch</command>
+<prompt>root # </prompt><command>ovs-vsctl add-br br-int</command>
+<prompt>root # </prompt><command>ovs-vsctl set bridge br-int protocols=[]</command>
+<prompt>root # </prompt><command>ovs-vsctl add-port br-int br-int_vxlan0 \
+    -- set Interface br-int_vxlan0 type=vxlan options:remote_ip=flow \
+    options:key=flow options:dst_port=8472</command>
+</screen>
+
+<para>
+    Run <command>lsmod</command> to verify that the <literal>vxlan</literal> port was created.
+</para>
+
+<screen><prompt>root # </prompt><command>lsmod | grep openvswitch</command>
+openvswitch   130813  1 vport_vxlan</screen>
+</sect1>
+
+<sect1 xml:id="sec.barclamps">
+<title>Deploy Barclamps</title>
+<para>
+    Deploy all pertinent OpenStack barclamps using your Crowbar Web interface. This depends on your own needs; these are a typical set of barclamps for most SOC 6 installation:
+</para>
+      
+  <itemizedlist>
+   <listitem> 
+       <para>
+    database
+       </para>
+    </listitem>
+    
+<listitem>   
+    <para>
+rabbitmq
+</para>
+   </listitem>
+   
+<listitem>
+    <para>
+keystone
+</para>
+</listitem>
+
+<listitem>
+    <para>
+glance 
+</para>
+</listitem>
+
+<listitem>
+    <para>
+cinder
+</para>
+</listitem>
+
+<listitem>
+    <para>
+horizon
+</para>
+</listitem>
+</itemizedlist>
+  
+  <para>
+  Now you will customize the Neutron barclamp for your installation. Note that the order of <literal>ml2_type_drivers</literal> is important, and <literal>opflex</literal> always comes first. The second <literal>ml2_type_drivers</literal> option defines the encapsulation used (<literal>vxlan</literal> or <literal>vlan</literal>).  Click on the Raw button to edit the attributes in raw mode and create a proposal. Set the following values and leave everything else set to the defaults:
+  </para>
+  
+  <screen>
+{
+  "create_default_networks": false,
+  //set this to your own internal domain
+  "dhcp_domain": "<replaceable>cloud.example.cisco-aci.lab</replaceable>",  
+  "use_lbaas": false,
+  "ml2_mechanism_drivers": [
+    "cisco_apic_ml2"
+  ],
+  "ml2_type_drivers": [
+    //this must be the first option
+    "opflex",  
+    //the second option defines the encapsulation used
+    "vxlan",  
+    "vlan"
+  ],
+  "ml2_type_drivers_default_provider_network": "opflex",
+  "ml2_type_drivers_default_tenant_network": "opflex",
+  "apic": {
+    //set this to your APIC IP address(es)
+    "hosts": "<replaceable>10.105.1.10,10.105.1.11</replaceable>",  
+    //set this to represent SOC as the APIC VMM domain
+    "system_id": "soc6",     
+    //use your own APIC login and password
+    "username": "<replaceable>admin</replaceable>", 
+    "password": "<replaceable>password</replaceable>"
+  },
+  "opflex": {
+     //use your own peer IP address and port
+    "peer_ip": "<replaceable>10.0.0.30</replaceable>", 
+    "peer_port": <replaceable>8009</replaceable>,
+    "encap": "vxlan",
+    "vxlan": {
+      "encap_iface": "br-int_vxlan0",
+      //get this value from your VLAN ID
+      "uplink_iface": "<replaceable>vlan.4093</replaceable>",  
+      "uplink_vlan": 4093,
+      //use your own remote IP address and port
+      "remote_ip": "<replaceable>10.0.0.32</replaceable>", 
+      "remote_port": <replaceable>8472</replaceable>
+    },
+  "apic_switches": {
+    "101": {
+      "switch_ports": {
+         //use your own hostname and switch port
+        "<replaceable>d58-00-00-00-00-00</replaceable>": { 
+          "switch_port": "<replaceable>1/2</replaceable>"
+        }
+      }
+    },
+    "102": {
+      "switch_ports": {
+        //use your own hostname and switch port
+        "<replaceable>d58-00-00-00-00-02</replaceable>": { 
+          "switch_port": "<replaceable>1/3</replaceable>"
+        }
+       }
+     }
+   }
+ }
+}
+  </screen>
+  
+  <para>
+      Save your changes and click Apply, and then apply the Neutron and Nova barclamps. If the Nova barclamp fails see the troubleshooting section (below).
+  </para>
+  
+  <para>
+      Now you can verify that the VLAN is correctly configured on the compute nodes, and the network interface has an IP address from the ACI fabric.
+  </para>
+  <screen><prompt>root # </prompt><command>ip a show dev vlan.4093</command>
+</screen> 
+<para>
+    If the interface does not get an IP address from the ACI fabric, see the troubleshooting section.
+</para>
+
+<tip><para>The vlan.4093 interface will not get an IP address from the fabric until Neutron is started on the control node (which was done in the previous step).  The driver looks at <literal>apic_provision_infra = True</literal> and <literal>apic_provision_hostlinks = True</literal> in <filename>ml2_conf_cisco_apic.ini</filename>to know that it must provision the ACI infrastructure with the compute host information.</para> </tip>
+</sect1>
+
+<sect1 xml:id="sec.horizon">
+<title>Test Networking in Horizon Dashboard</title>
+<para>Add and deploy a new virtual machine image to your admin node. This example deploys a JeOS image:</para>
+
+<screen><prompt> root # </prompt><command>scp SLES_12_SP1_JeOS_OpenStack.x86_64-0.0.4-no-cloud-init.qcow2 soc-control1:/root</command>
+</screen> 
+
+<para>
+  Add and deploy the new image to your control node:
+</para>
+
+<screen><prompt> root # </prompt><command>source .openrc</command>
+<prompt> root # </prompt><command>glance image-create --name sles-jeos \ 
+            --file SLES_12_SP1_JeOS_OpenStack.x86_64-0.0.4-no-cloud-init.qcow2 \
+            --disk-format qcow2 --container-format=bare</command>
+</screen>
+
+<para>
+    Make the image public in the Web interface (<literal>Admin | Images | Edit Image</literal>, click the Edit Image buttom and not the drop-down menu), and then create a new network (<literal>Project | Network | Networks</literal>). Verify that the network has been created in the APIC web interface under <literal>Tenants</literal>. Start the instances on each compute node within the same project that are attached to the new network, then confirm the instances and ping their gateway and each other.  
+</para>    
+    </sect1>
+  
+ <sect1 xml:id="sec.gbp">
+<title>Cisco Group-based Policy Framework (GBP) Installation</title>
+<para>
+    
+    </para>
+ </sect1>
+ 
+ 
+ 
+</appendix>
