@@ -1,0 +1,431 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE chapter
+[
+<!ENTITY % entities SYSTEM "entity-decl.ent">
+%entities;
+]>
+
+<chapter xmlns="http://docbook.org/ns/docbook" 
+xmlns:xi="http://www.w3.org/2001/XInclude" 
+xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0" 
+xml:id="sec.depl.multi_external_networks">
+ <info>
+  <title>Setting Up Multiple External Networks</title>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:maintainer>cs</dm:maintainer>
+   <dm:status>editing</dm:status>
+   <dm:deadline/>
+   <dm:priority/>
+   <dm:translation>no</dm:translation>
+   <dm:languages/>
+  </dm:docmanager>
+  <abstract>
+   <para>
+foo something maybe
+   </para>
+  </abstract>
+ </info>
+
+ <sect1  xml:id="sec.nettest">
+     <title>Test Network Configuration</title>
+ <para>
+Install &cloud; using &crow; and setting the Open vSwitch plugin for 
+the &o_netw; &barcl;. When the cloud is up, run the following test to confirm 
+that the network configuration is correct. Log in to the node where &o_netw;  
+services are running  (for all these tests we will assume we are using this 
+node).
+ </para>
+ <procedure xml:id="pro.secgroup">
+  <step>
+   <para>
+Create a security group that allows logging in via SSH into your virtual 
+machines (VMs):
+</para>
+<screen>
+sudo neutron security-group-create web
+sudo neutron security-group-rule-create --direction ingress --protocol TCP \
+ --port-range-min 22 --port-range-max 22 web
+</screen>
+</step>
+
+<step>
+<para>
+Create a virtual machine and assign the web security group to it. (This 
+can be done from the dashboard or from the command line)
+</para>
+<screen>
+sudo nova boot --image <replaceable>cirros-0.3.1-x86_64-uec</replaceable> 
+ --security_groups web --flavor 1 vm1
+</screen>
+</step>
+
+<step>
+      <para>
+    Assign a floating IP address to the VM. This command will also return the 
+ID of the floating IP address created:
+</para>
+<screen>
+sudo neutron floatingip-create floating
+</screen>
+</step>
+
+<step>
+<para>
+Use this command to get the ID of the port of the instance:
+</para>
+<screen>
+sudo neutron port-list
+</screen>
+</step>
+
+<step>
+<para>
+Then associate the IP address and the port, replacing the values in the 
+example with your own:
+</para>
+<screen>
+sudo neutron floatingip-associate <replaceable>192.168.1.10</replaceable> <replaceable>1234</replaceable>
+</screen>  
+  </step>
+
+  <step>
+      <para>
+Verify that you can login to your VM with SSH.
+      </para>
+  </step>
+</procedure>
+</sect1>
+
+<sect1 xml:id="sec.setupnet">
+    <title>Set Up the Second External Network</title>
+    <para>
+        Follow these steps to set up a fake external network for testing. It 
+cannot be reached by the other nodes. This setup is enough to test that, 
+at a &o_netw; level, the second public network is working correctly. You can 
+use the node itself, which is not part of the cloud, to test logging in via 
+SSH and verify that the translation from floating IP address to private IP 
+address happens correctly. You should be able to reach the VM because the 
+private IP address will be forwarded to the compute node where the 
+VM resides.
+    </para>
+    
+<procedure xml:id="pro.setupnet">  
+    <step>
+   <para>
+       First, create a VLAN. This example assigns a VLAN ID of 600:
+   </para>
+   <screen>
+sudo vconfig add eth0 600
+sudo ifconfig eth0.600 up
+sudo ethtool -K eth0.600 tx off
+   </screen>
+</step>
+
+<step>
+<para>
+    Then create a new virtual switch, and connect the new VLAN to it:
+</para>
+<screen>
+sudo ovs-vsctl add-br br-ext-1
+sudo ovs-vsctl add-port br-ext1 eth0.600
+</screen>
+</step>
+
+<step>
+<para>
+    Assign an IP address to the switch that is in the address range the second 
+external network will use, and add a route:
+</para>
+<screen>
+    sudo ip addr add <replaceable>100.100.100.1</replaceable> dev br-ext1
+sudo ip route add <replaceable>100.100.100.0/24</replaceable> dev br-ext1
+</screen>
+</step>
+
+<step>
+    <para>
+        Check the configuration of the bridge:
+    </para>
+    <screen>
+sudo ovs-vsctl show 
+</screen>
+</step>
+    </procedure>
+</sect1>   
+    
+<sect1 xml:id="sec.confignet">
+    <title>Configure the Second External Network</title>
+        <para>
+        The following steps add the networks settings, including IP address 
+pools, gateway, routing, and virtual switches. 
+</para>
+
+    <procedure xml:id="pro.confignet">
+        <step>
+            <para>
+First, stop your &chef; client, 
+then add these lines to <filename>/etc/neutron/l3_agent.ini</filename> with no 
+options:
+    </para> 
+    <screen>
+gateway_external_network_id =
+external_network_bridge =       
+    </screen>
+</step>
+
+<step>
+    <para>
+        The following steps add the networks settings, including IP address 
+pools, gateway, routing, and virtual switches.  First, edit 
+<filename>/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini</filename> 
+to include the following line:
+</para>
+<screen>
+bridge_mappings = floating:br-public,public2:br-ext1
+</screen>
+    <para>
+        This change tells the l3 agent that it must rely on the
+physnet-to-bridge mappings.
+    </para>
+</step>
+
+<step>
+    <para>
+    Restart <command>neutron-l3-agent</command>and 
+<command>neutron-openvswitch-agent</command>.
+</para>
+</step>
+
+<step xml:id="step.iface_maps">
+    <para>
+        Run either of the following two commands to set up interface mapping. 
+The first example is for Open vSwitch, and the second example is for 
+Linuxbridge users. These examples use another VLAN ID for the second 
+external network, so the interface mapping for Linuxbridge uses the same 
+network interface (eth0). It is enough to map the new network specifying the 
+correct segmentation ID.
+</para>
+    <screen>
+sudo neutron net-create public2 --provider:network_type flat \
+ --provider:physical_network public2 --router:external=True
+
+sudo neutron net-create public2 --router:external True \
+ --provider:physical_network physnet1 --provider:network_type vlan \
+ --provider:segmentation_id 600
+    </screen>
+</step>
+
+<step>
+    <para>
+        If a different network is used then &crow; will create a new interface 
+mapping. A flat network can be used then:
+</para>
+<screen>
+sudo neutron net-create public2 --provider:network_type flat \
+ --provider:physical_network public2 --router:external=True
+</screen>
+</step>
+
+<step>
+    <para>
+   Now create a subnet:     
+</para>
+<screen>
+sudo neutron subnet-create --name public2 --allocation-pool \
+ start=192.168.135.2,end=192.168.135.127 --gateway 192.168.135.1 public2 \
+ 192.168.135.0/24 --enable_dhcp False
+</screen>
+</step>
+
+<step>
+    <para>
+  The next step is to create a second router:  
+</para>
+<screen>
+sudo neutron router-create router2
+</screen>
+</step>
+
+<step>
+    <para>
+ Connect router2 to the second external network:       
+</para>
+<screen>
+sudo neutron router-gateway-set router2 public2
+</screen>
+</step>
+
+<step>
+    <para>
+        Create another private network and connect it to router2:
+</para>
+<screen>
+sudo neutron net-create priv-net
+sudo neutron subnet-create priv-net --gateway 10.10.10.1 10.10.10.0/24 \
+ --name priv-net-sub
+sudo neutron router-interface-add router2 priv-net-sub
+</screen>
+</step>
+
+<step>
+    <para>
+ Boot a VM setting the web security group and priv-net-sub network.       
+</para>
+</step>
+
+<step>
+    <para>
+ Assign a floating IP address to the VM, this time from network public2.
+</para>
+</step>
+
+<step>
+    <para>
+        From the node verify that SSH is working by opening an SSH session to 
+the VM.
+</para>
+</step>
+</procedure> 
+</sect1>
+
+<sect1 xml:id="sec.automatenet">
+    <title>Automating Network Setup</title>
+    <para>
+        Ideally, we need to be able to setup a second external network using 
+&crow;. This can be done as manual step, but this is error-prone.
+</para>
+
+<para>
+We should be able to handle the configuration file of the OVS agent that is on 
+the network node in a separate way. The OVS agent runs on every compute node, 
+and with the current configuration the compute node is not connected to the 
+external network.
+</para>
+<para>
+    If the parameter <parameter>bridge_mappings</parameter> is set, and the 
+agent doesn't find the bridges specified in the mappings, it will exit. That is
+why we need one configuration file for the agent running on the network node 
+with <parameter>bridge_mappings</parameter> specified, and one configuration 
+for the agent running on the compute node without 
+<parameter>bridge_mappings</parameter> . (Unless you embrace the 
+&o_netw; Distributed Virtual Router (DVR) and set a connection to the 
+external network on every compute node.)
+</para>
+<tip>
+    <title>Setting up DVR</title>
+    <para>
+For setting up DVR apart from having a connection to the external network 
+on every compute node, it seems that only configuration changes are required, 
+and the support of l2 POP and VXLAN.
+</para>
+</tip>
+
+<para>
+To automate creating external networks you need  
+<link xlink:href="https://github.com/SUSE-Cloud/automation">
+    <citetitle>mkcloud</citetitle></link>
+Start by following these steps to modify the &o_netw; &barcl;.
+</para>
+
+<procedure xml:id="pro.automate-net">
+    <step>
+    <para>
+        First, run the following script.
+    </para>
+    <screen>
+sudo ./runtest.c18.rossella_s prepare setupadmin addupdaterepo runupdate \ 
+ prepareinstcrowbar
+    </screen>
+</step>
+
+<step>
+<para>
+    Then add the following lines to 
+    <filename>/etc/crowbar/network.json</filename>, substituting your own VLAN 
+ID and network values.
+</para>
+<screen>
+        "public2": {
+          "conduit": "intf1",
+          "vlan": <replaceable>600</replaceable>,
+          "use_vlan": true,
+          "add_bridge": false,
+          "subnet": "<replaceable>192.168.135.128</replaceable>",
+          "netmask": "<replaceable>255.255.255.128</replaceable>",
+          "broadcast": "<replaceable>192.168.135.255</replaceable>",
+          "ranges": {
+            "host": { "start": "<replaceable>192.168.135.129</replaceable>", 
+               "end": "<replaceable>192.168.135.254</replaceable>" }
+          }
+    },
+</screen>
+</step>
+
+
+<step>
+    <para>
+        Now run <command>./runtest.c18.rossella_s instcrowbar</command>
+        </para>
+    </step>
+    
+    <step>
+    <para>
+        In your <command>mkcloud</command> environment add a new VLAN. In the 
+        following example that is VLAN ID 600, and then verify with the 
+        <command>ip</command> command. Then apply the changes.
+    </para>    
+    <screen>
+mkcloud:<prompt>root #</prompt><command>vconfig add c18br 600</command>bnet
+mkcloud:<prompt>root #</prompt><command>ifconfig c18br.600</command>
+sudo ./runtest.c18.rossella_s setupnodes
+sudo ./runtest.c18.rossella_s instnodes proposal
+</screen> 
+</step>
+
+<step>
+    <para>
+         The next step is to install the modified &barcl;. Modify the 
+        <parameter>additional_external_networks</parameter> with the name of 
+        your second public network, <literal>"additional_external_networks": 
+            ["public2"]</literal>, and then follow from <xref 
+linkend="step.iface_maps"/>, setting up interface mappings and configuring 
+networks.
+    </para>        
+</step>
+</procedure>
+
+<para>
+    For OVS, a new bridge will be created by &crow;, in this case 
+    <literal>br-public2</literal>. In the bridge mapping the new 
+network will be assigned to the bridge. The interface specified in 
+<filename>/etc/crowbar/network.json</filename> (in this case eth0.600) will be 
+plugged into <literal>br-public2</literal>. The new public network can be 
+created in &o_netw; using the new public network name as 
+<parameter>provider:physical_network </parameter>.
+</para>
+<para>
+For Linuxbridge &crow; will check the interface associated with 
+<literal>public2</literal> . If this is the same as physnet1 no 
+interface mapping will be created. The new public network can be created in 
+&o_netw; using physnet1 as physical network and specifying the correct VLAN id:
+</para>
+<screen>
+sudo neutron net-create public2 --router:external True 
+ --provider:physical_network physnet1 --provider:network_type vlan 
+ --provider:segmentation_id 600
+</screen>
+
+<para>
+    A bridge named <varname>brq-NET_ID</varname> will be created and the 
+    interface specified in <filename>/etc/crowbar/network.json</filename> will 
+be plugged into it.  If a new interface is associated in 
+<filename>/etc/crowbar/network.json</filename> with public2 then &crow; will 
+add a new interface mapping and the second public network can be created using 
+public2 as physical network :
+</para>
+<screen>
+sudo neutron net-create public2 --provider:network_type flat \
+ --provider:physical_network public2 --router:external=True
+</screen>    
+</sect1>
+</chapter>
