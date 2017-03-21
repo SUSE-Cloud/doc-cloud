@@ -832,6 +832,174 @@
    </warning>
   </sect2>
  </sect1>
+
+  <sect1>
+      <title>Setting Up Multiple External Networks</title>
+   <para>
+This section shows you how to create external networks 
+on &cloud; by modifying the &o_netw; &barcl;.
+   </para>
+
+ <sect2  xml:id="sec.config">
+     <title>Configure the &o_netw; &Barcl;</title>
+     <procedure>
+         <step>
+<para>
+    Add the following lines to 
+    <filename>/etc/crowbar/network.json</filename> to set up an external network, using the name of your new network, VLAN ID, and network addresses. 
+</para>
+<screen>"<replaceable>public2</replaceable>": {
+          "conduit": "intf1",
+          "vlan": <replaceable>600</replaceable>,
+          "use_vlan": true,
+          "add_bridge": false,
+          "subnet": "<replaceable>192.168.135.128</replaceable>",
+          "netmask": "<replaceable>255.255.255.128</replaceable>",
+          "broadcast": "<replaceable>192.168.135.255</replaceable>",
+          "ranges": {
+            "host": { "start": "<replaceable>192.168.135.129</replaceable>", 
+               "end": "<replaceable>192.168.135.254</replaceable>" }
+          }
+    },</screen>
+</step>
+
+<step>
+    <para>
+         Install the modified &o_netw; &barcl; and modify 
+<parameter>additional_external_networks</parameter> with the name of 
+        your new external network.
+    </para>        
+</step>
+</procedure>
+</sect2>
+
+<sect2 xml:id="sec.confignet">
+    <title>Configure the New External Network</title>
+        <para>
+        The following steps add the network settings, including IP address 
+pools, gateway, routing, and virtual switches to your new network. 
+</para>
+
+    <procedure xml:id="pro.confignet">
+<step>
+    <para>
+Set up interface mapping using either Open vSwitch (OVS) or Linuxbridge. 
+For Open vSwitch run the following command:
+</para>
+<screen>sudo neutron net-create <replaceable>public2</replaceable>: --provider:network_type flat \
+ --provider:physical_network <replaceable>public2</replaceable>: --router:external=True</screen>
+ 
+ <para>
+For Linuxbridge run the following command:
+</para>
+
+<screen> sudo neutron net-create --router:external True --provider:physical_network physnet1 \
+ --provider:network_type vlan --provider:segmentation_id <replaceable>600</replaceable></screen>
+</step>
+
+<step>
+    <para>
+        If a different network is used then &crow; will create a new interface 
+mapping. Then you can use a flat network:
+</para>
+<screen>
+sudo neutron net-create <replaceable>public2</replaceable> --provider:network_type flat \
+ --provider:physical_network <replaceable>public2</replaceable> --router:external=True
+</screen>
+</step>
+
+<step>
+    <para>
+Create a subnet:     
+</para>
+<screen>sudo neutron subnet-create --name <replaceable>public2</replaceable> --allocation-pool \
+ start=<replaceable>192.168.135.2</replaceable>,end=<replaceable>192.168.135.127</replaceable> --gateway <replaceable>192.168.135.1</replaceable> <replaceable>public2</replaceable> \
+ <replaceable>192.168.135.0/24</replaceable> --enable_dhcp False</screen>
+</step>
+
+<step>
+    <para>
+        Create a router, <replaceable>router2</replaceable>:  
+</para>
+<screen>sudo neutron router-create <replaceable>router2</replaceable></screen>
+</step>
+
+<step>
+    <para>
+ Connect <replaceable>router2</replaceable> to the new external network:       
+</para>
+<screen>sudo neutron router-gateway-set <replaceable>router2</replaceable>  <replaceable>public2</replaceable></screen>
+</step>
+
+<step>
+    <para>
+        Create a new private network and connect it to 
+<replaceable>router2</replaceable>
+</para>
+<screen>sudo neutron net-create priv-net
+sudo neutron subnet-create priv-net --gateway <replaceable>10.10.10.1 10.10.10.0/24</replaceable> \
+ --name priv-net-sub
+sudo neutron router-interface-add <replaceable>router2</replaceable> priv-net-sub</screen>
+</step>
+
+<step>
+    <para>
+Boot a VM on priv-net-sub and set a security group that allows SSH.
+</para>
+</step>
+
+<step>
+    <para>
+ Assign a floating IP address to the VM, this time from network <replaceable>public2</replaceable>.
+</para>
+</step>
+
+<step>
+    <para>
+        From the node verify that SSH is working by opening an SSH session to 
+the VM.
+</para>
+</step>
+</procedure> 
+</sect2>
+
+<sect2 xml:id="sec.howbridges">
+    <title>How the Network Bridges are Created</title>
+<para>
+    For OVS, a new bridge will be created by &crow;, in this case 
+    <literal>br-public2</literal>. In the bridge mapping the new 
+network will be assigned to the bridge. The interface specified in 
+<filename>/etc/crowbar/network.json</filename> (in this case eth0.600) will be 
+plugged into <literal>br-public2</literal>. The new public network can be 
+created in &o_netw; using the new public network name as 
+<parameter>provider:physical_network</parameter>.
+</para>
+<para>
+For Linuxbridge &crow; will check the interface associated with 
+<replaceable>public2</replaceable> . If this is the same as physnet1 no 
+interface mapping will be created. The new public network can be created in 
+&o_netw; using physnet1 as physical network and specifying the correct VLAN ID:
+</para>
+<screen>sudo neutron net-create <replaceable>public2</replaceable> --router:external True \
+ --provider:physical_network physnet1 --provider:network_type vlan \
+ --provider:segmentation_id <replaceable>600</replaceable>
+</screen>
+
+<para>
+    A bridge named <varname>brq-NET_ID</varname> will be created and the 
+    interface specified in <filename>/etc/crowbar/network.json</filename> will 
+be plugged into it.  If a new interface is associated in 
+<filename>/etc/crowbar/network.json</filename> with <replaceable>public2</replaceable> then &crow; will 
+add a new interface mapping and the second public network can be created using 
+<replaceable>public2</replaceable> as the physical network :
+</para>
+<screen>sudo neutron net-create <replaceable>public2</replaceable> --provider:network_type flat \
+ --provider:physical_network <replaceable>public2</replaceable> --router:external=True</screen>    
+</sect2>
+</sect1>
+ 
+ 
+ 
  <sect1 xml:id="sec.depl.inst.admserv.post.cloud_installation">
   <title>Starting the &inst_crow;</title>
 
