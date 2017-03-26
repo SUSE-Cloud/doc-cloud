@@ -832,6 +832,287 @@
    </warning>
   </sect2>
  </sect1>
+
+ <sect1 xml:id="sec.deploy.crowbatch.description">
+  <title>Crowbar Batch Command</title>
+
+ <para>
+  This is the documentation for the <command>crowbar batch</command>
+  subcommand.
+ </para>
+  <para>
+   <command>crowbar batch</command> provides a quick way of creating,
+   updating, and applying &crow; proposals. It can be used to:
+  </para>
+
+  <itemizedlist mark="bullet" spacing="normal">
+   <listitem>
+    <para>
+     accurately capture the configuration of an existing &crow;
+     environment.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     drive &crow; to build a complete new environment from scratch.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     capture one &cloud; environment and then reproduce it on another set
+     of hardware (provided hardware and network configuration match to an
+     appropriate extent).
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     automatically update existing proposals.
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   As the name suggests, <command>crowbar batch</command> is intended to be
+   run in <quote>batch mode</quote>, that is mostly unattended. It has two
+   modes of operation:
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>crowbar batch export
+    </term>
+    <listitem>
+     <para>
+      Exports a YAML file which describes existing proposals and how their
+      parameters deviate from the default proposal values for that
+      &barcl;.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>crowbar batch build
+    </term>
+    <listitem>
+     <para>
+      Imports a YAML file in the same format as above. Uses it to build
+      new proposals if they do not yet exist. Updates the existing
+      proposals so that their parameters match those given in the YAML file.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+ 
+ <sect2 xml:id="sec.deploy.crowbatch.yaml">
+  <title>YAML file format</title>
+
+  <para>
+   Here is an example YAML file. At the top-level, there is a proposals
+   array, each entry of which is a hash representing a proposal:
+  </para>
+
+  <screen>proposals:
+- barclamp: provisioner
+  # Proposal name defaults to 'default'.
+  attributes:
+    shell_prompt: USER@ALIAS:CWD SUFFIX
+- barclamp: database
+  # Default attributes are good enough, so we just need to assign
+  # nodes to roles:
+  deployment:
+    elements:
+      database-server:
+        - "@@controller1@@"
+- barclamp: rabbitmq
+  deployment:
+    elements:
+      rabbitmq-server:
+        - "@@controller1@@"</screen>
+
+  <note>
+    <title>
+     Reserved Indicators in YAML
+    </title>
+    <para>
+     Note that the characters <literal>@</literal> and <literal>`</literal>
+     are reserved indicators in YAML. They can appear anywhere in a string
+     <emphasis>except at the beginning</emphasis>. Therefore a string such as
+     <literal>@@controller1@@</literal> needs to be quoted using double quotes.
+    </para>
+  </note>
+  </sect2>
+  
+  <sect2 xml:id="sec.deploy.crowbatch.yaml.attributes">
+   <title>Top-level proposal attributes</title>
+   <variablelist>
+    <varlistentry>
+     <term>barclamp
+     </term>
+     <listitem>
+      <para>
+       Name of the &barcl; for this proposal (required).
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>name
+     </term>
+     <listitem>
+      <para>
+       Name of this proposal (optional; default is
+       <literal>default</literal>). In <command>build</command> mode, if the
+       proposal does not already exist, it will be created.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>attributes
+     </term>
+     <listitem>
+      <para>
+       An optional nested hash containing any attributes for this proposal
+       which deviate from the defaults for the &barcl;.
+      </para>
+      <para>
+       In <command>export</command> mode, any attributes set to the default
+       values are excluded to keep the YAML as short and readable as
+       possible.
+      </para>
+      <para>
+       In <command>build</command> mode, these attributes are deep-merged
+       with the current values for the proposal. If the proposal did not
+       already exist, batch build will create it first. The attributes
+       are merged with the default values for the &barcl;'s
+       proposal.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>wipe_attributes
+     </term>
+     <listitem>
+      <para>
+       An optional array of paths to nested attributes which should be
+       removed from the proposal.
+      </para>
+      <para>
+       Each path is a period-delimited sequence of attributes; for example
+       <literal>pacemaker.stonith.sbd.nodes</literal> would remove all SBD
+       nodes from the proposal if it already exists. If a path segment
+       contains a period, it should be escaped with a backslash, for example
+       <literal>segment-one.segment\.two.segment_three</literal>.
+      </para>
+      <para>
+       This removal occurs before the deep merge described above. <!--For
+       example, a batch build with a YAML file which includes
+       <literal>pacemaker.stonith.sbd.nodes</literal> in
+       <literal>wipe_attributes</literal> of a pacemaker &barcl; proposal
+       would ensure that at the end of the run, only SBD nodes listed in the
+       attributes sibling hash would be used. -->
+       For example, think of a YAML file which includes a Pacemaker &barcl; proposal
+       where the <literal>wipe_attributes</literal> entry contains
+       <literal>pacemaker.stonith.sbd.nodes</literal>. A batch build with this YAML file
+       ensures that only SBD nodes listed in the <literal>attributes sibling</literal> hash 
+       are used at the end of the run. In contrast, without the
+       <literal>wipe_attributes</literal> entry, the given SBD nodes would
+       be appended to any SBD nodes already defined in the proposal.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>deployment
+     </term>
+     <listitem>
+      <para>
+       A nested hash defining how and where this proposal should be
+       deployed.
+      </para>
+      <para>
+       In <command>build</command> mode, this hash is deep-merged in the
+       same way as the attributes hash, except that the array of elements
+       for each &chef; role is reset to the empty list before the deep
+       merge. This behavior may change in the future.
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+
+  <sect2 xml:id="sec.deploy.crowbatch.yaml.subst">
+   <title>Node Alias Substitutions</title>
+   <para>
+    A string like <literal>@@<replaceable>node</replaceable>@@</literal> (where
+    <replaceable>node</replaceable> is a node alias) will be substituted for
+    the name of that node, no matter where the string appears in the YAML file.
+    For example, if <literal>controller1</literal> is
+    a &crow; alias for node
+    <literal>d52-54-02-77-77-02.mycloud.com</literal>, then
+    <literal>@@controller1@@</literal> will be substituted for that host
+    name. This allows YAML files to be reused across environments.
+   </para>
+  </sect2>
+ 
+ <sect2 xml:id="sec.deploy.crowbatch.options">
+  <title>Options</title>
+
+  <para>
+   In addition to the standard options available to every
+   <command>crowbar</command> subcommand (run <command>crowbar batch
+   --help</command> for a full list), there are some extra options
+   specifically for <command>crowbar batch</command>:
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>--include &lt;barclamp[.proposal]&gt;
+    </term>
+    <listitem>
+     <para>
+      Only include the &barcl; / proposals given.
+     </para>
+     <para>
+      This option can be repeated multiple times. The inclusion value can
+      either be the name of a &barcl; (for example,
+      <literal>pacemaker</literal>) or a specifically named proposal within
+      the &barcl; (for example,
+      <literal>pacemaker.network_cluster</literal>).
+     </para>
+     <para>
+      If it is specified, then only the &barcl; / proposals specified are
+      included in the build or export operation, and all others are ignored.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>--exclude &lt;barclamp[.proposal]&gt;
+    </term>
+    <listitem>
+     <para>
+      This option can be repeated multiple times. The exclusion value is the
+      same format as for <option>--include</option>. The &barcl;s /
+      proposals specified are excluded from the build or export operation.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>--timeout &lt;seconds&gt;
+    </term>
+    <listitem>
+     <para>
+      Change the timeout for &crow; API calls.
+     </para>
+     <para>
+      As &chef;'s run lists grow, some of the later &ostack;
+      &barcl; proposals (for example &o_comp;, &o_dash;, or
+      &o_orch;) can take over 5 or even 10 minutes to apply. Therefore you may
+      need to increase this timeout to 900 seconds in some circumstances.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </sect2> 
+</sect1>
+
  <sect1 xml:id="sec.depl.inst.admserv.post.cloud_installation">
   <title>Starting the &inst_crow;</title>
 
