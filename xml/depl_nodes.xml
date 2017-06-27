@@ -1007,24 +1007,52 @@ getent group postgres | cut -d: -f3</screen>
      </para>
     </listitem>
    </itemizedlist>
-    <para>
-    Follow these steps to enable SSL in RabbitMQ and deploy it to &cloud;:
-   </para>
-   <procedure xml:id="pro.rabbitmq-install">
+<para>
+The following steps are the fastest way to set up and test a new SSL certificate authority (CA). 
+</para>
+
+<procedure xml:id="pro.rabbitmq-test">
+ <step>  
+  <para>
+   Install RabbitMQ on a control node: 
+<screen>zypper in rabbitmq-server rabbitmq-server-plugins
+</screen>
+</para>
+</step>
+<step>
+<para>  
+  In the RabbitMQ barclamp (on the admin server) set <guimenu>Enable SSL</guimenu> to <guimenu>true</guimenu>, and <guimenu>Generate (self-signed) certificates (implies insecure)</guimenu>
+    to <literal>true</literal>, then apply the barclamp. The barclamp will create a new CA, enter the correct settings in <filename>/etc/rabbitmq/rabbitmq.config</filename>, and start RabbitMQ.
+</para>
+</step>
+<step>
+<para>
+Test your new CA with OpenSSL, substituting the hostname of your control node:
+<screen>
+openssl s_client -connect d52-54-00-59-e5-fd:5671 
+[...]
+Verify return code: 18 (self signed certificate)
+</screen>
+  This outputs a lot of information, including a copy of the server's public certificate, protocols, ciphers, and the chain of trust.
+</para>
+</step>
     <step>
      <para>
-      Install RabbitMQ on a control node, <command>zypper in rabbitmq-server
-      rabbitmq-server-plugins</command>.
+      The last step is to configure client services to use SSL to access the
+      RabbitMQ service. (See
+      <link xlink:href="https://docs.openstack.org/developer/oslo.messaging/newton/opts.html#oslo-messaging-rabbit"/> for a complete reference).
      </para>
     </step>
+</procedure>
+
+<para>
+    It is preferable to set up your own CA. The best practice is to use a commercial certificate authority. You may also deploy your own self-signed certificates, provided that your cloud is not publicly-accessible, and only for your internal use. Follow these steps to enable your own CA in RabbitMQ and deploy it to &cloud;:
+   </para>
+   <procedure xml:id="pro.rabbitmq-production">
     <step>
      <para>
-      Configure <filename>rabbitmq.config</filename> to use the node's
-      certificate authority (CA), or create a CA specifically for RabbitMQ and
-      configure RabbitMQ to use that. (See <xref linkend="sec.depl.req.ssl"/>,
-      and the RabbitMQ manual has a detailed howto on creating your CA at
-      <link xlink:href="http://www.rabbitmq.com/ssl.html"/>.) This example
-      <filename>rabbitmq.config</filename> uses a CA created for RabbitMQ:
+      Configure <filename>rabbitmq.config</filename> to use the control node's
+      certificate authority (CA), if it already has one, or create a CA specifically for RabbitMQ and configure RabbitMQ to use that. (See <xref linkend="sec.depl.req.ssl"/>, and the RabbitMQ manual has a detailed howto on creating your CA at <link xlink:href="http://www.rabbitmq.com/ssl.html"/>, with customizations for .NET and Java clients.) This example <filename>rabbitmq.config</filename> uses a CA created for RabbitMQ:
 <screen>
 [
  {rabbit, [
@@ -1038,7 +1066,7 @@ getent group postgres | cut -d: -f3</screen>
 ].
 </screen>
      </para>
-    </step>
+    </step>       
     <step>
      <para>
       Start RabbitMQ, or restart it if it already running, and verify that its
@@ -1060,7 +1088,7 @@ That indicates that everything is operating correctly.
       the control node.
      </para>
      <figure>
-      <title>SSL Setting for RabbitMQ Barclamp</title>
+      <title>SSL Settings for RabbitMQ Barclamp</title>
       <mediaobject>
        <imageobject role="fo">
         <imagedata fileref="rabbitmq-ssl-1.png" width="100%" format="PNG"/>
@@ -1073,13 +1101,7 @@ That indicates that everything is operating correctly.
       </mediaobject>
      </figure>
     </step>
-    <step>
-     <para>
-      The last step is to configure client services to use SSL to access the
-      RabbitMQ service. (See
-      <link xlink:href="https://docs.openstack.org/developer/oslo.messaging/newton/opts.html#oslo-messaging-rabbit"/>).
-     </para>
-    </step>
+
    </procedure>
    
    <para>
@@ -1091,7 +1113,7 @@ That indicates that everything is operating correctly.
     </term>
      <listitem>
       <para>
-         Set this to True to expose all of your configuration options.
+          Set this to <guimenu>True</guimenu> to expose all of your configuration options.
       </para>
      </listitem>
     </varlistentry>
@@ -1109,7 +1131,7 @@ That indicates that everything is operating correctly.
     </term>
      <listitem>
       <para>
-     TODO what is this for?
+    When this is set to <literal>true</literal>, self-signed certificates are automatically generated and copied to the correct locations, and all other options are set automatically. This is the fastest way to apply and test the barclamp. Do not use this on production systems. When this is set to <literal>false</literal> the remaining options are exposed.
       </para>
      </listitem>
     </varlistentry>    
@@ -1136,7 +1158,7 @@ That indicates that everything is operating correctly.
     </term>
      <listitem>
       <para>
-     TODO what is this for?
+          This goes with <guimenu>SSL CA Certificates File</guimenu>. Set to <guimenu>true</guimenu> to require clients to present SSL certificates to RabbitMQ.
       </para>
      </listitem>
     </varlistentry>    
@@ -1145,7 +1167,7 @@ That indicates that everything is operating correctly.
     </term>
      <listitem>
       <para>
-     Trust client certificates presented by the clients that are signed by other CAs. You'll need to store copies of the certificates; see "Trust the Client's Root CA" at <link xlink:href="http://www.rabbitmq.com/ssl.html"/>.
+     Trust client certificates presented by the clients that are signed by other CAs. You'll need to store copies of the CA certificates; see "Trust the Client's Root CA" at <link xlink:href="http://www.rabbitmq.com/ssl.html"/>.
       </para>
      </listitem>
     </varlistentry>    
@@ -1154,7 +1176,7 @@ That indicates that everything is operating correctly.
     </term>
      <listitem>
       <para>
-       TODO what is this for?
+      When this is set to <guimenu>false</guimenu>, clients validate the RabbitMQ server certificate with the <guimenu>SSL client CA</guimenu> file. 
       </para>
      </listitem>
     </varlistentry>    
@@ -1163,7 +1185,7 @@ That indicates that everything is operating correctly.
     </term>
      <listitem>
       <para>
-       TODO what is this for?
+        Tells clients of RabbitMQ where to find the CA bundle that validates the certificate presented by the RabbitMQ server, when <guimenu>SSL Certificate is insecure (for instance, self-signed)</guimenu> is set to <guimenu>false</guimenu>. 
       </para>
      </listitem>
     </varlistentry>    
