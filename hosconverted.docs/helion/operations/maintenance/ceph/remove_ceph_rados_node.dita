@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="remove_rgw_node">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Removing a Ceph RADOS Gateway Node</title>
+  <abstract><shortdesc outputclass="hdphidden">Steps for removing Ceph RADOS Gateway
+      nodes.</shortdesc>The process to remove Ceph RADOS Gateway nodes depends on how they have been
+    deployed. The Ceph Rados Gateway service can be installed in one of the following modes: <ul
+      id="ul_jnb_kq4_tv">
+      <li>On dedicated cluster nodes (default) - Removal of a RADOS Gateway node is only supported
+        when it is installed on a dedicated cluster node. </li>
+      <li>On (dedicated) cluster node(s) that host Ceph Monitor service - When installed in this
+        mode, you must remove both the RADOS Gateway and Monitor using the procedure mentioned <xref
+          href="remove_monitor_node.dita#remove_monitor_node">here</xref>. You cannot remove RADOS
+        Gateway node alone.</li>
+      <li>On controller nodes - When installed in this mode, the removal of the RADOS Gateway is not
+        supported.</li>
+    </ul><note>To maintain high availability for the RADOS Gateway service, you should have at least
+      two RADOS Gateway nodes in your deployment.</note></abstract>
+  <body>
+    <!--not tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+
+    <section id="notes"
+      ><!--<title>Notes</title><p>It is recommended to maintain an odd number of Ceph monitors because the Paxos protocol is being used by Ceph monitors to form a consensus. Although clusters can be deployed with a single monitor, we strongly recommend to deploy three monitors on independent nodes for production usage to avoid a single point of failure of the monitor service.</p><p>For this reason, it is recommended to maintain at least three and an odd number of Ceph monitors.</p>--></section>
+
+    <section id="remove_ceph_monitor">
+      <title>To Remove RADOS Gateway Node Installed from a Dedicated Cluster Node</title>
+      <p><?oxy_custom_start type="oxy_content_highlight" color="255,255,0"?>Permanent removal of a
+        RADOS Gateway Node is supported when the RADOS Gateway service is installed on the dedicated
+        cluster node. </p>
+      <p>Perform the following steps to remove  RADOS Gateway Node from a dedicated cluster
+        node:<?oxy_custom_end?></p>
+      <ol>
+        <li>Log in to the lifecycle manager.</li>
+        <li>Stop the Rados Gatweay node by executing the following
+          command:<codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hml-stop.yml --limit &lt;node-name></codeblock>For
+          example:<codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-stop.yml --limit helion-cp1-rgw-m1-mgmt</codeblock></li>
+        <li>Edit the <codeph>servers.yml</codeph> file and remove the section corresponding to the
+          RADOS Gateway server from the
+          file.<codeblock>vi ~/helion/my_cloud/definition/data/servers.yml</codeblock></li>
+        <li>Commit your configuration to the <xref href="../../../installation/using_git.dita">local
+            git repo</xref>, as follows:
+          <codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -m "My config or other commit message"</codeblock></li>
+        <li>Run the configuration processor:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+        <li>Update your deployment directory:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+        <li>Remove RADOS Gateway node from
+            Cobbler:<codeblock>sudo cobbler system remove --name &lt;node-name></codeblock><p>For
+            example:<codeblock>sudo cobbler system remove --name rgw1</codeblock></p><p>
+            <note>If you need to determine the RADOS Gateway node in Cobbler you can use
+                <codeph>sudo cobbler system list</codeph>.</note>
+          </p></li>
+        <li>Run <codeph>site.yml</codeph> to notify other service:<p>
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts site.yml</codeblock>
+          </p></li>
+      </ol>
+    </section>
+    <section id="monitoring"><title>Removing the Node from Monitoring</title>
+      <p>Once you have removed the Rados Gateway node, the alarm against them will trigger, which
+        requires you to perform additional steps to resolve it.</p>
+      <p>You must SSH to each of the Monasca API servers and edit the
+          <codeph>/etc/monasca/agent/conf.d/host_alive.yaml</codeph> file to remove references to
+        the Rados Gateway node that has been removed. This requires <codeph>sudo</codeph>
+        access.</p>
+      <p>After removal of  the Rados Gateway references on each of your Monasca API servers, restart
+        the monasca-agent on each of those servers with the following command:</p>
+      <codeblock>sudo service monasca-agent restart</codeblock>
+      <p>With the Rados Gateway node references removed and the monasca-agent restarted, you can
+        then delete the corresponding alarm to finish this process. For this purpose, you are
+        recommend to use the Monasca CLI, which should be installed on each of your Monasca API
+        servers by default:</p>
+      <codeblock>monasca alarm-list --metric-name host_alive_status --metric-dimensions hostname=&#60;ceph monitor node deleted></codeblock>
+      <p>Execute the following command to delete the alarm:</p>
+      <codeblock>monasca alarm-delete &lt;alarm ID></codeblock>
+    </section>
+  </body>
+</topic>

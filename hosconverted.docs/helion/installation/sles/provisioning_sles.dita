@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="provisioning_sles">
+    <title><ph conkeyref="HOS-conrefs/product-title"/>Provisioning SLES Yourself</title>
+    <body>
+        <p conkeyref="HOS-conrefs/applies-to"/>
+        
+        <section>
+            <title>Introduction</title>
+            
+            <p>This article outlines the steps needed to manually provision a SLES node so that 
+                it can be added to a new or existing <keyword keyref="kw-hos-phrase"/> cloud.</p>
+            
+        </section>
+        
+        <section id="configure_lm">
+            <title>Configure Lifecycle Manager to Enable SLES</title>
+            <p>
+                <ul>
+                    <li>Take note of the lifecycle manager's IP address. It will be used below
+                        during <xref href="#provisioning_sles/add_zypper" format="dita"/>.</li>
+                    <li>Mount or copy the contents of SLE-12-SP2-Server-DVD-x86_64-GM-DVD1.iso to <codeph>/opt/hlm_packager/hlm/sles12/zypper/OS/</codeph> </li>
+                    <li>Mount or copy the contents of SLE-12-SP2-SDK-DVD-x86_64-GM-DVD1.iso to <codeph>/opt/hlm_packager/hlm/sles12/zypper/SDK/</codeph> </li>
+                </ul>
+                <note>If you choose to mount an ISO, we recommend creating an /etc/fstab entry to ensure the ISO is mounted after a reboot.</note>
+            </p>
+        </section>
+        
+        <section>
+            <title>Install SLES 12 SP2</title>
+            <p>Install SLES 12 SP2 using the standard iso
+                (SLE-12-SP2-Server-DVD-x86_64-GM-DVD1.iso)</p>
+            
+        </section>
+        
+        <section>
+            <title>Assign a static IP</title>
+            
+            <ol>
+                <li> Use the <codeph>ip addr</codeph> command to find out what network devices are
+                    on your system:
+                    <codeblock>1: lo: &lt;LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host
+       valid_lft forever preferred_lft forever
+2: <b>eno1</b>: &lt;BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP qlen 1000
+    link/ether <b>f0:92:1c:05:89:70</b> brd ff:ff:ff:ff:ff:ff
+    inet 10.13.111.178/26 brd 10.13.111.191 scope global eno1
+       valid_lft forever preferred_lft forever
+    inet6 fe80::f292:1cff:fe05:8970/64 scope link
+       valid_lft forever preferred_lft forever
+3: eno2: &lt;BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP qlen 1000
+    link/ether f0:92:1c:05:89:74 brd ff:ff:ff:ff:ff:ff</codeblock>
+                </li>
+                
+                <li>Identify the one that matches the MAC address of your server and edit the
+                    corresponding config file in <codeph>/etc/sysconfig/network-scripts</codeph>.
+                    <codeblock>vi /etc/sysconfig/network-scripts/<b>ifcfg-eno1</b> </codeblock>
+                </li>
+                
+                <li>Edit the <codeph>IPADDR</codeph> and <codeph>NETMASK</codeph> values to match
+                    your environment. Note that the <codeph>IPADDR</codeph> is used in the
+                    corresponding stanza in <codeph>servers.yml</codeph>. You may also need to set
+                        <codeph>BOOTPROTO</codeph> to <codeph>none</codeph>.
+                    <codeblock>TYPE=Ethernet
+<b>BOOTPROTO=none</b>
+DEFROUTE=yes
+PEERDNS=yes
+PEERROUTES=yes
+IPV4_FAILURE_FATAL=no
+IPV6INIT=yes
+IPV6_AUTOCONF=yes
+IPV6_DEFROUTE=yes
+IPV6_PEERDNS=yes
+IPV6_PEERROUTES=yes
+IPV6_FAILURE_FATAL=no
+NAME=eno1
+UUID=36060f7a-12da-469b-a1da-ee730a3b1d7c
+DEVICE=eno1
+ONBOOT=yes
+<b>NETMASK=255.255.255.192</b>
+<b>IPADDR=10.13.111.14</b></codeblock>
+                </li>
+                
+                <li>[OPTIONAL] Reboot your SLES node and ensure that it can be accessed from the
+                    lifecycle manager.</li>
+                
+            </ol>
+        
+            
+        </section>
+        
+        <section>
+            <title>Add <codeph>stack</codeph> user and home directory</title>
+            
+<codeblock>useradd -m stack
+passwd stack</codeblock>            
+            
+        </section>
+        
+        
+        <section id="suse_sudo">
+            <title>Allow user <codeph>stack</codeph> to <codeph>sudo</codeph> without password</title>        
+        
+            <p>Setting up sudo on SLES is covered in the SUSE documentation, <xref
+                    href="https://www.suse.com/documentation/sles-12/book_sle_admin/data/sec_sudo_conf.html"
+                    format="html" scope="external">Configuring sudo</xref>. </p>
+            <p>The recommendation is to create user specific sudo config files under /etc/sudoers.d,
+                therefore creating an /etc/sudoers.d/stack config file with the following content
+                will allow sudo commands without the requirement of a password.
+                <codeblock>stack ALL=(ALL) NOPASSWD:ALL</codeblock>
+            </p>  
+ 
+        </section>
+        
+        
+        
+        
+        
+        
+        <section id="add_zypper">
+            <title>Add zypper repository</title>
+            <p>Using the ISO-based repositories created above, add the zypper repositories.</p>
+            
+            <p>Follow these steps. Update the value of deployer_ip as necessary.
+                <codeblock>deployer_ip=192.168.10.254
+zypper addrepo --no-gpgcheck --refresh http://$deployer_ip:79/hlm/sles12/zypper/OS SLES-OS
+zypper addrepo --no-gpgcheck --refresh http://$deployer_ip:79/hlm/sles12/zypper/SDK SLES-SDK</codeblock>
+            </p>
+            <p>To verify that the repositories have been added, run:
+                <codeblock>zypper repos --detail</codeblock>
+            </p>
+            <p>
+                You can find more information on Using Zypper in the SLES 12 Admin guide: <xref
+                    href="https://www.suse.com/documentation/sles-12/book_sle_admin/data/sec_zypper.html"
+                    format="html" scope="external"/>
+            </p>
+            <p>
+                <note type="warning">If you intend on attaching encrypted volumes to any of your SLES
+                    Compute nodes, you'll need to install the crypt libraries through cryptsetup on
+                    each node. Run the following command to install the necessary crypt libraries:
+                    <codeblock>sudo zypper in cryptsetup</codeblock>
+                </note>
+            </p>
+ 
+        </section>
+        
+        
+        
+        
+        
+        <section>
+            <title>Add Required Packages</title>
+            
+            <p>As documented in the <xref keyref="install_entryscale_kvm/thirdparty">Using 3rd Party
+                    Baremetal Installers</xref> section of <xref keyref="install_entryscale_kvm"
+                    >Installation for Helion Entry-scale KVM Cloud</xref>, you will need to add some
+                extra packages that are required.
+                
+                <ph id="baremetal_prereqs_rhel">Ensure that <codeph>openssh-server</codeph>,
+                    <codeph>python</codeph>, <!--<codeph>python-apt</codeph>,--> and <codeph>rsync</codeph> are
+                    installed.</ph>
+            </p>
+            
+        </section>
+ 
+ 
+        
+        <section>
+            <title>Set up passwordless SSH access</title>
+            
+            <p>Once you have started your installation using the lifecycle manager, or if you are
+                adding a SLES node to an existing cloud, you need to copy the lifecycle manager
+                public key to the SLES node. One way of doing this is to copy the
+                    <codeph>/home/stack/.ssh/authorized_keys</codeph> from another node in the cloud
+                to the same location on the SLES node. If you are installing a new cloud, this file
+                will be available on the nodes after running the <codeph>bm-reimage.yml</codeph>
+                playbook. <note type="important"> Ensure that there is global read access to the
+                    file <codeph>/home/stack/.ssh/authorized_keys</codeph>. </note>
+            </p>
+            
+            <p>Now test passwordless ssh from the deployer and check your ability to remotely
+                execute sudo commands:
+                <codeblock>ssh  stack@&lt;&lt;ip of sles node>> "sudo tail -5 /var/log/messages"</codeblock>
+            </p>
+
+        </section>
+                
+
+                
+
+            
+
+    </body>
+</topic>

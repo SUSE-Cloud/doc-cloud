@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="topic_j2p_d1r_4t">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Adding a Swift Object Node</title>
+  <abstract><shortdesc outputclass="hdphidden">Adding additional object nodes allows you to increase
+      capacity.</shortdesc>This topic describes how to add additional Swift object server nodes to
+    an existing system.</abstract>
+  <body>
+    <!--not tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+
+    <section>
+      <title>To add a new node</title>
+      <p>To add a new node to your cloud, you will need to add it to <codeph>servers.yml</codeph>,
+        and then run the scripts that update your cloud configuration. To begin, access the
+          <codeph>servers.yml file</codeph> by checking out the Git branch where you are required to
+        make the changes:
+        <!--You must add a new node details in the <codeph>server.yml</codeph> file. --></p>
+      <p>Then, perform the following steps to add a new node:</p>
+      <ol>
+        <li>Log in to the lifecycle manager node.</li>
+        <li>Get the <codeph>servers.yml</codeph> file stored in
+          Git:<codeblock>cd ~/helion/my_cloud/definition/data
+git checkout site</codeblock></li>
+        <li>If not already done, set the <codeph>weight-step</codeph> attribute. For instructions,
+          see <xref href="../../objectstorage/swift_weight_attribute.dita"/>.</li>
+        <li>Add the details of new nodes to the <codeph>servers.yml</codeph> file. In the following
+          example only one new server <b>swobj4</b> is added. However, you can add multiple servers
+          by providing the server details in the <codeph>servers.yml</codeph>
+          file:<codeblock>servers:
+...
+- id: swobj4
+  role: SWOBJ_ROLE
+  server-group: &lt;server-group-name>
+  mac-addr: &lt;mac-address>
+  nic-mapping: &lt;nic-mapping-name>
+  ip-addr: &lt;ip-address>
+  ilo-ip: &lt;ilo-ip-address>
+  ilo-user: &lt;ilo-username> 
+  ilo-password: &lt;ilo-password></codeblock></li>
+        <li>Commit your
+            changes:<codeblock>git add -A
+git commit -m "Add Node &lt;name>"</codeblock><note>Before
+            you run any playbooks, remember that you need to export the encryption key in the
+            following environment variable: <codeph>export
+              HOS_USER_PASSWORD_ENCRYPT_KEY=&lt;encryption key></codeph>. For instructions, see
+              <xref href="../../../installation/installing_swift_object_storage.dita#install_swift"
+          />.</note></li>
+        <li>Run the configuration
+          processor:<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+        <li>Create a deployment
+          directory:<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+        <li>Configure Cobbler to include the new node, and then reimage the node (if you are adding
+          several nodes, use a comma-separated list with the <codeph>nodelist</codeph>
+            argument):<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost cobbler-deploy.yml
+ansible-playbook -i hosts/localhost bm-reimage.yml -e nodelist=&lt;server-idd></codeblock><p>In
+            the following example, the server id is <b>swobj4</b> (mentioned in step
+            3):<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost cobbler-deploy.yml
+ansible-playbook -i hosts/localhost bm-reimage.yml -e nodelist=swobj4</codeblock></p><note>You
+            must use the server id as it appears in the <codeph>servers.yml</codeph> file in the
+            field &lt;server-id>.</note></li>
+        <li>Configure the operating system:
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts osconfig-run.yml --limit &lt;hostname></codeblock><p>The
+            hostname of the newly added server can be found in the list generated from the output of
+            the following
+            command:</p><codeblock>grep hostname ~/helion/my_cloud/info/server_info.yml</codeblock><p>For
+            example, for <b>swobj4</b>, the hostname is <b>helion-cp1-swobj0004-mgmt</b>.
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts osconfig-run.yml --limit helion-cp1-swobj0004-mgmt</codeblock></p></li>
+        <li>Validate that the disk drives of the new node are compatible with the disk model used by
+          the
+          node:<codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts swift-compare-model-rings.yml --limit SWF*</codeblock>If
+          any errors occur, correct them. For instructions, see <xref
+            href="../../troubleshooting/objectstorage/interpreting_swift_validate_input_model.dita"
+          />.</li>
+        <li>Run the following playbook to ensure that all other server's host file are updated with
+          the new server:
+          <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts site.yml --tags "generate_hosts_file"</codeblock></li>
+        <li>Run the <codeph>hlm-deploy.yml</codeph> playbook to rebalance the rings to include the
+          node, deploy the rings, and configure the new node. Do not limit this to just the node
+            (<b>swobj4</b>) that you are
+          adding:<codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-deploy.yml </codeblock></li>
+        <li>You may need to perform further rebalances of the rings. For instructions, see the
+          "Weight Change Phase of Ring Rebalance" and the "Final Rebalance Phase" sections of <xref
+            href="../../objectstorage/input_model_change_existing_rings.dita"
+            />.<p><!--Once you have added a new node/server to the system, you must enure that the Swift rings are updated with the new node/server(s) details and the rings are distributed to all Swift servers.-->
+            For
+            example:<codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts swift-update-from-model-rebalance-rings.yml</codeblock></p></li>
+      </ol>
+    </section>
+  </body>
+</topic>

@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="deploying_docker_fedora_atomic">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Deploying a Docker Swarm Cluster on Fedora
+    Atomic</title>
+  <body>
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <section id="prereqs">
+      <title>Prerequisites</title>
+      <p>These steps assume the following have been completed:</p>
+      <ul>
+        <li>The Magnum service has been installed. For more information see: <xref
+            keyref="install_magnum"/></li>
+        <li>Creating the Magnum cluster requires the Fedora Atomic image prepared specifically for
+          the OpenStack Newton release. You can download the <b>fedora-atomic-newton.qcow2</b> image
+          from <xref href="https://fedorapeople.org/groups/magnum/" format="html"/>
+        </li>
+        <li>You can create a Magnum cluster using the Magnum UI if you have access to the Horizon
+          dashboard. For more information on using the Dashboard, see <xref
+            keyref="user_dashboard_overview"/></li>
+      </ul>
+    </section>
+    <section id="create_cluster">
+      <title>Creating the Cluster</title>
+      <p>The following example is created using Kubernetes Container Orchestration Engine (COE)
+        running on Fedora Atomic guest OS on <keyword keyref="kw-hos"/> VMs.</p>
+      <p>
+        <ol>
+          <li>Login to the lifecycle manager.</li>
+          <li>Source openstack admin credentials. <codeblock>$ source service.osrc</codeblock>
+          </li>
+          <li>If you haven't already, download Fedora Atomic image, prepared for Openstack Newton
+            release. <note>The https_proxy is only needed if your environment requires a proxy.</note>
+            <codeblock>$ https_proxy=http://proxy.yourcompany.net:8080 wget https://fedorapeople.org/groups/magnum/fedora-atomic-newton.qcow2</codeblock>
+          </li>
+          <li>Create a Glance image.
+            <codeblock>
+$ glance image-create --name fedora-atomic-newton --visibility public --disk-format qcow2 --os-distro fedora-atomic --container-format bare --file fedora-atomic-newton.qcow2 --progress
+[=============================>] 100%
++------------------+--------------------------------------+
+| Property         | Value                                |
++------------------+--------------------------------------+
+| checksum         | 9d233b8e7fbb7ea93f20cc839beb09ab     |
+| container_format | bare                                 |
+| created_at       | 2017-04-10T21:13:48Z                 |
+| disk_format      | qcow2                                |
+| id               | 4277115a-f254-46c0-9fb0-fffc45d2fd38 |
+| min_disk         | 0                                    |
+| min_ram          | 0                                    |
+| name             | fedora-atomic-newton                 |
+| os_distro        | fedora-atomic                        |
+| owner            | 2f5b83ab49d54aaea4b39f5082301d09     |
+| protected        | False                                |
+| size             | 515112960                            |
+| status           | active                               |
+| tags             | []                                   |
+| updated_at       | 2017-04-10T21:13:56Z                 |
+| virtual_size     | None                                 |
+| visibility       | public                               |
++------------------+--------------------------------------+
+</codeblock>
+          </li>
+          <li>Create a Nova keypair.
+            <codeblock>$ test -f ~/.ssh/id_rsa.pub || ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa
+$ nova keypair-add --pub-key ~/.ssh/id_rsa.pub testkey</codeblock>
+          </li>
+          <li>Create a Magnum cluster template. <codeblock>$ magnum cluster-template-create --name my-template \
+                                 --image-id 4277115a-f254-46c0-9fb0-fffc45d2fd38 \
+                                 --keypair-id testkey \
+                                 --external-network-id ext-net \
+                                 --dns-nameserver 8.8.8.8 \
+                                 --flavor-id m1.small \
+                                 --docker-volume-size 5 \
+                                 --network-driver flannel \
+                                 --coe kubernetes \
+                                 --tls-disabled \
+                                 --http-proxy http://proxy.yourcompany.net:8080/ \
+                                 --https-proxy http://proxy.yourcompany.net:8080/ \
+                                 --ext-ca-certs-file /usr/local/share/ca-certificates/helion-internal-mycloud-ccp-c0-m1-ca.crt</codeblock>
+            <note>
+              <ol>
+                <li>Use the <b>image_id</b> from <codeph>glance image-create</codeph> command output
+                  in the previous step.</li>
+                <li>Use your organization's DNS server. If the <keyword keyref="kw-hos"/> public
+                  endpoint is configured with the hostname, this server should provide resolution
+                  for this hostname.</li>
+                <li>With <codeph>--tls-disabled</codeph> option, the cluster will come up with
+                  authentication disabled. Remove it if you want the cluster to require
+                  authentication.</li>
+                <li>The proxy is only needed if public internet (e.g. https://discovery.etcd.io/,
+                  https://gcr.io/, etc) is not accessible without proxy</li>
+                <li>For <codeph>--ext-ca-certs-file</codeph>, use CA certificate for <keyword
+                    keyref="kw-hos"/> public endpoint: <ol>
+                    <li>if public endpoint was configured with the IP address, use
+                        <codeph>/usr/local/share/ca-certificates/helion-internal-*-m1-ca.crt</codeph></li>
+                    <li>if public endpoint was configured with a resolvable FQDN and custom
+                      certificate, use
+                        <codeph>/usr/local/share/ca-certificates/helion_frontend_cacert.crt</codeph></li>
+                  </ol>
+                </li>
+              </ol>
+            </note>
+          </li>
+          <li>Create cluster. The command below will create a minimalistic cluster consisting of a
+            single Kubernetes Master (kubemaster) and single Kubernetes Node (worker, kubeminion).
+            <codeblock>$ magnum cluster-create --name my-cluster --cluster-template my-template --node-count 1 --master-count 1</codeblock>
+          </li>
+          <li>Almost immediately after issuing <codeph>cluster-create</codeph> command, cluster
+            status should turn to <b>CREATE_IN_PROGRESS</b> and stack_id assigned.
+            <codeblock>$ magnum cluster-show my-cluster               
++---------------------+------------------------------------------------------------+
+| Property            | Value                                                      |
++---------------------+------------------------------------------------------------+
+| status              | CREATE_IN_PROGRESS                                         |
+| cluster_template_id | 245c6bf8-c609-4ea5-855a-4e672996cbbc                       |
+| uuid                | 0b78a205-8543-4589-8344-48b8cfc24709                       |
+| stack_id            | 22385a42-9e15-49d9-a382-f28acef36810                       |
+| status_reason       | -                                                          |
+| created_at          | 2017-04-10T21:25:11+00:00                                  |
+| name                | my-cluster                                                 |
+| updated_at          | -                                                          |
+| discovery_url       | https://discovery.etcd.io/193d122f869c497c2638021eae1ab0f7 |
+| api_address         | -                                                          |
+| coe_version         | -                                                          |
+| master_addresses    | []                                                         |
+| create_timeout      | 60                                                         |
+| node_addresses      | []                                                         |
+| master_count        | 1                                                          |
+| container_version   | -                                                          |
+| node_count          | 1                                                          |
++---------------------+------------------------------------------------------------+</codeblock>
+          </li>
+          <li> You can monitor cluster creation progress by listing the resources of the Heat stack.
+            Use the <codeph>stack_id</codeph> value from the <codeph>magnum cluster-status</codeph>
+            output above in the following command:
+            <codeblock>$ heat resource-list -n2 22385a42-9e15-49d9-a382-f28acef36810
+WARNING (shell) "heat resource-list" is deprecated, please use "openstack stack resource list" instead
++-------------------------------+--------------------------------------+-----------------------------------+--------------------+----------------------+-------------------------+
+| resource_name                 | physical_resource_id                 | resource_type                     | resource_status    | updated_time         | stack_name              |
++-------------------------------+--------------------------------------+-----------------------------------+--------------------+----------------------+-------------------------+
+| api_address_floating_switch   | 06b2cc0d-77f9-4633-8d96-f51e2db1faf3 | Magnum::FloatingIPAddressSwitcher | CREATE_COMPLETE    | 2017-04-10T21:25:10Z | my-cluster-z4aquda2mgpv |
+| api_address_lb_switch         | 965124ca-5f62-4545-bbae-8d9cda7aff2e | Magnum::ApiGatewaySwitcher        | CREATE_COMPLETE    | 2017-04-10T21:25:10Z | my-cluster-z4aquda2mgpv |
+. . .</codeblock>
+          </li>
+          <li>The cluster is complete when all resources show <b>CREATE_COMPLETE</b>.</li>
+        </ol>
+      </p>
+    </section>
+
+  </body>
+</topic>

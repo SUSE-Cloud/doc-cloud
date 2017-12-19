@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="ded_lifecyclemanager_recovery">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Dedicated Lifecycle Manager Disaster
+    Recovery</title>
+  <abstract><shortdesc outputclass="hdphidden">In this scenario everything is still running
+      (controller nodes and compute nodes) but you've lost the dedicated lifecycle
+      manager.</shortdesc></abstract>
+  <body>
+    <p>In this scenario everything is still running (controller nodes and compute nodes) but you've
+      lost the dedicated lifecycle manager.</p>
+    <p>Ensuring that you use the same version of <keyword keyref="kw-hos"/> that you previously had
+      loaded on your lifecycle manager, you will need to download and install the lifecycle
+      management software using the instructions from the <xref
+        href="../../../installation/installing_kvm.dita#install_kvm/setup_deployer">installation
+        guide</xref> before proceeding further.</p>
+    <section>
+      <title>Restore from a Swift backup</title>
+      <ol>
+        <li>Log in to the lifecycle manager. </li>
+        <li>Install the freezer-agent using the following
+          playbook:<codeblock>cd ~/helion/hos/ansible/
+ansible-playbook -i hosts/localhost _deployer_restore_helper.yml</codeblock></li>
+        <li>Access one of the other controller or compute nodes in your environment to perform the
+          following steps:<ol id="ol_snq_wqs_px">
+            <li>Retrieve the <codeph>/home/stack/backup.osrc</codeph> file and copy it to the
+                <codeph>/home/stack</codeph> directory on the lifecycle manager.</li>
+            <li>Copy all the files in the <codeph>/opt/stack/service/freezer-agent/etc/</codeph>
+              directory to the same directory on the lifecycle manager.</li>
+            <li>Copy all the files in the <codeph>/usr/local/share/ca-certificates</codeph>
+              directory to the same directory on the lifecycle manager.</li>
+            <li>Retrieve the <codeph>/etc/hosts</codeph> file and replace the one found on the
+              lifecycle manager.</li>
+          </ol></li>
+        <li>Log back in to the lifecycle manager.</li>
+        <li>Edit the value for <codeph>client_id</codeph> in the following file to contain the
+          hostname of your lifecycle
+          manager:<codeblock>/opt/stack/service/freezer-agent/etc/scheduler.conf</codeblock></li>
+        <li>Update your ca-certificates:<codeblock>sudo update-ca-certificates</codeblock></li>
+        <li>Edit the <codeph>/etc/hosts</codeph> file, ensuring you edit the 127.0.0.1 line so it
+          points to <codeph>hlm</codeph> like so:
+          <codeblock>127.0.0.1       localhost hlm
+::1             localhost ip6-localhost ip6-loopback
+ff02::1         ip6-allnodes
+ff02::2         ip6-allrouters</codeblock></li>
+        <li>On the lifecycle manager, source the backup user credentials:
+          <codeblock>source ~/backup.osrc</codeblock></li>
+        <li>List the Freezer jobs
+          <codeblock>freezer-scheduler -c &lt;deployer_hostname> job-list</codeblock></li>
+        <li>Get the id of the job corresponding to <codeph>HLM Default: Deployer backup to
+            Swift</codeph>. Stop that job so the freezer-scheduler doesn't begin making backups when
+          started.
+          <codeblock>freezer-scheduler -c &lt;deployer_hostname> job-stop -j &lt;job-id&gt;</codeblock>If
+          it is present, also stop the lifecycle manager's SSH backup.</li>
+        <li>Next, stop the dayzero UI
+          installer:<codeblock>sudo systemctl stop dayzero</codeblock></li>
+        <li>Start the freezer-scheduler:
+          <codeblock>sudo systemctl start freezer-scheduler</codeblock></li>
+        <li>Get the id of the job corresponding to <codeph>HLM Default: deployer restore from
+            Swift</codeph> and launch that job:
+          <codeblock>freezer-scheduler -c &lt;deployer_hostname&gt; job-start -j &lt;job-id&gt;</codeblock>This
+          will take some time; you can follow the progress in
+            <codeph>/var/log/freezer-agent/freezer-scheduler.log</codeph>. </li>
+        <li>When the job completes, the previous lifecycle manager contents should be restored to
+          your home directory:<codeblock>cd ~
+ls</codeblock></li>
+        <li>Start the dayzero UI installer:<codeblock>sudo systemctl start dayzero</codeblock></li>
+        <li>If you are using Cobbler, restore your Cobbler configuration with these steps:<ol
+            id="ol_wsr_xss_px">
+            <li>Remove the following
+              files:<codeblock>sudo rm -rf /var/lib/cobbler
+sudo rm -rf /srv/www/cobbler</codeblock></li>
+            <li>Deploy
+              Cobbler:<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost cobbler-deploy.yml</codeblock></li>
+            <li>Set the <codeph>netboot-enabled</codeph> flag for each of your nodes with this
+              command:<codeblock>for h in $(sudo cobbler system list)
+do
+  sudo cobbler system edit --name=$h --netboot-enabled=0
+done</codeblock></li>
+          </ol></li>
+        <li>Update your deployment
+          directory:<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready_deployment.yml</codeblock></li>
+        <li>If you are using a dedicated lifecycle manager, re-run the deployment to ensure the
+          lifecycle manager is in the correct
+            state:<codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts site.yml --limit localhost</codeblock><note type="important">Skip
+            this step if you are not using a dedicated lifecycle manager.</note></li>
+      </ol>
+    </section>
+    <section>
+      <title>Restore from an SSH backup</title>
+      <ol id="ol_q5k_qyh_1v">
+        <li>On the lifecycle manager, edit the following file so it contains the same information as
+          it did previously:
+          <codeblock>~/helion/my_cloud/config/freezer/ssh_credentials.yml</codeblock></li>
+        <li>On the lifecycle manager, copy the following files, change directories, and run the
+          playbook _deployer_restore_helper.yml:
+          <codeblock>cp -r ~/hp-ci/helion/* ~/helion/my_cloud/definition/
+cd ~/helion/hos/ansible/
+ansible-playbook -i hosts/localhost _deployer_restore_helper.yml</codeblock></li>
+        <li>Perform the restore. First become root and change directories:
+          <codeblock>sudo su
+cd /root/deployer_restore_helper/</codeblock></li>
+        <li>Then, stop the Dayzero UI installer:<codeblock>systemctl stop dayzero</codeblock></li>
+        <li>Execute the restore job: <codeblock>./deployer_restore_script.sh</codeblock></li>
+        <li>Start the Dayzero UI installer:<codeblock>systemctl start dayzero</codeblock></li>
+        <li>Update your deployment
+          directory:<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready_deployment.yml</codeblock></li>
+        <li>When the lifecycle manager is restored, re-run the deployment to ensure the lifecycle
+          manager is in the correct state:
+          <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts site.yml --limit localhost</codeblock></li>
+      </ol>
+    </section>
+  </body>
+</topic>

@@ -1,0 +1,395 @@
+<?xml version="1.0"?>
+<!DOCTYPE section PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN" "http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd" [ <!ENTITY % entities SYSTEM "entities.xml"> %entities; ]><section id="remove_datadisk_ceph_osd">
+   <title>
+      <phrase/>Replacing a Ceph OSD Data Disk from DL and SL
+        Servers</title>
+        
+        
+      <bridgehead renderas="sect4">Replacing a Ceph OSD Data Disk from DL and SL Servers</bridgehead>
+      <orderedlist>
+                <listitem>
+            <para>Login to the OSD node, on which the disk is to be removed, and acquire sudo
+                    privileges.</para>
+
+            <screen>sudo -i</screen>
+         </listitem>
+                <listitem>
+            <para>Execute the following commands to collect the Ceph cluster information.</para>
+
+            <orderedlist id="ol_cwq_d5b_lx">
+                        <listitem>
+                  <para>Show the status of Ceph
+                            cluster.</para>
+
+                  <screen>ceph --cluster &lt;ceph_cluster&gt; -s</screen>
+               </listitem>
+                        <listitem>
+                  <para>Search for the word osd.</para>
+
+                  <screen>ps -aef | grep osd</screen>
+               </listitem>
+                        <listitem>
+                  <para>View the CRUSH map by executing the following
+                            command.</para>
+
+                  <screen>ceph --cluster &lt;ceph_cluster&gt; osd tree</screen>
+               </listitem>
+                        <listitem>
+                  <para>List the OSD disk.</para>
+
+                  <screen>ceph-disk list</screen>
+               </listitem>
+                        <listitem>
+                  <para>Check the Ceph cluster usage
+                            status.</para>
+
+                  <screen>ceph --cluster &lt;ceph_cluster&gt; df</screen>
+               </listitem>
+                        <listitem>
+                  <para>Find the health status of the Ceph cluster.
+                            </para>
+
+                  <screen>ceph --cluster &lt;ceph_cluster&gt; health | grep 'nearfull osds'</screen>
+               </listitem>
+                    </orderedlist>
+            <note>
+               <para> If step (f) reports the health status of some of the OSD(s) with
+                        nearfull capacity, do not proceed further. </para>
+
+            </note>
+         </listitem>
+                <listitem>
+            <para>Identify the OSD ID corresponding to the disk that is being removed.</para>
+
+            <orderedlist id="ol_h3r_fsc_lx">
+                        <listitem>
+                  <para>List the disks and find the name of the disk that must be
+                                removed.</para>
+
+                  <screen>Run 'ceph-disk list | grep &lt;name of disk to be removed&gt;'</screen>
+                  <para>Note
+                                down the OSD ID. The ID must be in <literal>osd.[n]</literal> (n being
+                                an integer) format.</para>
+
+               </listitem>
+                    </orderedlist>
+         </listitem>
+                <listitem>
+            <para>Identify the process ID corresponding to the disk that is being removed.</para>
+
+            <orderedlist id="ol_yv3_2tc_lx">
+                        <listitem>
+                  <para>List the disks and find the name of the disk that must be
+                                removed.</para>
+
+                  <screen>Run 'ps -aef | grep osd | grep "id [n]"'</screen>
+                  <para>Note
+                                down the OSD process ID. For example:
+                                    <literal>osd.process_id</literal>.</para>
+
+               </listitem>
+                    </orderedlist>
+         </listitem>
+                <listitem>
+            <para>Kill OSD process mapped to the disk that is being removed and execute the
+                    following commands to ensure that it is not running.
+                    </para>
+
+            <screen>kill -9 &lt;osd.process_id&gt;
+ps -aef | grep osd | grep "id [n]"</screen>
+         </listitem>
+                <listitem>
+            <para>Remove the OSD from the CRUSH map, delete its authentication key, and remove the
+                    OSD ID from Ceph
+                        inventory:</para>
+
+            <screen>ceph --cluster &lt;ceph_cluster&gt; osd crush remove osd.&lt;osd-id&gt;
+ceph --cluster &lt;ceph_cluster&gt; auth del osd.&lt;osd-id&gt;
+ceph --cluster &lt;ceph_cluster&gt; osd rm &lt;osd-id&gt;</screen>
+            <para>The
+                        osd-id is the OSD identifier as noted in 3(a) earlier.</para>
+
+         </listitem>
+                <listitem>
+            <para>Remove the mount instructions for the same disk(s) from the
+                        <literal>/etc/fstab</literal> file. For example, to remove the <literal>data
+                        disk/dev/sde</literal> you must know the UUID. Execute the following command
+                    to find the UUID.</para>
+
+            <screen>sudo blkid | grep "ceph data"</screen>
+            <para>Example
+                        output:</para>
+
+            <screen>$ sudo blkid |grep "ceph data"
+/dev/sdc1: UUID="45b7c7e8-4f2d-4226-989b-c83e7e9e2596" TYPE="xfs" PARTLABEL="ceph data" PARTUUID="6c37a311-eabf-4872-bd8e-7d426585432e"
+/dev/sdf1: UUID="1cfb4de2-fe21-4e20-9a6e-ad45e90949ae" TYPE="xfs" PARTLABEL="ceph data" PARTUUID="209b9af4-8d25-4d60-a430-2934ceca6042"
+/dev/sde1: UUID="51c32ca1-0ee1-4c75-bfbc-5d113a4b4402" TYPE="xfs" PARTLABEL="ceph data" PARTUUID="dfcd410d-9c56-4bb1-93c6-496bae29de5f"</screen>
+            <para>In
+                        the preceeding example, the UUID 51c32ca1-0ee1-4c75-bfbc-5d113a4b4402
+                        corresponds to the data disk that is removed (i.e.<literal>
+                        /dev/sde</literal>). Remove the line in the <literal>/etc/fstab</literal> file
+                        whose entry starts with the text
+                        UUID="51c32ca1-0ee1-4c75-bfbc-5d113a4b4402".</para>
+
+         </listitem>
+                <listitem>
+            <para>Verify that OSD is not a part of Ceph
+                    cluster.</para>
+
+            <screen>ceph osd tree</screen>
+         </listitem>
+                <listitem>
+            <para>Run the hpssacli utility.</para>
+
+            <screen>hpssacli</screen>
+         </listitem>
+                <listitem>
+            <para>Identify (array_name, logicaldrive_number) for the failed OSD disk using
+                    hpssacli. </para>
+
+         </listitem>
+                <listitem>
+            <para>Collect the following data from the hpssacli command output.</para>
+
+            <orderedlist id="ol_tjs_rvc_lx">
+                        <listitem>
+                  <para>List the logical drive of a particular
+                            slot.</para>
+
+                  <screen>Run 'controller slot=&lt;slot_id&gt; logicaldrive all show'</screen>
+               </listitem>
+                        <listitem>
+                  <para>List the physical drive of a particular
+                            slot.</para>
+
+                  <screen>Run 'controller slot=&lt;slot_id&gt; physicaldrive all show'</screen>
+               </listitem>
+                        <listitem>
+                  <para>List the logical drive number
+                            details.</para>
+
+                  <screen>Run 'controller slot=&lt;slot_id&gt; logicaldrive &lt;logicaldrive_number&gt; show'</screen>
+               </listitem>
+                        <listitem>
+                  <para>List the physical drive number
+                            details.</para>
+
+                  <screen>Run 'controller slot=&lt;slot_id&gt; physicaldrive &lt;x:y:z&gt; show</screen>
+               </listitem>
+                    </orderedlist>
+         </listitem>
+                <listitem>
+            <para>You can check the mount status of the logical drive in the output of
+                        <literal>controller slot=&lt;slot&gt;logicaldrive &lt;logicaldrive_number&gt;
+                        show</literal>. You must remove the mount points. Run <literal>umount -f
+                        &lt;mount point&gt;.</literal> If umount does not succeed, perform the following
+                        steps:</para>
+
+            <orderedlist id="ol_enb_ddd_lx">
+                        <listitem>
+                  <para>Run <literal>ceph osd set noout</literal>.</para>
+
+               </listitem>
+                        <listitem>
+                  <para>Reboot the node.</para>
+
+               </listitem>
+                        <listitem>
+                  <para>Wait for the node to come up.</para>
+
+               </listitem>
+                        <listitem>
+                  <para>Run <literal>ceph osd unset noout</literal>.</para>
+
+               </listitem>
+                    </orderedlist>
+         </listitem>
+                <listitem>
+            <para> Remove the failed disk physically and check that the logical drive is in the
+                    failed state using hpssacli
+                    command.</para>
+
+            <screen>controller slot=&lt;slot&gt; logicaldrive all show</screen>
+         </listitem>
+                <listitem>
+            <para>Insert a new disk. Please ensure the following points:</para>
+
+            <orderedlist id="ol_g1g_12d_lx">
+                        <listitem>
+                  <para>Note down the serial number of physical drive for validation (if you
+                            can).</para>
+
+               </listitem>
+                        <listitem>
+                  <para>New disk is of same size as the old one.</para>
+
+               </listitem>
+                        <listitem>
+                  <para>New disk is clean and does not have any RAID on it.</para>
+
+               </listitem>
+                    </orderedlist>
+            <note>
+               <para>The <literal>wipe_one_disk.yml</literal> playbook can be used to ensure
+                        that the replacement disk is clean as follows (assuming that the new disk
+                        shows up as
+                        <literal>sde</literal>):</para>
+
+               <screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts wipe_one_disk.yml --limit &lt;OSD-hostname&gt; -e wipe_one_disk=sde </screen>
+            </note>
+         </listitem>
+                <listitem>
+            <para>Run the hpssacli command <literal>controller slot=&lt;slot&gt; logicaldrive
+                        &lt;logicaldrive_number&gt; modify reenable</literal> to re-enable logical drive
+                    with the new disk.</para>
+
+         </listitem>
+                <listitem>
+            <para> Run the following hpssacli command:</para>
+
+            <orderedlist id="ol_ljs_p2d_lx">
+                        <listitem>
+                  <para>List the logical
+                                drive.</para>
+
+                  <screen>Run controller slot=&lt;slot&gt; logicaldrive &lt;logicaldrive_number&gt; show</screen>
+                  <para>The
+                                    &lt;<literal>logicaldrive_number</literal>&gt; is the same number
+                                that was used at the time of removing the failed drive.</para>
+
+               </listitem>
+                        <listitem>
+                  <para>List the physical
+                                drive.</para>
+
+                  <screen>Run controller slot=&lt;slot&gt; physicaldrive &lt;x:y:z&gt; show</screen>
+                  <note>
+                     <para>Observe
+                                the serial number as you have already noted in step
+                            (14.a)</para>
+
+                  </note>
+               </listitem>
+                    </orderedlist>
+         </listitem>
+                <listitem>
+            <para> Run <literal>rescan</literal> using hpssacli utility.</para>
+
+         </listitem>
+                <listitem>
+            <para>Run <literal>partprobe</literal>.</para>
+
+         </listitem>
+                <listitem>
+            <para>Perform the following operations:</para>
+
+            <orderedlist id="ol_qnf_lwd_lx">
+                        <listitem>
+                  <para>Run <literal>ceph osd set noout</literal>.</para>
+
+               </listitem>
+                        <listitem>
+                  <para>Reboot the node as clean up operation might not succeed for the affected
+                            OSD. Primarily, it is observed when I/O (external or internal) is going
+                            on failed OSD disk.</para>
+
+               </listitem>
+                        <listitem>
+                  <para>Wait for node to power up.</para>
+
+               </listitem>
+                        <listitem>
+                  <para>Run <literal>ceph osd unset noout</literal>.</para>
+
+               </listitem>
+                    </orderedlist>
+         </listitem>
+                <listitem>
+            <para> Check the drive name of the replaced disks using hpssacli.
+                        </para>
+
+            <screen>hpssacli controller slot=&lt;slot&gt; ld &lt;logicaldrive_number&gt; show</screen>
+            <important>
+               <para>Disk
+                        name should be same as what was there for failed OSD before
+                        removal.*</para>
+
+            </important>
+         </listitem>
+                <listitem>
+            <para>Unmount the OSD data
+                    disk:</para>
+
+            <screen>sudo umount &lt;mount_path_of_datadisk&gt;</screen>
+         </listitem>
+                <listitem>
+            <para>Remove the OSD's directories.
+                    </para>
+
+            <screen>sudo rm -rf /var/lib/ceph/osd/&lt;ceph_cluster&gt;-&lt;osd-id&gt;</screen>
+         </listitem>
+                <listitem>
+            <para>Delete the journal partition for each OSD number removed and instruct the kernel
+                    to reload the table as
+                        follows:</para>
+
+            <screen>sudo sgdisk -d=&lt;partition&gt; &lt;device&gt;; sudo partprobe</screen>
+            <para>For
+                        example, if <literal>/dev/sdj1</literal> is the journal partition, it can be
+                        removed by executing the following command.
+                        </para>
+<screen>$ sudo sgdisk -d=1 /dev/sdj; sudo partprobe</screen>
+
+         </listitem>
+                <listitem>
+            <para>Execute the following commands to collect the Ceph cluster information.</para>
+
+            <orderedlist id="ol_bpn_5h2_lx">
+                        <listitem>
+                  <para>Show the status of Ceph cluster.</para>
+
+                  <screen>ceph -s</screen>
+               </listitem>
+                        <listitem>
+                  <para>Search for the word osd.</para>
+
+                  <screen>ps -aef | grep osd</screen>
+               </listitem>
+                        <listitem>
+                  <para>View the CRUSH map by executing the following
+                            command.</para>
+
+                  <screen>ceph osd tree</screen>
+               </listitem>
+                        <listitem>
+                  <para>List the OSD disk.</para>
+
+                  <screen>ceph-disk list</screen>
+               </listitem>
+                        <listitem>
+                  <para>Show the clusters free space stats.</para>
+
+                  <screen>ceph df</screen>
+               </listitem>
+                    </orderedlist>
+         </listitem>
+                <listitem>
+            <para>Login to the life cycle manage and execute the following
+                    command.</para>
+
+            <screen>ansible-playbook -i hosts/verb_hosts ceph-deploy.yml</screen>
+         </listitem>
+                <listitem>
+            <para>Execute the following commands to collect the Ceph cluster
+                    information.</para>
+
+            <screen>ceph -s
+ps -aef | grep osd
+ceph osd tree
+ceph-disk list
+ceph df</screen>
+         </listitem>
+            </orderedlist>
+   
+    </section>

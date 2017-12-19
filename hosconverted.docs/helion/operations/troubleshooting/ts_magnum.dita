@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="ts_magnum">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Troubleshooting Magnum Service</title>
+  <abstract><shortdesc outputclass="hdphidden">Troubleshooting scenarios with resolutions for the
+    Magnum service.</shortdesc>Magnum Service provides container orchestration engines such as 
+    Docker Swarm, Kubernetes, and Apache Mesos available as first class resources. You can use 
+    this guide to help with known issues and troubleshooting of Magnum services.</abstract>
+  <body>
+    <p conkeyref="HOS-conrefs/applies-to"/>
+
+
+     <section id="troubleshooting_1">
+      <title>Magnum cluster fails to create</title>
+       <p>Typically, small size clusters need about 3-5 minutes to stand up. 
+         If cluster stand up takes longer, you may proceed with troubleshooting, 
+         not waiting for status to turn to CREATE_FAILED after timing out.</p>
+       <p>
+         <ol>
+           <li>Use <codeph>heat resource-list -n2</codeph> to identify which Heat stack resource is
+            stuck in <b>CREATE_IN_PROGRESS</b>. <note>The main Heat stack has nested stacks, one for
+              kubemaster(s) and one for kubeminion(s). These stacks are visible as resources of type
+                <b>OS::Heat::ResourceGroup</b> (in parent stack) and <b>file:///...</b> in nested
+              stack. If any resource remains in <b>CREATE_IN_PROGRESS</b> state within the nested
+              stack, the overall state of the resource will be <b>CREATE_IN_PROGRESS</b>.</note>
+            <codeblock>$ heat resource-list -n2 22385a42-9e15-49d9-a382-f28acef36810
++-------------------------------+--------------------------------------+--------------------------------------+--------------------+----------------------+------------------------------------------------------------------+
+| resource_name                 | physical_resource_id                 | resource_type                        | resource_status    | updated_time         | stack_name                                                       |
++-------------------------------+--------------------------------------+--------------------------------------+--------------------+----------------------+------------------------------------------------------------------+
+| api_address_floating_switch   | 06b2cc0d-77f9-4633-8d96-f51e2db1faf3 | Magnum::FloatingIPAddressSwitcher    | CREATE_COMPLETE    | 2017-04-10T21:25:10Z | my-cluster-z4aquda2mgpv                                          |
+. . .
+ 
+| fixed_subnet                  | d782bdf2-1324-49db-83a8-6a3e04f48bb9 | OS::Neutron::Subnet                  | CREATE_COMPLETE    | 2017-04-10T21:25:11Z | my-cluster-z4aquda2mgpv                                          |
+| kube_masters                  | f0d000aa-d7b1-441a-a32b-17125552d3e0 | OS::Heat::ResourceGroup              | CREATE_IN_PROGRESS | 2017-04-10T21:25:10Z | my-cluster-z4aquda2mgpv                                          |
+| 0                             | b1ff8e2c-23dc-490e-ac7e-14e9f419cfb6 | file:///opt/s...ates/kubemaster.yaml | CREATE_IN_PROGRESS | 2017-04-10T21:25:41Z | my-cluster-z4aquda2mgpv-kube_masters-utyggcbucbhb                |
+| kube_master                   | 4d96510e-c202-4c62-8157-c0e3dddff6d5 | OS::Nova::Server                     | CREATE_IN_PROGRESS | 2017-04-10T21:25:48Z | my-cluster-z4aquda2mgpv-kube_masters-utyggcbucbhb-0-saafd5k7l7im |
+. . .</codeblock>
+          </li>
+           <li>If stack creation failed on some native OpenStack resource, like
+              <b>OS::Nova::Server</b> or <b>OS::Neutron::Router</b>, proceed with respective service
+            troubleshooting. This type of error usually does not cause time out, and cluster turns
+            into status <b>CREATE_FAILED</b> quickly. The underlying reason of the failure, reported
+            by Heat, can be checked via the <codeph>magnum cluster-show</codeph> command.</li>
+           <li>If stack creation stopped on resource of type OS::Heat::WaitCondition, Heat is not
+            receiving notification from cluster VM about bootstrap sequence completion. Locate
+            corresponding resource of type <b>OS::Nova::Server</b> and use its
+              <b>physical_resource_id</b> to get information about the VM (which should be in status
+              <b>CREATE_COMPLETE</b>)
+            <codeblock>$ nova show 4d96510e-c202-4c62-8157-c0e3dddff6d5  
++--------------------------------------+---------------------------------------------------------------------------------------------------------------+
+| Property                             | Value                                                                                                         |
++--------------------------------------+---------------------------------------------------------------------------------------------------------------+
+| OS-DCF:diskConfig                    | MANUAL                                                                                                        |
+| OS-EXT-AZ:availability_zone          | nova                                                                                                          |
+| OS-EXT-SRV-ATTR:host                 | comp1                                                                                                         |
+| OS-EXT-SRV-ATTR:hypervisor_hostname  | comp1                                                                                                         |
+| OS-EXT-SRV-ATTR:instance_name        | instance-00000025                                                                                             |
+| OS-EXT-STS:power_state               | 1                                                                                                             |
+| OS-EXT-STS:task_state                | -                                                                                                             |
+| OS-EXT-STS:vm_state                  | active                                                                                                        |
+| OS-SRV-USG:launched_at               | 2017-04-10T22:10:40.000000                                                                                    |
+| OS-SRV-USG:terminated_at             | -                                                                                                             |
+| accessIPv4                           |                                                                                                               |
+| accessIPv6                           |                                                                                                               |
+| config_drive                         |                                                                                                               |
+| created                              | 2017-04-10T22:09:53Z                                                                                          |
+| flavor                               | m1.small (2)                                                                                                  |
+| hostId                               | eb101a0293a9c4c3a2d79cee4297ab6969e0f4ddd105f4d207df67d2                                                      |
+| id                                   | 4d96510e-c202-4c62-8157-c0e3dddff6d5                                                                          |
+| image                                | fedora-atomic-newton (4277115a-f254-46c0-9fb0-fffc45d2fd38)                                                   |
+| key_name                             | testkey                                                                                                       |
+| metadata                             | {}                                                                                                            |
+| name                                 | my-zaqshggwge-0-sqhpyez4dig7-kube_master-wc4vv7ta42r6                                                         |
+| os-extended-volumes:volumes_attached | [{"id": "24012ce2-43dd-42b7-818f-12967cb4eb81"}]                                                              |
+| private network                      | 10.0.0.14, 172.31.0.6                                                                                         |
+| progress                             | 0                                                                                                             |
+| security_groups                      | my-cluster-z7ttt2jvmyqf-secgroup_base-gzcpzsiqkhxx, my-cluster-z7ttt2jvmyqf-secgroup_kube_master-27mzhmkjiv5v |
+| status                               | ACTIVE                                                                                                        |
+| tenant_id                            | 2f5b83ab49d54aaea4b39f5082301d09                                                                              |
+| updated                              | 2017-04-10T22:10:40Z                                                                                          |
+| user_id                              | 7eba6d32db154d4790e1d3877f6056fb                                                                              |
++--------------------------------------+---------------------------------------------------------------------------------------------------------------+</codeblock>
+          </li>
+           <li>Use the floating IP of the master VM to log into first master node. Use the
+            appropriate username below for your VM type. Passwords should not be required as the VMs
+            should have public ssh key installed. <table frame="all" rowsep="1" colsep="1"
+              id="table_f4p_wcx_tz">
+              <tgroup cols="2">
+                <colspec colname="c1" colnum="1" colwidth="1.0*"/>
+                <colspec colname="c2" colnum="2" colwidth="1.0*"/>
+                <thead>
+                  <row>
+                    <entry align="center">VM Type</entry>
+                    <entry align="center">Username</entry>
+                  </row>
+                </thead>
+                <tbody>
+                  <row>
+                    <entry>Kubernetes or Swarm on Fedora Atomic</entry>
+                    <entry align="center">fedora</entry>
+                  </row>
+                  <row>
+                    <entry>Kubernetes on CoreOS</entry>
+                    <entry align="center">core</entry>
+                  </row>
+                  <row>
+                    <entry>Mesos on Ubuntu</entry>
+                    <entry align="center">ubuntu</entry>
+                  </row>
+                </tbody>
+              </tgroup>
+            </table>
+          </li>
+           <li>Useful dianostic commands
+            <ul>
+              <li>Kubernetes cluster on Fedora Atomic
+                <codeblock>sudo journalctl --system
+sudo journalctl -u cloud-init.service
+sudo journalctl -u etcd.service
+sudo journalctl -u docker.service
+sudo journalctl -u kube-apiserver.service
+sudo journalctl -u kubelet.service
+sudo journalctl -u wc-notify.service</codeblock>
+              </li>
+              <li>Kubernetes cluster on CoreOS
+                <codeblock>sudo journalctl --system
+sudo journalctl -u oem-cloudinit.service
+sudo journalctl -u etcd2.service
+sudo journalctl -u containerd.service
+sudo journalctl -u flanneld.service
+sudo journalctl -u docker.service
+sudo journalctl -u kubelet.service
+sudo journalctl -u wc-notify.service </codeblock>
+              </li>
+              <li>Swarm cluster on Fedora Atomic
+                <codeblock>sudo journalctl --system
+sudo journalctl -u cloud-init.service
+sudo journalctl -u docker.service
+sudo journalctl -u swarm-manager.service
+sudo journalctl -u wc-notify.service</codeblock>
+              </li>
+              <li>Mesos cluster on Ubuntu
+                <codeblock>sudo less /var/log/syslog  
+sudo less /var/log/cloud-init.log  
+sudo less /var/log/cloud-init-output.log  
+sudo less /var/log/os-collect-config.log  
+sudo less /var/log/marathon.log  
+sudo less /var/log/mesos-master.log</codeblock>
+              </li>
+            </ul>
+           </li>
+         </ol>
+       </p>
+    </section>
+
+
+  </body>
+</topic>

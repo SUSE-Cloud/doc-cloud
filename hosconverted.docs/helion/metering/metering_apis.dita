@@ -1,0 +1,436 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="topic_icq_hvc_5t">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Metering API Reference</title>
+  <body><!--not tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    
+    <p>Ceilometer uses a polling agent to communicate with an API to collect information at a
+      regular interval, as shown in the diagram below.</p>
+    
+    <p><image href="../../media/metering/Ceilo_API_Polling.png"/></p>
+    
+    <p>Ceilometer query APIs can put a significant load on the database leading to unexpected
+      results or failures. Therefore it is important to understand how the Ceilometer API works and
+      how to change the configuration to protect against failures.</p>
+    
+    <p><b>Management Tasks:</b></p>
+    <ul>
+      <li><xref type="section" href="#topic_icq_hvc_5t/API_changes">Be Aware of API Changes</xref></li>
+      <li><xref type="section" href="#topic_icq_hvc_5t/disabled">Plan for Disabled and Unsupported APIs</xref></li>
+      <li><xref type="section" href="#topic_icq_hvc_5t/ceilo_ap_remove">Reconfiguring Apache2, Horizon and Keystone</xref></li>
+      <li><xref type="section" href="#topic_icq_hvc_5t/improve_reporting">Improve Reporting API Responsiveness</xref></li>      
+    </ul>
+    
+    <p><b>API overviews:</b></p>
+    <ul>
+      <li><xref type="section" href="#topic_icq_hvc_5t/data_access">Data Access API</xref></li>
+      <li><xref type="section" href="#topic_icq_hvc_5t/pipeline">Post Samples API</xref></li>
+      <li><xref type="section" href="#topic_icq_hvc_5t/resource">Resource API</xref></li>
+      <li><xref type="section" href="#topic_icq_hvc_5t/sampleAPI">Sample API</xref></li>
+      <li><xref type="section" href="#topic_icq_hvc_5t/statAPI">Statistics API</xref></li>
+    </ul>
+    <lines>
+      
+    </lines>
+    <section id="API_changes">
+      <title>Ceilometer API Changes</title>
+      <p>The following changes have been made in the latest release of Ceilometer for Helion OpenStack:</p>
+      <ul>
+        <li><b>Ceilometer API</b> supports a default of 100 queries. This limit is configurable in
+          the ceilometer.conf configuration file. The option is in the <codeph>DEFAULT</codeph>
+          section and is named <codeph>default_api_return_limit</codeph>.</li>
+          <li>Flexible configuration for pollster and notifications has been added. Ceilometer can now list different event types differently for these services.</li>
+          <li><b>Query-sample API</b> is now supported in Helion.</li>  
+        <li><b>Meter-list API</b> can now return a unique list of meter names with no duplicates. To
+          create this list, when running the list command, use the <codeph>--unique</codeph>
+          option.</li>
+      </ul>
+     
+      <p>The following limitations exist in the latest release of Ceilometer for Helion OpenStack:</p>
+      <ul>
+        <li><b>Event API</b> is disabled by default and is unsupported in Helion OpenStack.</li>
+        <li><b>Trait API</b> is disabled by default and is unsupported in Helion OpenStack.</li>
+        <li><b>Post Sample API</b> is disabled by default and is unsupported in Helion
+          OpenStack.</li>
+        <li><b>Alarm API</b> is disabled by default and is unsupported in Helion OpenStack.</li>
+        <li><b>Sample-Show API</b> is unsupported in Helion OpenStack.</li>
+        <li><b>Meter-List API</b> does not support filtering with metadata.</li>
+        <li><b>Query-Sample API</b> (Complex query) does not support using the following operators
+          in the same query: <codeblock>order by argument 
+NOT</codeblock></li>
+        <li><b>Query-Sample API</b> requires you to specify a meter name. Complex queries will be
+          analyzed as several simple queries according to the AND/OR logic. As meter-list is a
+          constraint, each simple query must specify a meter name. If this condition is not met, you
+          will receive a detailed 400 error.</li>
+        <li>Due to a Monasca API limitation, microsecond is no longer supported. In the
+            <b>Resource-List API</b>, <b>Sample-List API</b>, <b>Statistics API</b> and
+          <b>Query-Samples API</b>, the <codeph>timestamp</codeph> field now only supports measuring down to the
+          millisecond.</li>
+        <li><b>Sample-List API</b> does not support <codeph>message_id</codeph> as a valid search
+          parameter. This parameter is also not included in the output.</li>
+            <li><b>Sample-List API</b> now requires the meter name as a positional parameter.</li>
+        <li><b>Sample-List API</b> returns a sample with an empty <codeph>message_signature</codeph> field.</li>
+      </ul>
+     
+    </section>
+    <lines>
+      
+    </lines>
+    <section id="disabled">
+      <title>Disabled APIs</title> 
+      <p>The following Ceilometer metering APIs are
+        disabled in this release: </p>
+      <ul>
+        <li>Event API</li>
+        <li>Trait API</li>
+        <li>Ceilometer Alarms API</li>
+        <li>Post Samples API</li>
+      </ul>
+      <p>These APIs are disabled through a custom rule called
+        <codeph>hp_disabled_rule:not_implemented</codeph>. This rule is added to each disabled API
+        in Ceilometer's policy.json file <b>/etc/ceilometer/policy.json</b> on controller nodes.
+        Attempts to access any of the disabled APIs will result in an HTTP response 501 Not
+        Implemented.</p><p>To manually enable any of the APIs, remove the corresponding rule and
+          restart
+          Apache</p><codeblock>{
+	"context_is_admin": "role:admin",
+	"context_is_project": "project_id:%(target.project_id)s",
+	"context_is_owner": "user_id:%(target.user_id)s",
+	"segregation": "rule:context_is_admin",
+	 
+	"telemetry:create_samples": "hp_disabled_rule:not_implemented",
+	 
+	"telemetry:get_alarm": "hp_disabled_rule:not_implemented",
+	"telemetry:change_alarm": "hp_disabled_rule:not_implemented",
+	"telemetry:delete_alarm": "hp_disabled_rule:not_implemented",
+	"telemetry:alarm_history": "hp_disabled_rule:not_implemented",
+	"telemetry:change_alarm_state": "hp_disabled_rule:not_implemented",
+	"telemetry:get_alarm_state": "hp_disabled_rule:not_implemented",
+	"telemetry:create_alarm": "hp_disabled_rule:not_implemented",
+	"telemetry:get_alarms": "hp_disabled_rule:not_implemented",
+	"telemetry:query_sample":"hp_disabled_rule:not_implemented",
+	"default": ""
+}</codeblock>
+      The following Alarm APIs are disabled <ul>
+        <li>POST /v2/alarms </li>
+        <li>GET /v2/alarms </li>
+        <li>GET /v2/alarms/(alarm_id) </li>
+        <li>PUT /v2/alarms/(alarm_id) </li>
+        <li>DELETE /v2/alarms/(alarm_id) </li>
+        <li>GET /v2/alarms/(alarm_id)/history </li>
+        <li>PUT /v2/alarms/(alarm_id)/state </li>
+        <li>GET /v2/alarms/(alarm_id)/state </li>
+        <li>POST /v2/query/alarms </li>
+        <li>POST /v2/query/alarms/history</li>
+      </ul> In addition, these APIs are disabled: <ul>
+        <li>Post Samples API: POST /v2/meters/(meter_name)</li>
+        <li>Query Sample API: POST /v2/query/samples</li>
+      </ul>
+    </section>
+    <lines>
+      
+    </lines>
+    <lines>
+      
+    </lines>
+    <section id="improve_reporting">
+      <title>Improving Reporting API Responsiveness</title> Reporting APIs are the main
+      access to the Metering data stored in Ceilometer. These APIs are accessed by Horizon to
+      provide basic usage data and information. However, Horizon Resources Usage Overview / Stats
+      panel shows usage metrics with the following limitations: <ul>
+        <li>No metric option is available until you actually create a resource (such as an instance,
+          Swift container, etc). </li>
+        <li>Only specific meters are displayed for a selection after resources have been created.
+          For example, only the Cinder volume and volume.size meters are displayed if only a Cinder
+          volume has been created (for example, if no compute instance or Swift containers were
+          created yet) </li>
+        <li>Only the top 20 meters associated with the sample query results are displayed. </li>
+        <li>Period duration selection should be much less than the default retention period
+          (currently 7 days), to get statistics for multiple groups. </li>
+      </ul>
+      <keyword keyref="kw-hos"/> uses the Apache2 Web Server to provide API access. It is possible
+      to tune performance to optimize the front end as well as the back-end database. Experience
+      indicates that an excessive increase of concurrent access to the front-end tends to put a
+      strain in the database. 
+    </section>
+    <lines>
+      
+    </lines>
+    <section id="ceilo_ap_remove">
+      <title>Reconfiguring Apache2, Horizon and Keystone</title>
+      <p>The ceilometer-api is now running as part of the Apache2 service together with Horizon and
+        Keystone. To remove them from the active list so that changes can be made and then
+        re-instate them, use the following commands.</p>
+      <ol>
+        <li>Disable the Ceilometer API on the active
+          sites.<codeblock>sudo a2dissite ceilometer_modwsgi.conf</codeblock></li>
+        <li>Perform all necessary changes. The Ceilometer API will not be served until it is
+          re-enabled.</li>
+        <li>Re-enable the Ceilometer API on the active
+          sites.<codeblock>sudo a2ensite ceilometer_modwsgi.conf</codeblock></li>
+        <li>The new changes need to be picked up by Apache2. If possible, force a reload rather than
+          a restart. Unlike a restart, the reload waits for currently active sessions to gracefully
+          terminate or complete.<codeblock>sudo  /etc/init.d/apache2 force-reload</codeblock></li>
+      </ol>
+      
+      
+    </section>
+    <lines>
+      
+    </lines>
+    <section id="data_access">
+      <title>Data Access API</title> 
+      <p>Ceilometer provides a complete API for data access only and not for data visualization or
+        aggregation. These functions are provided by external, downstream applications that support
+        various use cases like usage billing and software license policy adherence. </p>
+      
+      <p>Each application calls the specific Ceilometer API needed
+        for their use case. The resulting data is then aggregated and visualized based on the unique
+        functions provided by each application.</p>
+      
+      <p>For more information, see the OpenStack Developer documentation for <xref href="http://docs.openstack.org/developer/ceilometer/webapi/v2.html" scope="external" format="html">V2 Web API</xref>.</p>
+    </section>
+    <lines>
+      
+    </lines>  
+    
+    
+    <section id="pipeline">
+      <title>Post Samples API</title> 
+      
+      <p>The Post Sample API is disabled by default in <keyword
+        keyref="kw-hos-phrase"/> and it requires a separate pipeline.yml for Ceilometer. This is because it uses a pipeline configuration different than the agents. Also by default, the API pipeline has no meters enabled. When
+      the Post Samples API is enabled, you need to configure the meters. </p>
+      
+      <note type="important">Use caution when adding meters to the API pipeline. Ensure that only
+        meters already present in the notification agent and the polling agent pipeline are added to
+        the Post Sample API pipeline.</note>
+      
+      <p>The Ceilometer API pipeline configuration file is located in the following directory:</p> 
+      <codeblock>/opt/stack/service/ceilometer-api/etc/pipeline-api.yml  </codeblock>
+      <p>Sample API pipeline file:</p>
+      <codeblock>---
+sources:
+    - name: meter_source
+      interval: 30
+      meters:
+          - "instance"
+          - "ip.floating"
+          - "network"
+          - "network.create"
+          - "network.update"
+      sinks:
+          - meter_sink
+    - name: image_source
+      interval: 30
+      meters:
+          - "image"
+          - "image.size"
+          - "image.upload"
+          - "image.delete"
+      sinks:
+          - meter_sink
+    - name: volume_source
+      interval: 30
+      meters:
+          - "volume"
+          - "volume.size"
+          - "snapshot"
+          - "snapshot.size"
+      sinks:
+          - meter_sink
+    - name: swift_source
+      interval: 3600
+      meters:
+          - "storage.objects"
+          - "storage.objects.size"
+          - "storage.objects.containers"
+      sinks:
+          - meter_sink
+sinks:
+    - name: meter_sink
+      transformers:
+      publishers:
+         - notifier://</codeblock>
+    </section>
+<lines>
+  
+</lines>
+    <section id="resource">
+      <title>Resource API</title>
+      <p>The Ceilometer Resource API provides a list of resources associated with meters that Ceilometer polls. By default, all meter links are generated for each resource.</p>
+      <note type="important">Be aware that this functionality has a high cost. For a large deployment, in order to reduce the response time, it is recommended that you do not return meter links. You can disable links in the output using the following filter in your query: (for the REST API only)
+        <codeblock>meter_links=0</codeblock></note>
+      
+      <p>The <codeph>resource-list</codeph> (/v2/resources) API can be filtered by the following parameters:</p>
+      <ul>
+        <li>project_id</li>
+        <li>user_id</li>
+        <li>source</li> 
+        <li>resource_id</li> 
+        <li>timestamp</li>
+        <li>metadata</li>
+      </ul>
+      
+      <note type="important">It is highly recommended that you use one or both of the following
+        query filters to get a quick response in a scaled deployment: <ul>
+          <li>project_id</li>
+          <li>timestamp</li>
+        </ul></note>
+      
+      <p><b>Example Query:</b></p>
+      <codeblock>ceilometer resource-list -q "project_id=7aa0fe3f02ff4e11a70a41e97d0db5e3;timestamp>=2015-10-22T15:44:00;timestamp&lt;=2015-10-23T15:44:00"</codeblock>
+      
+    </section>
+    <lines>
+      
+    </lines>
+    <section id="sampleAPI">
+      <title>Sample API</title><p>Ceilometer Sample has two APIs:</p><ul>
+        <li>ceilometer sample-list(/v2/samples) </li>
+        <li>ceilometer query-sample (/v2/query/samples)</li>
+      </ul><p>Sample-list API allows querying based on the following values:</p><ul>
+        <li>meter name</li>
+        <li>user_id</li>
+        <li>project_id</li>
+        <li>sample source</li>
+        <li>resource_id</li>
+        <li>sample timestamp (range)</li>
+        <li>sample message_id</li>
+        <li>resource metadata attributes</li>
+      </ul><p>Sample-list API uses the AND operator implicitly. However, the query-sample API allows
+        for finer control over the filter expression. This is because query-sample API allows the
+        use of AND, OR, and NOT operators over any of the sample, meter or resource attributes.</p>
+      <b>Limitations:</b>
+      <ul>
+        <li>Ceilometer query-sample API does not support the JOIN operator for stability of the
+          system. This is due to the fact that query-sample API uses an anonymous/alias table to
+          cache the JOIN query results and concurrent requests to this API. This can use up the disk
+          space quickly and cause service interruptions.</li>
+        <li>Ceilometer sample-list API uses the AND operator implicitly for all queries. However,
+          sample-list API does allow you to query on resource metadata field of samples.</li>
+      </ul><p><b>Sample queries from the command
+      line:</b></p><codeblock>ceilometer sample-list -m METER_NAME -q '&lt;field1>&lt;operator1>&lt;value1>;...;&lt;field_n>&lt;operator_n>&lt;value_n>'</codeblock>
+      where operators can be:<b> &lt;, &lt;=, =, !=, >= ></b>
+      <note type="attention">All the key value pairs will be combined with the implicit AND
+        operator.</note><p><b>Example usage for the sample-list
+      API</b></p><codeblock>ceilometer sample-list --meter image.serve -q 'resource_id=a1ec2585' </codeblock><codeblock>ceilometer sample-list --meter instance -q 'resource_id=&lt;ResourceID>;metadata.event_type=&lt;eventType>'</codeblock>
+    </section>
+<lines>
+  
+</lines>
+    <section id="statAPI"><title>Statistics API  </title><p>Ceilometer Statistics is an
+        open-ended query API that performs queries on the table of data collected from a meter. The
+        Statistics API obtains the minimum and maximum timestamp for the meter that is being
+        queried. </p><p>The Statistics API also provides a set of statistical functions. These
+        functions perform basic aggregation for meter-specific data over a period of time.
+        Statistics API includes the following functions: </p><dl>
+        <dlentry>
+          <dt>Count</dt>
+          <dd>the number of discrete samples collected in each period</dd>
+        </dlentry>
+        <dlentry>
+          <dt>Maximum</dt>
+          <dd>the sample with the maximum value in a selected time period</dd>
+        </dlentry>
+        <dlentry>
+          <dt>Minimum</dt>
+          <dd>the sample with the minimum value in a selected time period</dd>
+        </dlentry>
+        <dlentry>
+          <dt>Average</dt>
+          <dd>the average value of a samples within a selected time period</dd>
+        </dlentry>
+        <dlentry>
+          <dt>Sum</dt>
+          <dd>the total value of all samples within a selected time period added together </dd>
+        </dlentry>
+      </dl><note type="important">The Statistics API can put a significant load on the database
+        leading to unexpected results and or failures. Therefore, you should be careful about
+        restricting your queries.</note>
+      <b>Limitations of <b>Statistics-list</b> API</b>
+      <ul>
+        <li>filtering with metadata is not supported</li>
+        <li>the <codeph>groupby</codeph> option is only supported with only one parameter. That
+          single parameter has to be one of the
+          following:<codeblock>user_id 
+project_id
+resource_id
+source</codeblock></li>
+        <li>only the following are supported as aggregate functions: <b>average</b>, <b>minimum</b>,
+            <b>maximum</b>, <b>sum</b>, and <b>count</b></li>
+        <li>when no time period is specified in the query, a default period of 300 seconds is used
+          to aggregate measurements(samples)</li>
+        <li>the <b>meter name</b> is a required positional parameter</li>
+        <li>when a closed time range is specified, results may contain an extra row with
+            <b>duration</b>, <b>duration start</b>, <b>duration end</b> assigned with a value of
+            <b>None</b>. This row has a start and end time period that fall outside the requested
+          time range and can be ignored. Ceilometer doesn't remove this row because it is by design
+          inside the backend Monasca.</li>
+      </ul>
+      <b>Statistical Query Best Practices</b>
+      <p>By default, the Statistics API will return a limited number of statistics. You can control
+        the output using the <b>period "." </b> parameter.</p><dl>
+        <dlentry>
+          <dt>Without a period parameter</dt>
+          <dd>only a few statistics: <b>minimum</b>, <b>maximum</b>, <b>avgerage</b> and
+            <b>sum</b></dd>
+        </dlentry>
+        <dlentry>
+          <dt>With a period parameter "."</dt>
+          <dd>the range is divided into equal periods and Statistics API finds the <b>count</b>,
+              <b>minimum</b>, <b>maximum</b>, <b>average</b>, and <b>sum</b> for each of the
+            periods</dd>
+        </dlentry>
+      </dl><note type="important">It is recommended that you provide a <codeph>timestamp</codeph>
+        parameter with every query, regardless of whether a period paramter is used. For example:
+        <codeblock>timestamp>={$start-timestamp} and timestamp&lt;{$end-timestamp} </codeblock> It
+        is also recommended that you query a period of time that covers at most 1 day (24
+        hours).</note>
+      <b>Examples</b>
+      <dl>
+        <dlentry>
+          <dt>Without period parameter</dt>
+          <dd>
+            <codeblock>ceilometer statistics -q "timestamp>=2014-12-11T00:00:10;timestamp&lt;2014-12-11T23:00:00" -m "instance"</codeblock>
+          </dd>
+        </dlentry>
+        <dlentry>
+          <dt>With the period parameter "."</dt>
+          <dd>
+            <codeblock>ceilometer statistics -q "timestamp>=2014-12-11T00:00:10;timestamp&lt;2014-12-11T23:00:00" -m "instance" -p 3600</codeblock>
+          </dd>
+        </dlentry>
+      </dl><p>If the <b>query</b> and <b>timestamp</b> parameters are not provided, all records in
+        the database will be queried. This is not recommended. Use the following recommended values
+        for <b>query (-q)</b> parameter and <b>period (-p)</b> parameters:</p><dl>
+        <dlentry>
+          <dt>-q</dt>
+          <dd>Always provide a <b>timestamp</b> range, with the following guidelines: <ul>
+              <li>recommended maximum time period to query is one day (24 hours)</li>
+              <li>do not set the timestamp range to greater than a day </li>
+              <li>it is better to provide no time stamp range than to set the time period for more
+                than 1 day</li>
+              <li>example of an acceptable range:
+                <codeblock>-q "timestamp>=2014-12-11T00:00:10;timestamp&lt;2014-12-11T23:00:00"</codeblock></li>
+            </ul></dd>
+        </dlentry>
+        <dlentry>
+          <dt>-p</dt>
+          <dd>Provide a large number in seconds, with the following guidelines: <ul>
+              <li>recommended minimum value is 3600 or more (1 hour or more)</li>
+              <li>providing a period of less than 3600 is not recommended</li>
+              <li>Use this parameter to divide the overall time range into smaller intervals. A
+                small period parameter value will translate into a very large number of queries
+                against the database.</li>
+              <li>Example of an acceptable range: <codeblock>-p 3600</codeblock></li>
+            </ul>
+          </dd>
+        </dlentry>
+      </dl>
+    </section>
+
+  </body>
+</topic>

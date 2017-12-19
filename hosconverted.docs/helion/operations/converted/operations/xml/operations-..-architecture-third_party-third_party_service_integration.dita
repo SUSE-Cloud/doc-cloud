@@ -1,0 +1,987 @@
+<?xml version="1.0"?>
+<!DOCTYPE section PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN" "http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd" [ <!ENTITY % entities SYSTEM "entities.xml"> %entities; ]><!--Edit status: not edited-->
+<section id="third_party_service_integration">
+   <title>
+      <phrase/>Third-party Service Integration</title>
+    
+
+
+
+  <section id="d1e13">
+      <title>Introduction</title>
+      <para><phrase/> provides great  flexibility when deploying your cloud, including:
+        </para>
+<orderedlist>
+            <listitem>
+               <para>The ability to subset the services or service components to be deployed.</para>
+            </listitem>
+            <listitem>
+               <para>Control of the distribution of services across the control plane and the rest of the cloud.</para>
+            </listitem>
+            <listitem>
+               <para>Network topology definition.</para>
+            </listitem>
+            <listitem>
+               <para>Disk layout specification.</para>
+            </listitem>
+            <listitem>
+               <para>Customization using configuration files.</para>
+            </listitem>
+        </orderedlist>
+<para><phrase/>
+        extends this flexibility by supporting the integration of 3rd-party components with a <phrase/>
+        platform deployment, whether that is a completely separate service or a plugin/driver to an
+        existing service in the <phrase/> stack. The 3rd-party mechanism supports the integration of a
+        range of different types of content: </para>
+
+      <orderedlist>
+        <listitem>
+            <para><emphasis role="bold">Packages:</emphasis> Addition of 3rd-party packages not available in <phrase/> repos onto a separate
+          repo on the Helion lifecycle mananger node, e.g. Debian packages or RHEL rpms. After import, these packages are
+          automatically available for installation on any target cloud node. </para>
+
+         </listitem>
+        <listitem>
+            <para><emphasis role="bold">Python venv content:</emphasis><phrase/> services are deployed as separate python virtual environments
+          (venvs). The third-party mechanism supports the import of 3rd-party python code for two
+          use cases: </para>
+
+            <orderedlist>
+               <listitem>
+                  <para> The patching of an existing <phrase/> venv, e.g. adding a plugin
+              to the <phrase/> neutron venv.</para>
+
+               </listitem>
+               <listitem>
+                  <para> Creation of a new venv, where this venv can optionally be derived from an existing
+                <phrase/> venv. </para>
+
+               </listitem>
+            </orderedlist>
+         </listitem>
+        <listitem>
+            <para><emphasis role="bold">Service Definitions:</emphasis><phrase/> services and service components are defined in a series of
+          yaml files, which describe various aspects of a service, such as endpoints (VIP and
+          otherwise), relationships with other services (e.g. requires rabbitmq) and whether creds
+          need to be allocated . This data is ultimately
+          used to generate Ansible variables for consumption by the playbooks. The 3rd-party
+          mechanism allows for the definition of new services or service components, where
+          relationships between each other and with <phrase/>-supplied services can be defined. These
+          service definitions will be processed along with the set of <phrase/> service definitions to
+          produce Ansible vars, which can be utilised by imported 3rd-party Ansible
+            playbooks.<emphasis role="bold"> </emphasis></para>
+
+         </listitem>
+        <listitem>
+            <para><emphasis role="bold">Ansible:</emphasis> Addition of 3rd-party playbook and roles for the deployment and
+          configuration of 3rd-party components. These playbooks can be integrated with all of the
+          standard Helion lifecycle manager lifecycle operations, such as deployment, upgrade and reconfiguration.</para>
+
+         </listitem>
+        <listitem>
+            <para><emphasis role="bold">Other application content:</emphasis><phrase> A third-party service integration may require additional content to be deployed to a
+            node, where that content is not packaged as a deb/rpm, or the content is not a python
+            plugin to be patched in an existing <phrase/> service venv or python code for a new venv. Helion lifecycle manager
+            provides a generic mechanism for packaging such content and delivering it to target
+            nodes (coupled with the use of Helion lifecycle manager Ansible modules in the 3rd-party Ansible playbooks).
+            For example, this mechanism can be used to deliver a Java-based application to target
+            cloud nodes.</phrase><emphasis role="bold"> </emphasis></para>
+
+         </listitem>
+        <listitem>
+            <para><emphasis role="bold">Centralized Logging profiles</emphasis>: Third-party services log files can be added to the
+          centralised logging service provided by <phrase/>. This service also manages the logrorate
+          policy for services that register with it. To configure your third-party service with
+          centralised logging, a logging profile must be added.<emphasis role="bold"> </emphasis></para>
+
+         </listitem>
+        <listitem>
+            <para><emphasis role="bold">
+                  <phrase/> service configuration:</emphasis> Some <phrase/> services (currently, just Neutron) provide an
+          interface for injecting 3rd-party customisations of the deployment of that service, which
+          includes the addition of configuration data to certain selected configuration files.</para>
+
+         </listitem>
+      </orderedlist>
+      <para>The import of any combination of the above content types can be used in support of a
+        particular 3rd-party integration. The remainder of this document details the main steps for
+        using the import mechanism and how each of the content types is prepared in advance of
+        running the import.</para>
+
+    </section>
+   <section id="d1e112">
+      <title>Using the 3rd-party Import mechanism</title>
+      <para>The Helion lifecycle manager 3rd-party import mechanism allows the import of various types of content into the
+        <phrase/> platform in advance of a deployment. In the general use case, the 3rd-party content is
+        imported after the lifecycle manager has been initialised (i.e. after <literal>hos-init.bash</literal> has been
+        executed). The general procedure for importing 3rd-party content is as follows:</para>
+
+      <orderedlist>
+        <listitem>
+            <para> Ensure that the lifecycle manager has been initialised:
+          </para>
+
+            <screen>~/hos-4.0.0/hos-init.bash</screen>
+         </listitem>
+        <listitem>
+            <para>Prepare 3rd-party content for import on the deployer. </para>
+
+            <orderedlist>
+               <listitem>
+                  <para> Create a top-level directory on the lifecycle manager under
+                <literal>~/third-party</literal> and create sub-directories under that, according to
+              the different third-party content being imported, e.g.:
+              </para>
+
+                  <screen>third-party/
+└── myservice
+    ├── ansible
+    ├── logging        
+    ├── other
+    ├── pkgs
+    ├── services
+    └── venvs</screen>
+               </listitem>
+               <listitem>
+                  <para> Populate each sub-directory with your 3rd-party content; details on the layout for
+              each content type are detailed below.Note that the third-party area can also be
+              populated with <phrase/> extensions content shipped with <phrase/>, e.g. for a <phrase/>-DCN deployment: </para>
+
+                  <screen>cp -r ~/helion/hos_extensions/dcn ~/third-party/</screen>
+                  <para><emphasis role="bold">Note:</emphasis> Additional content (outside of that provided with <phrase/> extensions) must be added to the third-party area for a <phrase/>-DCN deployment. 
+              <phrase> </phrase></para>
+
+               </listitem>
+            </orderedlist>
+         </listitem>
+        <listitem>
+            <para> Run the 3rd-party import playbook: </para>
+
+            <screen>cd ~/helion/hos/ansible/
+ansible-playbook -i hosts/localhost third-party-import.yml</screen>
+            <orderedlist>
+               <listitem>
+                  <para> Note that RHEL artefacts (rpms or any updates against RHEL venvs – <phrase/> provides a different set of service venvs for hlinux and RHEL) are
+              not imported by default. If this is required, run the third-party-import playbook as
+              follows:
+              </para>
+
+                  <screen>cd ~/helion/hos/ansible/
+ansible-playbook -i hosts/localhost third-party-import.yml -e third_party_rhel_enabled</screen>
+               </listitem>
+            </orderedlist>
+         </listitem>
+        <listitem>
+            <para>Proceed with the cloud deployment as per normal:</para>
+
+            <orderedlist>
+               <listitem>
+                  <para>Prepare configuration input files to describe your target cloud (which may include
+              references to imported 3rd-party services) and commit those changes via git.</para>
+
+               </listitem>
+               <listitem>
+                  <para>Provision your baremetal nodes.</para>
+
+               </listitem>
+               <listitem>
+                  <para> Run the configuration processor:
+              </para>
+
+                  <screen>cd ~/helion/hos/ansible/
+ansible-playbook -i hosts/localhost config-processor-run.yml -e encrypt="" -e rekey=""</screen>
+               </listitem>
+               <listitem>
+                  <para> Ready the deployment:
+              </para>
+
+                  <screen>ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+               </listitem>
+               <listitem>
+                  <para> Deploy your cloud (which now includes 3rd-party components):
+              </para>
+
+                  <screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts site.yml</screen>
+               </listitem>
+            </orderedlist>
+         </listitem>
+      </orderedlist>
+      <para>The following sections provide details on how to supply the different types of third-party
+        content for import. The following assumes that you have created a top-level directory (named
+        according to your particular 3rd-party integration) under the third-party area on the
+        deployer, e.g. as follows:</para>
+
+      <screen>third-party
+└── myservice</screen>
+      <para>Further sub-directories are created under the directory specific to a third-party
+        integration, e.g. <literal>third-party/myservice</literal>, according to different types of
+        content required.</para>
+
+      <section id="d1e272">
+         <title>Debian/RHEL packages</title>
+        <para>The third-party import mechanism supports the import of both Debian packages and RHEL
+          packages, as shown in the diagram below:</para>
+
+        <mediaobject>
+               <imageobject role="fo"><imagedata fileref="" width="75%" format=""/></imageobject><imageobject role="html"><imagedata fileref=""/></imageobject>
+            </mediaobject>
+
+        <para>To prepare third-party packages for import, the following steps are required:</para>
+
+        <orderedlist>
+            <listitem>
+               <para>Create a <literal>pkgs</literal> directory under your specific top-level third-party
+            import directory, with further sub-directories, depending on the OS support required:
+              <literal>debian </literal>or <literal>rhel.</literal></para>
+
+            </listitem>
+            <listitem>
+               <para>Populate the debian sub-directory with the full set of debian packages required for
+            the third-party service, including any dependencies.</para>
+
+            </listitem>
+            <listitem>
+               <para>Populate the rhel sub-directory with the full set of RHEL packages required for the
+            third-party service, including any dependencies.</para>
+
+            </listitem>
+        </orderedlist>
+        <para>A sample layout of third-party packages ready for import is shown below:</para>
+
+        <screen>third-party/myservice/pkgs
+├── debian
+│   ├── pkg1.deb
+│   └── pkg2.deb
+└── rhel
+    ├── pkg1.rpm
+    └── pkg2.rpm</screen>
+        <para>The third-party-import playbook will scan for packages under all directories matching the
+            pattern <literal>~/third/*/pkgs/debian</literal> or <literal>~/third/*/pkgs/rhel</literal>
+          and populate the 3rd-party apt repo (separate to the base <phrase/> apt repo) with deb packages
+          and populate the 3rd-party yum repo (separate to the <phrase/> yum repo, if present) with rpm
+          packages. The third-party apt and yum repo packages will then be available for
+          installation in subsequent deployments of cloud nodes, typically carried out by imported
+          3rd-party Ansible playbooks.</para>
+
+      </section>
+      <section id="d1e329">
+         <title>Venvs</title>
+        <para>The third-party import mechanism supports both the patching of existing <phrase/> venvs and
+          the creation of new venvs. An example of the patching of an existing <phrase/> neutron venv is
+          illustrated below:</para>
+
+        <mediaobject>
+               <imageobject role="fo"><imagedata fileref="" width="75%" format=""/></imageobject><imageobject role="html"><imagedata fileref=""/></imageobject>
+            </mediaobject>
+
+        <para>To prepare content for the update or creation of a new venv, the following steps are
+          required:</para>
+
+        <orderedlist>
+            <listitem>
+               <para>Create an appropriately-named sub-directory under the venvs directory for each
+            separate set of python content to be imported, e.g. <literal>pluginA</literal> or
+              <literal>serviceA</literal> in the example below.</para>
+
+            </listitem>
+            <listitem>
+               <para>For each of these sub-directories:</para>
+
+               <orderedlist>
+                  <listitem>
+                     <para>Populate one or all of the debs, src or whls directories with the source
+                content.</para>
+
+                  </listitem>
+                  <listitem>
+                     <para>Populate the pip-deps directory with any pip requirements, arising from the
+                above.</para>
+
+                  </listitem>
+                  <listitem>
+                     <para>Create <literal>services.yml</literal></para>
+
+                  </listitem>
+               </orderedlist>
+            </listitem>
+        </orderedlist>
+        <para>A sample directory layout for the patching of an existing <phrase/> venv with plugin code and
+          for the creation of a new venv is as follows:</para>
+
+        <screen>third-party/myservice/venvs
+├── pluginA
+│   ├── debs
+│   ├── pip-deps
+│   ├── services.yml
+│   ├── src
+│   └── whls
+└── serviceA
+    ├── debs
+    ├── pip-deps
+    ├── services.yml
+    ├── src
+    └── whls</screen>
+        <para>For both cases, the content provided can be in three forms, each placed in specifically
+          named sub-directories:</para>
+
+        <itemizedlist>
+            <listitem>
+               <para><emphasis role="bold">debs:</emphasis> A set ot Debian packages containing python code, which will be extracted,
+            converted into a wheel and installed into the destination venv. </para>
+
+            </listitem>
+            <listitem>
+               <para><emphasis role="bold">src:</emphasis> A set of source tarballs, which are installed directly into the destination
+            venv.</para>
+
+            </listitem>
+            <listitem>
+               <para><emphasis role="bold">whls:</emphasis> A set of wheels, which are installed directly into the destination
+            venv.</para>
+
+            </listitem>
+        </itemizedlist>
+        <para>Python wheels are the preferred format for this content as they lower install time and
+          have no install-time dependencies.</para>
+
+        <para>For the above installations, additional pip dependencies may be required. The third-party
+          import mechanism will scan the pip-deps sub-directory to satisfy such requirements.</para>
+
+        <para>The nature of the destination venv referred to above depends on the services.yml file,
+          which must be present. To patch an existing <phrase/> venv, such as neutron, the services.yml is
+          defined as follows:</para>
+
+        <screen>services:
+  - name: neutron</screen>
+        <para>The result of this is to create a new Neutron venv, updated with content from the 
+          debs, src or whls (and pip-deps) directories. After the third-party import has been completed,
+          subsequent calls to install the Neutron venv will install this updated venv rather than
+          the original venv supplied with <phrase/>.</para>
+
+        <para>An example services.yml for the creation of a new venv is as follows:</para>
+
+        <screen>services:
+  - name: myserviceA
+    parent: nova-client</screen>
+        <para>In this case a new venv is created called "myserviceA", which is based off an existing
+          <phrase/> nova-client venv. This additionally has content installed into it from the debs, src
+          or whls directories. After the third-party import has been completed, this new venv is
+          available for installation. Additional third-party playbooks will be required to install
+          this venv.</para>
+
+      </section>
+      <section id="d1e439">
+         <title>Service Definitions</title>
+        <para>To deploy a cloud with Helion lifecycle manager, the cloud operator must prepare an input model that
+          describes the cloud configuration in terms of which services (OpenStack and supporting)
+          run on which server nodes, how sets of server nodes are configured in terms of network
+          configuration and disk layout, the overall network layout and much more (an overview of
+          the input model can be found ). The input model refers to a
+            <literal>service</literal>, where a service is defined a collection of
+            <literal>service-components</literal> that provide a particular feature; for example nova
+          provides the compute service and consists of the following service-components: nova-api,
+          nova-scheduler, nova-conductor, nova-novncproxy, and nova-compute.</para>
+
+        
+        <para>A service may comprise of
+          just one service-component, such as rabbitmq or mysql. A service-component represents the
+          smallest unit of deployment for Helion lifecycle manager. A cloud operator describes the desired cloud
+          deployment in terms of the selection layout of service components across groups, known as
+            <literal>clusters</literal><literal>. </literal> A service and its constituent service components are typically defined
+          in separate yaml files (Note: the convention is to use separate files for general
+          readability and organisation, but this is not strictly required); the full set of <phrase/>
+          services and service components can be viewed on the lifecycle manager under the
+          <literal>~/helion/hos/services</literal> directory. For example, the list of yaml files defining the nova
+          service and its constituent service-components (in <phrase/>) is as follows: </para>
+
+        <screen>~/helion/hos/services$ ls -l nova
+total 60
+-rw-r--r-- 1 stack stack 3301 Jul 13 07:41 api.yml
+-rw-r--r-- 1 stack stack 1516 Jul 13 07:41 compute.yml
+-rw-r--r-- 1 stack stack  767 Jul 13 07:41 conductor.yml
+-rw-r--r-- 1 stack stack  716 Jul 13 07:41 console_auth.yml
+-rw-r--r-- 1 stack stack  777 Jul 13 07:41 esx_compute_proxy.yml
+-rw-r--r-- 1 stack stack  764 Jul 13 07:41 ironic_compute_proxy.yml
+-rw-r--r-- 1 stack stack  809 Jul 13 07:41 ironic_compute.yml
+-rw-r--r-- 1 stack stack  778 Jul 13 07:41 ironic_scheduler.yml
+-rw-r--r-- 1 stack stack 1342 Jul 13 07:41 kvm_compute.yml
+-rw-r--r-- 1 stack stack  769 Jul 13 07:41 new_esx_compute_proxy.yml
+-rw-r--r-- 1 stack stack 1197 Jul 13 07:41 nova-client.yml
+-rw-r--r-- 1 stack stack  813 Jul 13 07:41 nova-metadata.yml
+-rw-r--r-- 1 stack stack 2907 Jul 13 07:41 nova.yml
+-rw-r--r-- 1 stack stack 1002 Jul 13 07:41 novncproxy.yml
+-rw-r--r-- 1 stack stack  767 Jul 13 07:41 scheduler.yml</screen>
+        
+        <para> The third-party import mechanism supports the import of third-party defined services and
+          service components, as shown in the following diagram: </para>
+
+        <mediaobject>
+               <imageobject role="fo"><imagedata fileref="" width="75%" format=""/></imageobject><imageobject role="html"><imagedata fileref=""/></imageobject>
+            </mediaobject>
+
+        <para> To set up third-party services for import, place the set of yaml files under the
+          services sub-directory, e.g.: </para>
+
+        <screen>third-party/myservice/services
+└── serviceA
+    ├── serviceA-client.yml
+    ├── serviceA-plugin.yml
+    ├── serviceA-server.yml
+    └── serviceA.yml</screen>
+        
+        <para>When the third-party-import playbook has completed, the above third-party service
+          definitions will have been added to the existing set of <phrase/> services under
+          <literal>~/helion/hos/services</literal> and committed to git (on the site branch). Here is a sample git log
+          entry for the addition of a set of third-party service definitions:</para>
+
+        
+        <screen>commit 21103bd725e3613b341d06dee9d3eed6ce0aafc7
+Author: Helion git user &lt;helion@hpe.com&gt;
+Date:   Wed Jul 13 09:46:19 2016 +0000
+    Third-party services import</screen>
+        
+        <para>For details on the creation of the service definitions files, please refer to the
+          separate guide on the "Implementing a new service in Helion lifecycle manager"</para>
+
+      </section>
+      <section id="d1e519">
+         <title>Ansible Playbooks and Roles</title>
+        <para>Helion lifecycle manager supports the import of third-party Ansible playbooks roles, as illustrated in the
+          following diagram:</para>
+
+        <mediaobject>
+               <imageobject role="fo"><imagedata fileref="" width="75%" format=""/></imageobject><imageobject role="html"><imagedata fileref=""/></imageobject>
+            </mediaobject>
+
+        <para>To prepare third-party Ansible content for import, carry out the following steps:</para>
+
+        <orderedlist>
+            <listitem>
+               <para>Implement the set of playbooks and roles, as per the guide: <phrase>"Implementing a new
+              service in Helion lifecycle manager"</phrase></para>
+
+            </listitem>
+            <listitem>
+               <para><phrase>Add <literal>hooks</literal> for the integration third-party playbooks with Helion lifecycle manager
+              lifecycle operations.</phrase></para>
+
+            </listitem>
+            <listitem>
+               <para><phrase>Create a symlinks yaml file to indicate which configuration files will be exposed
+              for customer edit in the my_cloud/config area.</phrase></para>
+
+            </listitem>
+            <listitem>
+               <para><phrase>Copy the full set of playbooks, roles, hooks and config dir to the
+                <literal>ansible</literal> sub-directory for this particular integration.</phrase><phrase> </phrase></para>
+
+            </listitem>
+        </orderedlist>
+        <para><phrase>A sample layout of Ansible content ready for import is as follows:</phrase></para>
+
+        <screen>.
+├── config
+│   └── myservice-symlinks.yml
+├── hooks.d
+│   └── myservice
+│       ├── post-nova-deploy.yml
+│       ├── post-nova-reconfigure.yml
+│       ├── post-nova-stop.yml
+│       └── pre-monasca-agent-deploy.yml
+├── myservice-deploy.yml
+├── myservice-reconfigure.yml
+├── myservice-start.yml
+├── myservice-stop.yml
+└── roles
+    ├── myservice-client
+    │   ├── defaults
+    │   │   └── main.yml
+    │   └── tasks
+    │       ├── configure.yml
+    │       ├── install.yml
+    │       ├── start.yml
+    │       └── stop.yml
+    ├── myservice-plugin
+    │   ├── defaults
+    │   │   └── main.yml
+    │   └── tasks
+    │       ├── configure.yml
+    │       ├── install.yml
+    │       ├── start.yml
+    │       └── stop.yml
+    └── myservice-server
+        ├── defaults
+        │   └── main.yml
+        ├── tasks
+        │   ├── configure.yml
+        │   ├── install.yml
+        │   ├── start.yml
+        │   └── stop.yml
+        └── templates
+            └── server.conf.j2</screen>
+        <para><phrase>When the third-party-import playbook has completed, the above set of playbooks, roles
+            and hooks are added to <literal>~/helion/hos/ansible</literal> on the lifecycle manager and committed to
+            git (on the site branch).</phrase> Here is a sample git log entry representing the import of
+          some third-party Ansible content: </para>
+
+        
+        <screen>commit 9ca9b47f6d2840b48624ffa94fb6b8a072466811
+Author: Helion git user &lt;helion@hpe.com&gt;
+Date:   Wed Jul 13 09:46:21 2016 +0000
+    Third-party Ansible import</screen>
+        
+        <para>For details on the implementation of ansible playbooks and roles for Helion lifecycle manager, please refer to
+          the separate guide on the "Implementing a new service in Helion lifecycle manager".</para>
+
+        
+        <para>In addition to adding the set of third-party Ansible playbooks and roles, the third-party
+          top-level playbooks must be integrated with top-level Helion lifecycle manager playbooks for all supported
+          lifecycle operations, such as deploy, upgrade and so on. The next section details how that
+          is achieved. The final section on Ansible details how to set up symlinks for third-party
+          configuration templates.</para>
+
+         <section id="d1e608">
+            <title>Helion lifecycle manager Ansible Hook Mechanism</title>
+            <para>To fully integrate your third-party playbooks, you must use the Helion lifecycle manager mechanism for
+              <literal>hooking</literal> third-party playbooks into the major Helion lifecycle manager lifecycle operations
+            so that, for example, when a deployment is run, it includes your playbooks for deploying
+            a third-party service. Helion lifecycle manager supports the integration of third-party level playbooks with
+            the following Helion lifecycle manager lifecycle operations:</para>
+
+            <itemizedlist>
+               <listitem>
+                  <para>deploy: hlm-deploy.yml (invoked via site.yml)</para>
+
+               </listitem>
+               <listitem>
+                  <para>reconfigure: hlm-reconfigure.yml</para>
+
+               </listitem>
+               <listitem>
+                  <para>upgrade: hlm-upgrade.yml</para>
+
+               </listitem>
+               <listitem>
+                  <para>start: hlm-start.yml</para>
+
+               </listitem>
+               <listitem>
+                  <para>status: hlm-status.yml</para>
+
+               </listitem>
+               <listitem>
+                  <para>stop: hlm-stop.yml</para>
+
+               </listitem>
+            </itemizedlist>
+            <para>To hook into Helion lifecycle manager lifecycle operations, you must define a set of hook playbooks under
+            the hooks.d directory within your Ansible content, where those playbooks follow a
+            specific naming convention:</para>
+
+            <screen>hooks.d/&lt;custom&gt;/pre-&lt;action&gt;.yml
+hooks.d/&lt;custom&gt;/pre-&lt;service&gt;-&lt;action&gt;.yml
+hooks.d/&lt;custom&gt;/post-&lt;service&gt;-&lt;action&gt;.yml
+hooks.d/&lt;custom&gt;/post-&lt;action&gt;.yml</screen>
+            <para>where:</para>
+
+            <itemizedlist>
+               <listitem>
+                  <para><emphasis role="bold">custom: </emphasis> Any named directory under hooks.d for the placement of hook playbooks.
+              Any duplicate hooks targeting the same action or service-action combination will be
+              alphabetically sorted according to this name to determine the ultimate ordering. </para>
+
+               </listitem>
+               <listitem>
+                  <para><emphasis role="bold">action: </emphasis>Refers to the top-level operation that Helion lifecycle manager is executing, e.g. deploy or
+              reconfigure. </para>
+
+               </listitem>
+               <listitem>
+                  <para><emphasis role="bold">service: </emphasis>Refers to the name of a <phrase/> service as per its naming in the Helion lifecycle manager
+              top-level playbooks (hlm-deploy.yml, hlm-reconfigure.yml, etc.), e.g nova, glance,
+              swift, etc.</para>
+
+               </listitem>
+            </itemizedlist>
+          
+          
+
+            <para>The set of hooks in the above sample Ansible content layout are:</para>
+
+            <screen>.
+├── hooks.d
+│   └── myservice
+│       ├── post-nova-deploy.yml
+│       ├── post-nova-reconfigure.yml
+│       ├── post-nova-stop.yml
+│       └── post-nova-start.yml</screen>
+            <para>Based on the above, the <literal>post-nova-deploy.yml</literal> playbook will be invoked as part of a
+            <literal>site.yml</literal> execution and is guaranteed to run after the <literal>nova-deploy.yml</literal> part of the
+            overall run. Similarly, a run of <literal>hlm-reconfigure.yml</literal> will execute
+            <literal>post-nova-reconfigure.yml</literal> after <literal>nova-reconfigure.yml</literal>.</para>
+
+            <para>When the third-party-import playbook has completed, the full contents of the Ansible
+            directory will be merged with the existing ~/<literal>helion/hos/ansible</literal> area on
+            the lifecycle manager. The Ansible hooks are not processed until the ready-deployment
+            playbook has been run, after which the inclusion of the hooks will be apparent in the
+            Helion lifecycle manager playbooks in the scratch area, i.e. under <literal>/scratch/ansible/next/helion/hos</literal>. For
+            example, from the above hooks specification, <literal>hlm-deploy.yml</literal> is rendered as follows:</para>
+
+          
+            <screen># Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
+#
+# Top-level HLM deploy playbook
+#
+# Automatically managed by Ansible and will be overwritten on each
+# deploy ready.
+---
+# Regather facts on all hosts in case of configuration changes that haven't
+# been reflected in the fact cache
+- include: hlm-refresh-facts.yml
+- include: sosreport-deploy.yml
+- include: upgrade-bootstrap.yml
+# pre deploy Third party hooks
+# deploy services and Third party hooks
+# HLM-1259: when disabling the monasca part of the deployment,
+# edit ~/.ansible.cfg and change the [default] / library setting
+# as outlined in that file.
+- include: monasca-agent-deploy.yml
+- include: tls-deploy.yml
+- include: clients-deploy.yml
+- include: percona-deploy.yml
+- include: rabbitmq-deploy.yml
+- include: FND-CLU-deploy.yml
+- include: FND-AP2-deploy.yml
+- include: memcached-deploy.yml
+- include: keystone-deploy.yml
+- include: barbican-deploy.yml
+- include: zookeeper-deploy.yml
+- include: monasca-deploy.yml
+- include: hlm-ux-services-deploy.yml
+# ops console depends on kafka, installed by monasca
+- include: ops-console-deploy.yml
+- include: spark-deploy.yml
+- include: monasca-transform-deploy.yml
+- include: swift-deploy.yml
+- include: glance-deploy.yml
+- include: neutron-deploy.yml
+- include: ironic-deploy.yml
+- include: vsa-deploy.yml
+- include: cmc-deploy.yml
+- include: nova-deploy.yml
+- include: hooks.d/myservice/post-nova-deploy.yml
+- include: cinder-deploy.yml
+- include: octavia-deploy.yml
+- include: designate-deploy.yml
+...</screen>
+            <para>where the inclusion of <literal>hooks.d/myservice/post-nova-deploy.yml</literal> is after <literal>nova-deploy.yml</literal>
+            Typically, these hook playbooks simply call out to other third-party playbooks,
+            e.g.:</para>
+
+            <screen>stack@hlm:~/scratch/ansible/next/hos/ansible$ cat hooks.d/myservice/post-nova-deploy.yml
+#
+# (c) Copyright 2017 Hewlett Packard Enterprise Development Company LP
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# Post nova-deploy logic goes here, can include anothe playbook.
+
+- include: "{{ playbook_dir }}/myservice-deploy.yml"</screen>
+            <para>The nett result is that the <literal>myservice</literal> deployment is carried out after
+            nova has been deployed. Similarly, hlm-reconfigure.yml, hlm-upgrade.yml, hlm-start.yml
+            and hlm-stop.yml are generated to contain any hooks, if they have been defined.</para>
+
+        </section>
+         <section id="d1e719">
+            <title>Configuration file symlinks</title>
+            <para>In deploying <phrase/>, customers may want to modify some of the configuration files supplied
+            by <phrase/>. To facilitate this, the <literal>~/helion/my_cloud/config</literal> area on the lifecycle
+            manager contains a set of symlinks to configuration file templates for the various
+            services in <phrase/>. To customise, the customer edits these files directly and commits to
+            git (see  ) and those
+            configuration changes will be persisted and used for all future deployments and
+            upgrades.</para>
+
+            <para>If you have third-party configuration templates that you would like to expose for
+            customer modification in the same way, you must create a symlinks yaml definition and
+            place it in a config directory in your ansible area, e.g. <literal>config/myservice-symlinks.yaml</literal> as
+            shown in the sample Ansible layout above. This yaml file is simply a list of paths to
+            configuration templates to be mapped to the name that each will appear as in the
+            <literal>~/helion/my_cloud/config</literal> area. Configuration templates are typically grouped by service
+            under <literal>~/helion/my_cloud/config</literal>. A sample symlinks specification is as follows:</para>
+
+            <screen># (c) Copyright 2017 Hewlett Packard Enterprise Development LP
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
+#
+# The following relative symlinks are created under the
+# my_cloud/config directory.
+---
+symlinks:
+  "myservice/server.conf.j2": "roles/myservice-server/templates/server.conf.j2"</screen>
+          
+            <para>When the above file is parsed by the third-party-import playbook, a
+            <literal>~/helion/my_cloud/myservice/server.conf.j2</literal> symlink will be added to point to the
+            configuration template under the myservice-server role.</para>
+
+        </section>
+      </section>
+      <section id="d1e741">
+         <title>Other Application Content</title>
+        <para><phrase>It is not uncommon for a third-party service integration to require additional content
+            to be deployed to a node, where that content is not packaged as a deb/rpm or is a python
+            application that could be deployed into a venv. Helion lifecycle manager provides a generic mechanism for
+            packaging such content and delivering it to target nodes (coupled with the use of Helion lifecycle manager
+            Ansible modules in the 3rd-party Ansible playbooks). For example, this mechanism can be
+            used to deliver a Java-based application to target Cloud nodes. Helion lifecycle manager packages this
+            content and makes it available in the same repo used for serving out python venvs, as
+            shown in the diagram below: </phrase></para>
+
+        <para><phrase>
+               <mediaobject>
+                  <imageobject role="fo"><imagedata fileref="" width="75%" format=""/></imageobject><imageobject role="html"><imagedata fileref=""/></imageobject>
+               </mediaobject>
+            </phrase></para>
+
+        <para><phrase>To prepare such content to be packaged, you should follow these steps:</phrase></para>
+
+        <orderedlist>
+            <listitem>
+               <para>Create an appropriately-named sub-directory under the <literal>other</literal> directory
+            for each separate set of application content to be imported.</para>
+
+            </listitem>
+            <listitem>
+               <para>For each of these sub-directories, populate with the set of application content; this
+            does not need to confirm to any particular layout.</para>
+
+            </listitem>
+        </orderedlist>
+        
+        <para>A sample layout for other application content that is be imported is as follows:</para>
+
+        <screen>third-party/myservice/other
+└── serviceA
+    ├── serviceA-part1.tgz
+    └── serviceA-part2.tgz</screen>
+        <para>When the third-party-import playbook has been completed, the above content is bundled
+          into a single package and made available on the venv repo of the lifecycle manager node.
+          An example playbook task for delivering this bundled package to a target cloud node is as
+          follows:</para>
+
+        <screen>- name: serviceA-server | install | Install myserviceA package
+  become: yes
+  install_package:
+    name: serviceA
+    service: serviceA
+    state: present
+    activate: act_on
+  register: serviceA_install_result</screen>
+      </section>
+      <section id="d1e800">
+         <title>Centralized Logging Profiles</title>
+        <para><phrase/> provides a centralised logging service, which collects log files for all <phrase/> services
+          and stores them in a centralized elasticsearch store, where they can then be viewed,
+          searched and analyzed via a Kibana interface. To configure a third-party service for this
+          centralized logging service, you must add a logging profile yaml file under the logging
+          directory, e.g.:</para>
+
+        <screen>third-party/myservice/logging/
+└── myservice-clr.yml</screen>
+        <para>Note that in addition to configuring a service for centralized logging, the above profile
+          also defines the logrotate policy for the service. For details on creating a logging
+          profile and general info on the centralized logging service, please see the documentation .
+          <!--TODO REF
+          (centralized logging docs supplied by Logging team, see <xref format="html" scope="external"
+            href="http://jira.hpcloud.net/browse/LOG-791">LOG-791</xref>)-->.</para>
+
+      </section>
+      <section id="d1e825">
+         <title>
+            <phrase/> Service Configuration</title>
+        <para><phrase>Some <phrase/> services provide an interface for injecting third-party customizations of the
+            deployment of that service, which includes the addition of configuration data to certain
+            selected configuration files. The specifics of what can be customized depends on the
+            service. The general model is that a third-party service definition can declare that it
+            provides data (<literal>provides-data</literal> relationship) to another service or
+            service-component, where that data could be the name of one or more plugins/drivers, a
+            chunk of additional configuration content or any other settings that exposed by the peer
+            service/service-component. Currently, only the <phrase/> neutron service provides such an
+            interface. <!--Details on what can be configured and how it is used can be found <xref href="../../networking/DCN-integration.dita">here</xref>.-->
+            
+          </phrase></para>
+
+      </section>
+   </section>
+   <section id="d1e839">
+      <title>Upgrade</title>
+      <para>After deploying <phrase/> integrated with a third-party service, there are two main upgrade
+        scenarios: </para>
+
+      <orderedlist>
+        <listitem>
+            <para><phrase/> upgrade (major, minor, patch or hotfix) </para>
+
+         </listitem>
+        <listitem>
+            <para>Upgrade of third-party content independent of a <phrase/> upgrade.</para>
+
+         </listitem>
+      </orderedlist>
+      <section id="d1e861">
+         <title>
+            <phrase/> Upgrade</title>
+        <para><phrase>After deploying <phrase/> integrated with a third-party service, the </phrase>following steps
+          must be carried for any upgrade of <phrase/> (major, minor, patch, hotfix): </para>
+
+        <orderedlist>
+            <listitem>
+               <para> Update the lifecycle manager: </para>
+
+               <screen>~/hos-4.x.y/hos-init.bash</screen>
+            </listitem>
+            <listitem>
+               <para>If required, update third-party content, e.g. contents under <literal>~/third-party/myservice</literal>.
+            If the third-party integration involves the patching of a venv and the upgrade involves
+            a change in OpenStack release (e.g. Mitaka to Newton), then an update of the plugin code
+            used to patch the venv may be required.</para>
+
+            </listitem>
+            <listitem>
+               <para> Run the 3rd-party import playbook:
+            </para>
+
+               <screen>cd ~/helion/hos/ansible/
+ansible-playbook -i hosts/localhost third-party-import.yml</screen>
+               <para>
+            If the third-party integration involves the patching of a Neutron venv (and Neutron has
+            since changed in this upgrade), then the import playbook step will reapply that plugin
+            to the latest <phrase/> Neutron venv supplied in the upgrade kit. </para>
+
+            </listitem>
+            <listitem>
+               <para>Proceed with a cloud upgrade as per normal:</para>
+
+               <orderedlist>
+                  <listitem>
+                     <para> Run the configuration processor:
+                </para>
+
+                     <screen>cd ~/helion/hos/ansible/
+ansible-playbook -i hosts/localhost config-processor-run.yml -e encrypt="" -e rekey=""</screen>
+                  </listitem>
+                  <listitem>
+                     <para> Ready the deployment:
+                </para>
+
+                     <screen>cd ~/helion/hos/ansible/
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+                  </listitem>
+                  <listitem>
+                     <para> Upgrade the cloud.
+                </para>
+
+                     <screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-upgrade.yml</screen>
+                  </listitem>
+               </orderedlist>
+            </listitem>
+        </orderedlist>
+        <para>It is critical to re-run a third-party import after the hos-init step and before an
+          upgrade is started. Omitting the import leaves you in danger of overwriting a previously
+          patched and deployed venv with the latest one supplied in the <phrase/> upgrade kit. For this
+          reason, <literal>hos-init.bash</literal> will display a warning message when it detects that third-party
+          content has been previously supplied.</para>
+
+      </section>
+      <section id="d1e951">
+         <title>Third-party content Upgrade</title>
+        <para>It is also possible to update third-party content independently of a <phrase/> upgrade, e.g.
+          update the plugin used to patch the <phrase/> Neutron venv. To update third-party content, the
+          following steps apply:</para>
+
+        <orderedlist>
+            <listitem>
+               <para> Update the relevant third-party content under <literal>~/third-party</literal>, e.g.
+            <literal>~/third-party/myservice</literal></para>
+
+            </listitem>
+            <listitem>
+               <para> Run the 3rd-party import playbook:
+            </para>
+
+               <screen>cd ~/helion/hos/ansible/
+ansible-playbook -i hosts/localhost third-party-import.yml</screen>
+               <para>
+            If the third-party update involves the change of a Neutron plugin, the latest <phrase/>
+            Neutron venv will be selected and patched with the latest third-party content. This is
+            guaranteed to be selected over the previous patched venv in a subsequent upgrade. </para>
+
+            </listitem>
+            <listitem>
+               <para> Proceed with a cloud upgrade as per normal: </para>
+
+               <orderedlist>
+                  <listitem>
+                     <para> Run the configuration processor:
+                </para>
+
+                     <screen>cd ~/helion/hos/ansible/
+ansible-playbook -i hosts/localhost config-processor-run.yml -e encrypt="" -e rekey=""</screen>
+                  </listitem>
+                  <listitem>
+                     <para> Ready the deployment:
+                </para>
+
+                     <screen>cd ~/helion/hos/ansible/
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+                  </listitem>
+                  <listitem>
+                     <para> Upgrade the cloud.
+                </para>
+
+                     <screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-upgrade.yml</screen>
+                  </listitem>
+               </orderedlist>
+               <para> Note that the above steps includes running the config-processor and a
+            ready-deployment step. While this is not specifically required for all types of
+            third-party update (e.g. only changing a venv), it is safest to run the full set of
+            steps to guarantee that all third-party changes are pulled into the next
+            deployment/upgrade.</para>
+
+            </listitem>
+        </orderedlist>
+
+      </section>
+   </section>
+</section>

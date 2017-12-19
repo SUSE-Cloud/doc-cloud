@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="topic_cgn_hgd_ht">
+  <title>Replacing a Starter Swift Nodes in HPE Helion OpenStack</title>
+  <body>
+    <p>The starter Swift nodes are created as an integral part of cloud deployment. These nodes are
+      a part of the default account, container, and object rings. First identify the Swift node that
+      must be removed and then remove the disks of that Swift node from the rings.</p>
+    <section id="removing-the-nodes">
+      <title>Removing the node from the Swift Cluster</title>
+      <p>Perform the following steps to remove the node from the Swift Cluster:<ol
+          id="ol_mxk_cjd_ht">
+          <li>Login to seed VM.<codeblock># ssh &lt;seed VM IP>
+# sudo -i</codeblock></li>
+          <li>Copy the <codeph>id_rsa</codeph> ssh key from seed to the undercloud.
+            <codeblock># scp /root/.ssh/id_rsa heat-admin@&lt;undercloud IP></codeblock></li>
+          <li>Login to
+            undercloud.<codeblock># ssh heat-admin@&lt;undercloud IP>
+# sudo -i
+# mv ~heat-admin/id_rsa /root/.ssh/</codeblock></li>
+          <li>List the instances and identify the node to be
+            removed.<codeblock># . stackrc
+# nova list | grep -i swift # to identify swift nodes </codeblock></li>
+          <li>Execute the following commands to pull the ring files from the working Swift nodes (if
+            any)<codeblock># . stackrc 
+# ringos list-swift-nodes -t starter 
+# mkdir -p /root/ring-building 
+# rsync -qzp --rsync-path="sudo rsync" heat-admin@&lt;<b>working swift node IP</b>>:/etc/swift/object.ring.gz /root/ring-building/ 
+# rsync -qzp --rsync-path="sudo rsync" heat-admin@&lt;<b>working swift node IP</b>>:/etc/swift/account.ring.gz /root/ring-building/ 
+# rsync -qzp --rsync-path="sudo rsync" heat-admin@&lt;<b>working swift node IP</b>>:/etc/swift/container.ring.gz /root/ring-building/ 
+# rsync -qzp --rsync-path="sudo rsync" heat-admin@&lt;<b>working swift node IP</b>>:/etc/swift/object.builder /root/ring-building/ 
+# rsync -qzp --rsync-path="sudo rsync" heat-admin@&lt;<b>working swift node IP</b>>:/etc/swift/account.builder /root/ring-building/ 
+# rsync -qzp --rsync-path="sudo rsync" heat-admin@&lt;<b>working swift node IP</b>>:/etc/swift/container.builder /root/ring-building/ </codeblock></li>
+          <li>Run the following commands to remove the disks from the
+            ring:<codeblock># ringos remove-disk-from-ring -f /root/ring-building/object.builder -s &lt;failing swift node IP>/d1
+# ringos remove-disk-from-ring -f /root/ring-building/object.builder -s &lt;failing swift node IP>/d2 
+# ringos remove-disk-from-ring -f /root/ring-building/account.builder -s &lt;failing swift node IP>/d1 
+# ringos remove-disk-from-ring -f /root/ring-building/account.builder -s &lt;failing swift node IP>/d2 
+# ringos remove-disk-from-ring -f /root/ring-building/container.builder -s &lt;failing swift node IP>/d1 
+# ringos remove-disk-from-ring -f /root/ring-building/container.builder -s &lt;failing swift node IP>/d2 </codeblock></li>
+          <li>Re-balance the
+            ring.<codeblock># ringos rebalance-ring -f /root/ring-building/object.builder
+# ringos rebalance-ring -f /root/ring-building/account.builder
+# ringos rebalance-ring -f /root/ring-building/container.builder</codeblock></li>
+          <li>Verify the re-balanced
+            ring.<codeblock># ringos view-ring -f /root/ring-building/object.builder 
+# ringos view-ring -f /root/ring-building/account.builder 
+# ringos view-ring -f /root/ring-building/container.builder </codeblock></li>
+          <li>Copy the rings to the remaining Swift
+            node.<codeblock># ringos copy-ring -s /root/ring-building/\*.ring.gz -n &lt;<b>Swift node IP address</b>>
+# ringos copy-ring -s /root/ring-building/\*.builder -n &lt;<b>Swift node IP address</b>></codeblock></li>
+        </ol></p>
+    </section>
+    <p>If scaleout Swift nodes are already deployed, copy the rings to those nodes. With this the
+      failed node is removed from the Swift cluster.</p>
+    <section id="removing-replacing-nodes">
+      <title>Removing and/or Replacing the node from the HPE Helion OpenStack Cloud</title>
+      <p>Perform the following steps to remove and/or replace a starter Swift node in Helion
+        OpenStack Cloud:<ol id="ol_qcv_1d2_ht">
+          <li>Login to the seed VM.<codeblock># ssh &lt;seed VM IP>
+# sudo -i</codeblock></li>
+          <li>Set the environment
+            variables.<codeblock># export OVERCLOUD_NTP_SERVER=&lt;NTP server IP>  
+# export TRIPLEO_ROOT=~root/tripleo 
+# export TE_DATAFILE=$TRIPLEO_ROOT/ce_env.json 
+# export PATH=$PATH:$TRIPLEO_ROOT/bin:$TRIPLEO_ROOT/tripleo-incubator/scripts
+# export OVERCLOUD_EXTRA_CONFIG=$(hp_ced_load_passthrough.sh -v -p overcloud -x overcloud-complete) 
+# source $TRIPLEO_ROOT/tripleo-incubator/undercloudrc</codeblock></li>
+          <li>Copy heat-template to root. This step is to ensure that you have a backup of
+            heat-template.<codeblock>cp -p $TRIPLEO_ROOT/tripleo-heat-templates/trickle/overcloud-ce-controller ~root/</codeblock></li>
+          <li>Enter the following code snippet to determine the scale numbers (<b>where do you enter
+              this
+            snippet</b>)<codeblock> get_ce_env() {
+local var=$1 
+cat $TE_DATAFILE \
+| jq ".overcloud.${var}" \
+| sed -e "s/\"//g"
+}</codeblock></li>
+          <li>Edit the <codeph>datafile</codeph> to reflect the new scale
+            numbers:<codeblock># vim $TE_DATAFILE 
+## Reduce swiftproxyscale &amp; swiftstoragecount to 1 </codeblock></li>
+          <li>Set the following environment variables with the code snippet created in step
+            <b>4</b>.<codeblock># export COMPUTESCALE=$(get_ce_env computescale)
+# export SOSWIFTPROXYSCALE=$(get_ce_env soswiftproxyscale) 
+# export SOSWIFTSTORAGESCALE=$(get_ce_env soswiftstoragescale)
+# export SWIFTSTORAGESCALE=$(get_ce_env swiftstoragescale)
+# export VSASTORAGESCALE=$(get_ce_env vsastoragescale)
+# export CONTROLSCALE=$(get_ce_env controlscale)</codeblock></li>
+          <li>Remove the heat-template artifacts of the first time
+            installation:<codeblock># rm $TRIPLEO_ROOT/tripleo-heat-templates/overcloud-ce-*</codeblock></li>
+          <li>Regenerate the heat-templates using the following
+              commands:<codeblock># cd $TRIPLEO_ROOT/tripleo-heat-templates/
+# make overcloud-ce-trickle </codeblock><p>The
+              above step will remove the second Swift node <i>SwiftStorage1</i> but the
+                <i>SwiftStorage0 </i> remains in the same way. So, when you  execute <codeph>grep
+                SwiftStorage trickle/overcloud-ce-controller</codeph> command, only
+                <i>SwiftStorage0</i> is displayed. </p><p>If you want to remove <i>SwiftStorage0</i>
+              then follow the step as shown below. Use <codeph>sed</codeph> to // find and replace
+              all <i>SwiftStorage0</i> to <i>SwiftStorage1</i> in the template. But if you are
+              planning to remove <i>SwiftStorage1</i> then skip this step.
+            </p><codeblock># sed -e 's/SwiftStorage0/SwiftStorage1/g' --in-place=.old trickle/overcloud-ce-controller </codeblock></li>
+          <li>Run the following command for stack
+              update:<codeblock>prep-for-trickle -z trickle/overcloud-ce-controller stack-update \
+-e /root/tripleo/overcloud-env.json \
+-t 360 \
+-f /root/tripleo/tripleo-heat-templates/trickle/overcloud-ce-controller \
+-P "ExtraConfig=${OVERCLOUD_EXTRA_CONFIG}" overcloud-ce-controller</codeblock><p>Wait
+              until the stack update is complete.</p></li>
+          <li>Monitor the progress of stack-update
+            using:<codeblock># watch -d heat stack-list</codeblock></li>
+        </ol></p>
+    </section>
+    <section id="replacing-node-ironic-database">
+      <title>Replacing the Node in the Ironic Database</title>
+      <p>Two starter Swift nodes are installed as a part of HPE Helion OpenStack, which is a basic
+        requirement. The removed node must be replaced with another node before any other operation.
+        Please note that if there is a single Swift node up and running the Object Operations will
+        still work but for any other Cloud update operations the Scale Count must match the
+        recommended numbers. Once the above steps are completed, the node is removed from the
+        Overcloud Stack, but the Ironic database of the undercloud will still have the node listed
+        (in power-off state). In this context it is better to update the node using Ironic rather
+        than delete and re-add. The following steps are to be followed to replace a Starter Swift
+        node in Ironic database of Undercloud:<ol id="ol_prw_1g2_ht">
+          <li>Login to the seed VM.<codeblock># ssh &lt;seed VM IP>
+# sudo -i</codeblock></li>
+          <li>Login to
+            undercloud.<codeblock># ssh heat-admin@&lt;undercloud IP>
+# sudo -i</codeblock></li>
+          <li>List the Ironic powered off
+            node.<codeblock># . stackrc
+# ironic node-list</codeblock></li>
+          <li>Verify the <codeph>ironic port-list</codeph> for the associated port (match the node
+            UUID) and update the MAC address using the following
+            command:<codeblock># ironic port-list
+# ironic port-update &lt;PORT_UUID> replace address=&lt;NEW_MAC></codeblock></li>
+          <li>Execute <codeph>ironic node-update</codeph> command to update the node with the
+            details of the new
+            node:<codeblock># ironic node-update &lt;node_id> replace 
+driver_info/ipmi_username=&lt;IPMI_USER> driver_info/ipmi_password=&lt;IPMI_PASS>
+driver_info/ipmi_address=&lt;IPMI_ADDRESS></codeblock></li>
+        </ol></p>
+    </section>
+    <section id="restore-cloud">
+      <title>Restoring the Cloud with the New Node</title>
+      <p>Perform the following procedure to restore cloud with the new node</p>
+      <p>
+        <ol id="ol_h3d_pg2_ht">
+          <li>Login to the seed VM.<codeblock># ssh &lt;seed VM IP>
+# sudo -i</codeblock></li>
+          <li>Update the <codeph>baremetal.csv</codeph> file. You must replace the old MAC and IPMI
+            details with new one.</li>
+          <li>Follow the same steps mentioned in <xref
+              href="#topic_cgn_hgd_ht/removing-replacing-nodes" format="dita">Removing and/or
+              Replacing the node from the HPE Helion OpenStack Cloud</xref><i> </i>with only the
+            difference in the scale count update in the<codeph> datafile</codeph> as
+              follows:<codeblock># Restore swiftproxyscale &amp; swiftstoragecount to 2</codeblock><p>Once
+              the node is removed/replaced in the HPE Helion OpenStack cloud, execute the
+                <codeph>-update-overcloud</codeph> operation (as menitoned in <xref
+                href="http://docs.hpcloud.com/#commercial/GA1/1.1.1commercial.helion-update.html"
+                format="html" scope="external">Update Procedure</xref>) to restore the initial
+              configuration.</p></li>
+        </ol>
+      </p>
+    </section>
+    <section id="restoring-ring">
+      <title>Restoring the Rings</title>
+      <p>The user can choose to use the new ring files present in a new node (which will have the
+        disks of both starter nodes) or re-add disks of the new to the backed up rings and re-push
+        it to all Swift nodes. Use the ringos command line, detailed in <xref
+          href="1.1commerical.services-object-pyringos.dita#topic3977"/>, to assist in these
+        operations. </p>
+    </section>
+  </body>
+</topic>

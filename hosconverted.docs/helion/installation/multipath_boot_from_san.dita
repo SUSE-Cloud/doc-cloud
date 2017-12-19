@@ -1,0 +1,494 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="multipath_boot_from_san">
+    <title><ph conkeyref="HOS-conrefs/product-title"/>Boot from SAN and Multipath Configuration</title>
+    
+    <body><!--not tested-->
+        <p conkeyref="HOS-conrefs/applies-to"/>
+        
+        <section>
+            <title>Introduction</title> 
+            
+               <sectiondiv id="multipath_overview">
+                
+                   <sectiondiv conkeyref="hw_support_hardwareconfig/multipath_hardware"/>
+               
+                   <note type="important" id="boot-from-san-LUN0">
+                       When exporting a LUN to a node for boot from san, you should ensure that 
+                       "LUN 0" is assigned to the LUN and configure any setup dialog 
+                       that is necessary in the firmware to consume this LUN0 for OS boot.
+                       
+                   </note>
+                   
+                   <note type="important"  id="boot-from-san-host-persona">
+                   Any hosts that are connected to 3PAR storage must have a <codeph>host persona</codeph> of 
+                       <codeph>2-generic-alua</codeph> set on the 3PAR. Refer to the 3PAR documentation for the steps 
+                       necessary to check this and change if necessary.
+                   </note>
+                   
+                   <!--<note type="important" id="boot-from-san-native-fcoe">
+                       Boot from SAN support using QLogic-based FlexFabric adapters is latent in <keyword keyref="kw-hos-phrase"/> but 
+                       our testing has shown an issue which we were unable to address by the 3.0 release date and therefore we advise
+                       <keyword keyref="kw-hos-phrase"/> customers to not use that configuration. The aim is to fix this outstanding 
+                       issue in a patch to <keyword keyref="kw-hos-phrase"/> in the near future. This issue also affects the use of QLogic 
+                       FCoE for Cinder volumes.
+                   </note>-->
+                   
+                   <p>iSCSI boot from SAN is not supported. For more information on the use of Cinder with multipath, see
+                       <xref keyref="configure_3par/multipath">3PAR Configuration - Multipath</xref>.</p>
+               
+               <p>
+                   In order to allow <keyword keyref="kw-hos-phrase"/> use volumes from a SAN,
+                   a number of configuration options need to be specified for both the install phases and for the osconfig phases.
+                   In all cases the devices that are utilised are devices for which multipath is configured.
+                   
+               </p>            
+               
+               </sectiondiv>
+            
+            </section>
+        
+        <section>
+        	<title>Install Phase Configuration</title>
+        	
+        	<p>For FC connected nodes and for FCoE nodes where the network processor used is from the Emulex family such as 
+        		for the 650FLB, the following changes need to be made.
+			</p>
+			
+			<ol>
+				<li>In each stanza of the servers.yml insert a line stating  <b>boot-from-san: true</b>
+<codeblock>
+    - id: controller2
+      ip-addr: 192.168.10.4
+      role: CONTROLLER-ROLE
+      server-group: RACK2
+      nic-mapping: HP-DL360-4PORT
+      mac-addr: "8a:8e:64:55:43:76"
+      ilo-ip: 192.168.9.4
+      ilo-password: password
+      ilo-user: admin
+      <b>boot-from-san: true</b>
+</codeblock>				
+				This uses the disk <codeph>/dev/mapper/mpatha</codeph> as the default device on which to install the OS.
+				</li>
+				
+				<li> In the disk input models you also need to specify the devices that will be used via their
+multipath names (which will be of the form <codeph>/dev/mapper/mpatha</codeph>, <codeph>/dev/mapper/mpathb</codeph> etc).
+
+<codeblock>
+    volume-groups:
+      - name: hlm-vg
+        physical-volumes:
+ 
+          # NOTE: 'sda_root' is a templated value. This value is checked in
+          # os-config and replaced by the partition actually used on sda
+          #e.g. sda1 or sda5
+          - /dev/mapper/mpatha_root
+
+...
+      - name: vg-comp
+        physical-volumes:
+          - /dev/mapper/mpathb
+
+
+</codeblock>
+
+				
+				</li>
+				
+			</ol>
+
+		</section>
+        
+        <section>
+        	<title>QLogic FCoE restrictions and additional configurations</title>
+        
+
+        
+    <p conkeyref="HOS-conrefs/applies-to-301"/>
+            
+        <!--<note conkeyref="multipath_boot_from_san/boot-from-san-native-fcoe"/>-->
+            
+              <p> 
+                  If you are using network cards such as Qlogic Flex Fabric 536 and 630 series
+                  then there are additional OS configuration steps to support the importation of LUNs
+                  as well as some restrictions on supported configurations.
+        	</p>
+
+		<p>The restrictions are:</p>
+		
+		<ol>
+			<li>Only one network card can be enabled in the system.</li>
+		    <li id="restriction2">The FCoE interfaces on this card are dedicated to FCoE traffic - these cannot have ip addresses associated with them.</li>
+		    <li>Nic mapping cannot be used.</li>
+		</ol>
+
+		<p>
+			In addition to the configuration options above, you also need to specify the FCoE interfaces for  install and for os configuration.
+			There are  3 places where you  need to add additional configuration options for fcoe-support:
+		</p>
+              
+        <ul>
+            <li>
+                In <codeph>servers.yml</codeph>, which is used for configuration of the system during OS install, 
+                FCoE interfaces need to be specified for each server. In particular, the mac addresses of the FCoE interfaces need to be given,  <b>not</b> the symbolic name (e.g. eth2).
+                
+<codeblock>
+    - id: compute1
+      ip-addr: 10.245.224.201
+      role: COMPUTE-ROLE
+      server-group: RACK2
+      mac-addr: 6c:c2:17:33:4c:a0
+      ilo-ip: 10.1.66.26
+      ilo-user: hlinux
+      ilo-password: hlinux123
+      boot-from-san: True
+      fcoe-interfaces:
+         - <b>6c:c2:17:33:4c:a1</b>
+         - <b>6c:c2:17:33:4c:a9</b>
+</codeblock>        
+                
+                <note type="important">Nic mapping can not be used.</note>
+                
+            </li>
+            
+            <li>
+                
+                For the osconfig phase, you will need to specify the <codeph>fcoe-interfaces</codeph> as a peer of <codeph>network-interfaces</codeph>
+                in the <codeph>net_interfaces.yml</codeph> file:
+                
+<codeblock>
+    - name: CONTROLLER-INTERFACES
+      fcoe-interfaces:
+        - name: fcoe 
+          devices:
+             - <b>eth2</b>
+             - <b>eth3</b>
+      network-interfaces:
+        - name: eth0
+          device:
+              name: eth0
+          network-groups:
+            - EXTERNAL-API
+            - EXTERNAL-VM
+            - GUEST
+            - MANAGEMENT 
+</codeblock>   
+                
+                <note type="important">
+                    <p>The mac addresses specified in the <codeph>fcoe-interfaces</codeph> stanza in <codeph>servers.yml</codeph>
+                    must correspond to the symbolic names used in  the <codeph>fcoe-interfaces</codeph> stanza in 
+                    <codeph>net_interfaces.yml</codeph>. </p>
+                    <p>Also, to satisfy the restriction outlined in  <xref href="#multipath_boot_from_san/restriction2"/> above, there can be no overlap
+                    between the devices in <codeph>fcoe-interfaces</codeph> and those in <codeph>network-interfaces</codeph>
+                    in the <codeph>net_interfaces.yml</codeph> file. In the example, <codeph>eth2</codeph>
+                    and <codeph>eth3</codeph> are <codeph>fcoe-interfaces</codeph> while  <codeph>eth0</codeph>
+                    is in <codeph>network-interfaces</codeph>.</p>
+                </note>
+            </li>
+            
+            <li>
+                As part of the initial install from an iso,  additional parameters need to be supplied on the kernel command line:
+<codeblock>               
+multipath=true partman-fcoe/interfaces=&lt;mac address1>,&lt;mac address2> disk-detect/fcoe/enable=true --- quiet
+</codeblock>      
+                See the sections of installing from an iso using <xref href="#install_boot_from_san/uefi_fcoe">UEFI</xref> and <xref href="#install_boot_from_san/bios_fcoe">Legacy Bios</xref>.
+            </li>
+            
+        </ul>
+		
+		<p>Since nic mapping is not used to guarantee order of the networks across the system the installer 
+		will remap the network interfaces in a deterministic fashion as part of the install. As part of 
+		the installer dialogue, if DHCP is not configured for the interface, it is necessary to 
+		confirm that the appropriate interface is assigned the ip address.
+		
+		The network interfaces may not be at the names expected when installing via an iso. 
+		When you are asked to apply an ip address to an interface, enter  <codeph>Alt-F2</codeph> 
+		and in the console window issue an <codeph>ip a</codeph>  command
+		to examine the interfaces and 
+		their associated mac addresses. Take a note of the interface name with the expected mac address and 
+		use this in the subsequent dialogue. Enter  <codeph>Alt-F1</codeph> to return to the installation screen. 
+		You should note that the names of the interfaces may have changed after the installation completes. These  
+		names are used consistently in any subsequent operations.
+		
+		<!--You can check the mac addresses 
+		at this point by pressing <codeph>Alt-F2</codeph> and querying the interface assignment via <codeph>ip a</codeph>.
+		<codeph>Alt-F1</codeph> will return to the installer dialogue. It may be that, as part of the install, the 
+		ip is transferred to the "reordered" name.-->
+		
+		</p>
+		
+		<p>Therefore, even if FCoE is not used for boot from SAN (e.g. for cinder), then it is recommended 
+		that <codeph>fcoe-interfaces</codeph> be specified as part of install (without the multipath or 
+		    disk detect options). 
+		Alternatively, you need to run <codeph>osconfig-fcoe-reorder.yml</codeph>  before 
+		    <codeph>site.yml</codeph> or <codeph>osconfig-run.yml</codeph> 
+		is invoked to reorder the networks in a  similar manner to the installer. In this case, the nodes 
+		will need to be manually rebooted for the network reorder to take effect.
+		
+		You will run  <codeph>osconfig-fcoe-reorder.yml</codeph> in the following scenarios:</p>
+		    
+		    <ul>
+		        <li>If you have used a third-party installer to provision your baremetal nodes</li>
+		        <li>If you are booting from a local disk (i.e. one that is not presented from the SAN) but you want
+		        to use FCoE later, for example, for cinder.</li>
+		    </ul>
+            
+            <p>		    
+		    To run the command:
+<codeblock>
+cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts osconfig-fcoe-reorder.yml
+</codeblock>    
+		
+		If you do not 
+		run <codeph>osconfig-fcoe-reorder.yml</codeph>, you will encounter a failure in  <codeph>osconfig-run.yml</codeph>.
+		</p>
+              
+              <p>If you are booting from a local disk, the LUNs that will be imported over FCoE will not be 
+                  visible before 
+                  <codeph>site.yml</codeph> or <codeph>osconfig-run.yml</codeph> has been run. 
+                  However, if you need to import the LUNs before this,  
+                  for instance, in scenarios where you need to run  <codeph>wipe_disks.yml</codeph>, 
+                  then you can run the <codeph>fcoe-enable</codeph> playbook across the nodes in question. 
+                  This will configure FCoE and import the LUNs presented to the nodes.
+            
+
+<codeblock>
+cd ~/helion/hos/ansible
+ansible-playbook -i hosts/verb_hosts fcoe-enable.yml
+</codeblock>
+
+        </p>
+		
+		
+
+
+        </section>
+        
+        <section>
+            <title>Red Hat Compute Host for FCoE</title>
+            
+            <p>When installing a Red Hat compute host, the names of the network interfaces will have names 
+                like <codeph>ens1f2 </codeph> rather than <codeph>eth2</codeph> therefore a separate role and associated <codeph>network-interfaces</codeph> 
+                and <codeph>fcoe-interfaces</codeph> descriptions will have to be provided in the input model 
+                for the Red Hat compute hosts. Here are some excerpts highlighting the changes required:</p>
+
+            <p><b>net_interfaces.yml</b></p>
+<codeblock>
+    - name: RHEL-COMPUTE-INTERFACES
+      fcoe-interfaces:
+        - name: fcoe
+          devices:
+            <b> - ens1f2
+             - ens1f3</b>
+      network-interfaces:
+        - name: ens1f0
+          device:
+              name: ens1f0
+          network-groups:
+            - EXTERNAL-VM
+            - GUEST
+            - MANAGEMENT
+</codeblock>
+
+
+            <p><b>control_plane.yml</b></p>
+            
+<codeblock>
+        - name: rhel-compute
+          resource-prefix: rhcomp
+          <b>server-role: RHEL-COMPUTE-ROLE</b>
+          allocation-policy: any
+          min-count: 0
+          service-components:
+            - ntp-client
+            - nova-compute
+            - nova-compute-kvm
+            - neutron-l3-agent
+            - neutron-metadata-agent
+            - neutron-openvswitch-agent
+            - neutron-lbaasv2-agent
+</codeblock>    
+            
+            <p><b>server_roles.yml</b></p>
+            
+<codeblock>
+    <b>- name: RHEL-COMPUTE-ROLE</b>
+      interface-model: RHEL-COMPUTE-INTERFACES
+      disk-model: COMPUTE-DISKS
+</codeblock>            
+            
+            <p><b>servers.yml</b></p>
+<codeblock>
+    - id: QlogicFCoE-Cmp2
+      ip-addr: 10.245.224.204
+      <b>role: RHEL-COMPUTE-ROLE</b>
+      server-group: RACK2
+      mac-addr: "6c:c2:17:33:4c:a0"
+      ilo-ip: 10.1.66.26
+      ilo-password: hlinux123
+      ilo-user: hlinux
+      boot-from-san: True
+      <b>distro-id: rhel72-x86_64-multipath</b>
+      <b>fcoe-interfaces:
+         - 6c:c2:17:33:4c:a1
+         - 6c:c2:17:33:4c:a9</b>
+
+</codeblock> 
+            
+            <note type="important" id="distro-id-multipath">Note that you need to add a <codeph>-multipath</codeph> 
+                suffix to the <codeph>distro-id</codeph> value when using multipath with RHEL.
+            </note>
+ 
+ 
+            <p>If you are installing a Red Hat compute node with QLogic FCoE boot from SAN, you will 
+                need to edit the  <codeph>/var/lib/cobbler/kickstarts/rhel72-anaconda-ks-multipath.cfg </codeph>file.
+                and uncomment the <b>two</b> sections  that are prefaced by:
+<codeblock>
+#Qlogic-FCOE: Uncomment the below lines if using qlogic fcoe boot from san
+</codeblock>                
+               
+               The values will be overwritten on running the <codeph>cobbler-deploy</codeph> play.
+            </p>
+            
+            
+<!--            <p>If Red Hat nodes are being used then <codeph>osconfig-fcoe-reorder.yml</codeph> should not be invoked. As part 
+                of the install of a Red Hat node, FCoE parameters have to be added to the sample kickstart file.
+                For example: </p>-->
+            
+<!--            <codeblock>              
+rhel72-anaconda-ks-multipath.cfg:fcoe -\-nic=ens1f2 -\-autovlan
+rhel72-anaconda-ks-multipath.cfg:fcoe -\-nic=ens1f3 -\-autovlan
+</codeblock>-->
+            
+            <note>It is highly recommended as part of a Red Hat install that only one disk is 
+                presented to the node during the install phase.  <b>You should ensure that any additional 
+                LUNs that are required are attached and visible on the compute hosts 
+                before running the <codeph>site.yml</codeph> playbook.</b></note>
+            
+            
+        </section>
+        
+
+        
+    </body>
+    
+    <topic id="install_boot_from_san">
+        <title>Installing the <keyword keyref="kw-hos-phrase"/> iso for nodes that support Boot from SAN</title>
+        
+        
+        
+        <body><!--not tested-->
+
+            <section>
+                <p>This sections describes how to install the iso on the Lifecycle Manager 
+                    to support the following configurations:</p>
+                <sl>
+                    <sli><xref href="#install_boot_from_san/uefi"/></sli>
+                    <sli><xref href="#install_boot_from_san/uefi_fcoe"/></sli>
+                    <sli><xref href="#install_boot_from_san/bios"/></sli>
+                    <sli><xref href="#install_boot_from_san/bios_fcoe"/></sli>
+                </sl>
+                
+                <p>The lifecycle manager will then automatically handle the installation on nodes that supports Boot from SAN 
+                    based on the configuration information in <codeph>servers.yml</codeph> and the disk models, as described
+                    in the preceding section.
+                </p>
+                    
+                    
+            </section>
+            
+            <section id="uefi">
+                <title>UEFI Boot Mode</title>
+                
+                <p>On the installer boot menu, type a lower-case "e" to enter the <codeph>Edit Selection</codeph> screen.</p>
+                <image keyref="uefi_installer_menu"/>
+
+
+                <p>This brings up the <codeph>Edit Selection</codeph> screen.</p>
+                <image keyref="uefi_edit_selection"/>
+                
+                <p>Enter the text <codeph>multipath=true</codeph> before <codeph>--- quiet</codeph>:</p>
+                <image keyref="uefi_multipath_true"/>  
+                
+                <p>Press <codeph>Ctrl-X</codeph> or <codeph>F10</codeph> to proceed with the install.</p>
+                
+            </section>      
+ 
+<section id="uefi_fcoe">
+                <title>UEFI Boot Mode with QLogic FCoE</title> 
+            
+            <p conkeyref="HOS-conrefs/applies-to-301"/>
+                
+                 <p>At the installer boot menu, type a lower-case "e" to enter the <codeph>Edit Selection</codeph> screen
+                     as described in the preceding section. In addition to inserting <codeph>multipath=true</codeph>,
+                it is necessary to supply details of the FCoE network interfaces.
+                In the example below, the interfaces are specified as:
+                
+<codeblock>
+partman-fcoe/interfaces=6c:c2:17:33:4c:a1,6c:c2:17:33:4c:a9  disk-detect/fcoe/enable=true
+</codeblock>
+                     
+                     <image keyref="uefi_multipath_install_edit_argument"/>
+                     
+                 </p>
+                 
+                 <p>Press <codeph>Ctrl-X</codeph> or <codeph>F10</codeph> to proceed with the install.</p>
+                
+            </section>    
+            
+            <section id="bios">
+                <title>Legacy BIOS Boot Mode</title>
+                
+                <p>On the installer boot menu, navigate (using the Down Arrow) to the <codeph>Advanced options</codeph> entry and then press Enter </p>
+                <image keyref="installer_boot_options"/>
+               
+               <p>This will bring up the Advanced options menu:</p>
+               <image keyref="installer_advanced_options"/>
+               
+               <p>Navigate to the <codeph>Multipath install</codeph> entry and press Enter to start the installation.</p>              
+            </section>
+ 
+  <section id="bios_fcoe">
+                <title>Legacy BIOS Boot Mode with QLogic FCoE</title>
+        
+        <p conkeyref="HOS-conrefs/applies-to-301"/>
+                
+                <p>On the installer boot menu, navigate (using the Down Arrow) to the <codeph>Advanced options</codeph> entry and then press Enter </p>
+                <image keyref="installer_boot_options"/>
+               
+               <p>This will bring up the Advanced options menu:</p>
+               <image keyref="installer_advanced_options"/>
+               
+               <p>Navigate to the <codeph>Multipath install</codeph> entry and press TAB to edit the entry details.
+               Notice that the kernel command line is now displayed at the bottom of the screen and that 
+                <codeph>multipath=true</codeph> is already specified.</p>
+               
+               <image keyref="multipath_install_edit"/>
+               
+               <p>Edit the kernel command line to add the FCoE network interfaces before the <codeph>---</codeph>. 
+                   In the example below, the interfaces are specified as:
+               
+<codeblock>
+partman-fcoe/interfaces=6c:c2:17:33:4c:a1,6c:c2:17:33:4c:a9  disk-detect/fcoe/enable=true
+</codeblock>
+           
+           <image keyref="multipath_install_edit_argument"/>
+           
+               </p>
+               
+               <p>Now press Enter to start the installation.</p>
+                
+                
+            </section>  
+ 
+        
+        
+        </body>
+    </topic>
+    
+    
+</topic>
+

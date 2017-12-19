@@ -1,0 +1,481 @@
+<?xml version="1.0"?>
+<!DOCTYPE section PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN" "http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd" [ <!ENTITY % entities SYSTEM "entities.xml"> %entities; ]><!--Edit status: not edited-->
+<section id="entryscale_kvm_ceph">
+   <title>
+      <phrase/>Entry-scale KVM with Ceph Model</title>
+    
+    
+    <para>This example provides a KVM-based cloud using Ceph for both block and object storage.</para>
+
+    <para>The network traffic is segregated into the following VLANs:</para>
+
+   <itemizedlist>
+        <listitem>
+         <para><emphasis role="bold">Cloud Management</emphasis> - This is the network that will be used for all internal traffic
+          between the cloud services.</para>
+
+      </listitem>
+        <listitem>
+         <para><emphasis role="bold">OSD Internal</emphasis> - This is the network that will be used for internal traffic of
+          cluster among Ceph OSD servers. Only Ceph OSD servers will need connectivity to this
+          network.</para>
+
+      </listitem>
+        <listitem>
+         <para><emphasis role="bold">OSD Client</emphasis> - This is the network that Ceph clients will use to talk to Ceph
+          Monitor and OSDs. Cloud controllers, Nova Compute, Ceph Monitor, OSD and Rados Gateway
+          servers will need connectivity to this network.</para>
+
+      </listitem>
+      </itemizedlist>
+   <para>This diagram below illustrates the physical networking used in this configuration. Click
+        any network name in the diagram to see that network isolated.</para>
+
+    <mediaobject>
+         <imageobject role="fo"><imagedata fileref="media-entryScaleCeph-Entry-Scale-Ceph-AllNetworks.png" width="75%" format="PNG"/></imageobject><imageobject role="html"><imagedata fileref="media-entryScaleCeph-Entry-Scale-Ceph-AllNetworks.png"/></imageobject>
+      </mediaobject>
+
+    <para><ulink url="../../../media/entryScaleCeph/Entry-Scale-Ceph-AllNetworks.png">Download full image</ulink></para>
+
+      <para><ulink url="./../../../media/templates/HOS_Network_Diagram_Template.zip">Download Editable Visio Network Diagram Template</ulink></para>
+
+      <para>This configuration is based on the <literal>entry-scale-kvm-ceph</literal> cloud input model
+        which is included with the <phrase/> distro. You will need to make the
+        changes outlined below prior to the deployment of your Ceph cluster.</para>
+
+    <para>The table below lists out the key characteristics needed per server role for this
+      configuration.</para>
+
+   <informaltable colsep="1" rowsep="1">
+      <tgroup cols="7">
+        <colspec colname="c1" colnum="1"/>
+        <colspec colname="c2" colnum="2"/>
+        <colspec colname="c3" colnum="3"/>
+        <colspec colname="c4" colnum="4"/>
+        <colspec colname="c5" colnum="5"/>
+        <colspec colname="c6" colnum="6"/>
+        <colspec colname="c7" colnum="7"/>
+        <!--<colspec colname="c8" colnum="8"/>-->
+        <thead>
+            <row>
+               <entry morerows="1">Node Type</entry>
+               <entry morerows="1">Role Name</entry>
+               <entry morerows="1">Required Number</entry>
+               <entry namest="c4" nameend="c7" align="center">Server Hardware - Minimum Requirements
+              and Recommendations</entry>
+            </row>
+            <row>
+               <entry>Disk </entry>
+               <entry>Memory</entry>
+               <entry>Network</entry>
+               <entry>CPU </entry>
+            </row>
+        </thead>
+        <tbody>
+            <row>
+               <entry>Dedicated lifecycle manager (optional)</entry>
+               <entry>Lifecycle-manager</entry>
+               <entry>1</entry>
+               <entry>300 GB</entry>
+               <entry>8 GB</entry>
+               <entry>1 x 10 Gbit/s with PXE Support</entry>
+               <entry>8 CPU (64-bit) cores total (Intel x86_64)</entry>
+            </row>
+            <row>
+               <entry>Control Plane</entry>
+               <entry>Controller</entry>
+               <entry>3</entry>
+               <entry>
+                  <itemizedlist>
+                     <listitem>
+                        <para>1 x 600 GB (minimum) - operating system drive</para>
+
+                     </listitem>
+                     <listitem>
+                        <para>2 x 600 GB (minimum) - Data drive</para>
+
+                     </listitem>
+                  </itemizedlist>
+               </entry>
+               <entry>64 GB</entry>
+               <entry>2 x 10 Gbit/s with one PXE enabled port</entry>
+               <entry>8 CPU (64-bit) cores total (Intel x86_64)</entry>
+            </row>
+            <row>
+               <entry>Compute (KVM hypervisor)</entry>
+               <entry>Compute</entry>
+               <entry>1-3</entry>
+               <entry>2 X 600 GB (minimum)</entry>
+               <entry>32 GB (memory must be sized based on the virtual machine instances hosted on the
+              Compute node)</entry>
+               <entry>2 x 10 Gbit/s with one PXE enabled port</entry>
+               <entry>8 CPU (64-bit) cores total (Intel x86_64) with hardware virtualization support.
+              The CPU cores must be sized based on the VM instances hosted by the Compute
+              node.</entry>
+            </row>
+            <row>
+               <entry>CEPH-OSD</entry>
+               <entry>ceph-osd</entry>
+               <entry>0 or 3 (which will provide the recommended redundancy)</entry>
+               <entry>3 X 600 GB (minimum)</entry>
+               <entry>32 GB</entry>
+               <entry>2 x 10 Gbit/s with one PXE enabled port</entry>
+               <entry>8 CPU (64-bit) cores total (Intel x86_64)</entry>
+            </row>
+            <row>
+               <entry>RADOS Gateway</entry>
+               <entry>radosgw</entry>
+               <entry>2</entry>
+               <entry>2 x 600 GB (minimum)</entry>
+               <entry>32 GB</entry>
+               <entry>2 x 10 Gbit/s with one PXE enabled port</entry>
+               <entry>8 CPU (64-bit) cores total (Intel x86_64)</entry>
+            </row>
+        </tbody>
+      </tgroup>
+   </informaltable>
+    
+      <bridgehead renderas="sect4">nic_mappings.yml</bridgehead>
+      <para>Ensure that your baremetal server NIC interfaces are correctly specified in the
+          <literal>~/helion/my_cloud/definition/data/nic_mappings.yml</literal> file and that they
+        meet the server requirements.</para>
+
+      <para>Here is an example with notes in-line:</para>
+
+      <screen>nic-mappings:
+
+## NIC specification for controller nodes.  A bonded interface is used for the management 
+## network while a separate interface is used to connect to the Ceph nodes.
+  - name: CONTROLLER-NIC-MAPPING
+    physical-ports:
+       - logical-name: hed1
+         type: simple-port
+         bus-address: "0000:07:00.0"
+        
+       - logical-name: hed2
+         type: simple-port
+         bus-address: "0000:08:00.0"
+         
+       - logical-name: hed3
+         type: simple-port
+         bus-address: "0000:09:00.0"
+       
+       - logical-name: hed4
+         type: simple-port
+         bus-address: "0000:0a:00.0"
+         
+## NIC specification for compute nodes. One interface is used for the management 
+## network while the second interface is used to connect to the Ceph nodes.
+  - name: COMPUTE-NIC-MAPPING
+    physical-ports:
+       - logical-name: hed3
+         type: simple-port
+         bus-address: "0000:04:00.0"
+
+       - logical-name: hed4
+         type: simple-port
+         bus-address: "0000:04:00.1"
+
+## NIC specification for OSD nodes. The first interface is used for management network
+## traffic. The second interface is used for client or public traffic. The third
+## interface is used for internal OSD traffic.
+  - name: OSD-NIC-MAPPING
+    physical-ports:
+       - logical-name: hed1
+         type: simple-port
+         bus-address: "0000:06:00.0"
+
+       - logical-name: hed2
+         type: simple-port
+         bus-address: "0000:06:00.1"
+
+       - logical-name: hed3
+         type: simple-port
+         bus-address: "0000:06:00.2"
+
+## NIC specification for RADOS Gateway nodes. The first interface is used for management network
+## traffic. The second interface is used for client or public traffic.
+  - name: RGW-NIC-MAPPING
+    physical-ports:
+       - logical-name: hed1
+         type: simple-port
+         bus-address: "0000:07:00.0"
+
+       - logical-name: hed2
+         type: simple-port
+         bus-address: "0000:07:00.1"</screen>
+   
+    
+      <bridgehead renderas="sect4">servers.yml</bridgehead>
+      <para>Ensure that your servers in the
+          <literal>~/helion/my_cloud/definition/data/servers.yml</literal> file are mapped to the
+        correct NIC interface.</para>
+
+      <para>An example with the bolded line for <literal>nic-mapping</literal> illustrating this:</para>
+
+      <screen># Controller Nodes
+  - id: controller1
+    ip-addr: 10.13.111.138
+    server-group: RACK1
+    role: CONTROLLER-ROLE
+    <emphasis role="bold">nic-mapping: CONTROLLER-NIC-MAPPING</emphasis>
+    mac-addr: "f0:92:1c:05:69:10"
+    ilo-ip: 10.12.8.214
+    ilo-password: password
+    ilo-user: admin
+    
+# Compute Nodes
+  - id: compute1
+    ip-addr: 10.13.111.139
+    server-group: RACK1
+    role: COMPUTE-ROLE
+    <emphasis role="bold">nic-mapping: COMPUTE-NIC-MAPPING</emphasis>
+    mac-addr: "83:92:1c:55:69:b0"
+    ilo-ip: 10.12.8.215
+    ilo-password: password
+    ilo-user: admin
+        
+# OSD Nodes
+  - id: osd1
+    ip-addr: 10.13.111.140
+    server-group: RACK1
+    role: OSD-ROLE
+    <emphasis role="bold">nic-mapping: OSD-NIC-MAPPING</emphasis>
+    mac-addr: "d9:92:1c:25:69:e0"
+    ilo-ip: 10.12.8.216
+    ilo-password: password
+    ilo-user: admin
+
+# Ceph RGW Nodes
+  - id: rgw1
+    ip-addr: 192.168.10.12
+    role: RGW-ROLE
+    server-group: RACK1
+    <emphasis role="bold">nic-mapping: RGW-NIC-MAPPING</emphasis>
+    mac-addr: "8b:f6:9e:ca:3b:62"
+    ilo-ip: 192.168.9.12
+    ilo-password: password
+    ilo-user: admin
+
+  - id: rgw2
+    ip-addr: 192.168.10.13
+    role: RGW-ROLE
+    server-group: RACK2
+    <emphasis role="bold">nic-mapping: RGW-NIC-MAPPING</emphasis>
+    mac-addr: "8b:f6:9e:ca:3b:63"
+    ilo-ip: 192.168.9.13
+    ilo-password: password
+    ilo-user: admin </screen>
+   
+    
+      <bridgehead renderas="sect4">net_interfaces.yml</bridgehead>
+      <para>Define a new interface set for your OSD interfaces in the
+          <literal>~/helion/my_cloud/definition/data/net_interfaces.yml</literal> file.</para>
+
+      <para>Here is an example with notes in-line:</para>
+
+      <screen>
+- name: CONTROLLER-INTERFACES
+  network-interfaces:
+## This bonded interface is used by the controller 
+## nodes for cloud management traffic.
+    - name: BOND0
+      device:
+         name: bond0
+      bond-data:
+         options:
+            mode: active-backup
+            miimon: 200
+            primary: hed1
+         provider: linux
+         devices:
+            - name: hed1
+            - name: hed2
+        network-groups:
+        - EXTERNAL-API
+        - EXTERNAL-VM
+        - GUEST
+        - MANAGEMENT
+## This interface is used to connect the controller
+## node to the Ceph nodes so that any Ceph client
+## like cinder-volume can route data directly to
+## Ceph over this interface.
+    - name: ETH2
+      device:
+        name: hed3
+      network-groups:
+        - OSD-CLIENT
+        
+- name: COMPUTE-INTERFACES
+  network-interfaces:
+    - name: HETH3
+      device:
+         name: hed3
+      forced-network-groups:
+         - EXTERNAL-VM
+         - GUEST
+         - MANAGEMENT
+## This interface is used to connect the compute node
+## to the Ceph cluster so that a workload VM can route
+## data traffic to the Ceph cluster over this interface.
+    - name: HETH4
+       device:
+          name: hed4
+       forced-network-groups:
+          - OSD-CLIENT
+        
+- name: OSD-INTERFACES
+  network-interfaces:
+## This defines the interface used for management 
+## traffic like logging, monitoring, etc.
+    - name: HETH1
+      device:
+          name: hed1
+      network-groups:
+        - MANAGEMENT
+## This defines the interface used for client
+## or data traffic.
+    - name: HETH2
+      device:
+          name: hed2
+      network-groups:
+        - OSD-CLIENT
+## This defines the interface used for internal
+## cluster communication among OSD nodes.
+    - name: HETH3
+      device:
+          name: hed3
+      network-groups:
+        - OSD-INTERNAL
+
+   - name: RGW-INTERFACES
+     network-interfaces:
+       - name: BOND0
+         device:
+            name: bond0
+         bond-data:
+            options:
+                mode: active-backup
+                miimon: 200
+                primary: hed3
+            provider: linux
+            devices:
+              - name: hed3
+              - name: hed4
+         network-groups:
+           - MANAGEMENT
+           - OSD-CLIENT</screen>
+   
+    
+      <bridgehead renderas="sect4">network_groups.yml</bridgehead>
+      <para>Define the OSD network group in the
+          <literal>~/helion/my_cloud/definition/data/network_groups.yml</literal> file:</para>
+
+      <screen>#
+# OSD client
+#
+# This is the network group that will be used for
+# internal traffic of cluster among OSDs.
+#
+- name: OSD-CLIENT
+  hostname-suffix: osdc
+  
+  component-endpoints
+    - ceph-monitor
+    - ceph-osd
+    - ceph-radosgw
+    
+#
+# OSD internal
+#
+# This is the network group that will be used for
+# internal traffic of cluster among OSDs.
+#
+- name: OSD-INTERNAL
+  hostname-suffix: osdi
+  
+  component-endpoints:
+    - ceph-osd-internal</screen>
+   
+    
+      <bridgehead renderas="sect4">networks.yml</bridgehead>
+      <para>Define the OSD VLAN in the <literal>~/helion/my_cloud/definition/data/networks.yml</literal>
+        file.</para>
+
+      <para>The example below defines two separate network VLANs:</para>
+
+      <screen>
+- name: OSD-CLIENT-NET
+  vlanid: 112
+  tagged-vlan: true
+  cidr: 192.168.187.0/24
+  gateway-ip: 192.168.187.1
+  network-group: OSD-CLIENT
+
+- name: OSD-INTERNAL-NET
+  vlanid: 116
+  tagged-vlan: true
+  cidr: 192.168.200.0/24
+  gateway-ip: 192.168.200.1
+  network-group: OSD-INTERNAL</screen>
+   
+    
+      <bridgehead renderas="sect4">server_groups.yml</bridgehead>
+      <para>Add the OSD network to the server groups in the
+          <literal>~/helion/my_cloud/definition/data/server_groups.yml</literal> file, indicated by
+        the bold portion below:</para>
+
+      <screen>
+- name: CLOUD
+  server-groups:
+   - AZ1
+   - AZ2
+   - AZ3
+  networks:
+   - EXTERNAL-API-NET
+   - EXTERNAL-VM-NET
+   - GUEST-NET
+   - MANAGEMENT-NET
+   <emphasis role="bold">- OSD-CLIENT-NET</emphasis>
+         <emphasis role="bold">- OSD-INTERNAL-NET</emphasis>
+      </screen>
+   
+    
+      <bridgehead renderas="sect4">firewall_rules.yml</bridgehead>
+      <para>Modify the firewall rules in the
+          <literal>~/helion/my_cloud/definition/data/firewall_rules.yml</literal> file to allow OSD
+        nodes to be pingable via the OSD network, indicated by the bold portion below:</para>
+
+      <note>
+            <para>Enabling ping for <literal>OSD-CLIENT</literal> and <literal>OSD-INTERNAL</literal> is
+          optional. Enabling ping on these networks might make debugging connectivity issues on
+          these networks easier.</para>
+         </note>
+
+      <screen>
+- name: PING
+  network-groups:
+  - MANAGEMENT
+  - GUEST
+  - EXTERNAL-API
+  <emphasis role="bold">- OSD-CLIENT
+  - OSD-INTERNAL</emphasis>
+  rules:
+  # open ICMP echo request (ping)
+  - type: allow
+    remote-ip-prefix:  0.0.0.0/0
+    # icmp type
+    port-range-min: 8
+    # icmp code
+    port-range-max: 0
+    protocol: icmp</screen>
+   
+    
+      <bridgehead renderas="sect4">Edit the README.html and README.md Files</bridgehead>
+      <para>You can edit the <literal>~/helion/my_cloud/definition/README.html</literal> and
+          <literal>~/helion/my_cloud/definition/README.md</literal> files to reflect the OSD network
+        group information if you wish. This change does not have any semantic implication and only
+        assists with the readability of your model.</para>
+
+   
+  </section>

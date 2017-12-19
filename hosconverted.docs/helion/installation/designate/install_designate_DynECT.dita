@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="DesignateDynECT">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Install the DNS Service with DynECT </title>
+  <body><!--not tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <section id="Overview">
+      <title>Install DNS Service with DynECT</title>
+      <p><keyword keyref="kw-hos"/>DNS Service can be installed to use the <b>DynECT</b> backend
+        instead of the default <b>PowerDNS</b> backend. In order to use DynECT as the backend, all
+        prerequisites must be satisfied and the configuration of DynECT complete. </p>
+
+	  
+    </section>
+    
+    <section id="prereqs">
+      <title>Prerequisites</title>
+      <ol>
+        <li>You must have an active and current contract for Dyn.</li>
+        <li>The list of Dyn provided nameservers.</li>
+        <li>Credentials for the Dyn API.</li>
+      </ol>
+      <p>This information is available via your DynECT subscription information.</p>
+      
+    </section>
+    
+    <section id="ConfigureBackend">
+      <title>Configure the Backend</title>
+      <p>Ensure the DNS Service components have been placed on a cluster. Additionally, ensure the
+        default "powerdns" component has been removed, and "bind" has not been added. Finally,
+        replace the <codeph>designate-mdns</codeph> component with the
+          <codeph>designate-mdns-external</codeph> component.
+        <codeblock>control-planes: 
+  - name: control-plane-1
+    region-name: region1
+          
+    clusters:
+      - name: cluster1
+        service-components:
+          - lifecycle-manager
+          - mysql
+          - ip-cluster
+          - apache2
+          - ...
+          - designate-api
+          - designate-central
+          - designate-pool-manager
+          - designate-zone-manager
+          - designate-mdns-external
+          - designate-client</codeblock></p>
+      
+      <p>You will need to provide the DNS Service details of your Dyn Contract. Open the designate
+        pool-manager configuration template:
+        <codeblock>$ cd ~/helion/my_cloud
+$ nano config/designate/pool-manager.conf.j2</codeblock></p>
+      
+      <p>In the <codeph>config/designate/pool-manager.conf.j2</codeph>, find the following code
+        block:
+        <codeblock>{# backends.dynect(customer_name="mycustomer",
+                   username="myuser",
+                   password="mypassword",
+                   nameservers=["ns1.p13.dynect.net", "ns2.p13.dynect.net", "ns3.p13.dynect.net", "ns4.p13.dynect.net"],
+                   also_notifies=["204.13.249.65", "208.78.68.65"],
+                   masters=designate_pool_masters) #}</codeblock></p>
+      
+      <p>Make the following changes:
+        <ol>
+          <li>Uncomment the block. In Jinja2, this means replacing the {# and #} markers with {{ and }}.</li>
+          <li>Fill in the username, password, and all remaining fields.</li>
+          <li>Save the file.</li>
+        </ol>
+      </p>
+      <p>Once complete, the block should look like this:
+        <codeblock>{{ backends.dynect(customer_name="mycorp",
+                   username="mycorp-hos-designate",
+                   password="MySecretPassword",
+                   nameservers=["ns1.p13.dynect.net", "ns2.p13.dynect.net", "ns3.p13.dynect.net", "ns4.p13.dynect.net"],
+                   also_notifies=["204.13.249.65", "208.78.68.65"],
+                   masters=designate_pool_masters) }}
+        </codeblock></p>
+      
+      <p>Finally, inspect and commit the changes before proceeding with the deployment:
+        <codeblock>$ git diff
+diff --git a/hos/ansible/roles/designate-pool-manager/templates/pool-manager.conf.j2 b/hos/ansible/roles/designate-pool-manager/templates/pool-manager.conf.j2
+index 614aac2..4f810ea 100644
+--- a/hos/ansible/roles/designate-pool-manager/templates/pool-manager.conf.j2
++++ b/hos/ansible/roles/designate-pool-manager/templates/pool-manager.conf.j2
+@@ -40,12 +40,12 @@ backend_url = {{ designate_backend_url }}
+          
+{% import '_backend-macros.j2' as backends with context %}
+          
+-{# backends.dynect(customer_name="mycustomer",
+-                   username="myuser",
+-                   password="mypassword",
++{{ backends.dynect(customer_name="mycorp",
++                   username="mycorp-hos-designate",
++                   password="MySecretPassword",
+                    nameservers=["ns1.p13.dynect.net", "ns2.p13.dynect.net", "ns3.p13.dynect.net", "ns4.p13.dynect.net"],
+                    also_notifies=["204.13.249.65", "208.78.68.65"],
+-                   masters=designate_pool_masters) #}
++                   masters=designate_pool_masters) }}
+          
+{# backends.akamai(username="myuser",
+                   password="mypassword",
+        </codeblock></p>
+      <p>Commit changes.
+        <codeblock>$ git commit -a -m "Configure Designate's DynECT Backend"
+[site d4e1fbd] Configure Designate's DynECT Backend
+ 1 file changed, 4 insertions(+), 4 deletions(-)</codeblock></p>
+      
+	</section>
+
+  </body>
+</topic>

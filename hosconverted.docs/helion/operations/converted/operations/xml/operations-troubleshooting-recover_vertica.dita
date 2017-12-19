@@ -1,0 +1,133 @@
+<?xml version="1.0"?>
+<!DOCTYPE section PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN" "http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd" [ <!ENTITY % entities SYSTEM "entities.xml"> %entities; ]><!--Edit status: not edited-->
+<section id="recover_vertica">
+   <title>
+      <phrase/>Recovering Vertica after File System
+    Issues</title>
+    <para>In <phrase/>, the monitoring service uses Vertica as its database. If
+      it is configured incorrectly, or if a higher than expected load is experienced, and the file
+      system fills up then Vertica may fall over and need to be recreated. In these cases you will
+      need to recreate the Vertica database as described below.</para>
+    <para>Prior to getting to that point you may see the <literal>Disk Usage</literal> alarm trigger,
+      which is a sign that the file system is filling up. If you can resolve this issue quickly
+      using the steps below then you can prevent the Vertica database failure.</para>
+    <para>This page describes this scenario and how to resolve it.</para>
+
+    
+      <bridgehead renderas="sect4">Changing the Vertica retention period</bridgehead>
+      <para>If the <literal>Disk Usage</literal> alarm has triggered against the <literal>mount_point:
+          /var/vertica</literal> and the Vertica database and API is still up, you can change the
+        retention period using the steps below while you resolve the issue:</para>
+      <orderedlist>
+        <listitem>
+            <para>Log in to the lifecycle manager.</para>
+         </listitem>
+        <listitem>
+            <para>Edit the configuration file noted below to edit the retention period. </para>
+            <para>The
+            configuration file to edit
+            is:</para>
+            <screen>~/helion/my_cloud/config/monasca/configuration.yml</screen>
+            <para>Change
+            the <literal>vertica_retention_period</literal> value to the number of days you want to
+            hold Monasca data in Vertica. If your Vertica file system just filled up, or is close to
+            doing so, make sure you are lowering it to a value less than the amount of days it took
+            to fill in the first place.</para>
+            <para>The section looks like this, bolded for emphasis:
+          </para>
+            <screen># Retention variables
+kafka_low_disk_retention: 1800000 # 30 minutes in milliseconds
+kafka_log_retention_hours: "{{ monasca_tunings.kafka_log_retention_hours }}"
+<emphasis role="bold">vertica_retention_period: 45 # 45 day default retention</emphasis>
+            </screen>
+         </listitem>
+        <listitem>
+            <para>Commit your configuration to the <citetitle>FIXME: broken external xref</citetitle>, as follows:
+          </para>
+            <screen>git commit -a -m "changing Vertica retention period"</screen>
+         </listitem>
+        <listitem>
+            <para>Run the configuration processor:
+          </para>
+            <screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</screen>
+         </listitem>
+        <listitem>
+            <para>Update your deployment directory:
+          </para>
+            <screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+         </listitem>
+        <listitem>
+            <para>Run this playbook which will reconfigure the cronjob on the controller nodes:
+          </para>
+            <screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts monasca-deploy.yml --tags monasca-schema-vertica</screen>
+         </listitem>
+        <listitem>
+            <para>From your first controller node (which may be your lifecycle manager), manually run the
+          newly created Vertica cleanup cronjob:
+            </para>
+            <screen>sudo /etc/cron.daily/vertica-cleanup</screen>
+            <para>After this, it will
+            automatically run once every 24 hours.</para>
+         </listitem>
+      </orderedlist>
+   
+
+    
+      <bridgehead renderas="sect4">Recreating the Vertica database</bridgehead>
+      <para>If your Vertica database has failed due to file system issues, you will need to recreate it
+        and these steps will show you how.</para>
+      <orderedlist>
+        <listitem>
+            <para>On each of your controller nodes that is running the <literal>vertica</literal> service,
+          run this command which will remove the logrotate directory for Vertica:
+          </para>
+            <screen>sudo rm -rf /opt/vertica/config/logrotate</screen>
+         </listitem>
+        <listitem>
+            <para>Log in to your lifecycle manager.</para>
+         </listitem>
+        <listitem>
+            <para>Remove the Vertica database:
+          </para>
+            <screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts monasca-vertica-dbclean.yml -e "force='yes'"</screen>
+         </listitem>
+        <listitem>
+            <para>Reinstall the Vertica database:
+          </para>
+            <screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts monasca-deploy.yml --tags vertica,monasca-schema-vertica</screen>
+         </listitem>
+        <listitem>
+            <para>Restart the API and Persister by running these two playbooks:
+          </para>
+            <screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts monasca-stop.yml --tags monasca-api,persister
+ansible-playbook -i hosts/verb_hosts monasca-start.yml --tags monasca-api,persister</screen>
+         </listitem>
+        <listitem>
+            <para>Check the status of
+            Vertica:</para>
+            <screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts monasca-status.yml --tags vertica</screen>
+            <note>
+               <para>Vertica
+            is not started under <literal>systemd</literal>. To check the process status from a host
+            command line use <literal>sudo /etc/init.d/verticad status</literal>. The
+              <literal>monasca-status.yml</literal> playbook reports whether Vertica thinks a node is
+            down or not. The <literal>verticad</literal> process could be running when the node is
+            down, so <literal>monasca-status</literal> is a more accurate way to tell if a Vertica
+            host is up.</para>
+            </note>
+         </listitem>
+        <listitem>
+            <para>At this point your Vertica database should be recreated. You may want to consider
+          lowering the retention period if this was the source of the problem. Details can be found
+          here: <ulink url="#recover_vertica/changing_retention"/>.</para>
+         </listitem>
+      </orderedlist>
+   
+  </section>

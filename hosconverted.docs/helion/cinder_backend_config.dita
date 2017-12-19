@@ -1,0 +1,412 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="cinder_backend_config">
+  <title>Cinder Backend Configuration using the Storage Input Model</title>
+  <body>
+
+  </body>
+  <topic id="d1e5">
+    <title>Background</title>
+    <body>
+      <p>Before <keyword keyref="kw-hos-phrase"/> there was no way to express the cinder back-end storage configuration for a
+        cloud deployment. Instead, after <keyword keyref="kw-hos"/> had completed the deployment of a cloud, the operator
+        had to configure the cinder back-end storage by editing the Jinja2 template cinder.conf.2j.
+        This is tedious and error prone, and will not scale.</p>
+      <p>This also meant that an identical copy of cinder.conf was installed on all controller
+        nodes. So in the case where a customer configured more than one storage back-end, we could
+        not configure different controller nodes to run cinder-volume manager for each of the
+        back-ends, which would be the preferred configuration. More seriously, in the case where
+        cinder is being deployed in more than one control plane, we could not deploy different
+        storage back-ends in each control plane.</p>
+      <p>To address these problems the <codeph>Storage Input Model</codeph> was developed, which
+        allows operators to specify the configuration of the block-storage back-end devices that
+        will be deployed in their cloud. This configuration data is processed by the
+          <codeph>configuration Processor</codeph> and made available to the cinder ansible
+        playbook, so that appropriate configuration sections for each back-end can be added to
+        cinder.conf, and the correct version of cinder.conf can be installed on all the cinder
+        controller nodes in the cloud.</p>
+      <p>Note that at this time the <codeph>storage Input Model</codeph> is only used to configure
+        cinder backends in cinder.conf, it is not used to configure backend services, such as VSA or
+        Ceph. And it is not used to configure other cinder backends, such as backup or glance.</p>
+    </body>
+  </topic>
+  <topic id="d1e30">
+    <title>Overview</title>
+    <body>
+      <p>In <keyword keyref="kw-hos-phrase"/> and later, when an operator is defining a cloud in the cloud definition
+        directory on their deployer, they can add back-end specific configuration data to yaml files
+        either in the directory <codeph>definition/cinder</codeph> , or in the directory
+          <codeph>definition/{service}</codeph>, if the block-storage is provided by a service
+        managed by <keyword keyref="kw-hos"/>, for example ceph or VSA. The data added to the yaml files corresponds
+        exactly to the data that was previously entered in <codeph>cinder.conf.j2</codeph>.</p>
+      <p>The cinder ansible playbooks in <keyword keyref="kw-hos-phrase"/> will support back-end configuration using either
+        the older Jinja2 based configuration with cinder.conf.j2, or the new <codeph>Storage Input
+          Model</codeph>. But the two methods cannot be mixed. The cinder playbooks will check if
+        each of the methods is being used, and if both are used then the play will fail and report
+        an error to the operator.</p>
+      <p>To configure back-end storage using Jinja2 the operator would edit cinder.conf.j2, enter
+        the configuration data, and add the list of enabled back-ends to the line
+          <codeph>enabled_backends=</codeph>. In <keyword keyref="kw-hos-phrase"/> the playbooks check for the line
+          <codeph>enabled_backends=</codeph> in cinder.conf,j2, and if there are any enabled
+        back-ends, then it will use the older Jinja2 method to generate
+        <codeph>cinder.conf</codeph>. To configure storage using the <codeph>Storage Input
+          Model</codeph> the operator must specify a cinder configuration in the
+          directory<codeph>~/helion/my_cloud/definition/data/cinder/</codeph>, if that directory is
+        present, then the play book will use the <codeph>Storage Input Model</codeph> to generate
+        cinder.conf. If the play book detects that the <codeph>enabled_backends=</codeph> line in
+        cinder.conf.j2 has been altered to define back-ends, and that the directory
+          <codeph>definition/data/cinder/</codeph> is present, then the play will fail and an error
+        will be reported to the operator.</p>
+      <codeblock>$ ansible-playbook -i hosts/verb_hosts cinder-reconfigure.yml 
+      
+      PLAY [CND-VOL:CND-API:CND-SCH:CND-BCK] **************************************** 
+      
+      GATHERING FACTS *************************************************************** 
+      ok: [padawan-vsa-ccp-c1-m3-mgmt]
+      ok: [padawan-vsa-ccp-c1-m2-mgmt]
+      
+      TASK: [CND-VOL | validate-config | Cannot mix input model and jinja2 configs] *** 
+      failed: [padawan-vsa-ccp-c1-m1-mgmt -&gt; localhost] =&gt; {"changed": true, "cmd": ["grep", "-q", "^enabled_backends=[[:space:]]*$", "roles/_CND-CMN/templates/cinder.conf.j2"], "delta": "0:00:00.010035", "end": "2016-09-15 10:46:52.945905", "rc": 1, "start": "2016-09-15 10:46:52.935870", "warnings": []}
+      
+      FATAL: all hosts have already failed -- aborting
+      
+      PLAY RECAP ******************************************************************** 
+      CND-VOL | validate-config | Cannot mix input model and jinja2 configs --- 0.15s
+      -------------------------------------------------------------------------------
+      Total: ------------------------------------------------------------------ 3.99s
+      to retry, use: --limit @/home/stack/cinder-reconfigure.retry
+      
+      padawan-vsa-ccp-c1-m1-mgmt : ok=0    changed=0    unreachable=0    failed=1   
+      padawan-vsa-ccp-c1-m2-mgmt : ok=1    changed=0    unreachable=0    failed=1   
+      padawan-vsa-ccp-c1-m3-mgmt : ok=1    changed=0    unreachable=0    failed=1   
+    </codeblock>
+      <p>If the operator uses the <codeph>Storage Input Model</codeph> to configure cinder back-ends
+        they will not need to run <codeph>cinder-reconfigure.yml</codeph>after completing the
+        initial deployment process, but they will need to run any service specific configuration or
+        deployment steps required by the service, i.e. VSA or ceph.</p>
+    </body>
+  </topic>
+  <topic id="d1e92">
+    <title>Using the Storage Input Model</title>
+    <body>
+      <p>This section describes how the operator will use the <codeph>Storage Input Model</codeph>
+        to configure block storage back-ends. The first section describes the general process for
+        back-end devices that are not managed by <keyword keyref="kw-hos"/>. The next section describes how to configure
+        back-ends that are managed by <keyword keyref="kw-hos"/>, at the moment these are VSA and ceph.</p>
+      <p>In all cases the user must include a reference to the cinder configuration in the
+          <codeph>configuration-data</codeph> section of <codeph>control-plan</codeph>e<codeph>,yml,
+          for example:</codeph></p>
+      <codeblock>---
+      product:
+      version: 2
+      control-planes:
+      - name: ccp
+      control-plane-prefix: ccp
+      region-name: region1
+      failure-zones:
+      - AZ1
+      - AZ2
+      - AZ3
+      configuration-data:
+      - OCTAVIA-CONFIG-CP1
+      - NEUTRON-CONFIG-CP1
+      - CINDER-CONFIG-CP1</codeblock>
+      <p> </p>
+    </body>
+    <topic id="d1e119">
+      <title>Configuring back-ends not managed by <keyword keyref="kw-hos"/></title>
+      <body>
+        <p>Whenever an operator wants to configure block-storage back-ends using the <codeph>Storage
+            Input Model</codeph> they must create the directory<codeph>cinder</codeph> in the
+          directory <codeph>my_cloud/definition/data</codeph> and create the file
+            <codeph>cinder_config.yml</codeph> in that directory. The file
+            <codeph>cinder_config.yml</codeph>will define the set of block storage back-ends that
+          will be deployed in the cloud.</p>
+        <codeblock>---
+      product:
+      version: 2
+      
+      configuration-data:
+      - name: CINDER-CONFIG-CP1
+      services:
+      - cinder
+      data:
+      HPE3PAR2-CONFIG-CP2:
+      failure-zone:
+      - AZ1
+      - AZ2
+      backend-config:
+      hpe3par_iscsi_chap_enabled: true
+      san_ip: 10.0.2.1
+      san_login: san_user
+      san_password: password
+      hpe3par_iscsi_ips: 10.0.1.1, 10.0.1.2, 10.0.1.3
+      hpe3par_username: 3par_user
+      hpe3par_password: password
+      hpe3par_api_url: https:10.0.0.1:8080/api/v1
+      hpe3par_cpg: cpg_1, cpg_2
+      volume_backend_name: HPE3PAR_iSCSI_
+      volume_driver: cinder.volume.drivers.hpe.hpe_3par_iscsi.HPE3PARISCSIDriver</codeblock>
+        <p>This configuration file would generate the following section in cinder.conf</p>
+        <codeblock>[HPE3PAR2-CONFIG-CP2]
+      hpe3par_iscsi_chap_enabled: true
+      san_ip: 10.0.2.1
+      san_login: san_user
+      san_password: password
+      hpe3par_iscsi_ips: 10.0.1.1, 10.0.1.2, 10.0.1.3
+      hpe3par_username: 3par_user
+      hpe3par_password: password
+      hpe3par_api_url: https:10.0.0.1:8080/api/v1
+      hpe3par_cpg: cpg_1, cpg_2
+      volume_backend_name: HPE3PAR_iSCSI_
+      volume_driver: cinder.volume.drivers.hpe.hpe_3par_iscsi.HPE3PARISCSIDriver</codeblock>
+        <p>In addition the playbook would select a controller in either AZ1 or AZ2 and enable the
+          back-end HPE3PAR2-CONFIG-CP2 in cinder.conf for that controller, by adding it to the list
+          of enabled_backends.</p>
+        <codeblock>enabled_backends=HPE3PAR2-CONFIG-CP2</codeblock>
+        <note type="note"><keyword keyref="kw-hos"/> Availablity Zones <p>Currently all cinder volumes are assigned to a
+            single availability zone, called 'nova' by default. The current implementation of
+              <codeph>Storage Input Model</codeph> support does not support cinder configuration
+            allowing cinder volumes to be created in other named availability zones.</p>
+          <p>In <keyword keyref="kw-hos"/> an availability zone, or 'Failure Zone' is implemented as a server group.
+            Services are assigned to nodes in different server groups using the 'allocation_policy'
+            key in the control plane definition. </p>
+          <p>Even though cinder does not support creation of volumes in named availability zones,
+            the cinder configuration process does take the failure-zone of controllers and back-end
+            servers into account when selecting a controller on which to enable each back-end. For
+            example, if a deployment has three failure-zones, and if one of those failure-zones
+            becomes unavailable, then back-end devices in the other two failure-zones should be
+            accessible and manageable. This is only possible if the controller node managing the
+            back-end is in the same failure-zone as the back-end server. So the configuration
+            playbook will try to ensure that the controller for each back-end is in the same
+            failure-zone as the back-end server.</p>
+          <p>If the block storage back-end is deployed and managed by <keyword keyref="kw-hos"/>, then the
+              <codeph>Configuration Processor</codeph> will provide the availability zone, or list
+            of availability zones, for each back-end to the cinder playbooks, and the playbook will
+            select a controller in a failure-zone in that list, if one is available. However, for
+            back-ends, like 3PAR, that are not managed by <keyword keyref="kw-hos"/>, there is no way of knowing which
+            failure-zone the back-end server is in, and therefore the operator may specify a
+            failure-zone, or list of failure-zones as shown in the example above.</p>
+          <p>The cinder playbook will attempt to ensure that the controller for any storage back-end
+            is in the same failure-zone as the storage server. But if there is no controller in the
+            same failure zone as a particular back-end, the allocation algorithm will select a
+            controller in some other zone in the control plane. So there is an assumption that any
+            controller in the control plane can be used to manage any back-end.</p></note>
+        <p> </p>
+      </body>
+    </topic>
+    <topic id="d1e185">
+      <title>Configuring Back-ends Managed by <keyword keyref="kw-hos"/></title>
+      <body>
+        <p>If the back-end being configured is managed by <keyword keyref="kw-hos"/> then the configuration data for the
+          back-end goes into a service specific configuration file in directory
+            <codeph>my_cloud/definition/data/{service}/</codeph>. For example the configuration for
+          VSA back-ends goes into the file
+            <codeph>my_cloud/definition/data/vsa/vsa_config.yml</codeph>, and this configuration is
+          referenced from <codeph>cinder_config.yml</codeph>. For example, the following example
+          shows a configuration for two VSA back-ends.</p>
+        <codeblock>---
+      product:
+      version: 2
+      configuration-data:
+      - name: VSA-CONFIG-1
+      services:
+      - vsa-storage
+      cluster: vsa_1
+      data:
+      backend-config:
+      hplefthand_username: lhuser
+      hplefthand_password: lhstack
+      hplefthand_debug: true
+      volume_backend_name: vsa1
+      - name: VSA-CONFIG-2
+      services:
+      - vsa-storage
+      cluster: vsa_2
+      data:
+      backend-config:
+      hplefthand_username: lhuser2
+      hplefthand_password: lhstack2
+      hplefthand_debug: true
+      volume_backend_name: vsa2</codeblock>
+        <p>The corresponding entry in <codeph>cinder_config.yml</codeph> would look like this. Note
+          that the entries in <codeph>cinder_config.yml</codeph> are linked to those in
+            <codeph>{service}_config.yml</codeph> using the 'cluster' key.</p>
+        <codeblock>---
+      product:
+      version: 2
+      configuration-data:
+      - name: CINDER-CONFIG
+      services:
+      - cinder
+      data:
+      VSA1-CONFIG:
+      provided_by:
+      cluster: vsa_1
+      VSA2-CONFIG:
+      provided_by:
+      cluster: vsa_2</codeblock>
+        <p>The cinder playbook will generate a <codeph>section</codeph> in cinder.conf for each
+          entry in <codeph>cinder_config.yml, in th</codeph>is case there will be two sections,
+            <b>[VSA1-CONFIG]</b> and <b>[VSA2-CONFIG]</b>. The variables in each section are
+          generated from the entries in<codeph>vsa_config.yml</codeph>.</p>
+      </body>
+    </topic>
+    <topic id="d1e236">
+      <title>Default Configuration Variables</title>
+      <body>
+        <p>The <keyword keyref="kw-hos"/> Cinder playbook automatically generates some configuration variable values so you
+          do not have to supply them in <codeph>{</codeph><codeph>service}_config.yml</codeph>.
+          Although if you choose to add those variables to <codeph>{service}_config.yml</codeph> the
+          values you enter will override the default values generated by the Playbook. This allows
+          you, for example, to configure cinder.conf for VSA clusters without needing to know the
+          VIP for the VSA cluster that will be deployed. The variables that are automatically
+          generated are:</p>
+        <table>
+          <tgroup cols="3">
+            <colspec colnum="1" colname="c1"/>
+            <colspec colnum="2" colname="c2"/>
+            <colspec colnum="3" colname="c3"/>
+            <thead>
+              <row>
+                <entry>Service</entry>
+                <entry>Variable</entry>
+                <entry>Value</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+
+                <entry>VSA</entry>
+                <entry><ph>volume_driver</ph></entry>
+                <entry><ph> </ph><ph>cinder.volume.drivers.hpe.hpe_lefthand_iscsi.HPELeftHandISCSIDriver</ph>
+                  - after this has merged: <xref format="html" scope="external"
+                    href="https://review.hpcloud.net/114652"
+                    >https://review.hpcloud.net/114652</xref></entry>
+              </row>
+              <row>
+                <entry>VSA</entry>
+                <entry>hpelefthand_api_url</entry>
+                <entry>
+                  <p>This is constructed from the following fields in the provides-data section of
+                    the file services/vsa/vsa.yml</p>
+                  <p>{protocol}://{vip}:{port}{url_suffix}</p></entry>
+              </row>
+              <row>
+                <entry>VSA</entry>
+                <entry>hpelefthand_clustername</entry>
+                <entry>This defaults to 'cluster-{cluster}' which is 'cluster-vsa_1' and
+                  'cluster-vsa_2' in the example above.</entry>
+              </row>
+              <row>
+                <entry>ceph</entry>
+                <entry>volume_driver</entry>
+                <entry><ph>cinder.volume.drivers.rbd.RBDDriver</ph> - after this has merged:<xref
+                    format="html" scope="external" href="https://review.hpcloud.net/114652"
+                    >https://review.hpcloud.net/114652</xref></entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+        <p>The following table show the some of the VSA backend configuration variables that may
+          used in<codeph>definition/data/vsa/vsa_config.yml</codeph></p>
+        <table>
+          <tgroup cols="2">
+            <colspec colnum="1" colname="c1"/>
+            <colspec colnum="2" colname="c2"/>
+            <thead>
+              <row>
+                <entry>Variable</entry>
+                <entry>Comment</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>hplefthand_username</entry>
+                <entry>The user name that you will configure on the VSA backend</entry>
+              </row>
+              <row>
+                <entry>hplefthand_password</entry>
+                <entry>The password that you will configure on the VSA backend</entry>
+              </row>
+              <row>
+                <entry>hplefthand_iscsi_chap_enabled</entry>
+                <entry>Normally set to True for <keyword keyref="kw-hos"/></entry>
+              </row>
+              <row>
+                <entry>volume_backend_name</entry>
+                <entry>A unique name that you wish to use for this instance of the VSA backend
+                  server.</entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+        <p>The following table shows some of the Ceph backend configuration variables that may be
+          used in<codeph>definition/data/ceph/ceph_config.yml</codeph></p>
+        <table>
+          <tgroup cols="2">
+            <colspec colnum="1" colname="c1"/>
+            <colspec colnum="2" colname="c2"/>
+            <thead>
+              <row>
+                <entry>Variable</entry>
+                <entry>Comment</entry>
+              </row>
+            </thead>
+            <tbody>
+
+              <row>
+                <entry>rbd_secret_uuid</entry>
+                <entry>The secret uuid for the ceph cluster you are using a cinder back-end</entry>
+              </row>
+              <row>
+                <entry>rbd_user</entry>
+                <entry>The username for the ceph cluster you are using as a cinder back-end</entry>
+              </row>
+              <row>
+                <entry>rbd_pool</entry>
+                <entry>The password for the ceph cluster you are using as a cinder back-end</entry>
+              </row>
+              <row>
+                <entry>rbd_ceph_conf</entry>
+                <entry>The full path to the ceph configuration file for the ceph cluster you are
+                  using as a cinder back-end</entry>
+              </row>
+              <row>
+                <entry>volume_backend_name</entry>
+                <entry>A unique name that you wish to use for this instance of the Ceph backend
+                  server.</entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+        <p> </p>
+      </body>
+    </topic>
+    <topic id="d1e437">
+      <title>Encrypting Sensitive Data</title>
+      <body>
+        <p>Operators may want to encrypt the value of certain sensitive data like passwords before
+          saving them in the git system on their deployer. You do this by using hosencrypt.py as
+          described <xref keyref="encrypted_storage"><keyword keyref="kw-hos"/>
+            Documentation</xref>. After you have generated the cypher text for the variable data you
+          need to encrypt you enter it as follows in the appropriate configuration yml file as
+          follows:</p>
+        <codeblock>    - name: VSA-CONFIG-2
+      services:
+      - vsa-storage
+      cluster: vsa_2
+      data:
+      backend-config:
+      hplefthand_username: lhuser2
+      hplefthand_password:
+      value: "ciphertext"
+      encrypted: true</codeblock>
+        <p>Note that you can encrypt any data field in the backend-configuration section using this
+          technique.</p>
+
+
+      </body>
+    </topic>
+  </topic>
+</topic>

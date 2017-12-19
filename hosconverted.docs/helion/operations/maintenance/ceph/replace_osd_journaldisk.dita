@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="replacing_osd_journal_disks">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Replacing the Journal Disk in a Ceph OSD
+    Node</title>
+  <abstract><shortdesc outputclass="hdphidden">Maintenance steps for replacing the journal disk in a
+      Ceph OSD node.</shortdesc>
+  </abstract>
+  <body>
+    <section id="about">
+      <p><keyword keyref="kw-hos-phrase"/> supports a Ceph environment with the following OSD node
+        configurations:</p>
+      <ul>
+        <li>OSD nodes with no journal disk</li>
+        <li>OSD nodes with a dedicated journal disk</li>
+        <li>OSD nodes with a shared journal disk (partition)</li>
+      </ul>
+      <p>For the first scenario where the journal information is stored on a partition on the OSD
+        data disk, the steps to replace the data disk should be followed. For more information, see
+          <xref href="replace_osd_osdisk.dita"/>.</p>
+      <p>For the other two scenarios where there is a separate drive used for storing journal
+        information you can use the steps below to replace the journal disk on a Ceph OSD node.</p>
+    </section>
+    <section id="steps"><title>Steps for replacing a journal disk on a Ceph OSD node</title>
+      <ol>
+        <li>SSH to the Ceph OSD node with the journal disk you want to replace.</li>
+        <li>Use the command below to determine the details for the affected OSD nodes: <codeblock>sudo ceph-disk list | grep &lt;disk> | grep osd</codeblock>
+          <p>Here is an example output:</p>
+          <codeblock>$ sudo ceph-disk list | grep /dev/sdg | grep osd
+ /dev/sdc1 ceph data, active, cluster ceph, osd.8, journal /dev/sdg2
+ /dev/sde1 ceph data, active, cluster ceph, osd.5, journal /dev/sdg3
+ /dev/sdf1 ceph data, active, cluster ceph, osd.0, journal /dev/sdg1</codeblock>
+          <p>In this example, if the shared journal disk <codeph>/dev/sdg</codeph> is to be replaced
+            then 0, 5, and 8 are the affected OSDs.</p></li>
+        <li>Use the following command to avoid the cluster rebalancing itself as the journal disk is
+          being replaced: <codeblock>ceph osd set noout --cluster &lt;ceph-cluster></codeblock></li>
+        <li>Stop the affected OSDs and flush their journal with these commands: <codeblock>sudo systemctl stop ceph-osd@&lt;osd-number>
+sudo ceph-osd -i &lt;osd-number> --flush-journal --cluster &lt;ceph-cluster></codeblock>
+          <p>Here is an example output, using the same information from the earlier example:</p>
+          <codeblock>$ sudo systemctl stop ceph-osd@0
+$ sudo ceph-osd -i 0 --flush-journal --cluster ceph
+$ sudo systemctl stop ceph-osd@5
+$ sudo ceph-osd -i 5 --flush-journal --cluster ceph
+$ sudo systemctl stop ceph-osd@8
+$ sudo ceph-osd -i 8 --flush-journal --cluster ceph</codeblock></li>
+        <li>Replace the faulty journal disk with a new physical disk. Verify that new disk gets the
+          same device name (for example, <codeph>/dev/sdg</codeph> where the failed drive was also
+            <codeph>/dev/sdg</codeph>) and then proceed with the next steps.</li>
+        <li>Use the following command which generates a script file, which will be used later when
+          creating the required journal partitions:
+          <codeblock>printf '#!/bin/bash
+# script to create a journal partition for Ceph OSD.
+
+# DO NOT CHANGE it is the journal disk identifier expected by ceph-disk utility
+ptype=45b0969e-9b03-4f30-b4c6-b4b80ceff106
+# name of the Ceph cluster
+ceph_cluster=$1
+# disk to be used
+new_journal=$2
+# journal partition size in MB
+partition_size_mb=$3
+# the Ceph OSD ID
+osd_id=$4
+# partition number to be created on the journal disk
+part_num=$5
+
+if [ $# -ne 5 ]; then
+    echo "Error: Expected input parameters not received!"
+    echo "Usage: /bin/bash create_journal_partition.sh ceph_cluster journal_disk partition_size_mb osd_id partition_number"
+    exit 1
+fi
+
+journal_uuid=$(sudo cat /var/lib/ceph/osd/ceph-$osd_id/journal_uuid)
+part_details=$part_num:0:+$partition_size_mb
+part_details+=M
+sudo sgdisk --new=$part_details --change-name=$part_num:"ceph journal" --partition-guid=$part_num:$journal_uuid --typecode=$part_num:$ptype --mbrtogpt -- $new_journal
+sudo partprobe
+sudo ceph-osd --cluster $ceph_cluster --mkjournal -i $osd_id' >> create_journal_partition.sh</codeblock></li>
+        <li>For each OSD node that requires a journal partition on the new disk, execute the
+            <codeph>create_journal_partition.sh</codeph> script with the appropriate inputs as
+          below: <codeblock>/bin/bash create_journal_partition.sh &lt;ceph_cluster> &lt;journal_disk> &lt;partition_size_mb> &lt;osd_id> &lt;partition_number></codeblock>
+          <p>Here are some example outputs, using the same partitions as our earlier examples:</p>
+          <codeblock># for OSD 0
+$ /bin/bash create_journal_partition.sh ceph /dev/sdk 5120 0 1
+
+# for OSD 5
+$ /bin/bash create_journal_partition.sh ceph /dev/sdk 5120 5 2
+
+# for OSD 8
+$ /bin/bash create_journal_partition.sh ceph /dev/sdk 5120 8 3</codeblock></li>
+        <li>Bring the OSDs back online with this command: <codeblock>sudo systemctl start ceph-osd@&lt;osd_id></codeblock>
+          <p>Here is an example output:</p>
+          <codeblock>$ sudo systemctl start ceph-osd@0
+$ sudo systemctl start ceph-osd@5
+$ sudo systemctl start ceph-osd@8</codeblock></li>
+        <li>Unset the cluster from noout:
+          <codeblock>ceph osd unset noout --cluster &lt;ceph-cluster></codeblock></li>
+        <li>Use the following command and verify that the status of the affected OSDs are now
+          appearing as <codeph>up 1</codeph>:
+          <codeblock>ceph osd tree --cluster &lt;cluster-name></codeblock></li>
+      </ol>
+    </section>
+  </body>
+</topic>

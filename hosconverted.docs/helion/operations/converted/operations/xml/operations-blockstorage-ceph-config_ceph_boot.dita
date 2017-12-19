@@ -1,0 +1,128 @@
+<?xml version="1.0"?>
+<!DOCTYPE section PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN" "http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd" [ <!ENTITY % entities SYSTEM "entities.xml"> %entities; ]><section id="config_ceph_boot">
+   <title>
+      <phrase/>Efficiently Creating Bootable Volumes when using
+    Ceph for Glance and Cinder</title>
+    <important>
+      <para>This section only applies if you are using Ceph as a backend for both
+        Glance and Cinder. If you are only using Ceph as a backend for either Glance or Cinder, but
+        not both, then this section would not apply.</para>
+
+   </important>
+   <para>By default, creation of multiple bootable volumes from an image in Glance can involve
+        significant data movement. When Ceph is used as a backend for both Glance and Cinder,
+        performance of these operations can be improved significantly. Glance can be configured
+        (using the v2 API) to pass image locations to its client, and the Ceph backend can be
+        configured to read the image locations and use an efficient Ceph clone operation to avoid
+        data copies.</para>
+
+   <note>
+      <para>Image locations can only be made available with the Glance v2 API, which is not the
+        default.</para>
+
+   </note>
+   <para>Steps to utilize this feature:</para>
+
+   <orderedlist id="ol_un3_jvt_qx">
+        <listitem>
+         <para>Log in to the lifecycle manager.</para>
+
+      </listitem>
+        <listitem>
+         <para>Edit the <literal>~/helion/my_cloud/config/cinder/cinder.conf.j2</literal> file and add
+          the following line: </para>
+
+         <screen>glance_api_version = 2</screen>
+      </listitem>
+        <listitem>
+         <para>Log in to a controller node and create a <literal>cinder-advanced</literal> role using the
+          OpenStack CLI tool, which eash user who will be creating bootable volumes should
+            have:</para>
+
+         <screen>source ~/keystone.osrc
+openstack role create cinder-advanced</screen>
+         <note>
+            <para>If
+            you wish to use a different role name than <literal>cinder-advanced</literal> you can, but
+            ensure you update the rest of the example commands to match.</para>
+
+         </note>
+      </listitem>
+        <listitem>
+         <para>Log back in to the lifecycle manager.</para>
+
+      </listitem>
+        <listitem>
+         <para>Update the <literal>~/helion/my_cloud/config/glance/policy.json.j2</literal> file to
+          provide the <literal>cinder-advanced</literal> role the permissions to perform the necessary
+          API
+          calls:</para>
+
+         <screen>from:
+    "get_image_location": "role:admin",
+to:
+    "get_image_location": "role:admin or role:cinder-advanced"</screen>
+      </listitem>
+        <listitem>
+         <para>For each user who will be creating bootable volumes, add the
+            <literal>cinder-advanced</literal> role for the necessary Projects with the following
+          OpenStack CLI
+            command:</para>
+
+         <screen>source ~/keystone.osrc
+openstack role add --project &lt;project&gt; --user &lt;user&gt; cinder-advanced</screen>
+         <para>For
+            example, to provide the <literal>demo</literal> user permission to efficiently create
+            bootable volumes in the <literal>demo</literal> project, you would use this
+            command:</para>
+<screen>openstack role add --project demo --user demo cinder-advanced</screen>
+
+      </listitem>
+        <listitem>
+         <para>Edit the <literal>~/helion/my_cloud/config/glance/glance-api.conf.j2</literal> file to
+          uncomment and change the line <literal>#show_image_direct_url = False</literal> and add the
+          line <literal>show_multiple_locations =
+          True</literal>:</para>
+
+         <screen>CHANGE:
+from:
+    #show_image_direct_url = False
+to:
+    show_image_direct_url = True
+
+ADD:
+show_multiple_locations = True</screen>
+      </listitem>
+        <listitem>
+         <para>Commit your configuration to the <citetitle>FIXME: broken external xref</citetitle>, as follows:
+          </para>
+
+         <screen>cd ~/helion/hos/ansible
+git add -A
+git commit -m "My config or other commit message"</screen>
+      </listitem>
+        <listitem>
+         <para>Run the configuration processor:
+          </para>
+
+         <screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</screen>
+      </listitem>
+        <listitem>
+         <para>Update your deployment directory:
+          </para>
+
+         <screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+      </listitem>
+        <listitem>
+         <para>Change to the deployment directory and run both the Glance and Cinder reconfigure
+          playbooks:
+          </para>
+
+         <screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts glance-reconfigure.yml
+ansible-playbook -i hosts/verb_hosts cinder-reconfigure.yml</screen>
+      </listitem>
+      </orderedlist>
+  </section>

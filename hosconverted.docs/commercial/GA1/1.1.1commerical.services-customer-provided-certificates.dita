@@ -1,0 +1,232 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic
+  PUBLIC "-//OASIS//DTD DITA Topic//EN" "http://docs.oasis-open.org/dita/v1.1/OS/dtd/topic.dtd" ><topic xml:lang="en-us" id="topic11103">
+<title>HPE Helion <tm tmtype="reg">OpenStack</tm> 1.1.1: Configuring support for customer-provided certificates</title>
+<titlealts>
+<searchtitle>HPE Helion Openstack 1.1.1 customer provided certificates</searchtitle>
+</titlealts>
+<prolog>
+<metadata>
+<othermeta name="layout" content="default"/>
+<othermeta name="product-version" content="HPE Helion Openstack"/>
+<othermeta name="product-version" content="HPE Helion Openstack 1.1.1"/>
+<othermeta name="role" content="Systems Administrator"/>
+<othermeta name="role" content="Cloud Architect"/>
+<othermeta name="role" content="Storage Administrator"/>
+<othermeta name="role" content="Network Administrator"/>
+<othermeta name="role" content="Service Developer"/>
+<othermeta name="role" content="Cloud Administrator"/>
+<othermeta name="role" content="Application Developer"/>
+<othermeta name="role" content="Network Engineer"/>
+<othermeta name="role" content="Nancy M."/>
+<othermeta name="product-version1" content="HPE Helion Openstack"/>
+<othermeta name="product-version2" content="HPE Helion Openstack 1.1.1"/>
+</metadata>
+</prolog>
+<body>
+<p>
+<!--PUBLISHED-->
+ <!--./commercial/GA1/1.1.1commerical.services-customer-provided-certificates.md-->
+ <!--permalink: /helion/openstack/1.1.1/customer-provided-certificates/--></p>
+<p>In HPE Helion OpenStack all services are configured to use transport layer security (TLS) as their communication protocol. Since TLS is secure (HTTPS), it checks for a certificate from a certificate authority (CA).</p>
+  <p>The certificate that Helion expects to find is the one issued by the built-in ephemeral CA (ECA) (see <xref href="1.1commcerical.install-TLS.dita">TLS</xref>). However, customers may want to install their own certificates. If so,  Helion needs to know about the certificate.</p>
+<p>In order to accomplish this and maintain the chain of trust without the need to reconfigure services, a number of steps must be taken.</p>
+<p>Following this procedure will configure HPE Helion OpenStack to use customer-provided certificates for all endpoints. It will explain how to configure the existing load balancer to terminate SSL connections with a client provided server certificate and re-encrypt traffic to the service back ends served by stunnel proxies. Here you will also add the client-provided trust chain to the ECA trust file. Note that while this eliminates the need to reconfigure serices to use the certificate you as the customer provide, services may need to be restarted.</p>
+<section id="the-problem"> <title>The problem</title>
+<p>Endpoints currently serve ECA signed certs and these cannot be validated without the ECA CA cert installed on client machines.</p>
+</section>
+<section id="the-solution"> <title>The solution</title>
+<ol>
+  <li>    Install the supplied certificate's trust chain (CA certificates) to all overcloud, undercloud and seed nodes.
+</li>
+  <li>   Restart all HPE Helion OpenStack services on all nodes.
+</li>
+  <li>   Configure haproxy to use the supplied certificate to terminate the TLS connections and re-encrypt to service nodes.
+</li>
+  <li> Restart haproxy after reconfiguration.</li>
+</ol>
+<p>The above steps are described in detail in the following sections.</p>
+</section>
+<section id="updating-the-certificate-store-in-overcloud-nodes"> <title>Updating the certificate store in overcloud nodes</title>
+<p>The services use the endpoints to talk to other services and they'll fail validation because they're designed to find the ECA certificate in a specific file location. They also need to be told to trust the client provided server certificate. Because the cacert location has been hard coded in HPE Helion OpenStack 1.1.1,  the suggested solution is to put both public CA-signed certtificates and internal CA-signed certificates in a single file.</p>
+</section>
+<section id="getting-a-customer-certificate"> <title>Getting a customer certificate</title>
+<p>To get a customer certificate you need to follow a procedure similar to this:</p>
+<ol>
+  <li>    Create a private key.
+</li>
+  <li>   Create a CSR (Certificate Request) for the customer facing virtual IP (VIP) where the customer certificate will be installed.
+</li>
+  <li>   Send the CSR to the customer's CA and have it signed and returned to you as a certificate.
+</li>
+  <li>   Insert the private key into the certificate file.
+</li>
+  <li>   Copy the certificate to a location in all three controllers. (Eg: /root/tmp/edge_server.pem)</li>
+</ol>
+</section>
+<section id="creating-a-private-key-and-a-csr"> <title>Creating a private key and a CSR</title>
+<p>The following bash snippet shows how to create a private key and a CSR in a single command. This is meant to be an example and you may have to edit it to get the values you need.</p>
+<codeblock>
+  <codeph>COMMON_NAME='1.1.1.1';
+openssl req -newkey rsa:2048 -nodes -keyout server_key.pem -out server_csr.pem \
+    -subj "/CN=${COMMON_NAME}" -config &lt;(echo -e "[ req ]distinguished_name = req_distinguished_name
+    req_extensions = v3_req
+    [ req_distinguished_name ]
+    CN = ${COMMON_NAME}
+    [ v3_req ]
+    basicConstraints = CA:FALSE
+    keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+    subjectAltName = @alt_names
+    [ alt_names ]
+    IP.1 = 192.0.2.22
+    IP.2 = 192.0.2.23 ")
+</codeph>
+</codeblock>
+</section>
+<section id="certificate-formats"> <title>Certificate formats</title>
+<p>You may find customer-provided certificates in any number of formats, including:</p>
+<ul>
+  <li>    A key and a PEM encoded certificate
+</li>
+  <li>   A key and a DER encoded certificate
+</li>
+  <li>   A DER encoded PFX file
+</li>
+  <li>   Trust chain included in the same file as the certificate
+</li>
+  <li>   Trust chain in a separate file</li>
+</ul>
+<p>However, for consumption by haproxy:</p>
+<ol>
+  <li>    The certificate needs to be in a PEM format
+</li>
+  <li>   The key should be in the same file
+</li>
+</ol>
+<p>The order of entities within the certificate file is as follows:</p>
+<ol>
+  <li>    Key
+</li>
+  <li>   PEM encoded certificate</li>
+</ol>
+<p>For the deployed CA certificates inside the cluster, (in other words, what goes in ephemeralca-cacert.crt):</p>
+<ol>
+  <li>    The original CA certificate from the ephemeral CA
+</li>
+  <li>   The trust chain supplied by the customer. You may need to extract this content from the supplied certificate.</li>
+</ol>
+<p>To convert from DER to PEM format:</p>
+<codeblock>openssl x509 -inform der -in certificate.der -out certificate.pem</codeblock>
+<p>To convert from PFX to PEM format:</p>
+<codeblock>openssl pkcs12 -in keyStore.pfx -out keyStore.pem -nodes</codeblock>
+<p>Once you have the certificate and the CA certificate in the appropriate formats, append external_cacert.pem to /usr/local/share/ca-certificates/ephemeralca-cacert.crt on all overcloud nodes, undercloud node and the seed. After each concatenation, update the certificate store.</p>
+<codeblock>cat external_ca_certificate.pem &gt;&gt; /usr/local/share/ca-certificates/ephemeralca-cacert.crt
+update-ca-certificates --fresh</codeblock>
+<p>This will ensure that all libraries that worked with ECA will continue to work.</p>
+<p>Also append external_cacert.pem to the seed:/root/eca.crt</p>
+<codeblock>cat external_ca_certificate.pem &gt;&gt; /root/eca.crt</codeblock>
+<p>This will also ensure that the trust chain update will persist across updates.</p>
+</section>
+<section id="restarting-services"> <title>Restarting Services</title>
+<p>All OpenStack services on all nodes must be restarted to reread the trust chains.</p>
+</section>
+<section id="reconfiguring-haproxy"> <title>Reconfiguring HAProxy</title>
+<p>Currently we use the haproxy as a software load balancer to tunnel TLS traffic to the service nodes. Haproxy listens on the virtual IP (VIP). A sample configuration might look like this:</p>
+<codeblock>listen nova_osapi
+  bind 192.0.2.22:8774
+  server overcloud-controller0-v7jcp33imqgf 192.0.2.28:8774 check inter 6000 rise 2 fall 5  check-ssl ca-file /etc/ssl/certs/ca-certificates.crt</codeblock>
+<p>In this solution we have haproxy terminating the TLS traffic and re-encrypting it back to the service back end. We then use the client-provided server cert instead of the short-lived ECA certificates. The resulting configuration will look like this:</p>
+<codeblock>listen nova_osapi
+  bind 192.0.2.22:8774 ssl crt /root/tmp/edge_server.pem
+  server overcloud-controller0-v7jcp33imqgf 192.0.2.28:8774 check inter 6000 rise 2 fall 5  check-ssl ca-file /etc/ssl/certs/ca-certificates.crt ssl</codeblock>
+<p>Note that there are two changes:</p>
+<ol>
+<li>    The bind command now specifies the server cert. This cert needs to have both the private key and the cert in this single file.</li>
+<li>The back end needs an extra keyword 'ssl' to tell that it must talk to a TLS back end. Previously this wasn't needed as it was in tunnel mode.</li>
+</ol>
+<p>These changes have to be made for each of the service stanzas that needs changing. All controller haproxy.cfg settings need to be updated.</p>
+<p>The following commands are given as examples to make the change for the haproxy.cfg. Please note that this will only work in a pristine haproxy configuration. It doesn't handle corner cases.</p>
+<codeblock>sed '/^[[:space:]][[:space:]]bind/ s/$/ ssl crt \/root\/tmp\/edge_server.pem /' haproxy.cfg &gt;ha1
+sed '/^[[:space:]][[:space:]]server overcloud/ s/$/ ssl /' ha1 &gt;ha2
+mv haproxy.cfg  haproxy.cfg.orig
+mv ha2 haproxy.cfg</codeblock>
+<p>Please note that you need to verify the following:</p>
+<ol>
+  <li>    If you're working on a pure Helion 1.1 system without version 1.1.1, then mysql (port 3306) and rabbitmq (port 5671) are not communicating over TLS, so you need to revert the changes made by the sed command to that of the original haproxy file.
+</li>
+  <li>   We don't want to put the metadata agent endpoint on the customer certificate. Please revert the changes made by the sed commands for the 'listen nova_metadata' stanza.
+</li>
+  <li>   Novnc_proxy (port 6080) has had the liveness checks turned off. You need to add the check-ssl line as highlighted in yellow below for each of the lines starting with server in the stanza.
+</li>
+</ol>
+<p>Change</p>
+<codeblock>listen nova_novncproxy
+  bind 192.0.2.22:6080 ssl crt /root/tmp/customer.pem
+  option httpchk GET /
+  maxconn 1500
+  server overcloud-ce-controller-controller0-52vmts6crbsw 192.0.2.26:6080 check inter 2000 rise 2 fall 5 ssl</codeblock>
+<p>to</p>
+<codeblock>listen nova_novncproxy
+  bind 192.0.2.22:6080 ssl crt /root/tmp/customer.pem
+  option httpchk GET /
+  maxconn 1500
+  server overcloud-ce-controller-controller0-52vmts6crbsw 192.0.2.26:6080 check inter 2000 rise 2 fall 5  check-ssl ca-file /etc/ssl/certs/ca-certificates.crt ssl</codeblock>
+<p>When the above steps are complete, restart the haproxy service to allow the changes to take effect.</p>
+</section>
+<section id="service-restarts"> <title>Service restarts</title>
+<p>Some services may need to be restarted. Currently we're aware of the need to restart the following</p>
+<ul>
+  <li>    Nova-api on all controller nodes
+</li>
+  <li>   Swift proxy server on all swift controller nodes.
+</li>
+  <li>   Memcached on nodes.</li>
+</ul>
+</section>
+<section id="caveats"> <title>Caveats</title>
+<ol>
+  <li>    If update is run, then the system will be revert back to the original state. If haproxy.cfg was backed up externally, it will be easier to reapply. However, you cannot simply copy the file as other things might have changed. Please follow the procedure to update haproxy.cfg again.</li>
+</ol>
+</section>
+<section id="post-fix-checklist"> <title>Post-fix checklist</title>
+<ol>
+  <li>    Verify that the endpoint gives out the correct certificate.
+<codeblock>echo | openssl s_client -connect 192.0.2.22:8774 | openssl x509 -text -noout|less</codeblock>
+</li>
+  <li>   Verify that the service can be reached. For example, for Nova:
+<codeblock>nova flavor-list</codeblock> (to verify db connectivity from nova-api)
+<codeblock>nova image-list </codeblock> (to verify glance connectivity from nova-api) 
+</li>
+  <li>   Point the browser to VIP:1993 and check the haproxy service status.
+</li>
+  <li>   Test with Keystone tools that use Java libraries. This is just to make sure the customer-provided cert is good. You need to request a new customer certificate if you find any version issues. The ECA certs are v3 compliant and have subjectAltNames.</li>
+</ol>
+</section>
+<section id="post-update-checklist"> <title>Post-update checklist</title>
+<ol>
+  <li>    Check /usr/local/share/ca-certificates/ephemeralca-cacert.crt has the client certificate trust chain. You can check the modulus using an openssl command, but easiest is to just pull up a backed up ephemeralca-cacert.crt file and diff it.
+</li>
+  <li>   Check if haproxy stanzas are as expected.</li>
+</ol>
+</section>
+<section id="possible-optimization-for-newly-installed-or-updated-systems"> <title>Possible optimization for newly installed or updated systems</title>
+<p>If one is set to supply the eca.crt and eca.key, instead of relying on the build-generated ECA credentials, then it's possible to append the customer's server certificate trust chain to the eca.crt. Then run the installer. This will negate the need to update the certs everywhere and restart services. The only change required then would be to change the haproxy configuration and restart haproxy on all controllers.</p>
+<ol>
+  <li>    Bring up the seed VM.
+</li>
+  <li>   Append the customer-supplied cert's trust chain to seed:/root/eca.crt. This is assuming the eca.key and eca.crt are being supplied to the installer.
+</li>
+  <li>   Run the installer.
+</li>
+  <li>   Copy the customer-supplied cert to all controllers.
+</li>
+  <li>   Run the two sed commands and update the haproxy config on all controllers.
+</li>
+  <li>   Restart haproxy to pick up the changes.
+</li>
+</ol>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+</body>
+</topic>

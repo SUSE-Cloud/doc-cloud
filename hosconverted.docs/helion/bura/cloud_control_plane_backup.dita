@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="topic_jsc_qps_qt">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Enabling Default Backups of the Control Plane to
+    an SSH Target</title>
+  <body><!--not tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <section>This topic describes how you can set up an external server as a backup server in case you lose access to your cloud servers that store the default backups.</section>
+    <section><title>Default Backup and Restore</title><p>As part of the installation procedure in <keyword keyref="kw-hos-phrase"/>, automatic
+        backup/restore jobs are set up to back up to Swift via the Freezer scheduler component of
+        the backup and restore service. The backup jobs perform scheduled backups of Helion
+        OpenStack control plane data (files/directories/db). The restore jobs can be used to restore
+        appropriate control plane data. Additional automatic jobs can be added to backup/restore
+        from the secure shell (SSH) server that you set up/designate. It is recommended that you set
+        up SSH backups so that in the event that you lose all of your control plane nodes at once,
+        you have a backup on remote servers that you can use to restore the control plane nodes.
+        Note that you do not have to restore from the SSH location if only one or two control plane
+        nodes are lost. In that case, they can be recovered from the data on the remaining control
+        plane node following the restore procedures in <xref
+          href="../operations/maintenance/controller/recovering_controller_nodes.dita#recovering_controller_nodes"
+          >Recovering the Cloud Control Plane</xref>. That document also explains how to recover
+        using your remote server SSH backups.</p> 
+      <p>While control plane backups to Swift are set up automatically, you must use the following
+        procedure to set up SSH backups.</p></section>
+    <section><title>Setting up SSH backups</title>
+      <p>By default, during <keyword keyref="kw-hos-phrase"/> deployment, backup jobs
+        are automatically deployed to Swift, the MySQL database, the lifecycle manager, and Swift rings.
+        Restore jobs are also deployed for convenience. It is more secure to store those backups
+        also outside of the Helion infrastructure. If you provide all the values required in the
+        following file, jobs will also be deployed to backup and restore to/from an SSH server of
+        your choice:<codeblock>~/helion/my_cloud/config/freezer/ssh_credentials.yml</codeblock>
+      </p></section>
+    <section><title>Backing up your Helion control plane to an SSH server</title>
+      <p>You must provide the following connection information to this server:<ul>
+          <li>The SSH server's IP address</li> 
+          <li>The SSH server's port to connect to (usually port 22). You may want to confirm how to
+            open the port on the Helion firewall.</li>
+          <li>The user to connect to the SSH server as</li>
+          <li>The SSH private key authorized to connect to that user (see below for details of how
+            to set up one if it is not already done)</li>
+          <li>The directory where you wish to store the backup on that server</li>
+        </ul>
+      </p>
+    </section>
+    <section><title>Setting up SSH for backups before deployment</title>
+      <p>Before running the configuration processor, edit the following file:
+        <codeblock>~/helion/my_cloud/config/freezer/ssh_credentials.yml</codeblock>Please be advised
+        that all parameters are mandatory, and take care in providing the SSH private key.</p></section>
+    <section><title>Setting up SSH for backups after deployment</title><p>If you already deployed your
+        cloud and forgot to configure SSH backups, or if you wish to modify the settings for where
+        the backups are stored, follow the following instructions:</p>
+      <ol>
+        <li>Edit the following file:
+          <codeblock>~/helion/my_cloud/config/freezer/ssh_credentials.yml</codeblock>Please be
+          advised that all parameters are mandatory, and take care in providing the SSH private
+          key.</li>
+        <li>Run the following commands:
+          <codeblock>cd ~/helion
+git add -A
+git commit -m "My config"
+cd ~/helion/hos/ansible/
+ansible-playbook -i hosts/localhost config-processor-run.yml
+ansible-playbook -i hosts/localhost ready-deployment.yml
+cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts _freezer_manage_jobs.yml</codeblock>This
+          will deploy the SSH key and configure SSH backup and restore jobs for you. It may take
+          some time before the backups occur.</li>
+      </ol></section>
+    <section><title>Preparing the server that will store the backup</title><p>In this example, the
+        information is as follows: <ul>
+          <li>IP: 192.168.100.42</li>
+          <li>Port: 22</li>
+          <li>User: backupuser</li>
+          <li>Target directory for backups: /mnt/backups/</li>
+        </ul></p>
+      <p>Please replace these values to meet your own requirements, as appropriate.</p>
+      <ol>
+        <li>Connect to the server: <codeblock>ssh -p 22 root@192.168.100.42</codeblock></li>
+        <li>Create the user:
+          <codeblock>useradd backupuser --create-home --home-dir /mnt/backups/</codeblock></li>
+        <li>Switch to that user:<codeblock>su backupuser</codeblock></li>
+        <li>Create the SSH keypair:
+          <codeblock>ssh-keygen -t rsa
+# Just leave the default for the first question and don't set any passphrase
+> Generating public/private rsa key pair.
+> Enter file in which to save the key (/mnt/backups//.ssh/id_rsa): 
+> Created directory '/mnt/backups//.ssh'.
+> Enter passphrase (empty for no passphrase): 
+> Enter same passphrase again: 
+> Your identification has been saved in /mnt/backups//.ssh/id_rsa
+> Your public key has been saved in /mnt/backups//.ssh/id_rsa.pub
+> The key fingerprint is:
+> a9:08:ae:ee:3c:57:62:31:d2:52:77:a7:4e:37:d1:28 backupuser@padawan-ccp-c0-m1-mgmt
+> The key's randomart image is:
+> +---[RSA 2048]----+
+> |          o      |
+> |   . . E + .     |
+> |  o . . + .      |
+> | o +   o +       |
+> |  + o o S .      |
+> | . + o o         |
+> |  o + .          |
+> |.o .             |
+> |++o              |
+> +-----------------+</codeblock></li>
+        <li>Add the public key to the list of the keys authorized to connect to that user on this
+          server:
+          <codeblock>cat /mnt/backups/.ssh/id_rsa.pub >> /mnt/backups/.ssh/authorized_keys</codeblock></li>
+        <li>View the private key. This is what you will use for the backup configuration:
+          <codeblock>cat /mnt/backups/.ssh/id_rsa
+-----BEGIN RSA PRIVATE KEY-----
+MIIEogIBAAKCAQEAvjwKu6f940IVGHpUj3ffl3eKXACgVr3L5s9UJnb15+zV3K5L
+BZuor8MLvwtskSkgdXNrpPZhNCsWSkryJff5I335Jhr/e5o03Yy+RqIMrJAIa0X5
+...
+iBKVKGPhOnn4ve3dDqy3q7fS5sivTqCrpaYtByJmPrcJNjb2K7VMLNvgLamK/AbL
+qpSTZjicKZCCl+J2+8lrKAaDWqWtIjSUs29kCL78QmaPOgEvfsw=
+-----END RSA PRIVATE KEY-----</codeblock></li>
+      </ol>
+      <p>You server is now ready to receive backups. If you wish, you can check our advice on how to
+        secure it.</p></section>
+    <section><title>Opening ports in the cloud firewall </title><p> There is a strict policy of
+      firewalling deployed with <keyword keyref="kw-hos"/>. If you use a non-standard SSH port, you may need to
+        specifically open it by using the following process:</p>
+      <ol>
+        <li>When creating your model, edit the following
+          file:<codeblock>~/helion/my_cloud/definition/data/firewall_rules.yml</codeblock></li>
+        <li>You must add a new element in the firewall-rules list, such as:
+          <codeblock>
+- name: BACKUP
+  # network-groups is a list of all the network group names
+  # that the rules apply to
+  network-groups:
+  - MANAGEMENT
+  rules:
+  - type: allow
+    # range of remote addresses in CIDR format that this
+    # rule applies to
+    remote-ip-prefix:  
+    port-range-min: 
+    port-range-max: 
+    # protocol must be one of: null, tcp, udp or icmp
+    protocol: tcp</codeblock></li>
+      </ol>
+    </section>
+    <section><title>Securing your SSH backup server</title><p>You can do the following to harden an SSH server (these techniques are well documented on the internet):<ul>
+          <li>Disable root login</li>
+          <li>Move SSH to a non-default port (that is, something other than 22)</li>
+          <li>Disable password login (only allow RSA keys)</li>
+          <li>Disable SSH v1</li>
+          <li>Authorize Secure File Transfer Protocol (SFTP) only for that user (disable SSH
+            shell)</li>
+      <li>Firewall SSH traffic to ensure it comes from the <keyword keyref="kw-hos"/> address range</li>
+          <li>Install a Fail2Ban solution</li>
+          <li>Restrict users that are allowed to SSH</li>
+        </ul></p><p>Remove the key pair generated earlier on the backup server: the only thing needed is the
+        .ssh/authorized_keys. You can remove the .ssh/id_rsa and .ssh/id_rsa.pub files. Be sure to
+        save a backup of them somewhere.</p></section>
+    <section><title>General tips</title><ul>
+        <li>Take care when sizing the directory that will receive the backup. </li>
+        <li>Monitor the space left on that directory.</li>
+        <li>Keep the system up to date on that server.</li>
+      </ul></section>
+  </body>
+</topic>

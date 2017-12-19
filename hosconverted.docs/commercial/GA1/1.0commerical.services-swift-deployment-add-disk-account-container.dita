@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic
+  PUBLIC "-//OASIS//DTD DITA Topic//EN" "http://docs.oasis-open.org/dita/v1.1/OS/dtd/topic.dtd" ><topic xml:lang="en-us" id="topic4948">
+<title>HPE Helion <tm tmtype="reg">OpenStack</tm> 1.0: Adding Disks to Account or Container Rings</title>
+<prolog>
+<metadata>
+<othermeta name="layout" content="default"/>
+</metadata>
+</prolog>
+<body>
+<p>
+<!--PUBLISHED-->
+ <!--./commercial/GA1/1.0commerical.services-swift-deployment-add-disk-account-container.md-->
+ <!--permalink: /helion/openstack/services/swift/deployment/add-disk-account-container/--></p>
+<p>
+
+</p>
+<p>Proxy nodes store account and container objects. When new disks are added to a proxy node, the new disks expand the storage capacity of the account and container rings. We also recommend to use same sets of disks for account and container.</p>
+<ol>
+<li>
+<xref type="section" href="#topic4948/prer">Prerequisite</xref>
+</li>
+<li>
+<xref type="section" href="#topic4948/adding-swift-disks-to-a-ring">Add Disks to an Account or Container Ring</xref>
+</li>
+</ol>
+<section id="prer"> <title>Prerequisite</title>
+<ul>
+<li>HPE Helion OpenStack cloud is successfully deployed.<p><i>(Starter Swift nodes are functional by
+              default as they are part of cloud deployment.)</i>
+          </p></li>
+<li>Scale-out object-ring:1 has been deployed.</li>
+<li>At least one Scale-out Proxy node has been deployed.</li>
+<li>All of the rings generated <b>must</b> be preserved, preferably at more than one location. Swift requires these rings to be consistent across all nodes. </li>
+<li>Make a backup of the rings before any operation.</li>
+</ul>
+</section>
+<section id="adding-swift-disks-to-a-ring"> <title>Add Disks to an Account or Container Ring</title>
+<p>Perform the following steps to add Swift disk to a ring:</p>
+<ol>
+<li>Log in to the undercloud from
+          seed.<codeblock><codeph># ssh heat-admin@&lt;undercloud IP address&gt; 
+# sudo -i</codeph></codeblock></li>
+<li>Change the directory to ring
+          builder.<codeblock><codeph># cd /root/ring-building
+</codeph></codeblock></li>
+<li>List the scale-out proxy
+            node.<codeblock><codeph># ringos list-swift-nodes -t proxy
+</codeph></codeblock><p>The
+            following sample displays the Proxy
+          nodes:</p><codeblock><codeph> +---------------+
+  | proxy-nodes   |
+  +---------------+
+  | 192.0.2.22    |
+  +---------------+
+</codeph></codeblock></li>
+<li>List the disks on the proxy
+            node.<codeblock><codeph># ringos list-disks -n &lt;proxy node IP address&gt; 
+</codeph></codeblock><p>The
+            following sample displays the lists of disk available on the Proxy node
+              <b>192.0.2.22</b>.</p><codeblock><codeph> +----------+------------+
+  | disk     | size       |
+  +----------+------------+
+  | /dev/sdb | 1073741824 |
+  |          |            |
+  | /dev/sdc | 1073741824 |
+  |          |            |
+  +----------+------------+
+</codeph></codeblock></li>
+<li>Format the given
+            disk.<codeblock><codeph># ringos format-disks -n &lt;proxy node IP address&gt;  -d &lt;disk&gt;
+</codeph></codeblock><p>The
+            following sample displays the output of formatted disk of <b>192.0.2.22</b>.</p><codeblock><codeph>+----------+-----------+---------+---------------------------------+-------------+------------+
+| disk     | formatted | mounted | mount_point                     | label       | size       |
++----------+-----------+---------+---------------------------------+-------------+------------+
+| /dev/sdb | y         | y       | /mnt/state/srv/node/b1410063336 | b1410063336 | 1073741824 |
++----------+-----------+---------+---------------------------------+-------------+------------+
+</codeph></codeblock><p>
+            <note>You can format all the disks with a single command (-d --all).</note>
+          </p></li>
+<li>List the file in the ring building directory. Identify <codeph>account.builder</codeph> and
+            <codeph>container.builder</codeph> files.</li>
+<li>(Optional)If the builder file does not exit in the undercloud, copy the builder files using the
+          following
+          command.<codeblock><codeph>rsync -qzp --rsync-path="sudo rsync" heat-admin@&lt;starter Swift nodes IP address&gt;:/etc/swift/account.builder /root/ring-building/
+rsync -qzp --rsync-path="sudo rsync" heat-admin@&lt;starter Swift nodes IP address&gt;:/etc/swift/container.builder /root/ring-building/
+</codeph></codeblock></li>
+<li>Add the formatted disk to account and container ring(s).<codeblock><codeph># ringos add-disk-to-ring -f /root/ring-building/account.builder -i &lt;Proxy nodes IP address&gt; -p &lt;port&gt; -d &lt;disk label&gt; -w &lt;weight&gt; -r &lt;region&gt; -z &lt;zone&gt;
+# ringos add-disk-to-ring -f /root/ring-building/container.builder -i &lt;Proxy nodes IP address&gt; -p &lt;port&gt; -d &lt;disk label&gt; -w &lt;weight&gt; -r &lt;region&gt; -z &lt;zone&gt;
+</codeph></codeblock><p>
+            <note/>
+          </p><ul>
+            <li>Choose the zone and region information appropriately.</li>
+            <li>The disk label is derived from step 5.</li>
+            <li>The port for the container ring is <codeph>6001</codeph> and account ring is
+                <codeph>6002</codeph>.</li>
+          </ul><p>
+            <b>Recommendation</b>:</p><ul>
+            <li>Add drives gradually using a weighted approach to avoid degraded performance of
+              Swift cluster. The weight will gradually increase by 25% until it becomes 100%. The
+              initial weight is 25.</li>
+          </ul></li>
+<li>Re-balance both account and container
+          ring(s).<codeblock><codeph># ringos rebalance-ring -f /root/ring-building/account.builder
+# ringos rebalance-ring -f /root/ring-building/container.builder    
+</codeph></codeblock></li>
+<li>List all the Swift
+          nodes.<codeblock><codeph># ringos list-swift-nodes -t all
+</codeph></codeblock></li>
+<li>Copy <codeph>account.ring.gz</codeph> and <codeph>container.ring.gz</codeph> files to all the
+          nodes.<codeblock><codeph># ringos copy-ring -s /root/ring-building/account.ring.gz -n &lt;Swift nodes IP address&gt;
+# ringos copy-ring -s /root/ring-building/container.ring.gz -n &lt;Swift nodes IP address&gt;
+</codeph></codeblock></li>
+<li>Set the weight of the disks using the following
+          command:<codeblock><codeph># ringos set-weight -f /root/ring-building/account.builder -s &lt;disk id&gt; -w &lt;weight&gt;
+# ringos set-weight -f /root/ring-building/container.builder -s &lt;disk id&gt; -w &lt;weight&gt;
+</codeph></codeblock></li>
+<li>Repeat steps from <b>8-11</b> increasing the weight by 25 each time; set the weight to 50, 75,
+          and finally 100 (w= 50, 75, 100) .</li>
+</ol>
+<p>
+  <xref href="#topic4948"> Return to Top </xref>
+</p>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+</body>
+</topic>

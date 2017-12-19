@@ -1,0 +1,1051 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic
+  PUBLIC "-//OASIS//DTD DITA Topic//EN" "http://docs.oasis-open.org/dita/v1.1/OS/dtd/topic.dtd" ><topic xml:lang="en-us" id="topic39140">
+<title>HPE Helion <tm tmtype="reg">OpenStack</tm> 1.1: Installation Troubleshooting</title>
+<prolog>
+<metadata>
+<othermeta name="layout" content="default"/>
+<othermeta name="product-version" content="HPE Helion Openstack"/>
+<othermeta name="product-version" content="HPE Helion Openstack 1.1"/>
+<othermeta name="role" content="Systems Administrator"/>
+<othermeta name="role" content="Cloud Architect"/>
+<othermeta name="role" content="Storage Administrator"/>
+<othermeta name="role" content="Network Administrator"/>
+<othermeta name="role" content="Service Developer"/>
+<othermeta name="role" content="Cloud Administrator"/>
+<othermeta name="role" content="Application Developer"/>
+<othermeta name="role" content="Network Engineer"/>
+<othermeta name="role" content="Paul F"/>
+<othermeta name="product-version1" content="HPE Helion Openstack"/>
+<othermeta name="product-version2" content="HPE Helion Openstack 1.1"/>
+</metadata>
+</prolog>
+<body>
+<p>
+<!--PUBLISHED-->
+ <!--./commercial/GA1/1.1commercial.troubleshooting.install.md-->
+ <!--permalink: /helion/openstack/1.1/services/troubleshooting/install/--></p>
+<p>This Helion installation troubleshooting guide is written for Helion OpenStack installers who, during or after building the HPE Helion OpenStack environment, find that the cloud environment does not work as expected. The Helion OpenStack environment is not itself complex but it does include a sufficient number of components that isolating a fault can be challenging.</p>
+<p>The goal of this guide is to help you to identify the problem or problems affecting your cloud installation and efficiently fix them.<!--A BR tag was used here in the original source.-->
+For help with troubleshooting Helion OpenStack 1.1 general issues, refer to:
+  <xref href="1.0commercial.troubleshooting.dita">Troubleshooting Helion</xref>
+</p>
+<section id="installing-the-cloud-environment"> <title>Installing the cloud environment</title>
+<p>Helion OpenStack installation requirements are fully documented in the support matrix at:
+  <xref href="1.1commercial.install-GA-supportmatrix.dita">Support Matrix</xref>
+The process of building the seed cloud host, creating the seed VM, the overcloud, and the undercloud are described at: 
+  <xref href="1.1commercial.install-GA-overview.dita">Helion installation overview</xref>
+At each step, you should have confirmation that what you have done works. At the conclusion of each major installation process, you will have confirmation that your installation works or does not. If you encounter issues, you should fix them before proceeding. After taking all these steps to resolve an error being reported, you may find that your cloud installation still does not work. This document will help you troubleshoot that experience.</p>
+</section>
+<section id="helion-installation"> <title>Helion installation</title>
+<p>By the time you are ready to start the HPE Helion OpenStack installation process, you will have confirmed that your hardware and your Linux environments are ready for it. If you do this incorrectly, your installation will likely fail.</p>
+<p>The installation is mostly scripted such that if you run the script and if the outcome is as expected, you can reasonably expect that your installation is correct up to this point. If there are problems, you should be alerted that a problem has occurred. By the end of your installation procedure, you will either have a working Helion environment for your virtual, baremetal, KVM, or ESX environment or you should have the information you need to identify what needs fixing.</p>
+</section>
+<section id="standard-procedures"> <title>Standard procedures</title>
+<p>To prevent known causes of failure, except where specifically noted otherwise, run your installation commands as admin by entering:</p>
+<codeblock>
+  <codeph>    sudo su - 
+</codeph>
+</codeblock>
+<ul>
+<li>
+<p>Enable logging. Pipe your session to a log so you can retrieve error messages and notifications of any configuration results that did not yield the desired result.</p>
+</li>
+<li>
+<p>Verify that you have a network connection. Several installation steps require network communications. Make sure that all network infrastructure services are pingable and that forward and reverse lookup of DNS is working properly.</p>
+</li>
+<li>
+<p>Make sure the hardware clock on each machine in your cloud configuration is time synced and that all nodes report the same time within a time drift of no more than 10 minutes. The preferred timezone zone is UTC.</p>
+</li>
+<li>
+<p>Do not misapply sizing units when calculating disk and memory size.  A kilobyte (KB) equals 1,000 bytes. A kibibyte (KiB) equals 1024 bytes.  KBs are decimal approximations of the binary value. Do not mix decimal and binary values. To see the available drive capacity for HPE ProLiant Gen8 or higher drives, use the HPE iLO GUI, system overview, storage tab.</p>
+</li>
+<li>
+<p>Monitor any exceptions generated by export commands. If you issue an export command that cannot be processed, you will see an error message. If you miss it from your terminal, it will be reported in your logs.</p>
+</li>
+<li>
+<p>Power off your overcloud servers before running the overcloud configuration script. The script expects the target servers to be off. When the script finishes configuring each server, it will bring it back online. When the script completes, you should have CLI output confirming the operational states of all your devices. You should also verify that they are all operational by checking their status LEDs (for physical installations). (The requirement to power down your servers is no longer a requirement, but it is still a best practice.)</p>
+</li>
+<li>
+<p>Log into your overcloud and undercloud Horizon instances and confirm that your servers are accounted for.</p>
+</li>
+<li>
+<p>In general, HPE recommends that you disable any firewalls inside of your image and use OpenStack security groups to restrict access to instances. The reason is that having a firewall installed on your instance can make it more difficult to troubleshoot networking issues if you cannot connect to your instance.</p>
+</li>
+<li>
+<p>DHCP servers configured on the undercloud/overcloud deployment network segment should be disabled, or the MAC addresses used for all nodes should be on the denied list for the DHCP server running on that network segment.</p>
+</li>
+<li>
+<p>For all Helion nodes, make sure only one network card is enabled. If you have multiple network cards, disable them in the server BIOS. For information on disabling interfaces in the BIOS, see the <b>Resolution</b> section for <xref type="section" href="#topic39140/PXE-boot-on-target">PXE boot on target node keeps switching between interfaces</xref>.</p>
+</li>
+</ul>
+</section>
+<section id="troubleshooting-the-installation"> <title>Troubleshooting the installation</title>
+<p>The following content is the result of lessons learned from troubleshooting actual installations. As customers and HPE support personnel report issues, this section will be updated.
+<b>Note</b>: If you are doing a virtual install, HPE recommends that you use <codeph>virt-manager</codeph> for troubleshooting.</p>
+</section>
+<section id="could-not-create-the-seed-vm"> <title>Could not create the seed VM</title>
+<p>For KVM installations: Make sure you have all the required software on the KVM host.</p>
+<ul>
+<li>Make sure you have qemu, openswitch, libvirt, and phython-libvert packages loaded on the KVM host. </li>
+<li>Make sure you have the SSH public key. </li>
+<li>Make sure you are installing on Ubuntu 13.10 or 14.04. </li>
+</ul>
+<p>For baremetal installations make sure you have the right system resources to support all of your baremetal VMs.</p>
+</section>
+<section id="could-not-access-the-kvm-host-on-the-seed-vm"> <title>Could not access the KVM host on the seed VM</title>
+<p>Check that you are exporting to the right bridge interface.</p>
+<p>Make sure that the seed VM is the gateway. This is a bug in older builds. If you are using an older Helion OpenStack build (prior to release 1.01), see your release notes for more information. Also, verify that your routing is correct. If not, use route commands to fix it.</p>
+</section>
+<section id="launching-a-new-kvm-virtual-machine-instance-fails-with-errorstate"> <title>Launching a new KVM virtual machine instance fails with <codeph>ERRORstate</codeph>
+</title>
+<p>On the Nova compute server, check the <codeph>/var/log/nova/nova-compute.log</codeph> file for the message</p>
+<codeblock>
+  <codeph>libvirtError: internal error no supported architecture for os type 'hvm'
+</codeph>
+</codeblock>
+<p>This message indicates that the KVM kernel modules were not loaded. If you cannot start VMs after installation without rebooting, the permissions might not be set correctly. This can happen if you load the KVM module before you install <codeph>nova-compute</codeph>. To check whether the group is set to <codeph>kvm</codeph>, run:</p>
+<codeblock>
+  <codeph># ls -l /dev/kvm 
+</codeph>
+</codeblock>
+<p>If it is not set to <codeph>kvm</codeph>, contact customer support.</p>
+</section>
+<section id="cannot-ssh-into-the-seed-vm"> <title>Cannot SSH into the seed VM</title>
+<p>Check your IP addressing assignments. This could be a networking or Security groups issue.  To determine where the issue lies, you can, for example, use <codeph>ip netns</codeph> to ping the different interfaces along the route to the VM.</p>
+<p>Also, check the state of the VM by entering:</p>
+<codeblock>
+  <codeph>virsh list
+</codeph>
+</codeblock>
+</section>
+<section id="the-underovercloud-fails-when-parsing-the-basemetalcsv-file"> <title>The under/overcloud fails when parsing the <codeph>basemetal.csv</codeph> file</title>
+<p>There are a number of possible causes for this error:</p>
+<ul>
+<li>Check for proper .csv formatting. Look for extra spaces, special characters.</li>
+<li>Is the IPMI network accessible? You need to be able to access this network. Manually verify all login credentials.</li>
+<li>Check your IP addressing. One of the IP addresses may be incorrect.</li>
+<li>The baremetal.csv minimum node disk size is invalid. The minimum node disk size is 512G. If you specify a smaller size in your <codeph>baremetal.csv</codeph> file, the file will not process.</li>
+<li>The number of rows in your .csv file is smaller than expected. The <codeph>compute_scale</codeph> parameter reports more rows in your .csv file than are actually found. Resolve the discrepancy.</li>
+<li>Verify RAM size. You need at least 32Gb of RAM. </li>
+</ul>
+</section>
+<section id="cannot-create-the-undercloud-stack"> <title>Cannot create the undercloud stack</title>
+<p>This can happen because the installer times out or terminates abuptly.</p>
+</section>
+<section id="installer-times-out"> <title>Installer times out</title>
+<p>Check that you are exporting to the right bridge interface. For example, if your external interface is <codeph>em2</codeph>, and not <codeph>eth0</codeph>, make sure the relevant variables are set correctly in your JSON file. Also:</p>
+<ul>
+<li>Check the iLO console for a <codeph>daemon.error tgtd</codeph>, meaning the installer is stuck. To fix this:
+
+<ul>
+<li>You can reboot.</li>
+<li>If you have no local disk, use Ubuntu to DD the disk.</li>
+<li>Examine the seed VM log file /var/log/upstartironic-conductor.log</li>
+<li>Check the bootstrap OS to make sure you have enough disk space.</li>
+</ul>
+</li>
+<li>If you see a read-only file system error on the iLO console, make sure the BIOS date/time stamp matches that on the seed VM. Use the <codeph>time sync</codeph>  or <codeph>ntpq p</codeph> command across all nodes to verify that time drift is within acceptable limits.</li>
+<li>If the iLO console reports that the boot is stuck but the network is booting, check the NIC order; check that the designated port is on a separate VLAN.</li>
+<li>If the iLO console reports a metadata access error, disable any DHCP servers on the same VLAN. </li>
+<li>If the iLO console halts at <codeph>br-ctlplane</codeph> and you cannot reach the undercloud, and you are using Oneview, there is a patch for this. Or, remove Oneview. This problem can also be caused because there is more than one active connection. </li>
+</ul>
+</section>
+<section id="the-installer-terminates-abruptly2"> <title>The installer terminates abruptly</title>
+<p>This issue can happen:</p>
+<ul>
+<li>If your disk size is less than what you specify in the <codeph>baremetal.csv</codeph> file, reduce the size in your .csv file.</li>
+<li>If the server sees the SAN boot LUN as having an incorrect OS, fix it to be Linux OS.</li>
+<li>If the iLO console reports <codeph>Fatal PCI Express Device Error PCI Slot</codeph>, you need to reset iLO and clear the iLO event logs.</li>
+</ul>
+</section>
+<section id="installer-fails-before-the-overcloud-stack-can-be-created"> <title>Installer fails before the overcloud stack can be created</title>
+<p>The reasons for this problem are:</p>
+<ul>
+<li>The failure happens at the Neutron Public Interface IP address. Fix the export variable (external VLAN support).</li>
+<li>The error is HTTP 500. Look for the error details in the <codeph>/var/log/upstart/os-collect-config</codeph> log. This will happen if you have a duplicate MAC address in your <codeph>baremetal.csv</codeph> file.</li>
+<li>The failure happens with IP addressing at the external VLAN. Check your VLAN tags and fix any IP addressing errors.</li>
+</ul>
+</section>
+<section id="installer-fails-at-the-overcloud-stack-creation"> <title>Installer fails at the overcloud stack creation</title>
+<p>As with problems creating the undercloud, this problem can happen because the installer times out or terminates abuptly.</p>
+</section>
+<section id="installer-times-out2"> <title>Installer times out</title>
+<p>Check that you are exporting to the right bridge interface. For example, if your external interface is <codeph>em2</codeph>, and not <codeph>eth0</codeph>, make sure the relevant variables are set correctly in your JSON file. Also:</p>
+<ul>
+<li>Check the iLO console for a <codeph>daemon.error tgtd</codeph>, meaning the installer is stuck. To fix this:
+
+<ul>
+<li>You can reboot.</li>
+<li>If you have no local disk, use Ubuntu to DD the disk.</li>
+<li>Examine the seed VM log file <codeph>/var/log/upstartironic-conductor.log</codeph>
+</li>
+<li>Check the bootstrap OS to make sure you have enough disk space.</li>
+</ul>
+</li>
+<li>If you see a read-only file system error on the iLO console, make sure the BIOS date/time stamp matches that on the seed VM. Use the time sync command.</li>
+<li>If the iLO console reports that the boot is stuck but the network is booting, check the NIC order; check that the designated port is on a separate VLAN.</li>
+<li>If the iLO console reports a metadata access error, disable any DHCP servers on the same VLAN. </li>
+<li>If the iLO console halts at <codeph>br-ctlplane</codeph> and you cannot reach the undercloud, and you are using Oneview, there is a patch for this. Or, remove Oneview. This problem can be caused because there is more than one active connection. </li>
+<li>If the Undercloud Nova list and Ironic node-list report node states as being <codeph>Active</codeph> and <codeph>Power ON</codeph>, the problem is somewhere in the overcloud Heat stack. To check this, run the <codeph>heat</codeph> <codeph>stack-show</codeph>, <codeph>event-list</codeph>, <codeph>event-show</codeph> commands. Check your logs. Also SSH into the overcloud nodes in your external VLAN and verify that routing is set correctly.</li>
+</ul>
+</section>
+<section id="the-installer-terminates-abruptly3"> <title>The installer terminates abruptly</title>
+<p>This issue can happen:</p>
+<ul>
+<li>If your disk size is less than what you specify in the <codeph>baremetal.csv</codeph> file, reduce the size in your .csv file.</li>
+<li>If the server sees the SAN boot LUN as having an incorrect OS, fix it to be Linux OS.</li>
+<li>If the iLO console reports <codeph>Fatal PCI Express Device Error PCI Slot</codeph>, you need to reset iLO and clear the iLO event logs.</li>
+<li>If one or more time synced nodes do not power on, you should:
+
+<ul>
+<li>Use the <codeph>time sync</codeph> command on each node with the seed VM. </li>
+<li>Also reboot iLO and clear the iLO event logs. </li>
+<li>And halt the undercloud nova-compute and ironic-conductor processes and then power on the suspect overcloud node. Check the iLO console to verify that it is behaving correctly.</li>
+<li>Looks at the <codeph>nova-compute</codeph>, <codeph>ironic-conductor</codeph>, and <codeph>heat-engine</codeph> logs of the suspect undercloud node.</li>
+</ul>
+</li>
+</ul>
+</section>
+<section id="installer-fails-after-the-overcloud-stack-is-successfully-created"> <title>Installer fails after the overcloud stack is successfully created</title>
+<p>The reasons for this problem are:</p>
+<ul>
+<li>
+<p>You are stuck at init-keystone. Check that the firewall ports between the management and external VLANs are open. (This does not apply in HA configurations.)
+Also you can bypass the firewall by creating the VLAN interface on the KVM host.</p>
+</li>
+<li>
+<p>You cannot create the Neutron network. Check if the IP address is a superset of the external network. You can export the <codeph>FIXED_RANGE_START</codeph>, <codeph>FIXED_RANGE_END</codeph>, and <codeph>FIXED_RANGE_CIDR</codeph> variables. You can also recreate the external network and default network to match your requirements.</p>
+</li>
+<li>The image upload fails. You may have a race condition. Upload the image manually after the installation is complete.</li>
+<li>
+<p>You cannot ping a launched VM. The VM did not get a DHCP issued IP address. You can:</p>
+
+<ul>
+<li>Restart the <codeph>neutron-openswitch-agent</codeph> on the affected VM.</li>
+<li>Restart the <codeph>neutron-dhcp-agent</codeph> on the controller node(s).</li>
+<li>Run the <codeph>tcpdump</codeph> command and examine the output.</li>
+</ul>
+<p>Also check the image to make sure it is available.</p>
+</li>
+<li>Demo VM creation fails. Skip the demo VM instance creation by entering <codeph>?skip-demo</codeph> on <codeph>installer.sh</codeph>.</li>
+</ul>
+</section>
+<section id="installer-completed-correctly-but-my-helion-openstack-cloud-does-not-work"> <title>Installer completed correctly, but my Helion OpenStack cloud does not work</title>
+<p>The likely reasons this happens are:</p>
+<ul>
+<li>
+<p>You cannot SSH into or ping the VM. In this case:</p>
+
+<ul>
+<li>Make sure your security group rules allow ICMP and SSH.</li>
+<li>Check that the VM was assigned a DHCP IP address. </li>
+<li>Check the console.log file for metadata access failures.</li>
+</ul>
+</li>
+<li>
+<p>You cannot attach the Cinder volume. In this case:</p>
+
+<ul>
+<li>Check the <codeph>nova-compute.log</codeph>.</li>
+<li>Check the keystone-endpoint and Cinder configuration for the IP address of the ISCSI target.</li>
+<li>There may still be a bug in Helion when configured in External VLAN mode. Check your Helion release notes for more information.</li>
+</ul>
+</li>
+<li>
+<p>When you try to launch a VM, you get a <codeph>no valid host found</codeph> error. In this case:</p>
+
+<ul>
+<li>Is the compute node assigned? Check <b>Admin &gt; Instances</b>. Also check the <codeph>nova-compute.log</codeph> on the suspect node. And if the node is not assigned, check the nova-scheduler on the controller node(s).</li>
+<li>Is this a quota issue?</li>
+<li>You may have a memory and disk resource allocation issue.</li>
+</ul>
+</li>
+</ul>
+</section>
+<section id="installer-crashed-did-not-complete-normally"> <title>Installer crashed - did not complete normally</title>
+<p>Check elasticsearch and solver for corrupted data and remove it.
+When you experience a crash, always check for corrupted data. Before you restart the installer, remove any instances of corrupted data or you risk subsequent installs failing because of corrupted data.</p>
+</section>
+<section id="troubleshooting-known-issues"> <title>Troubleshooting known issues</title>
+<p>This section explains known issues and provides possible solutions shown to be effective in resolving them.</p>
+<ul>
+<li>
+<xref type="section" href="#topic39140/maintmode">Overcloud update failed because of nodes in maintenance state</xref>
+</li>
+<li>
+<xref type="section" href="#topic39140/fatal-pci">Fatal PCI Express Device Error</xref>
+</li>
+<li>
+<xref type="section" href="#topic39140/IPMI-fails">IPMI fails with error- unable to establish IPMI v2 / RMCP+ session</xref>
+</li>
+<li>
+<xref type="section" href="#topic39140/failure-update-overcloud">Failure of update on the overcloud</xref>
+</li>
+<li>
+<xref type="section" href="#topic39140/PXE-boot-on-target">PXE boot on target node keeps switching between interfaces</xref>
+</li>
+<li>
+<xref type="section" href="#topic39140/OC-controllers-unreachable">Controller nodes unreachable</xref>
+</li>
+<li>
+<xref type="section" href="#topic39140/ephemeral-fail-unmount">Ephemeral partition fails to unmount</xref>
+</li>
+<li>
+          <xref href="#topic39140/bios-clocks-are-not-set-to-correct-date" format="dita">BIOS clocks
+            are not set to correct date and time across all nodes</xref>
+        </li>
+<li>
+<xref type="section" href="#topic39140/ilo-console">iLO console shows hLinux daemon.err tgtd while PXE booting</xref>
+</li>
+<li>
+<xref type="section" href="#topic39140/ilo-show-null">iLO console shows null waiting for notice of completion while PXE booting</xref>
+</li>
+<li>
+<xref type="section" href="#topic39140/failure-installer">Failure of hp_ced_installer.sh</xref>
+</li>
+<li>
+<xref type="section" href="#topic39140/seed-install-failure">Failure of Seed Installation</xref>
+</li>
+<li>
+<xref type="section" href="#topic39140/rabbit-failure">Inconsistent Failures in RabbitMQ</xref>
+</li>
+<li>
+<xref type="section" href="#topic39140/reboot-accident">Accidental Reboot of Overcloud Controller</xref>
+</li>
+<li>
+<xref type="section" href="#topic39140/reset-stuck">Server Power Stuck at Reset</xref>
+</li>
+<li>
+<xref type="section" href="#topic39140/bridge-persists">Network Bridge Persists After Uninstall</xref>
+</li>
+<li>
+<xref type="section" href="#topic39140/seed-error">Seed Generates Restarting libvertd Script Error</xref>
+</li>
+<li>
+<xref type="section" href="#topic39140/ironic-error">Node in Error Cannot be Controlled by Ironic or Nova</xref>
+</li>
+<li>
+<xref type="section" href="#topic39140/windebug">Debugging a <tm tmtype="reg">Windows</tm> Server OS Using a Serial Connection</xref>
+</li>
+<li>
+<xref type="section" href="#topic39140/DNSvariables">Using the sample DNS JSON file variable names for setup causes errors</xref>
+</li>
+<li>
+<xref type="section" href="#topic39140/seednoshow">Seed cloud host cannot be reached after it is rebooted</xref>
+</li>
+</ul>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="maintmode"> <title>Overcloud update failed because of nodes in maintenance state</title>
+<p>
+  <b>System Behavior/Message</b>
+</p>
+<p>Do NOT proceed with your installation/update if any of the undercloud/overcloud nodes are down or in a maintenance state.
+To check if nodes are in maintenance state, source the undercloud credentials:</p>
+<codeblock>
+  <codeph>root@hLinux:~# ironic node-list
+</codeph>
+</codeblock>
+<p>The following is sample output:</p>
+<codeblock>
+  <codeph>+--------------------------------------+--------------------------------------+-------------+--------------------+-------------+
+| UUID | Instance UUID| Power State | Provisioning State | Maintenance |
++--------------------------------------+--------------------------------------+-------------+--------------------+-------------+
+| def2a648-8b8f-493c-8f36-40c898392ec9 | cd3559b6-0fdd-49d6-b7d1-3cc95615e7fc | power on| active | False   |
+| 36854b32-10f8-4e41-8b0b-04901935fabb | 9af2f1d3-7299-4b69-b01e-71d0878c198e | power on| active | False   |
+| 54e0af81-4a17-41da-ab67-267eb07bd1e1 | b3e85509-4f96-4421-9e8b-d04b51297102 | power on| active | False   |
+| 3fb56d36-5ba7-46e7-9464-5252348d5252 | 3d125eee-9712-4888-9862-856627c891fe | power on| active | False   |
+| e21c7122-9a6e-4b56-b66c-846d28fab118 | f2e2bac2-1700-476a-ad53-23a9392d78b1 | power on| active | False   |
+| 964c36a9-53cb-491f-b12c-a24bf3a4ec6e | 012dd248-de6a-43a9-b3f7-0c2fc4b16a48 | power on| active | False   |
++--------------------------------------+--------------------------------------+-------------+--------------------+-------------+
+</codeph>
+</codeblock>
+<p>Verify that all Ironic nodes show <codeph>False</codeph> for Maintenance mode.</p>
+</section>
+<section id="updating-baremetal-seeds"> <title>Updating Baremetal Seeds</title>
+<p>The section applies when the seed IP address is the default gateway for the baremetal network (brbm) This is normally the case for virtual installs. For baremetal installs you should not be using the seed as the default gateway for brbm. In this case, the following does not apply.</p>
+<p>During seed update, it needs to be shut down and then started up with the updated image. If the seed is the default gateway this mean the undercloud can no longer talk to the overcloud (that is, the network is interrupted). This interruption normally lasts about five minutes. This interruption can cause Ironic running on the undercloud to put some overcloud nodes into maintenance state as Ironic can no longer contact them</p>
+<p>
+  <b>Resolution</b>
+</p>
+<p>To mitigate nodes being placed in maintenance:</p>
+<ol>
+<li>Check if any nodes are in maintenance before running the seed update.</li>
+<li>Fix any nodes that are found to be in maintenance state.</li>
+<li>Run the seed update.</li>
+<li>
+<p>After the seed update completes, check if any nodes are in maintenance state because of the seed update.</p>
+
+<p>To check if any nodes are in maintenance state, enter:</p>
+
+<codeblock>
+<codeph>root@hLinux:~# ironic node-list
+</codeph>
+</codeblock>
+
+<p>The following is sample output.</p>
+
+<codeblock>
+<codeph>+--------------------------------------+--------------------------------------+-------------+--------------------+-------------+
+| UUID                                 | Instance UUID                        | Power State | Provisioning State | Maintenance |
++--------------------------------------+--------------------------------------+-------------+--------------------+-------------+
+| def2a648-8b8f-493c-8f36-40c898392ec9 | cd3559b6-0fdd-49d6-b7d1-3cc95615e7fc | power on    | active             | False       |
+| 36854b32-10f8-4e41-8b0b-04901935fabb | 9af2f1d3-7299-4b69-b01e-71d0878c198e | power on    | active             | False       |
+| 54e0af81-4a17-41da-ab67-267eb07bd1e1 | b3e85509-4f96-4421-9e8b-d04b51297102 | power on    | active             | False       |
+| 3fb56d36-5ba7-46e7-9464-5252348d5252 | 3d125eee-9712-4888-9862-856627c891fe | power on    | active             | False       |
+| e21c7122-9a6e-4b56-b66c-846d28fab118 | f2e2bac2-1700-476a-ad53-23a9392d78b1 | power on    | active             | False       |
+| 964c36a9-53cb-491f-b12c-a24bf3a4ec6e | 012dd248-de6a-43a9-b3f7-0c2fc4b16a48 | power on    | active             | True        |
++--------------------------------------+--------------------------------------+-------------+--------------------+-------------+
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>If a node is found to have been put in maintenance state, use the <codeph>ironic node-set-maintenance</codeph> command to remove the flag. For example:</p>
+
+<codeblock>
+<codeph>ironic node-set-maintenance 964c36a9-53cb-491f-b12c-a24bf3a4ec6e
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Proceed with your undercloud and overcloud update.</p>
+</li>
+</ol>
+</section>
+<section id="if-all-else-fails"> <title>If all else fails</title>
+<p>If you need further assistance, contact <xref href="http://www.hpcloud.com/about/contact" scope="external" format="html" >HPE Customer Support</xref>. Before contacting HPE Customer Support, run the <codeph>run-sosreport</codeph> command on the affected nodes. The <codeph>run-sosreport</codeph> command will gather specific reports that will help diagnose your issue. You do not need to be admin (root) to run this command.</p>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="fatal-pci"> <title>Fatal PCI Express Device Error</title>
+<p>
+  <b>System Behavior/Message</b>
+</p>
+<p>When installing on HPE ProLiant SL390s and HPE ProLiant BL490d systems, the following error has occasionally occurred:</p>
+<codeblock>
+  <codeph>`Fatal PCI Express Device Error PCI Slot ? B00/D00/F00`
+</codeph>
+</codeblock>
+<p>
+  <b>Resolution</b>
+</p>
+<p>If you get this error, reset the system that experienced the error:</p>
+<ol>
+<li>Connect to the iLO using Internet Explorer:
+    <codeph>https://&lt;iLO IP address&gt;</codeph>
+</li>
+<li>Navigate to Information / Diagnostics.</li>
+<li>Reset iLO.</li>
+<li>Log back into the iLO after 30 seconds.</li>
+<li>Navigate to Remote Console / Remote Console.</li>
+<li>Open the integrated remote console (.NET).</li>
+<li>Click Power switch / Press and Hold.</li>
+<li>
+<p>Click Power switch / Momentary Press, and wait for the system to restart.</p>
+
+<p>The system should now boot normally.</p>
+</li>
+</ol>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="IPMI-fails"> <title>IPMI fails with an error- unable to establish IPMI v2 / RMCP+ session</title>
+<p>
+  <b>System Behavior/Message</b>
+</p>
+<p>When installing on HPE ProLiant BL490c systems, the following error has occasionally occurred:</p>
+<codeblock>
+  <codeph>unable to establish IPMI v2 / RMCP+ session
+</codeph>
+</codeblock>
+<p>
+  <b>Resolution</b>
+</p>
+<p>If you get this error, perform the following steps:</p>
+<ol>
+<li>Ensure that the iLO user has administrator privileges, which is required by the IPMITOOL.</li>
+<li>To check from the iLO remote console, reboot the server and press <b>F8</b> to get to iLO Management screen.</li>
+<li>Click <b>User</b> in the menu-bar and select <b>Edit</b>. Edit User pop-up box displays .</li>
+<li>If you are using a BL server in the QA C7000 enclosure, select the <b>cdl</b> user to edit.</li>
+<li>Use ↓(down arrow key) to select <b>Administer User Accounts</b>. </li>
+<li>Use the space bar to set the value to <b>YES</b>.</li>
+<li>Select <b>F10</b> to save.</li>
+<li>Click <b>File</b> and select <b>Exit</b> to close.
+<!--A BR tag was used here in the original source.--></li>
+</ol>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="failure-update-overcloud"> <title>Failure of update on the overcloud</title>
+<p>
+  <b>System Behavior/Message</b>
+</p>
+<p>Update overcloud fails with the following error:</p>
+<codeblock>Inconsistency between heat description ($OVERCLOUD_NODES) and overcloud configuration ($OVERCLOUD_INSTANCES)</codeblock>
+<p>
+  <b>Resolution</b>
+</p>
+<p>If you get this error, perform the following steps:</p>
+<ol>
+<li>
+<p>Log in to Seed.</p>
+
+<codeblock>
+<codeph>ssh root@&lt;Seed IP address&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Edit the <i>/root/tripleo/ce_env.json</i> file and update the variables <b>build_number</b> and <b>installed_build_number</b> to the correct value. <!-- (CORE-1697) --> They may or may not match but the value cannot be NULL.</p>
+</li>
+<li>
+<p>A sample section of the <i>ce_env_json</i> file showing that the <b>build_number</b> is changed from NULL to a valid value.</p>
+
+<codeblock>
+<codeph>"host-ip": "192.168.122.1", 
+"hp": { 
+     "build_number": 11, 
+     "installed_build_number": 11 
+...
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Run the installer script again to update the overcloud. During the installation, the build specified by build_number is installed.</p>
+
+<codeblock>
+<codeph>bash -x tripleo/tripleo-incubator/scripts/hp_ced_installer.sh --update-overcloud |&amp; tee update_cloud.log
+</codeph>
+</codeblock>
+</li>
+</ol>
+<p>
+  <!--A BR tag was used here in the original source.-->
+</p>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="PXE-boot-on-target"> <title>PXE boot on target node keeps switching between interfaces</title>
+<p>
+  <b>System Behavior/Message</b>
+</p>
+<p>When node boots up on iLO console it shows node waiting for PXE boot on multiple NICs.</p>
+<p>
+  <b>Probable Cause</b>
+</p>
+<p>Multiple NICs are enabled for Network Boot.</p>
+<p>
+  <b>Resolution</b>
+</p>
+<ul>
+<li>Reboot the node, using <b>F9</b> to get to the BIOS configuration.</li>
+<li>Assuming NIC1(eth0/em1) for the node is connected to a private network shared across node enable it for Network Boot.</li>
+<li>Select System Options &gt; Embedded NICs.</li>
+<li>Set NIC 1 Boot Options = Network Boot.</li>
+<li>Set NIC 2 Boot Options = Disabled.</li>
+</ul>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="OC-controllers-unreachable"> <title>Controller nodes are unreachable</title>
+<p>
+  <b>System Behavior/Message</b>
+</p>
+<p>The overcloud Heat stack creation completes beyond the <codeph>pxe-boot</codeph> stage in the deployment process, and <codeph>nova list</codeph> commands show controller nodes as <codeph>active</codeph>, but the Heat deployment fails. Users cannot log into the nodes.</p>
+<p>For example, the three overcloud Controllers fail as follows:</p>
+<codeblock>
+  <codeph>23:01:35 | controller1AllNodesDeployment | a60064ab-aa33-4d47-80c9-0e04561bb591 | OS::Heat::StructuredDeployment | CREATE_FAILED | 2015-03-27T22:08:33Z |
+23:01:35 | controller2AllNodesDeployment | 8386d72a-668a-459c-af14-8f67a76f496a | OS::Heat::StructuredDeployment | CREATE_FAILED | 2015-03-27T22:08:36Z |
+23:01:35 | controller0AllNodesDeployment | a0e184fe-dddf-49b3-91c7-8a63a89687ef | OS::Heat::StructuredDeployment | CREATE_FAILED | 2015-03-27T22:08:37Z |
+</codeph>
+</codeblock>
+<p>
+  <b>Resolution</b>
+</p>
+<p>This could be because your controller nodes are failing to get
+ their metadata from Nova in the undercloud.</p>
+<p>You can confirm this by looking at the overcloud hostname. If the overcloud nodes hostname is <codeph>hlinux</codeph> instead of the expected hostname, for example, <codeph>overcloud-ce-controller-controller0-26x25y6vuxrb</codeph> nodes are likely not getting their metadata from Nova.</p>
+<p>You can further check for the absence of the meta-data transfer messages in <codeph>/var/log/nova-api.log</codeph> file on the undercloud node.</p>
+<p>The following is an example of the expected messages. If the <codeph>nova-api.log</codeph> does not contain messages like this for each overcloud host, the metadata is not being transferred:</p>
+<codeblock>
+  <codeph>2015-04-01 17:06:33.682 5296 INFO nova.metadata.wsgi.server [req-f899b10b-8bb7-46cd-8a09-d8b36608c957 None] 10.11.39.138 "GET /latest/meta-data/ HTTP/1.1" status: 200 len: 386 time: 0.1749260
+2015-04-01 17:06:33.684 5296 INFO nova.api.ec2 [req-f899b10b-8bb7-46cd-8a09-d8b36608c957 None] 0.310s 10.11.39.138 GET /latest/meta-data/ami-id None:None 200 [python-requests/2.5.1 CPython/2.7.8 Linux/3.14.29-4-amd64-hlinux] text/plain text/plain
+2015-04-01 17:06:33.684 5296 INFO nova.metadata.wsgi.server [req-f899b10b-8bb7-46cd-8a09-d8b36608c957 None] 10.11.39.138 "GET /latest/meta-data/ami-id HTTP/1.1" status: 200 len: 153 time: 0.0008781
+2015-04-01 17:06:34.083 5296 INFO nova.api.ec2 [req-f899b10b-8bb7-46cd-8a09-d8b36608c957 None] 0.338s 10.11.39.138 GET /latest/meta-data/ami-launch-index None:None 200 [python-requests/2.5.1 CPython/2.7.8 Linux/3.14.29-4-amd64-hlinux] text/plain text/plain
+2015-04-01 17:06:34.084 5296 INFO nova.metadata.wsgi.server [req-f899b10b-8bb7-46cd-8a09-d8b36608c957 None] 10.11.39.138 "GET /latest/meta-data/ami-launch-index HTTP/1.1" status: 200 len: 141 time: 0.0010879
+2015-04-01 17:06:34.086 5296 INFO nova.api.ec2 [req-f899b10b-8bb7-46cd-8a09-d8b36608c957 None] 0.225s 10.11.39.138 GET /latest/meta-data/ami-manifest-path None:None 200 [python-requests/2.5.1 CPython/2.7.8 Linux/3.14.29-4-amd64-hlinux] text/plain text/plain
+2015-04-01 17:06:34.086 5296 INFO nova.metadata.wsgi.server [req-f899b10b-8bb7-46cd-8a09-d8b36608c957 None] 10.11.39.138 "GET /latest/meta-data/ami-manifest-path HTTP/1.1" status: 200 len: 145 time: 0.0007529
+</codeph>
+</codeblock>
+<p>To fix this problem, make sure that you have only one functional
+ interface on your undercloud node.</p>
+<p>A workaround to disabling an interface, is to use the <codeph>$ifdown &lt;interface&gt;</codeph> command. For example to disable <codeph>eth1</codeph> on the undercloud, enter:</p>
+<codeblock>
+  <codeph>$ifdown eth1
+</codeph>
+</codeblock>
+<p>The recommended procedure is to permanently disable the interface in the BIOS. Refer to the <b>Resolution</b> section in the previous troubleshooting issue for these instructions: <xref type="section" href="#topic39140/PXE-boot-on-target">PXE boot on target node keeps switching between interfaces</xref>.</p>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="ephemeral-fail-unmount"> <title>An ephemeral partition fails to unmount</title>
+<p>
+  <b>System Behavior/Message</b>
+</p>
+<p>If during an update, you receive the following error message:</p>
+<codeblock>
+  <codeph>The ephemeral storage of this system failed to be cleaned up properly and processes or files are still in use. The previous ansible play should have information to help troubleshoot this issue.
+</codeph>
+</codeblock>
+<p>
+<b>Probable Cause</b> <!--A BR tag was used here in the original source.-->
+The most likely reason the partition failed to unmount is due to a process still holding a file handle on the partition. This normally happens when a process has failed to stop (where stop is issued by the Ansible playbook) or has been restarted (by <codeph>cron</codeph> for example) after the stop was issued.</p>
+<p>
+  <b>Resolution</b>
+</p>
+<p>To find out which process is still running:</p>
+<ol>
+<li>
+<p>Log onto the failed nodes and enter:</p>
+
+<codeblock>
+<codeph>ssh heat-admin@10.23.67.139 
+$ sudo su -
+root@overcloud-ce-controller-swiftstorage0-h7t3467lf7fx:~# lsof /mnt
+COMMAND  PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME 
+stunnel4 33047 root   24w   REG8,1  4812923 62128141 /mnt/state/var/log/stunnel4/helion_stunnel.log
+</codeph>
+</codeblock>
+
+<p>In the above example <codeph>stunnel4</codeph> has failed to stop.</p>
+</li>
+<li>
+<p>To stop the process and verify nothing is holding a file reference on <codeph>/mnt</codeph> enter:</p>
+
+<codeblock>
+<codeph>root@overcloud-ce-controller-swiftstorage0-h7t3467lf7fx:~# pkill stunnel4
+root@overcloud-ce-controller-swiftstorage0-h7t3467lf7fx:~# lsof /mnt
+root@overcloud-ce-controller-swiftstorage0-h7t3467lf7fx:~# 
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Follow the procedure to restart <codeph>mysql</codeph> and <codeph>rabbitmq</codeph> from the <i>Tripleo-ansible Troubleshooting Guide</i>.
+Once restarted, re-run the overcloud ansible playbook and not the <codeph>update_oc.sh</codeph> script
+<!--A BR tag was used here in the original source.--></p>
+</li>
+</ol>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="bios-clocks-are-not-set-to-correct-date"> <title>BIOS clocks are not set to correct date and time across all nodes</title>
+<p>
+  <b>System Behavior/Message</b>
+</p>
+<p>Nodes PXE boot but ISCSI does not start.</p>
+<p>
+  <b>Probable Cause</b>
+</p>
+<p>Time and date across nodes are incorrect.</p>
+<p>
+  <b>Resolution</b>
+</p>
+<p>Reboot the node, using <b>F9</b> to get to the BIOS configuration. BIOS date and time are set correctly and the same on all the systems.</p>
+<ul>
+<li>Select Date and Time.</li>
+<li>Set the Date.</li>
+<li>Set the Time.</li>
+<li>Use the &lt;ENTER&gt; key to accept the new date and time.</li>
+<li>Save the BIOS, which reboots the node again.</li>
+<li>Once the node has rebooted, you can confirm its data and time from the iLO Overview.
+<!--A BR tag was used here in the original source.--></li>
+</ul>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="ilo-console"> <title>iLO console shows hLinux daemon.err tgtd while PXE booting</title>
+<p>
+  <b>System Behavior/Message</b>
+</p>
+<p>PXE boot gets stuck after <codeph>daemon.err tgtd</codeph>
+</p>
+<p>
+  <b>Probable Cause</b>
+</p>
+<p>Node does not have enough disk space</p>
+<p>
+  <b>Resolution</b>
+</p>
+<ul>
+<li>Check if target node has disk space mentioned in <codeph>baremetal.csv</codeph> and is greater than Node_min_disk mentioned in <codeph>tripleo/tripleo-incubator/scripts/hp_ced_functions.sh</codeph>.</li>
+<li>If disk space is less than Node_min_disk, change Node_min_disk along with DISK_SIZE in <codeph>tripleo/tripleo-incubator/scripts/hp_ced_list_nodes.sh</codeph> on Seed.</li>
+<li>Re-run the installation script.
+</li>
+</ul>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="ilo-show-null"> <title>iLO console shows null waiting for notice of completion while PXE booting</title>
+<p>
+  <b>System Behavior/Message</b>
+</p>
+<p>Node is powered on and PXE booted but it is powered off after <codeph>daemon.err</codeph> and stack create fails.</p>
+<p>
+  <b>Probable Cause</b>
+</p>
+<p>Node does not have enough disk space. SAN boot is enabled for node or local disk is not attached to <codeph>/sda</codeph>
+</p>
+<p>
+  <b>Resolution</b>
+</p>
+<p>Installer expects that SAN boot option is disabled for nodes. Verify that SAN boot is disabled for BL 490c.</p>
+<p>Also, you can boot the targeted BL490c with Ubuntu or any Linux ISO to see what device is shown as the local disk. For the installer it should be <codeph>/sda</codeph>.</p>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="failure-installer"> <title>Failure of hp_ced_installer.sh</title>
+<p>
+  <b>System Behavior/Message</b>
+</p>
+<p>
+<codeph>hp_ced_installer.sh</codeph> fails because of bad characters in the <codeph>baremetal.csv</codeph>.</p>
+<p>
+  <b>Resolution</b>
+</p>
+<p>Verify <codeph>baremetal.csv</codeph> does not contain any empty lines or special/corrupt characters.
+<!--A BR tag was used here in the original source.--></p>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="seed-install-failure"> <title>Failure of Seed Installation</title>
+<p>
+  <b>System Behavior/Message</b>
+</p>
+<p>Seed installation fails with no space left on device.</p>
+<p>
+  <b>Resolution</b>
+</p>
+<p>Verify the tripleo directory user owner and group. It must be <b>root:root</b>. 
+In case it is not set as <b>root:root</b> then change it to root using:</p>
+<codeblock>
+  <codeph>chown root:root tripleo
+</codeph>
+</codeblock>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="rabbit-failure"> <title>Inconsistent Failures in RabbitMQ</title>
+<p>
+  <b>System Behavior/Message</b>
+</p>
+<p>Inconsistent RabbitMQ failure seen on controller nodes while listing queues</p>
+<codeblock>
+  <codeph>rabbitmqctl list_queues
+</codeph>
+</codeblock>
+<p>
+  <b>Resolution</b>
+</p>
+<p>Restart the RabbitMQ service.</p>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="reboot-accident"> <title>Accidental Reboot of Overcloud Controller</title>
+<p>If the overcloud controller is rebooted (due to a power issue, hardware upgrade, or similar event), OpenStack compute tools such as <codeph>nova-list</codeph> might report that the VMs are in an ERROR state, rendering the overcloud unusable.</p>
+<p>To restore the overcloud to an operational state, follow the steps below:</p>
+<ol>
+<li>
+<p>As user <codeph>root</codeph> on the overcloud controller you must:</p>
+
+<p>A. Run the <codeph>os-refresh-config</codeph> scripts:</p>
+
+<codeblock>
+<codeph>os-refresh-config
+</codeph>
+</codeblock>
+
+<p>B. Restart the <codeph>mysql</codeph> service:</p>
+
+<codeblock>
+<codeph>service mysql restart
+</codeph>
+</codeblock>
+
+<p>C. Re-run the <codeph>os-refresh-config</codeph> scripts:</p>
+
+<codeblock>
+<codeph>os-refresh-config
+</codeph>
+</codeblock>
+
+<p>D. Restart all Networking Operations (Neutron) services:</p>
+
+<codeblock>
+<codeph>service neutron-dhcp-agent restart
+service neutron-l3-agent restart
+service neutron-metadata-agent restart
+service neutron-openvswitch-agent restart
+service neutron-server restart
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>On each overcloud node, restart the Neutron and Nova services:</p>
+
+<codeblock>
+<codeph>sudo service neutron-openvswitch-agent restart
+sudo service nova-compute restart
+sudo service nova-scheduler restart
+sudo service nova-conductor restart
+</codeph>
+</codeblock>
+</li>
+</ol>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="reset-stuck"> <title>Server Power Stuck at Reset</title>
+<p>The installer uses IPMI commands to reset nodes and change their power status. Some systems change to a state in which the <codeph>Server Power</codeph> status as reported by the iLO is stuck in <codeph>RESET</codeph>. If this occurs, you must physically disconnect the power from the server for 10 seconds. If the problem persists after that, contact HPE Support as there might be a defective component in the system.</p>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="bridge-persists"> <title>Network Bridge Persists After Uninstall</title>
+<p>On the system on which the installer is run, the seed VM's networking is bridged onto the external LAN. If you remove HPE Helion OpenStack the network bridge persists.</p>
+<p>To revert the network configuration to its pre-installation state, run the following commands as user <codeph>root</codeph>:</p>
+<codeblock>
+  <codeph>ip addr add 192.168.185.131/16 dev eth0 scope global
+ip addr del 192.168.185.131/16 dev brbm
+ovs-vsctl del-port NIC
+</codeph>
+</codeblock>
+<p>where</p>
+<ul>
+<li>eth0 is the external interface     </li>
+<li>192.168.185.131 is the IP address on the external interface - you should replace this with your own IP address.</li>
+<li>The baremetal bridge is always called 'brbm'</li>
+</ul>
+<!-- ===================== horizontal rule ===================== -->
+<!-- Removed per Ramakrishna Bhupathi. Not required in 1.1  
+### Modify the Heat Configuration File Before HPE Helion OpenStack Installation {#heat-config}
+
+Before you install the HPE Helion OpenStack DNSaaS or if you want to use Heat with HPE Helion OpenStack you **must** modify the /etc/heat/heat.conf file on the overcloud controller as follows.
+
+<span style="color:red">**Important**:</span> The installation of the HPE Helion OpenStack DNSaaS **fails** if you do not make these modifications.
+
+**Note**: You must have admin ssh access to the overcloud controller.
+
+1. Make sure the IP addresses in the following settings reflect the IP address of the overcloud controller, for example:
+    
+        heat_metadata_server_url = http://192.0.202.2:8000
+        heat_waitcondition_server_url = http://192.0.202.2:8000/v1/waitcondition
+        heat_watch_server_url = http://192.0.202.2:8003
+
+2. Save the file.
+
+3. Restart the Heat-related services &#8211; heat-api, heat-api-cfn, heat-api-cloudwatch, and heat-engine.
+
+4. Ensure there are no Heat resources in an error state, and then delete any stale or corrupted Heat-related stacks.
+<br />
+
+<hr />
+
+-->
+</section>
+<section id="seed-error"> <title>Seed Generates Restarting libvertd Script Error</title>
+<p>
+  <b>System Behavior/Message</b>
+</p>
+<p>When starting your seed VM, if the script fails showing:</p>
+<codeblock>
+  <codeph>+ echo 'Restarting libvirtd...'
+Restarting libvirtd...
++ '[' -e /etc/debian_version ']'
++ service libvirt-bin restart
+stop: Unknown job: libvirt-bin
+start: Unknown job: libvirt-bin
+</codeph>
+</codeblock>
+<p>
+  <b>Resolution</b>
+</p>
+<p>This problem can be caused by your use of <codeph>sudo ?E</codeph> when executing the <codeph>hp_ced_host_manager</codeph>. Run  <codeph>hp_ced_host_manager</codeph> without specifying <codeph>sudo ?E</codeph>.</p>
+<!-- ===================== horizontal rule ===================== -->
+<p/>
+</section>
+<section id="ironic-error"> <title>Node in Error Cannot be Controlled by Ironic or Nova</title>
+<p>
+  <b>System Behavior/Message</b>
+</p>
+<p>Node goes into ERROR state and/or Ironic commands may result in a 400 or a 403 error code.
+A a node being controlled by the seed or undercloud cannot be controlled either through Ironic or Nova.</p>
+<p>
+  <b>Resolution</b>
+</p>
+<p>Run the following command:</p>
+<codeblock>
+  <codeph>$mysql --defaults-file=/mnt/state/root/metadata.my.cnf   
+--socket /var/run/mysqld/mysqld.sock ironic -e 
+"select reservation from nodes;"
+</codeph>
+</codeblock>
+<p>If the return form the command was not Null, repeat the command to see if Ironic is legitimately holding a lock.</p>
+<p>If on the second attempt the lock was was still not NULL, run the following:</p>
+<codeblock>
+  <codeph>$mysql --defaults-file=/mnt/state/root/metadata.my.cnf \
+--socket /var/run/mysqld/mysqld.sock ironic \
+ -e 'update nodes set reservation=NULL where reservation is not null;'
+</codeph>
+</codeblock>
+<p>Repeat the tests on the Ironic reservation:</p>
+<codeblock>
+  <codeph>$mysql --defaults-file=/mnt/state/root/metadata.my.cnf   
+--socket /var/run/mysqld/mysqld.sock ironic -e "select reservation from nodes;"
+</codeph>
+</codeblock>
+<p>You should now once again be able to use Ironic commands for the node.</p>
+<p>If you were using Nova and the node when into ERROR, run</p>
+<codeblock>
+  <codeph>nova reset-state 
+</codeph>
+</codeblock>
+<p>to clear the error and rerun the original Nova command.</p>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="windebug"> <title>Debugging a <tm tmtype="reg">Windows</tm> Server OS Using a Serial Connection</title>
+<p>Debugging a Windows Server OS running as a Nova Compute VM on HPE Helion OpenStack will require setting up a serial connection between the VM and a debug host. Once a serial connection has been established between the VM and debug host, which is usually over the COM2 port, the Windows Debug utility will function properly.</p>
+<p>
+<b>Before you Begin</b>:</p>
+<ul>
+<li>Deploy a <xref href="http://docs.openstack.org/user-guide-admin/content/specify-host-to-boot-instances-on.html" scope="external" format="html" >debug host on the same compute host</xref> as the target Windows instance.</li>
+<li>The user will need to be able to log into the host with <i>superuser</i> privileges. To safely gain superuser privileges, add <codeph>sudo</codeph> as a prefix to each command executed.</li>
+</ul>
+<p>
+  <b>Set Up Serial Communication</b>
+</p>
+<ol>
+<li>Log on to the Compute hosts where the Windows instances (target and debug hosts) are deployed.</li>
+<li>
+<p>Install the <i>socat</i> utility on the compute host.</p>
+
+<p>The Debian package can be copied to the host and installed using:</p>
+
+<codeblock>
+<codeph>sudo dpkg -i socat_1.7.2.4-1+b1_amd64.deb
+</codeph>
+</codeblock>
+
+<p>or, if apt repositories are accessible from the host, use:</p>
+
+<codeblock>
+<codeph>sudo apt-get install socat
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Get the serial source path of the target and the debug host VMs.</p>
+
+<ol>
+<li>
+<p>Get the libvirt xml of the target and the debug instance by running the command</p>
+
+<codeblock>
+<codeph>sudo virsh dumpxml $vmname &gt; $filename.xml
+</codeph>
+</codeblock>
+
+<p>Where <i>$vmname</i> is the name of the instance and <i>$filename.xml</i> is the name of the output file to which the libvirt.xml will  be written.</p>
+</li>
+<li>
+<p>Look in the <i>filename.xml</i> file for the value of the <b>Source Path</b> for the target host. This value is found under the <codeph>Serial type='pty'</codeph> section. <!--A BR tag was used here in the original source.-->Example:</p>
+
+<codeblock>
+<codeph> ...
+&lt;serial type='pty'&gt;
+    &lt;source path='/dev/pts/4'/&gt;
+    &lt;target port='1'/&gt;
+    &lt;alias name='serial1'/&gt;
+&lt;/serial&gt;
+...
+</codeph>
+</codeblock>
+
+<p>In this example the value is  <i>/dev/pts/4.</i>
+</p>
+</li>
+<li>
+<p>Repeat these steps to retrieve the serial source path value for the debug host.</p>
+</li>
+</ol>
+</li>
+<li>
+<p>Run the <codeph>socat</codeph> command to establish connection between the instances. In this example, the source path values were <i>/dev/pts/4</i> and <i>/dev/pts/5</i>.</p>
+
+<codeblock>
+<codeph>sudo /usr/bin/socat /dev/pts/4 /dev/pts/5
+</codeph>
+</codeblock>
+</li>
+</ol>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="DNSvariables"> <title>Using the sample DNS JSON file variable names for setup causes errors</title>
+<p>
+  <b>System Behavior/Message</b>
+</p>
+<p>DNS nameserver is not set up properly.</p>
+<p>
+  <b>Probable Cause</b>
+</p>
+<p>Using the sample DNS JSON file variable names for setup causes errors.</p>
+<p>
+  <b>Resolution</b>
+</p>
+<p>Configure your DNS servers using the following values:</p>
+<p>
+<codeph>seed_server</codeph> - Use this variable to specify the DNS server for the seed node (do not use seed_nameserver).</p>
+<p>
+<codeph>undercloud_server</codeph> - Use this variable to specify the DNS server for the undercloud node (do not use undercloud_nameserver).</p>
+<p>
+<codeph>overcloud_server</codeph> - Use this variable to specify the DNS server for the overcloud nodes (do not use overcloud_nameserver).</p>
+<codeblock>
+  <codeph>Do not copy these addresses they are only examples
+
+"dns": {
+    "seed_server": "19.65.175.150:8080",
+    "undercloud_server": "19.65.175.150:8080",
+    "overcloud_server": "19.65.175.150:8080",
+}
+</codeph>
+</codeblock>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="seednoshow"> <title>The seed cloud host cannot be reached after it is rebooted</title>
+<p>
+  <b>System Behavior</b>
+</p>
+<p>After the seed cloud host is rebooted, the networking setup does not persist and the seed cloud host cannot be reached.</p>
+<p>
+  <b>Probable Cause</b>
+</p>
+<p>The networking setup on the FCP seed cloud host must be set up in a particular way. Otherwise, the seed cloud host cannot be reached after it is rebooted.</p>
+<p>
+  <b>Possible Resolution</b>
+</p>
+<p>Change the network configuration in the interfaces file to a configuration that supports persisting the network setup.</p>
+<p>
+  <b>On Ubuntu/Debian systems:</b>
+</p>
+<ul>
+<li>
+<p>Define the primary interface in its own configuration file in <codeph>etc/network/interfaces.d/.</codeph>
+</p>
+
+<p>For example, etc/network/interfaces.d/eth2.cfg</p>
+</li>
+<li>
+<p>Alternatively, define the primary interface in /etc/network/interfaces and format the file so it has a line separator between each interface definition. (See man files for an example.)</p>
+</li>
+</ul>
+<p>
+  <b>On CentOS systems:</b>
+</p>
+<ul>
+<li>Ensure that every interface is defined in its on ifcfg-
+<ph> file within <codeph>/etc/sysconfig/network-scripts/</codeph>
+</ph>
+</li>
+</ul>
+<!-- ===================== horizontal rule ===================== -->
+<p>
+  <xref href="#topic39140"> Return to Top </xref>
+</p>
+</section>
+</body>
+</topic>

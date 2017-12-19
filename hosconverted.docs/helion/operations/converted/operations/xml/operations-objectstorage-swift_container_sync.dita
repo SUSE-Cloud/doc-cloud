@@ -1,0 +1,212 @@
+<?xml version="1.0"?>
+<!DOCTYPE section PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN" "http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd" [ <!ENTITY % entities SYSTEM "entities.xml"> %entities; ]><!--Edit status: not edited-->
+<section id="topic_el2_cqv_mv">
+   <title>
+      <phrase/>Configuring your Swift System to Allow Container
+    Sync</title>
+    
+    <para>Swift has a feature where all the contents of a container can be mirrored to another
+        container through background synchronization. Swift operators configure their system to
+        allow/accept sync requests to/from other systems, and the user specifies where to sync their
+        container to along with a secret synchronization key. For an overview of this feature, refer
+        to <ulink url="http://docs.openstack.org/developer/swift/overview_container_sync.html">OpenStack Swift - Container to Container
+          Synchronization</ulink>.</para>
+
+    
+      <bridgehead renderas="sect4">Notes and limitations</bridgehead>
+      <para>The container synchronization is done as a background action. When you put an object into
+        the source container, it will take some time before it becomes visible in the destination
+        container. Storage services will not necessarily copy objects in any particular order,
+        meaning they may be transferred in a different order to which they were created.</para>
+
+      <para>Container sync may not be able to keep up with a moderate upload rate to a container. For
+        example, if the average object upload rate to a container is greater than one object per
+        second, then container sync may not be able to keep the objects synced.</para>
+
+      <para>If container sync is enabled on a container that already has a large number of objects then
+        container sync may take a long time to sync the data. For example, a container with one
+        million 1KB objects could take more than 11 days to complete a sync.</para>
+
+      <para>You may operate on the destination container just like any other container -- adding or
+        deleting objects -- including the objects that are in the destination container because they
+        were copied from the source container. To decide how to handle object creation, replacement
+        or deletion, the system uses timestamps to determine what to do. In general, the latest
+        timestamp "wins" i.e., if you create an object, replace it, delete it and the re-create it,
+        the destination container will eventually contain the most recently created object. However,
+        if you also create and delete objects in the destination container, you get some subtle
+        behaviours as follows:</para>
+
+      <itemizedlist>
+        <listitem>
+            <para>If an object is copied to the destination container and then deleted, it remains deleted
+          in the destination even though there is still a copy in the source container. If you
+          modify the object (replace or change its metadata) in the source container, it will
+          reappear in the destination again.</para>
+
+         </listitem>
+        <listitem>
+            <para>The same applies to a replacement or metadata modification of an object in the
+          destination container -- the object will remain as-is unless there is a replacement or
+          modification in the source container.</para>
+
+         </listitem>
+        <listitem>
+            <para>If you replace or modify metadata of an object in the destination container and then
+          delete it in the source container, it is <emphasis role="bold">not</emphasis> deleted from the destination. This is
+          because your modified object has a later timestamp than the object you deleted in the
+          source.</para>
+
+         </listitem>
+        <listitem>
+            <para>If you create an object in the source container and before the system has a chance to
+          copy it to the destination, you also create an object of the same name in the destination,
+          then the object in the destination is <emphasis role="bold">not</emphasis> overwritten by the source container's
+          object.</para>
+
+         </listitem>
+      </itemizedlist>
+   
+    
+      <bridgehead renderas="sect4">Prerequisites</bridgehead>
+      <para>Container to container synchronization requires that SSL certificates are configured on
+        both the source and destination systems. For more information on how to implement SSL, see
+          <citetitle>FIXME: broken external xref</citetitle></para>
+
+   
+    
+      <bridgehead renderas="sect4">Configuring container sync</bridgehead>
+      <para>Container to container synchronization requires that both the source and destination Swift
+        systems involved be configured to allow/accept this. These instructions are for a <phrase/> system. If you are synchronizing with another Swift system
+        that uses a different deployment system, you may have to adapt the instructions provided
+        here for that system.</para>
+
+      <para>In the context of container to container synchronization, Swift uses the term
+          <emphasis>cluster</emphasis> to denote a Swift system. This corresponds to a <emphasis>Control Plane</emphasis> in the
+          <phrase/> terminology.</para>
+
+   
+    
+    
+      <bridgehead renderas="sect4">Configuring Intra Cluster Container Sync</bridgehead>
+      <para>It is possible to use the swift container sync functionality to sync objects 
+        between containers within the same swift system. Swift is automatically 
+        configured to allow intra cluster container sync. Each swift PAC server 
+        will have an intracluster container sync realm defined in 
+        <literal>/etc/swift/container-sync-realms.conf</literal>.
+      </para>
+
+      <para>For example:
+        </para>
+<screen># The intracluster realm facilitates syncing containers on this system
+[intracluster]
+key = lQ8JjuZfO
+# key2 = 
+cluster_thiscluster = http://&lt;Swift-Proxy-Vip&gt;:8080/v1/</screen>
+<note>
+            <para>The key is automatically generated during system configuration.</para>
+         </note>
+
+      <orderedlist>
+            <listitem>
+               <para>Create two containers, for example container-src and container-dst. In this example we
+            will sync one way from container-src to
+            container-dst.</para>
+               <screen>swift post container-src
+swift post container-dst</screen>
+            </listitem>
+            <listitem>
+               <para>Determine your swift account. In the following example it is
+            AUTH_1234</para>
+               <screen>swift stat
+                                 Account: AUTH_1234
+                              Containers: 3
+                                 Objects: 42
+                                   Bytes: 21692421
+Containers in policy "erasure-code-ring": 3
+   Objects in policy "erasure-code-ring": 42
+     Bytes in policy "erasure-code-ring": 21692421
+                            Content-Type: text/plain; charset=utf-8
+             X-Account-Project-Domain-Id: default
+                             X-Timestamp: 1472651418.17025
+                              X-Trans-Id: tx81122c56032548aeae8cd-0057cee40c
+                           Accept-Ranges: bytes</screen>
+            </listitem>
+            <listitem>
+               <para>Configure container-src to sync to container-dst using the key 
+            specified in the intracluster realm in 
+            <literal>/etc/swift/container-sync-realms.conf</literal></para>
+               <screen>swift post -t '//intracluster/thiscluster/AUTH_1234/container-dst' -k 'lQ8JjuZfO' container-src</screen>
+            </listitem>
+            <listitem>
+               <para>Configure container-dst to accept synced objects with this key
+            </para>
+               <screen>swift post -k 'lQ8JjuZfO' container-dst</screen>
+            </listitem>          
+            <listitem>
+               <para>Upload objects to container-src. Within a number of minutes the objects 
+            should be automatically synced to container-dst.</para>
+            </listitem>
+        </orderedlist>
+
+      <para><emphasis role="bold">Changing the intracluster realm key</emphasis></para>
+
+      <para>The intracluster realm key used by container sync to sync objects between containers in the
+        same swift system is automatically generated. The process for changing passwords is
+        described in <xref linkend="servicePasswords"/>.
+      </para>
+
+      <para>The steps to change the intracluster realm key are as follows.
+        </para>
+<orderedlist>
+            <listitem>
+               <para>On the lifecycle manager create a file called
+              <literal>~/helion/change_credentials/swift_data_metadata.yml</literal> with the contents
+            included below.  The <literal>consuming-cp</literal> and <literal>cp</literal> are the 
+            control plane name specified in
+            <literal>~/helion/my_cloud/definition/data/control_plane.yml</literal> where the
+            swift-container service is running.
+            </para>
+               <screen>swift_intracluster_sync_key:
+ metadata:
+ - clusters:
+   - swpac
+   component: swift-container
+   consuming-cp: control-plane-1
+   cp: control-plane-1
+ version: '2.0'</screen>
+            </listitem>
+            <listitem>
+               <para>Run the following commands
+            </para>
+               <screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+            </listitem>
+            <listitem>
+               <para> Reconfigure the swift credentials
+            </para>
+               <screen>cd ~/scratch/ansible/next/hos/ansible/
+ansible-playbook -i hosts/verb_hosts swift-reconfigure-credentials-change.yml</screen>
+            </listitem>
+            <listitem>
+               <para>Delete <literal>~/helion/change_credentials/swift_data_metadata.yml</literal></para>
+               <screen>rm ~/helion/change_credentials/swift_data_metadata.yml</screen>
+            </listitem>
+            <listitem>
+               <para>On a swift PAC server check that the intracluster realm key has been 
+            updated in <literal>/etc/swift/container-sync-realms.conf</literal></para>
+               <screen># The intracluster realm facilitates syncing containers on this system
+[intracluster]
+key = aNlDn3kWK</screen>
+            </listitem>
+            <listitem>
+               <para>Update any containers using the intracluster container sync to use the 
+            new intracluster realm key
+            </para>
+               <screen>swift post -k 'aNlDn3kWK' container-src
+swift post -k 'aNlDn3kWK' container-dst</screen>
+            </listitem>
+        </orderedlist>
+
+   
+  </section>

@@ -1,0 +1,595 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic
+  PUBLIC "-//OASIS//DTD DITA Topic//EN" "http://docs.oasis-open.org/dita/v1.1/OS/dtd/topic.dtd" >
+<topic xml:lang="en-us" id="HP3.0HA">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>High Availability</title>
+  <abstract><shortdesc outputclass="hdphidden">High availability concepts.</shortdesc></abstract>
+  <body>
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <!--  !!!!!!!!!!!  NOTE MOST IMAGES AND WEIRD TEXT IN THIS PAGE SHOULD NOT BE CHANGED !!!!!!!!!!!!!!!!!!!!  contact Nancy or Carter for help -->
+    <p>This page covers the following topics:</p>
+    <ul>
+      <li><xref href="#HP3.0HA/concepts_overview">High Availability Concepts Overview</xref>
+        <ul>
+          <li><xref href="#HP3.0HA/cloud_infrastructure">Highly Available Cloud
+              Infrastructure</xref></li>
+          <li><xref href="#HP3.0HA/tenant_workloads">Highly Available Cloud-Aware Tenant
+              Workloads</xref></li>
+        </ul>
+      </li>
+      <li><xref href="#HP3.0HA/highly_available_cloud_infrastructure">Highly Available Cloud
+          Infrastructure</xref></li>
+      <li><xref href="#HP3.0HA/high_availablity_controllers">High Availability of Controllers</xref>
+        <ul>
+          <li><xref href="#HP3.0HA/api_request">API Request Message Flow</xref></li>
+          <li><xref href="#HP3.0HA/node_failure">Handling Node Failure</xref></li>
+          <li><xref href="#HP3.0HA/network_partitions">Handling Network Partitions</xref></li>
+          <li><xref href="#HP3.0HA/galera_cluster">MySQL Galera Cluster</xref></li>
+          <li><xref href="#HP3.0HA/singleton_services">Singleton Services</xref>
+            <ul>
+              <li><xref href="#HP3.0HA/cinder_volume">Cinder-Volume</xref></li>
+              <li><xref href="#HP3.0HA/nova_consoleauth">Nova-consoleauth</xref></li>
+            </ul>
+          </li>
+          <li><xref href="#HP3.0HA/failed_controller_nodes">Rebuilding or Replacing failed
+              Controller Nodes</xref></li>
+        </ul>
+      </li>
+      <li><xref href="#HP3.0HA/CVR">High Availability Routing - Centralized</xref></li>
+      <li><xref href="#HP3.0HA/DVR">High Availability Routing - Distributed</xref></li>
+      <li><xref href="#HP3.0HA/availability_zones">Availability Zones</xref></li>
+      <li><xref href="#HP3.0HA/compute_kvm">Compute with KVM</xref></li>
+      <li><xref href="#HP3.0HA/nova_availability_zones">Nova Availability Zones</xref></li>
+      <li><xref href="#HP3.0HA/compute_esx">Compute with ESX Hypervisor</xref></li>
+      <li><xref href="#HP3.0HA/block_storage_vsa">Block Storage with StoreVirtual VSA</xref></li>
+      <li><xref href="#HP3.0HA/deploy_vsa_cluster">Deploy VSA cluster across Availability
+          Zones/Racks</xref></li>
+      <li><xref href="#HP3.0HA/cinder_availability_zones">Cinder Availability Zones</xref></li>
+      <li><xref href="#HP3.0HA/object_storage_swift">Object Storage with Swift</xref></li>
+      <li><xref href="#HP3.0HA/highly_available_app_workloads">Highly Available Cloud Applications
+          and Workloads</xref></li>
+      <li><xref href="#HP3.0HA/what_not_ha">What is not Highly Available?</xref>
+        <ul>
+          <li><xref href="#HP3.0HA/deployer">Deployer</xref></li>
+          <li><xref href="#HP3.0HA/control_plane">Control Plane</xref></li>
+          <li><xref href="#HP3.0HA/keystone_cron" format="dita">Keystone Cron Jobs</xref></li>
+        </ul>
+      </li>
+      <li><xref href="#HP3.0HA/more_information">More Information</xref></li>
+    </ul>
+
+
+    <section id="concepts_overview">
+      <title>High Availability Concepts Overview</title>
+      <p>A highly available (HA) cloud ensures that a minimum level of cloud resources are always
+        available on request, which results in uninterrupted operations for users.</p>
+      <p>In order to achieve this high availability of infrastructure and workloads, we define the
+        scope of HA to be limited to protecting these only against single points of failure (SPOF).
+        Single points of failure include:</p>
+      <ul>
+        <li><b>Hardware SPOFs</b>: Hardware failures can take the form of server failures, memory
+          going bad, power failures, hypervisors crashing, hard disks dying, NIC cards breaking,
+          switch ports failing, network cables loosening, and so forth.</li>
+        <li><b>Software SPOFs</b>: Server processes can crash due to software defects, out-of-memory
+          conditions, operating system kernel panic, and so forth.</li>
+      </ul>
+      <p>By design, <keyword keyref="kw-hos"/> strives to create a system architecture resilient to
+        SPOFs, and does not attempt to automatically protect the system against multiple cascading
+        levels of failures; such cascading failures will result in an unpredictable state. Hence,
+        the cloud operator is encouraged to recover and restore any failed component, as soon as the
+        first level of failure occurs.</p>
+      <sectiondiv id="cloud_infrastructure">
+        <p><b>Highly Available Cloud Infrastructure</b></p>
+        <p>Cloud users are able to provision and manage the compute, storage, and network
+          infrastructure resources at any given point in time and the Horizon Dashboard and the
+          OpenStack APIs must be reachable and be able to fulfill user requests.</p>
+        <p><image href="../../media/ha30/ha-resilient-cloud-infrastructure.png"
+            id="CloudInfrastructure"/></p>
+        <p>Once the Compute, Storage, and Network resources are deployed, users expect these
+          resources to be reliable in the following ways:</p>
+        <ul>
+          <li>If the nova-compute KVM hypervisors/servers hosting a project compute instance
+            (virtual machine) dies and the compute instanceM is lost along with its local ephemeral
+            storage, you will be able to re-launch a fresh compute instance successfully because it
+            launches on another nova-compute KVM Hypervisor/server. The following mechanisms exist
+            to ensure that data on compute instances are backed up: <ul>
+              <li>The capability to create snapshot images of compute instances is available for
+                your root partitions.</li>
+              <li>If ephemeral storage loss is undesirable, the compute instance can be booted from
+                a Cinder volume which can be re-used on new instances.</li>
+            </ul></li>
+          <li>Data stored in Block Storage service volumes can be made highly-available by
+            clustering <xref href="#HP3.0HA/block_storage_vsa">(Details below in VSA section
+              below)</xref></li>
+          <li>Data stored by the Object service is always available <xref
+              href="#HP3.0HA/object_storage_swift">(Details in Swift section below)</xref></li>
+          <li>Network resources such as routers, subnets, and floating IP addresses provisioned by
+            the Networking Operation service are made highly-available via Helion Control Plane
+            redundancy and DVR.</li>
+        </ul>
+        <p>The infrastructure that provides these features is called a <b>Highly Available Cloud
+            Infrastructure</b>.</p>
+      </sectiondiv>
+      <sectiondiv id="tenant_workloads">
+        <p><b>Highly Available Cloud-Aware Tenant Workloads</b></p>
+        <p><keyword keyref="kw-hos"/> Compute hypervisors do not support transparent high
+          availability for user applications; as such, the project application provider is
+          responsible for deploying their applications in a redundant and highly available manner,
+          using multiple VMs spread appropriately across availability zones, routed through the load
+          balancers and made highly available through clustering.</p>
+        <p>These are known as <b>Highly Available Cloud-Aware Tenant Workloads</b>.</p>
+      </sectiondiv>
+    </section>
+
+    <section id="highly_available_cloud_infrastructure">
+      <title>Highly Available Cloud Infrastructure</title>
+      <p>The highly available cloud infrastructure consists of the following:</p>
+      <ul>
+        <li>High Availability of Controllers</li>
+        <li>Availability Zones</li>
+        <li>Compute with KVM</li>
+        <li>Nova Availability Zones</li>
+        <li>Compute with ESX</li>
+        <li>Block Storage with StoreVirtual VSA</li>
+        <li>Object Storage with Swift</li>
+      </ul>
+    </section>
+
+    <section id="high_availablity_controllers">
+      <title>High Availability of Controllers</title>
+      <p>The <keyword keyref="kw-hos"/> installer deploys highly available configurations of
+        OpenStack cloud services, resilient against single points of failure.</p>
+      <p>The high availability of the controller components comes in two main forms.</p>
+      <ul>
+        <li>Many services are stateless and multiple instances are run across the control plane in
+          active-active mode. The API services (nova-api, cinder-api, etc.) are accessed through the
+          HA proxy load balancer whereas the internal services (nova-scheduler, cinder-scheduler,
+          etc.), are accessed through the message broker. These services use the database cluster to
+          persist any data. <note>The HA proxy load balancer is also run in active-active mode and
+            keepalived (used for Virtual IP (VIP) Management) is run in active-active mode, with
+            only one keepalived instance holding the VIP at any one point in time.</note></li>
+        <li>The high availability of the message queue service and the database service is achieved
+          by running these in a clustered mode across the three nodes of the control plane: RabbitMQ
+          cluster with Mirrored Queues and Percona MySQL Galera cluster.</li>
+      </ul>
+      <p><image href="../../media/ha30/HPE_HA_Flow.png" id="ControlPlane1"/></p>
+      <p>The above diagram illustrates the HA architecture with the focus on VIP management and load
+        balancing. It only shows a subset of active-active API instances and does not show examples
+        of other services such as nova-scheduler, cinder-scheduler, etc.</p>
+      <p>In the above diagram, requests from an OpenStack client to the API services are sent to VIP
+        and port combination; for example, 192.0.2.26:8774 for a Nova request. The load balancer
+        listens for requests on that VIP and port. When it receives a request, it selects one of the
+        controller nodes configured for handling Nova requests, in this particular case, and then
+        forwards the request to the IP of the selected controller node on the same port.</p>
+      <p>The nova-api service, which is listening for requests on the IP of its host machine, then
+        receives the request and deals with it accordingly. The database service is also accessed
+        through the load balancer. RabbitMQ, on the other hand, is not currently accessed through
+        VIP/HA proxy as the clients are configured with the set of nodes in the RabbitMQ cluster and
+        failover between cluster nodes is automatically handled by the clients.</p>
+      <p>The sections below cover the following topics in detail:</p>
+      <ul>
+        <li><xref href="#HP3.0HA/api_request">API Request Message Flow</xref></li>
+        <li><xref href="#HP3.0HA/node_failure">Handling Node Failure</xref></li>
+        <li><xref href="#HP3.0HA/network_partitions">Handling Network Partitions</xref></li>
+        <li><xref href="#HP3.0HA/galera_cluster">MySQL Galera Cluster</xref></li>
+      </ul>
+      <sectiondiv>
+        <p id="api_request"><b>API Request Message Flow</b></p>
+        <p>The diagram below shows the flow for an API request in an HA deployment. All API requests
+          (internal and external) are sent through the VIP. </p>
+        <sectiondiv outputclass="rewriteThis"> . <image href="../../media/ha30/HPE_HA_Flow.png"
+            id="image_hrh_tvf_4w" height="700"/><p>The <keyword keyref="kw-hos"/> installer deploys
+            highly available configurations of OpenStack cloud services, resilient against single
+            points of failure. Step through the included flow for an API request in an HA
+            deployment. All API requests (internal and external) are sent through the VIP.</p>
+          <image href="../../media/ha30/HPE_HA_Flow-1.png" id="image_rw2_wvf_4w" height="700"/><p>1.
+            keepalived has currently configured the VIP on the Controller0 node; client sends Nova
+            request to VIP:8774</p>
+          <image href="../../media/ha30/HPE_HA_Flow-2.png" id="image_r4r_xvf_4w" height="700"
+            /><p>2a. HA proxy (listening on VIP:8774) receives the request and selects Controller0
+            from the list of available nodes (Controller0, Controller1, Controller2). The request is
+            forwarded to the Controller0IP:8774. 2b and 2c are configured Load Balancers</p>
+          <image href="../../media/ha30/HPE_HA_Flow-3.png" id="image_mcf_zvf_4w" height="700"/><p>3.
+            nova-api on Controller0 receives the request and determines that a database change is
+            required. It connects to the database using VIP:3306</p>
+          <image href="../../media/ha30/HPE_HA_Flow-4.png" id="image_sxf_bwf_4w" height="700"/><p>4.
+            HA proxy (listening on VIP:3306) receives the database connection request and selects
+            Controller0 from the list of available nodes (Controller0, Controller1, Controller2).
+            The connection request is forwarded to Controller0IP:3306</p>
+        </sectiondiv>
+        <!--  //////////////////////  HA slider   ////////////////////////////////////////////////   -->
+        <sectiondiv outputclass="oldcontentContainer">
+          <sectiondiv outputclass="wrapper1">
+            <sectiondiv id="itemOne" outputclass="HAcontent"> </sectiondiv>
+            <sectiondiv id="itemTwo" outputclass="HAcontent"> </sectiondiv>
+            <sectiondiv id="itemThree" outputclass="HAcontent"> </sectiondiv>
+            <sectiondiv id="itemFour" outputclass="HAcontent"> </sectiondiv>
+            <sectiondiv id="itemFive" outputclass="HAcontent"> </sectiondiv>
+          </sectiondiv>
+        </sectiondiv>
+        <sectiondiv>
+          <sectiondiv outputclass="navLinks1">
+            <ul>
+              <li outputclass="itemLinks"/>
+              <li outputclass="itemLinks"/>
+              <li outputclass="itemLinks"/>
+              <li outputclass="itemLinks"/>
+              <li outputclass="itemLinks"/>
+            </ul>
+          </sectiondiv>
+        </sectiondiv>
+        <sectiondiv>
+          <sectiondiv>
+            <p outputclass="desc"/>
+          </sectiondiv>
+        </sectiondiv>
+      </sectiondiv>
+      <sectiondiv outputclass="HAsliderText">The <keyword keyref="kw-hos"/> installer deploys highly
+        available configurations of OpenStack cloud services, resilient against single points of
+        failure. Step through the included flow for an API request in an HA deployment. All API
+        requests (internal and external) are sent through the VIP.%1. keepalived has currently
+        configured the VIP on the Controller0 node; client sends Nova request to VIP:8774% 2a. HA
+        proxy (listening on VIP:8774) receives the request and selects Controller0 from the list of
+        available nodes (Controller0, Controller1, Controller2). The request is forwarded to the
+        Controller0IP:8774. 2b and 2c are configured Load Balancers% 3. nova-api on Controller0
+        receives the request and determines that a database change is required. It connects to the
+        database using VIP:3306% 4. HA proxy (listening on VIP:3306) receives the database
+        connection request and selects Controller0 from the list of available nodes (Controller0,
+        Controller1, Controller2). The connection request is forwarded to
+        Controller0IP:3306</sectiondiv>
+      <sectiondiv outputclass="HAimgs"
+        >../../media/ha30/HPE_HA_Flow.png%../../media/ha30/HPE_HA_Flow-1.png%../../media/ha30/HPE_HA_Flow-2.png%../../media/ha30/HPE_HA_Flow-3.png%../../media/ha30/HPE_HA_Flow-4.png</sectiondiv>
+      <!--  //////////////////////  HA slider   ////////////////////////////////////////////////   -->
+      <sectiondiv>
+        <p>You can view the entire HA API Request Message Flow with the following <xref
+            href="../../media/ha30/HPE_HA_RequestFlow.png" format="png" scope="local">High
+            Availability Request Flow Diagram</xref></p>
+      </sectiondiv>
+      <sectiondiv>
+        <p id="node_failure"><b>Handling Node Failure</b></p>
+        <p>With the above HA set up, loss of a controller node is handled as follows:</p>
+        <p>Assume that the Controller0, which is currently in control of the VIP, is lost, as shown
+          in the diagram below:</p>
+        <p><image href="../../media/ha30/HPE_HA_NodeFailure1.png" id="ControlPlane3"/></p>
+        <p>When this occurs, keepalived immediately moves the VIP on to Controller1 and can now
+          receive API requests, which is load-balanced by HA proxy, as stated earlier.</p>
+        <note>Although MySQL and RabbitMQ clusters have lost a node, they still continue to be
+          operational:</note>
+        <p><image href="../../media/ha30/HPE_HA_NodeFailure2.png" id="ControlPlane4"/></p>
+        <p>Finally, when Controller0 comes back online, keepalived and HA proxy will resume in
+          standby/slave mode and be ready to take over, should there be a failure of Controller1.
+          The Controller0 rejoins the MySQL and RabbitMQ clusters.</p>
+      </sectiondiv>
+      <sectiondiv>
+        <p id="network_partitions"><b>Handling Network Partitions</b></p>
+        <p>It is important for the HA setup to tolerate network failures, specifically those that
+          result in a partition of the cluster, whereby one of the three nodes in the control plane
+          cannot communicate with the remaining two nodes of the cluster. The description of network
+          partition handling is separated into the main HA components of the controller.</p>
+      </sectiondiv>
+      <sectiondiv>
+        <p id="galera_cluster"><b>MySQL Galera Cluster</b></p>
+        <p>The handling of network partitions is illustrated in the diagram below. Galera has a
+          quorum mechanism so when there is a partition in the cluster, the primary or quorate
+          partition can continue to operate as normal, whereas the non-primary/minority partition
+          cannot commit any requests. In the example below, Controller0 is partitioned from the rest
+          of the control plane. As a result, requests can only be satisfied on Controller1 or
+          Controller2. Controller0 will continue to attempt to rejoin the cluster:</p>
+        <p><image href="../../media/ha30/HPE_HA_MySQLGaleraCluster.png" id="ControlPlane5"/></p>
+        <p>When HA proxy detects the errors against the mysql instance on Controller0, it removes
+          that node from its pool for future database requests.</p>
+      </sectiondiv>
+      <sectiondiv id="singleton_services">
+        <p><b>Singleton Services</b></p>
+        <sectiondiv>
+          <p id="cinder_volume"><b>Cinder-Backup and Cinder-Volume</b></p>
+          <p>Due to the single threading required in both cinder-volume and the drivers, the Cinder
+            volume service is run as a singleton in the control plane. <image
+              href="../../media/ha30/ha-cinder-volume.png" id="CinderVolume"/></p>
+          <p>Cinder-volume is deployed on all three controller nodes, but kept active on only one
+            node at a time. By default, cinder-volume is kept active on the controller. If the
+            controller fails, you must enable and start the cinder-volume service on one of the
+            other controller nodes, until it is restored. Once the controller is restored, you must
+            shut down the Cinder volume service from all other nodes and start it on the controller
+            to ensure it runs as a singleton.</p>
+          <p>Since cinder.conf is kept synchronized across all the 3 nodes, Cinder volume can be run
+            on any of the nodes at any given time. Ensure that it is run on only one node at a
+            time.</p>
+          <p>Details of how to activate Cinder Volume after controller failure is documented in<xref
+              href="../operations/blockstorage/managing_cinder_volumebackup_services.dita#topic_l1p_vpy_jt"
+            />. </p>
+        </sectiondiv>
+        <sectiondiv>
+          <p id="nova_consoleauth"><b>Nova consoleauth</b></p>
+          <p>If the controller fails, the Nova consoleauth service will become unavailable and users
+            will not be able to connect to their VM consoles via VNC. The service will be restored
+            once you restore the controller.</p>
+        </sectiondiv>
+      </sectiondiv>
+      <sectiondiv>
+        <p id="failed_controller_nodes"><b>Rebuilding or Replacing failed Controller Nodes</b></p>
+        <p>As described above, the three node controller cluster provides a robust, highly available
+          control plane of OpenStack services. Controllers not running any of the singleton services
+          can be shut down for a short duration for maintenance activities without impacting cloud
+          service availability. The Controller running any of the singleton services cannot be shut
+          down without affecting cloud service availability.</p>
+        <note>The HA design is only robust against single points of failure and may not protect you
+          against multiple levels of failure. As soon as first-level failure occurs, you must try to
+          fix the symptom/root cause and recover from the failure, as soon as possible.</note>
+        <p>In the unlikely event that one of the controller servers suffers an irreparable hardware
+          failure, you can decommission and delete it from the cluster. You can then deploy the
+          failed controller on a new server and connect it back into the original three node
+          controller cluster. Learn more about <xref
+            href="../operations/maintenance/controller/replace_controller.dita"/>.</p>
+      </sectiondiv>
+    </section>
+
+    <section id="CVR">
+      <title>High Availability Routing - Centralized</title>
+      <p>Incorporating High Availability into a system involves implementing redundancies in the
+        component that is being made highly available. In Centralized Virtual Router (CVR), that
+        element is the Layer 3 agent a.k.a L3 agent. By making L3 agent highly available, upon
+        failure all HA routers are migrated from the primary L3 agent to a secondary L3 agent. The
+        implementation efficiency of an HA subsystem is measured by the number of packets that are
+        lost when the secondary L3 agent is made the master. </p>
+      <p>In <keyword keyref="kw-hos"/>, the primary and secondary L3 agents run continuously, and
+        failover involves a rapid switchover of mastership to the secondary agent (IEFT RFC 5798).
+        The failover essentially involves a switchover from a already running master to already
+        running slave. This substantially reduces the latency of the HA. The mechanism used by the
+        master and the slave to implement a failover is implemented using Linux’s pacemaker HA
+        resource manager. This CRM (Cluster resource manager) uses VRRP (Virtual Router Redundancy
+        Protocol) to implement the HA mechanism. VRRP is a industry standard protocol and defined in
+        RFC 5798.</p>
+      <p><image href="../../media/ha30/HPE_HA_Layer-3HA.png" id="Layer3HA"/></p>
+      <p>L3 HA uses of VRRP comes with several benefits.</p>
+      <p>The primary benefit is the failover mechanism does not involve interprocess communication
+        overhead (order of 10s of seconds). By not using an RPC mechanism to invoke the secondary
+        agent to assume the primary agents role enables VRRP to achieve failover within 1-2 seconds. </p>
+      <p>In VRRP, the primary and secondary routers are all active. As the routers are running, it
+        is a matter of making the router aware of its primary/master status. This switchover takes
+        less than 2 seconds instead of 60+ seconds it would have taken to start a backup router and
+        failover. </p>
+      <p>The failover depends upon a heartbeat link between the primary and secondary. That link in
+          <keyword keyref="kw-hos-phrase-30"/> uses keepalived package of the pacemaker resource
+        manager. The heartbeats are sent at a 2 second intervals between the primary and secondary.
+        As per the VRRP protocol, if the secondary does not hear from the master after 3 intervals,
+        it assumes the function of the primary. </p>
+      <p>Further, all the routable IP addresses i.e. the VIPs (virtual IPs) are assigned to the
+        primary agent. </p>
+      <p>For information on more creating HA routers, see: <xref
+          href="../networking/create_ha_router.dita#CreateHARouter"/></p>
+    </section>
+
+    <section id="DVR">
+      <title>High Availability Routing - Distributed</title>
+      <p>The OpenStack Distributed Virtual Router (DVR) function delivers HA through its distributed
+        architecture. The one centralized function remaining is source network address translation
+        (SNAT), where high availability is provided by DVR SNAT HA. </p>
+      <p>DVR SNAT HA is enabled on a per router basis and requires that two or more L3 agents
+        capable of providing SNAT services be running on the system. If a minimum number of L3
+        agents is configured to 1 or lower, the neutron server will fail to start and a log message
+        will be created. The L3 Agents must be running on a control-plane node, L3 agents running on
+        a compute node do not provide SNAT services. </p>
+      <p>For more information on creating HA routers, see: <xref
+          href="../networking/create_ha_router.dita#CreateHARouter"/></p>
+      <p/>
+    </section>
+
+    <section id="availability_zones">
+      <title>Availability Zones</title>
+      <p><image href="../../media/ha30/HA_AvailabilityZones_3.png" id="DeploymentZones"/></p>
+      <p>While planning your OpenStack deployment, you should decide on how to zone various types of
+        nodes - such as compute, block storage, and object storage. For example, you may decide to
+        place all servers in the same rack in the same zone. For larger deployments, you may plan
+        more elaborate redundancy schemes for redundant power, network ISP connection, and even
+        physical firewalling between zones (<i>this aspect is outside the scope of this
+        document</i>).</p>
+      <p><keyword keyref="kw-hos"/> offers APIs, CLIs and Horizon UIs for the administrator to
+        define and user to consume, availability zones for Nova, Cinder and Swift services. This
+        section outlines the process to deploy specific types of nodes to specific physical servers,
+        and makes a statement of available support for these types of availability zones in the
+        current release.</p>
+      <note>By default, <keyword keyref="kw-hos"/> is deployed in a single availability zone upon
+        installation. Multiple availability zones can be configured by an administrator
+        post-install, if required. Refer to the <xref
+          href="http://docs.openstack.org/openstack-ops/content/scaling.html" format="html"
+          scope="external">Chapter 5: Scaling</xref> (in the OpenStack Operations Guide for more
+        information).</note>
+    </section>
+
+
+    <section id="compute_kvm">
+      <title>Compute with KVM</title>
+      <p>You can deploy your KVM nova-compute nodes either during initial installation, or by adding
+        compute nodes post initial installation.</p>
+      <p>While adding compute nodes post initial installation, you can specify the target physical
+        servers for deploying the compute nodes.</p>
+      <p>Learn more about <xref
+          href="../operations/maintenance/compute/add_hpelinux_compute.dita#add_compute_node">Adding
+          Compute Nodes after Initial Installation</xref></p>
+    </section>
+
+    <section id="nova_availability_zones">
+      <title>Nova Availability Zones</title>
+      <p>Nova host aggregates and Nova availability zones can be used to segregate Nova compute
+        nodes across different failure zones.</p>
+    </section>
+
+    <section id="compute_esx">
+      <title>Compute with ESX Hypervisor</title>
+      <p>Compute nodes deployed on ESX Hypervisor can be made highly available using the HA feature
+        of VMware ESX Clusters. For more information on VMware HA, please refer to your VMware ESX
+        documentation.</p>
+    </section>
+
+    <section id="block_storage_vsa">
+      <title>Block Storage with StoreVirtual VSA</title>
+      <p>Highly available Cinder block storage volumes are provided by the network RAID 10
+        implementation in the HPE StoreVirtual VSA software. You can deploy the VSA nodes in three
+        node cluster and specify Network RAID 10 protection for Cinder volumes.</p>
+      <p>The underlying SAN/iQ operating system of the StoreVirtual VSA ensures that the two-way
+        replication maintains two mirrored copies of data for each volume.</p>
+      <p>This Network RAID 10 capability ensures that failure of any single server does not cause
+        data loss, and maintains data access to the clients.</p>
+      <p>Furthermore, each of the VSA nodes of the cluster can be strategically deployed in
+        different zones of your data center for maximum redundancy and resiliency. For more
+        information on how to deploy VSA nodes on desired target servers, refer to the <xref
+          href="../installation/configure_vsa.dita#config_vsa">Configuring for VSA Block Storage
+          Backend</xref> document.</p>
+      <p><image href="../../media/ha30/ha-block-storage.png" id="BlockStorage"/></p>
+    </section>
+
+    <section id="deploy_vsa_cluster">
+      <title>Deploy VSA cluster across Availability Zones/Racks</title>
+      <p>In the Availablity Zone image above, the input model example has 3 VSA servers in three
+        different server-groups (Racks) (server-groups are are logical separations). You can
+        configure these server-groups in different physical Racks to provide the required hardware
+        isolation. See input model examples for <xref
+          href="../architecture/examples/entryscale_kvm_vsa.dita#entryscale_kvm_vsa"/>, <xref
+          href="../architecture/examples/entryscale_esx_kvm_vsa_mml.dita#example_entryscale_esx_mml"
+        />, and <xref href="../architecture/examples/midscale_kvm_vsa.dita#midscale_kvm_vsa"/>
+      </p>
+      <p>The recommended configuration for a VSA Cluster is to use RAID 10 with 3 mirrors to
+        guarantee that data is replicated across 3 VSA nodes spreading across AZs/Racks. Using one
+        of the two options below, you can expand storage capacity by adding 3 more nodes.<ol>
+          <li>Add new three VSA nodes to the existing cluster and ensure that each new VSA node is
+            on different AZ/Rack. <note>There is a 1500 volumes limit per VSA cluster.</note>
+          </li>
+          <li>Create a new VSA cluster with the 3 new nodes.</li>
+        </ol>
+      </p>
+    </section>
+
+    <section id="cinder_availability_zones">
+      <title>Cinder Availability Zones</title>
+      <p>Cinder availability zones are not supported for general consumption in the current
+        release.</p>
+    </section>
+
+    <section id="object_storage_swift">
+      <title>Object Storage with Swift</title>
+      <p>High availability in Swift is achieved at two levels.</p>
+      <p><b>Control Plane</b></p>
+      <p>The Swift API is served by multiple Swift proxy nodes. Client requests are directed to all
+        Swift proxy nodes by the HA Proxy load balancer in round-robin fashion. The HA Proxy load
+        balancer regularly checks the node is responding, so that if it fails, traffic is directed
+        to the remaining nodes. The Swift service will continue to operate and respond to client
+        requests as long as at least one Swift proxy server is running.</p>
+      <p>If a Swift proxy node fails in the middle of a transaction, the transaction fails. However
+        it is standard practice for Swift clients to retry operations. This is transparent to
+        applications that use the python-swiftclient library.</p>
+      <p>The entry-scale example cloud models contain three Swift proxy nodes. However, it is
+        possible to add additional clusters with additional Swift proxy nodes to handle a larger
+        workload or to provide additional resiliency.</p>
+      <p><b>Data</b></p>
+      <p>Multiple replicas of all data is stored. This happens for account, container and object
+        data. The example cloud models recommend a replica count of three. However, you may change
+        this to a higher value if needed.</p>
+      <p>When Swift stores different replicas of the same item on disk, it ensures that as far as
+        possible, each replica is stored in a different zone, server or drive. This means that if a
+        single server of disk drives fails, there should be two copies of the item on other servers
+        or disk drives.</p>
+      <p>If a disk drive is failed, Swift will continue to store three replicas. The replicas that
+        would normally be stored on the failed drive are “handed off” to another drive on the
+        system. When the failed drive is replaced, the data on that drive is reconstructed by the
+        replication process. The replication process re-creates the “missing” replicas by copying
+        them to the drive using one of the other remaining replicas. While this is happening, Swift
+        can continue to store and retrieve data.</p>
+      <!--  Orignal Image Included with the 1.1, 1.1.1 and initial 2.0 versions.
+      <p><image href="../../media/ha30/ha-swift.png" id="HA_Swift"/></p>
+      -->
+    </section>
+
+    <section id="highly_available_app_workloads">
+      <title>Highly Available Cloud Applications and Workloads</title>
+      <p>Projects writing applications to be deployed in the cloud must be aware of the cloud
+        architecture and potential points of failure and architect their applications accordingly
+        for high availability.</p>
+      <p>Some guidelines for consideration:</p>
+      <ol>
+        <li>Assume intermittent failures and plan for retries <ul>
+            <li><b>OpenStack Service APIs</b>: invocations can fail - you should carefully evaluate
+              the response of each invocation, and retry in case of failures.</li>
+            <li><b>Compute</b>: VMs can die - monitor and restart them</li>
+            <li><b>Network</b>: Network calls can fail - retry should be successful</li>
+            <li><b>Storage</b>: Storage connection can hiccup - retry should be successful</li>
+          </ul>
+        </li>
+        <li>Build redundancy into your application tiers <ul>
+            <li>
+              <ul>
+                <li>Replicate VMs containing stateless services such as Web application tier or Web
+                  service API tier and put them behind load balancers (you must implement your own
+                  HA Proxy type load balancer in your application VMs until <keyword keyref="kw-hos"
+                  /> delivers the LBaaS service). </li>
+                <li>Boot the replicated VMs into different Nova availability zones.</li>
+                <li>If your VM stores state information on its local disk (Ephemeral Storage), and
+                  you cannot afford to lose it, then boot the VM off a Cinder volume.</li>
+                <li>Take periodic snapshots of the VM which will back it up to Swift through
+                  Glance.</li>
+                <li>Your data on ephemeral may get corrupted (but not your backup data in Swift and
+                  not your data on Cinder volumes).</li>
+                <li>Take regular snapshots of Cinder volumes and also back up Cinder volumes or your
+                  data exports into Swift.</li>
+              </ul>
+            </li>
+          </ul>
+        </li>
+        <li>Instead of rolling your own highly available stateful services, use readily available
+            <keyword keyref="kw-hos"/> platform services such as Designate, the DNS service. </li>
+      </ol>
+    </section>
+
+    <section id="what_not_ha">
+      <title>What is not Highly Available?</title>
+      <sectiondiv>
+        <p id="deployer"><b>Lifecycle Manager</b></p>
+        <p>The lifecycle manager in <keyword keyref="kw-hos"/> is not highly-available. The
+          lifecycle manager state/data are all maintained in a filesystem and are backed up by the
+          Freezer service. In case of lifecycle manager failure, the state/data can be recovered
+          from the backup.</p>
+      </sectiondiv>
+      <sectiondiv>
+        <p id="control_plane"><b>Control Plane</b></p>
+        <p>High availability is not supported for Network Services (LBaaS, VPNaaS, FWaaS)</p>
+      </sectiondiv>
+      <sectiondiv>
+        <p id="consoleauth"><b>Nova-consoleauth</b></p>
+        <p>Nova-consoleauth is a singleton service, it can only run on a single node at a time.
+          While nova-consoleauth is not high availability, some work has been done to provide the
+          ability to switch nova-consoleauth to another controller node in case of a failure. More
+          Information on troubleshooting Nova-consoleauth can be found in the <xref
+            href="../operations/troubleshooting/ts_compute.dita"/> guide.</p>
+      </sectiondiv>
+      <sectiondiv>
+        <p id="cinder_backup_volume"><b>Cinder Volume and Backup Services</b></p>
+        <p>Cinder Volume and Backup Services are not high availability and started on one controller
+          node at a time. More information on Cinder Volume and Backup Services can be found in
+            <xref
+            href="../operations/blockstorage/managing_cinder_volumebackup_services.dita#topic_l1p_vpy_jt"
+          />
+        </p>
+      </sectiondiv>
+      <sectiondiv><p id="keystone_cron"><b>Keystone Cron Jobs</b></p> The Keystone cron job is a
+        singleton service, which can only run on a single node at a time. A manual setup process for
+        this job will be required in case of a node failure. More information on enabling the cron
+        job for Keystone on the other nodes can be found in <xref
+          href="../operations/configuring/identity/identity_limitations.dita#topic_qtp_cn3_bt/cron_jobs"
+          >Keystone Limitations.</xref>
+        <!-- docs 3828 -->
+      </sectiondiv>
+    </section>
+
+    <section id="more_information">
+      <title>More Information</title>
+      <ul>
+        <li><xref format="html" scope="external"
+            href="http://docs.openstack.org/high-availability-guide/content/ch-intro.html">OpenStack
+            High-availability Guide</xref></li>
+        <li><xref format="html" scope="external" href="http://12factor.net/">12-Factor
+          Apps</xref></li>
+      </ul>
+    </section>
+  </body>
+</topic>

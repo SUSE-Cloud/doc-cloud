@@ -1,0 +1,394 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="localizing_inputmodel">
+    <title><ph conkeyref="HOS-conrefs/product-title"/>Localizing the Input Model</title>
+    <body><!--not tested-->
+        <p conkeyref="HOS-conrefs/applies-to"/>
+
+        <!--<ul>
+                <li><xref href="example_configurations.dita#example_configurations/networks"
+                    >Networks.yml</xref></li>
+                <li><xref href="example_configurations.dita#example_configurations/nicmappings"
+                    >Nic_mappings.yml</xref></li>
+                <li><xref href="example_configurations.dita#example_configurations/netinterfaces"
+                    >Net_interfaces.yml</xref></li>
+                <li><xref href="example_configurations.dita#example_configurations/networkgroups"
+                    >Network_groups.yml</xref></li>
+                <li><xref href="example_configurations.dita#example_configurations/servers"
+                    >Servers.yml</xref></li>
+              </ul>-->
+        
+        
+        
+            <p>This section covers the minimum set of changes needed to localize the cloud for your
+                environment. This assumes you are using other features of the example unchanged:</p>
+            <ul>
+                <li>Update <codeph>networks.yml</codeph> to specify the network addresses (VLAN IDs and CIDR
+                    values) for your cloud.</li>
+                <li>Update <codeph>nic_mappings.yml</codeph> to specify the PCI bus information for your
+                    servers' Ethernet devices.</li>
+                <li>Update <codeph>net_interfaces.yml</codeph> to provide network interface configurations,
+                    such as bond settings and bond devices.</li>
+                <li>Update <codeph>network_groups.yml</codeph> to provide the public URL for your cloud and
+                    to provide security certificates.</li>
+                <li>Update <codeph>servers.yml</codeph> to provide information about your servers.</li>
+            </ul>
+ 
+        
+        <section id="networks">
+            <title>networks.yml</title>
+            <p>You will need to allocate site specific CIDRs and VLANs for these networks and update these
+                values in the <codeph>networks.yml</codeph> file. The example models define the following
+                networks:</p>
+            <table frame="all" rowsep="1" colsep="1" id="table_networks">
+                <tgroup cols="4">
+                    <colspec colname="c1" colnum="1"/>
+                    <colspec colname="c2" colnum="2"/>
+                    <colspec colname="c3" colnum="3"/>
+                    <colspec colname="c4" colnum="4"/>
+                    <thead>
+                        <row>
+                            <entry>Network</entry>
+                            <entry>CIDR</entry>
+                            <entry>VLAN ID</entry>
+                            <entry>Tagged / Untagged</entry>
+                        </row>
+                    </thead>
+                    <tbody>
+                        <row>
+                            <entry>External API</entry>
+                            <entry>10.0.1.0/24</entry>
+                            <entry>101</entry>
+                            <entry>Tagged</entry>
+                        </row>
+                        <row>
+                            <entry>External VM</entry>
+                            <entry>Addresses configured by Neutron, leave blank in the file.</entry>
+                            <entry>102</entry>
+                            <entry>Tagged</entry>
+                        </row>
+                        <row>
+                            <entry>Guest</entry>
+                            <entry>10.1.1.0/24</entry>
+                            <entry>103</entry>
+                            <entry>Tagged</entry>
+                        </row>
+                        <row>
+                            <entry>Management</entry>
+                            <entry>192.168.10.0/24</entry>
+                            <entry>100</entry>
+                            <entry>Untagged</entry>
+                        </row>
+                    </tbody>
+                </tgroup>
+            </table>
+            <p>You will need to edit this file to provide your local values for these networks.</p>
+            <p>The CIDR for the External VM network is configured separately using the Neutron API. (For
+                instructions, see <xref keyref="create_extnet"/>.) You will only specify
+                its VLAN ID during the installation process.</p>
+            <p>The Management network is shown as untagged. This is required if you are using this network
+                to PXE install the operating system on the cloud nodes.</p>
+            <p>The example <codeph>networks.yml</codeph> file is shown below. Modify the bolded fields to
+                reflect your site values.</p>
+            
+            <codeblock>networks:
+   #
+   # This example uses the following networks
+   #
+   # Network       CIDR             VLAN
+   # -------       ----             ----
+   # External API  10.0.1.0/24      101 (tagged)
+   # External VM   see note 1       102 (tagged)
+   # Guest         10.1.1.0/24      103 (tagged)
+   # Management    192.168.10.0/24  100 (untagged)
+   #	
+   # Notes:
+   # 1. Defined as part of Neutron configuration
+   #
+   # Modify these values to match your environment
+   #
+   - name: EXTERNAL-API-NET
+     vlanid: <b>101</b>
+     tagged-vlan: true
+     cidr: <b>10.0.1.0/24</b>
+     gateway-ip: <b>10.0.1.1</b>
+     network-group: EXTERNAL-API
+        
+   - name: EXTERNAL-VM-NET
+     vlanid: <b>102</b>
+     tagged-vlan: true
+     network-group: EXTERNAL-VM
+        
+   - name: GUEST-NET
+     vlanid: <b>103</b>
+     tagged-vlan: true
+     cidr: <b>10.1.1.0/24</b>
+     gateway-ip: <b>10.1.1.1</b>
+     network-group: GUEST
+        
+   - name: MANAGEMENT-NET
+     vlanid: 100
+     tagged-vlan: false
+     cidr: <b>192.168.10.0/24</b>
+     gateway-ip: <b>192.168.10.1</b>
+     network-group: MANAGEMENT</codeblock>
+
+        </section>
+
+        <section id="nicmappings"><title>nic_mappings.yml</title>
+            <p>This file maps Ethernet port names to specific bus slots. Due to inherent race conditions
+                associated with multiple PCI device discovery there is no guarantee that Ethernet devices
+                will be named as expected by the operating system, and it is possible that different port
+                naming will exist on different servers with the same physical configuration.</p>
+            <p>To provide a deterministic naming pattern, the input model supports an explicit mapping
+                from PCI bus address to a user specified name. <keyword keyref="kw-hos"/> uses the prefix
+                <b>hed</b> (Helion Ethernet Device) to name such devices to avoid any name clashes with
+                the <b>eth</b> names assigned by the operating system.</p>
+            <p>The example <codeph>nic_mappings.yml</codeph> file is shown below.</p>
+            <codeblock>nic-mappings:
+        
+   - name: HP-DL360-4PORT
+     physical-ports:
+       - logical-name: hed1
+         type: simple-port
+         bus-address: "0000:07:00.0"
+        
+        - logical-name: hed2
+          type: simple-port
+          bus-address: "0000:08:00.0"
+        
+        - logical-name: hed3
+          type: simple-port
+          bus-address: "0000:09:00.0"
+        
+        - logical-name: hed4
+          type: simple-port
+          bus-address: "0000:0a:00.0"
+        
+    - name: MY-2PORT-SERVER
+      physical-ports:
+        - logical-name: hed3
+          type: simple-port
+          bus-address: "0000:04:00.0"
+        
+        - logical-name: hed4
+          type: simple-port
+          bus-address: "0000:04:00.1"</codeblock>
+            
+            <p>This defines two sets of NIC mappings, representing two different physical server types.
+                The name of each mapping is used as a value in the <codeph>servers.yml</codeph> file to
+                associate each server with its required mapping. This enables the use of different server
+                models or servers with different network hardware.</p>
+            <p>Each mapping lists a set of ports with the following information:</p>
+            <ul>
+                <li><b>Logical name</b> - <keyword keyref="kw-hos"/> uses the form
+                    <codeph>hedN</codeph>.</li>
+                <li><b>Type</b> - Only simple-port types are supported in <keyword keyref="kw-hos-phrase"
+                />.</li>
+                <li><b>Bus-address</b> - The PIC bus address of the port.</li>
+            </ul>
+            <p>The PCI bus address can be found using the <codeph>lspci</codeph> command on one of the
+                servers. This command can produce a lot of output, so you can use the following command
+                which will limit the output to list Ethernet class devices only:</p>
+            <codeblock>sudo lspci -D |grep -i net</codeblock>
+            <p>Here is an example output:</p>
+            <codeblock>$ sudo lspci -D |grep -i net
+0000:02:00.0 Ethernet controller: Broadcom Corporation NetXtreme BCM5719 Gigabit Ethernet PCIe (rev 01)
+0000:02:00.1 Ethernet controller: Broadcom Corporation NetXtreme BCM5719 Gigabit Ethernet PCIe (rev 01)
+0000:02:00.2 Ethernet controller: Broadcom Corporation NetXtreme BCM5719 Gigabit Ethernet PCIe (rev 01)
+0000:02:00.3 Ethernet controller: Broadcom Corporation NetXtreme BCM5719 Gigabit Ethernet PCIe (rev 01)
+0000:04:00.0 Ethernet controller: Intel Corporation 82599ES 10-Gigabit SFI/SFP+ Network Connection (rev 01)
+0000:04:00.1 Ethernet controller: Intel Corporation 82599ES 10-Gigabit SFI/SFP+ Network Connection (rev 01)</codeblock>
+            
+            <p>To localize this file, replace the mapping names with the names of your choice and
+                enumerate the ports as required.</p>
+        </section>
+        
+        <section id="netinterfaces"><title>net_interfaces.yml</title>
+            <p>This file is used to define how the network interfaces are to be configured. The example
+                reflects the slightly different configuration of controller, compute nodes, and VSA
+                nodes.</p>
+            <p>If network bonding is to be used, this file specifies how bonding is to be set up. It also
+                specifies which networks are to be associated with each interface.</p>
+            <p>The example uses a bond of interfaces <codeph>hed3</codeph> and <codeph>hed4</codeph>. You
+                only need to modify this file if you have mapped your physical ports to different names, or
+                if you need to modify the bond options.</p>
+            <p>The section of configuration file is shown below, which will create a bonded interface
+                using the named <codeph>hed3</codeph> and <codeph>hed4</codeph> NIC mappings described in
+                the previous section.</p>
+            <codeblock>
+    - name: CONTROLLER-INTERFACES
+      network-interfaces:
+        - name: BOND0
+          device:
+              name: bond0
+          bond-data:
+              options:
+                  mode: active-backup
+                  miimon: 200
+                  primary: hed3
+          provider: linux
+          devices:
+              - name: hed3
+              - name: hed4
+          network-groups:
+            - EXTERNAL-API
+            - EXTERNAL-VM
+            - GUEST
+            - MANAGEMENT</codeblock>
+            
+            <p>If your system cannot support bonding, then you can modify this specification to specify a
+                non-bonded interface, for example using device <codeph>hed3</codeph>:</p>
+            <codeblock>
+   - name: CONTROLLER-INTERFACES
+     network-interfaces:
+        - name: hed3
+          device:
+             name: hed3
+          network-groups:
+             - EXTERNAL-API
+             - EXTERNAL-VM
+             - GUEST
+             - MANAGEMENT</codeblock>
+        </section>
+        
+        <section id="networkgroups">
+            <title>network_groups.yml</title>
+            <p>This file defines the networks groups used in your cloud. A network-group defines the
+                traffic separation model, and all of the properties that are common to the set of L3
+                networks that carry each type of traffic. They define where services and load balancers are
+                attached to the network model and the routing within that model.</p>
+            <p>In this example, the following network groups are defined:</p>
+            <ul>
+                <li><b>EXTERNAL-API</b> - This network group is used for external IP traffic to the cloud.
+                    In addition, it defines: <ul>
+                        <li>The characteristics of the load balancer to be used for the external API.</li>
+                        <li>The Transport Layer Security (TLS) attributes.</li>
+                    </ul></li>
+                <li><b>EXTERNAL-VM</b> - Floating IPs for virtual machines are created on this network
+                    group. This is identified by the tag value
+                    <codeph>neutron.l3_agent.external_network_bridge</codeph>.</li>
+                <li><b>GUEST</b> - Tenant VxLAN traffic is carried on this network group. This is identified
+                    by the tag value <codeph>neutron.networks.vxlan</codeph>.</li>
+                <li><b>MANAGEMENT</b> - This is the default network group for traffic between service
+                    components in the cloud. In addition, it defines: <ul>
+                        <li>An internal load balancer is defined on this network group for managing internal and
+                            administrative API requests.</li>
+                    </ul></li>
+            </ul>
+            <p>Most of the values in this file should be left unmodified if you are using the network
+                model defined by the example. More complex modifications are supported but are outside the
+                scope of this document.</p>
+            <p>However, the values related to the external API network are site-specific and need to be
+                modified:</p>
+            <ul>
+                <li>Provide an external URL for the cloud.</li>
+                <li>Provide the name of the security certificate to use.</li>
+            </ul>
+            <p>The example <codeph>network_groups.yml</codeph> file is shown below, modify the bolded
+                fields to reflect your site values.</p>
+            <codeblock>
+   # External API
+   #
+   # This is the network group that users will use to
+   # access the public API endpoints of your cloud
+   #
+   - name: EXTERNAL-API
+     hostname-suffix: extapi
+        
+     load-balancers:
+       - provider: ip-cluster
+         name: extlb
+         # If external-name is set then public urls in keystone
+         # will use this name instead of the IP address
+         # You must either set this to a name that can be resolved
+         # in your network 
+         # or comment out this line to use IP addresses
+         <b>external-name</b>:
+        
+         <b>tls-components</b>:
+            - default
+         roles:
+            - public
+         <b>cert-file: my-public-kvm-vsa-cert</b></codeblock>
+            <p>The above bolded sections as follows:</p>
+            <p><b>external-name</b> - The external name defines how the public URLs will be registered in
+                Keystone. Users of your cloud will need to be able to resolve this URL to access the cloud
+                APIs, and if you are using the TLS, the name must match the certificate used.</p>
+            <p>Because this value is difficult to change after initial deployment, this value is left
+                blank in the supplied example which prevents the configuration processor from running until
+                a value has been supplied. If you want to register the public URLs as IP addresses instead
+                of a name, then you can comment out this line.</p>
+            <p><b>cert-file</b> - Provide the name of the file located in
+                <codeph>~/helion/my_cloud/config/tls/certs/</codeph> that will be used for your cloud
+                endpoints. As shown above, this can be either a single certificate for all endpoints or a
+                default certificate file and a set of service-specific certificate files.</p>
+            <p><b>tls-components</b> - If you do not want to use a TLS for the public URLs then change the
+                entry that says <codeph>tls-components</codeph> to <codeph>components</codeph>.</p>
+        </section>
+        
+        <section id="servers">
+            
+            <title>servers.yml</title>
+            <p>This file is where you provide the details of the physical servers that make up your cloud.
+                There are two sections to this file: <codeph>baremetal</codeph> and
+                <codeph>servers</codeph>:</p>
+            <codeblock>
+   baremetal:
+      # NOTE: These values need to be changed to match your environment.
+      # Define the network range that contains the ip-addr values for
+      # the individual servers listed below.
+      subnet: <b>192.168.10.0</b>
+      netmask: <b>255.255.255.0</b></codeblock>
+            <p>The two values in this section are used to configure cobbler for operating system
+                installation and must match the network values for the addresses given for the servers.</p>
+            <p>The servers section below provides the details of each individual server. For example, here
+                are the details for the first controller:</p>
+            <codeblock>
+   servers:
+        
+      # Controllers
+      - id: controller1
+        ip-addr: <b>192.168.10.3</b>
+        role: CONTROLLER-ROLE
+        server-group: RACK1
+        nic-mapping: <b>HP-DL360-4PORT</b>
+        mac-addr: <b>b2:72:8d:ac:7c:6f</b>
+        ilo-ip: <b>192.168.9.3</b>
+        ilo-password: <b>password</b>
+        ilo-user: <b>admin</b></codeblock>
+            <p>Here is a description of each of the above bolded sections:</p>
+            <p><b>id</b> - A name you provide to uniquely identify a server. This can be any string which
+                makes sense in your context, such as an asset tag, descriptive name, etc. The system will
+                use this value to remember how the server has been allocated.</p>
+            <p><b>ip-addr</b> - The IP address that the system will use for SSH connections to the server
+                for deployment and configuration changes. This address must be in the IP range of one of the
+                networks in the model. In the example, the servers are provided with addresses from the
+                MANAGEMENT network.</p>
+            <p><b>role</b> - A string that refers to an entry in <codeph>server_roles.yml</codeph> that
+                tells the system how to configure the disks and network interfaces for this server. Roles
+                are also used to define which servers can be used for specific purposes. Adding and changing
+                roles is beyond the scope of this walkthrough - for more information, see <xref
+                    keyref="input_model"><keyword keyref="kw-hos-phrase"/> Input Model</xref>.</p>
+            <p><b>server-group</b> - Tells the system how this server is physically related to networks
+                and other servers. Server groups are used to ensure that servers in a cluster are selected
+                from different physical groups. The example provides a set of server groups that divide the
+                servers into three sets called <b>RACK1</b>, <b>RACK2</b>, and <b>RACK3</b>. Modifying the
+                server group structure is beyond the scope of this walkthrough - for more information, see
+                <xref keyref="input_model"><keyword keyref="kw-hos-phrase"/> Input Model</xref>.</p>
+            <p><b>nic-mapping</b> - The name of a network port mapping definition (for more information,
+                see <xref keyref="localizing_inputmodel/nicmappings"
+                    >nic_mappings.yml</xref>). You need to set this to the mapping that corresponds to this
+                server.</p>
+            <p><b>mac-addr</b> - The MAC address of the interface associated with this server that will be
+                used for PXE boot.</p>
+            <p><b>ilo-ip</b> - The IP address of the iLO or IPMI port for this server.</p>
+            <p><b>ilo-user and ilo-password</b> - The login details used to access the iLO or IPMI port of
+                this server. The iLO password value can be provided as an OpenSSL encrypted string. (For
+                instructions on how to generate encrypted passwords, see <xref
+                    href="../../installation/installing_kvm.dita#install_kvm/configuration"/>.</p>
+        </section>
+        
+    </body>
+</topic>

@@ -1,0 +1,880 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic
+  PUBLIC "-//OASIS//DTD DITA Topic//EN" "http://docs.oasis-open.org/dita/v1.1/OS/dtd/topic.dtd" ><topic xml:lang="en-us" id="topic18446">
+<title>HPE Helion <tm tmtype="reg">OpenStack</tm> 1.0: Update Troubleshooting</title>
+<prolog>
+<metadata>
+<othermeta name="layout" content="default"/>
+</metadata>
+</prolog>
+<body>
+<p>
+<!--PUBLISHED-->
+ <!--./commercial/GA1/1.0commercial.update-101-troubleshooting.md-->
+ <!--permalink: /helion/openstack/update/troubleshooting/101/--></p>
+<!-- taken from https://git.gozer.hpcloud.net/cgit/hp/tripleo-ansible/tree/Troubleshooting.rst -->
+<p>This document describes known issues that you might encounter while updating. To help you resolve these issues, we have provided possible solutions.</p>
+<ul>
+<li>
+<xref type="section" href="#topic18446/retry">Retrying failed actions</xref>
+</li>
+<li>
+<xref type="section" href="#topic18446/nodeerror">Node goes to ERROR state during rebuild</xref>
+</li>
+<li>
+<xref type="section" href="#topic18446/mysqlmissing">MySQL CLI configuration file missing</xref>
+</li>
+<li>
+<xref type="section" href="#topic18446/mysqlfails">MySQL fails to start upon retrying update</xref>
+</li>
+<li>
+<xref type="section" href="#topic18446/mysqlsync">MySQL/Percona/Galera is out of sync</xref>
+</li>
+<li>
+<xref type="section" href="#topic18446/lastnode">MySQL "Node appears to be the last node in a cluster" error</xref>
+</li>
+<li>
+<xref type="section" href="#topic18446/sshlost">SSH Connectivity is lost</xref>
+</li>
+<li>
+<xref type="section" href="#topic18446/posfix">Postfix fails to reload</xref>
+</li>
+<li>
+<xref type="section" href="#topic18446/apache2">Apache2 Fails to start</xref>
+</li>
+<li>
+<xref type="section" href="#topic18446/rabbitmq">RabbitMQ still running when restart is attempted</xref>
+</li>
+<li>
+<xref type="section" href="#topic18446/shutoff">Instance reported as powering on but the instance is in shutoff state</xref>
+</li>
+<li>
+<xref type="section" href="#topic18446/mnt">State drive /mnt is not mounted</xref>
+</li>
+<li>
+<xref type="section" href="#topic18446/ironic">Ironic intermittently set maintenance mode to True during installation</xref>
+</li>
+<li>
+<xref type="section" href="#topic18446/ansible">A lock problem occurred in Ironic during update of the undercloud using the Ansible script</xref>
+</li>
+</ul>
+<section id="retry"> <title>Retrying failed actions</title>
+<p>In some cases, steps might fail as some components might not yet be ready for
+use due to initialization times, which can vary based on hardware and volume</p>
+<p>In the event that this occurs, two options exist that allows a user to
+optionally re-attempt or resume playbook executions.</p>
+<p>
+  <b>Solutions</b>
+</p>
+<ol>
+<li>
+<p>The Ansible ansible-playbook command option <i>--start-at-task="TASK NAME"</i> allows resumption of a playbook when used with the <i>-l</i> limit option.</p>
+
+<codeblock>
+<codeph>ansible-playbook --start-at-task="&lt;TASK NAME&gt;" -l
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>The Ansible ansible-playbook command option <i>--step</i> allows a user to confirm each task executed by Ansible before it is executed upon.</p>
+</li>
+</ol>
+<p>
+  <xref href="#topic18446"> Return to Top </xref>
+</p>
+</section>
+<section id="nodeerror"> <title>Node goes to ERROR state during rebuild</title>
+<p>This can happen from time to time due to network errors or temporary
+overload of the undercloud.</p>
+<p>After an error, the <codeph>nova list</codeph> command shows a node in <codeph>ERROR</codeph> state.</p>
+<p>
+  <b>Solution</b>
+</p>
+<ol>
+<li>
+<p>Verify that the  hardware is in working order.</p>
+</li>
+<li>
+<p>Get the image ID of the machine with <codeph>nova show</codeph>:</p>
+
+<codeblock>
+<codeph>nova show $node_id
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Rebuild manually:</p>
+
+<codeblock>
+<codeph>nova rebuild --preserve-ephemeral $node_id $image_id
+</codeph>
+</codeblock>
+</li>
+</ol>
+<p>
+  <xref href="#topic18446"> Return to Top </xref>
+</p>
+</section>
+<section id="mysqlmissing"> <title>MySQL CLI configuration file missing</title>
+<p>If the post-rebuild restart fails, it is possible that the MySQL CLI configuration file is missing. <!-- ANSUPDATE-116 --></p>
+<p>
+  <b>Symptoms:</b>
+</p>
+<ul>
+<li>
+<p>Attempts to access the MySQL CLI command return an error:</p>
+
+<codeblock>
+<codeph>ERROR 1045 (28000): Access denied for user 'root'@'localhost' (using password: NO)
+</codeph>
+</codeblock>
+</li>
+</ul>
+<p>
+  <b>Solution:</b>
+</p>
+<ol>
+<li>
+<p>Verify that the MySQL CLI config file (<codeph>.my.cnf</codeph>) stored on the state drive is present and has content within the file.  You can do this by executing the following command to display the contents in your terminal:</p>
+
+<codeblock>
+<codeph>sudo cat /mnt/state/root/metadata.my.cnf
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>If the file is empty, run the following command to retrieve the current metadata and update the config files on disk:</p>
+
+<codeblock>
+<codeph>sudo os-collect-config --force --one --command=os-apply-config
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Verify that the MySQL CLI config file is present in the root user directory by executing the following command:</p>
+
+<codeblock>
+<codeph>sudo cat /root/.my.cnf
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>If the <codeph>.my.cnf</codeph> file does not exist or is empty, two options exist.</p>
+
+<ul>
+<li>
+<p>Add the following to your MySQL CLI command line:</p>
+
+<codeblock>
+<codeph>--defaults-extra-file=/mnt/state/root/metadata.my.cnf
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Copy the configuration file from the <codeph>/state</codeph> directory:</p>
+
+<codeblock>
+<codeph>sudo cp -f /mnt/state/root/metadata.my.cnf /root/.my.cnf
+</codeph>
+</codeblock>
+</li>
+</ul>
+</li>
+</ol>
+<p>
+  <xref href="#topic18446"> Return to Top </xref>
+</p>
+</section>
+<section id="mysqlfails"> <title>MySQL fails to start upon retrying update</title>
+<p>If the update was aborted or failed during the update sequence before a single MySQL controller was operational, MySQL will fail to start.</p>
+<p>
+  <b>Symptoms:</b>
+</p>
+<ul>
+<li>
+<p>Update is being re-attempted.</p>
+</li>
+<li>
+<p>The following error messages having been observed.</p>
+
+<codeblock>
+<codeph>* msg: Starting MySQL (Percona XtraDB Cluster) database server: mysqld . . . . The server quit without updating PID file (/var/run/mysqld/mysqld.pid)
+
+* stderr: ERROR 2002 (HY000): Can't connect to local MySQL server through socket '/var/run/mysqld/mysqld.sock' (111)
+
+* FATAL: all hosts have already failed -- aborting
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Update automatically aborts.</p>
+</li>
+</ul>
+<p>
+  <b>Solution:</b>
+</p>
+<ol>
+<li>
+<p>Use <codeph>nova list</codeph> to determine the IP of the congtrollerMgmt node.</p>
+</li>
+<li>
+<p>SSH into the node:</p>
+
+<codeblock>
+<codeph>ssh heat-admin@$IP
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Verify MySQL is down by running the MySQL client as root. It <i>should</i> fail:</p>
+
+<codeblock>
+<codeph>sudo mysql -e "SELECT 1"
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Attempt to restart MySQL in case another cluster node is online. This <i>should</i> fail in this error state:</p>
+
+<codeblock>
+<codeph>sudo /etc/init.d/mysql start
+</codeph>
+</codeblock>
+
+<p>Note: If this command succeeds your cluster should again be operational. No further action is required.</p>
+</li>
+<li>
+<p>Start MySQL back up in single node bootstrap mode:</p>
+
+<codeblock>
+<codeph>sudo /etc/init.d/mysql bootstrap-pxc
+</codeph>
+</codeblock>
+
+<p>
+<b>IMPORTANT:</b> The <codeph>/etc/init.d/mysql bootstrap-pxc</codeph> command should only ever be executed when an entire MySQL cluster is down, and then only on the last node to have been shut down.  Running this command on multiple nodes will cause the MySQL cluster to enter a "split brain" scenario, effectively breaking the cluster, which results in unpredictable behavior.</p>
+
+<p>"Split brain" syndrome occurs when a cluster of nodes is divided into smaller clusters, each of which believes it is the only active cluster.</p>
+</li>
+</ol>
+<p>
+  <xref href="#topic18446"> Return to Top </xref>
+</p>
+</section>
+<section id="mysqlsync"> <title>MySQL/Percona/Galera is out of sync</title>
+<p>Helion OpenStack is configured to store all of its state in a multi-node synchronous replication Percona XtraDB Cluster database, which uses Galera for replication. This database must be in sync and have the full complement of servers before updates can be performed safely.</p>
+<p>
+  <b>Symptoms:</b>
+</p>
+<ul>
+<li>Update fails with errors about Galera and/or MySQL being "Out of Sync".</li>
+</ul>
+<p>
+  <b>Solution:</b>
+</p>
+<ol>
+<li>
+<p>Use <codeph>nova list</codeph> to determine IP of controllerMgmt node:</p>
+</li>
+<li>
+<p>SSH into the node:</p>
+
+<codeblock>
+<codeph>ssh heat-admin@$IP
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Verify replication is out of sync:</p>
+
+<codeblock>
+<codeph>sudo mysql -e "SHOW STATUS like 'wsrep_%'"
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Stop MySQL:</p>
+
+<codeblock>
+<codeph>sudo /etc/init.d/mysql stop
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Verify that MySQL is down by running the MySQL client as root. The command <i>should</i> fail:</p>
+
+<codeblock>
+<codeph>sudo mysql -e "SELECT 1"
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Start controllerMgmt0 MySQL back up in single node bootstrap mode:</p>
+
+<codeblock>
+<codeph>sudo /etc/init.d/mysql bootstrap-pxc
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>On the remaining controller nodes obseved to be having issues, utilize the IP address using <codeph>nova list</codeph> and login to them.:</p>
+
+<codeblock>
+<codeph>ssh heat-admin@$IP
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Verify replication is out of sync:</p>
+
+<codeblock>
+<codeph>sudo mysql -e "SHOW STATUS like 'wsrep_%'"
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Stop MySQL:</p>
+
+<codeblock>
+<codeph>sudo /etc/init.d/mysql stop
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Verify it is down by running the MySQL client as root. It <i>should</i> fail:</p>
+
+<codeblock>
+<codeph>sudo mysql -e "SELECT 1"
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Start MySQL back up so it attempts to connect to controllerMgmt0:</p>
+
+<codeblock>
+<codeph>sudo /etc/init.d/mysql start
+</codeph>
+</codeblock>
+
+<p>If restarting MySQL fails, then the database might be out of sync. Consult the MySQL error logs, located at /var/log/mysql/error.log.  In this case, never attempt to restart MySQL with <codeph>sudo /etc/init.d/mysql bootstrap-pxc</codeph> as it will bootstrap the host as a single node cluster thus worsening what already appears to be a split-brain scenario.</p>
+</li>
+</ol>
+<p>
+  <xref href="#topic18446"> Return to Top </xref>
+</p>
+</section>
+<section id="lastnode"> <title>MySQL "Node appears to be the last node in a cluster" error</title>
+<p>This error occurs when one of the controller nodes does not have MySQL running.</p>
+<p>The playbook has detected that the current node is the last running node.
+However, based on sequence, the current node should not be the last node.  As a result the error is thrown and update aborted.</p>
+<p>
+  <b>Symptoms:</b>
+</p>
+<ul>
+<li>
+<p>Update failed with error message:</p>
+
+<p>
+<codeph>Galera Replication - Node appears to be the last node in a cluster - cannot safely proceed unless overridden via single_controller setting - See README.rst</codeph>
+</p>
+</li>
+</ul>
+<p>
+  <b>Solution:</b>
+</p>
+<ol>
+<li>
+<p>Run the <codeph>pre-flight_check.yml</codeph> playbook.  It will attempt to restart MySQL on each node in the <codeph>Ensuring MySQL is running</codeph> step.  If that step succeeds, you should be able to re-run the playbook and not encounter "Node appears to be last node in a cluster" error.</p>
+
+<p>If the <codeph>pre-flight_check</codeph> fails to restart MySQL, you will need to consult the MySQL logs (/var/log/mysql/error.log) to determine why the other nodes are not restarting.</p>
+</li>
+</ol>
+<p>
+  <xref href="#topic18446"> Return to Top </xref>
+</p>
+</section>
+<section id="sshlost"> <title>SSH Connectivity is lost</title>
+<p>Ansible uses SSH to communicate with remote nodes. In heavily loaded, single host virtualized environments, SSH can lose connectivity.  It should be noted that similar issues in a physical environment may indicate issues in the underlying network infrastructure.</p>
+<p>
+  <b>Symptoms:</b>
+</p>
+<ul>
+<li>
+<p>Ansible update attempt fails with the following error:</p>
+
+<codeblock>
+<codeph>fatal: [192.0.2.25] =&gt; SSH encountered an unknown error. The output was:
+OpenSSH_6.6.1, OpenSSL 1.0.1i-dev xx XXX xxxx
+debug1: Reading configuration data /etc/ssh/ssh_config
+debug1: /etc/ssh/ssh_config line 19: Applying options for *
+debug1: auto-mux: Trying existing master
+debug2: fd 3 setting O_NONBLOCK
+mux_client_hello_exchange: write packet: Broken pipe
+FATAL: all hosts have already failed - aborting
+</codeph>
+</codeblock>
+</li>
+</ul>
+<p>
+  <b>Solution:</b>
+</p>
+<ul>
+<li>
+<p>You will generally be able to re-run the playbook and complete the upgrade, unless SSH connectivity is lost while all MySQL nodes are down.</p>
+
+<p>See <xref type="section" href="#topic18446/mysqlfails">MySQL fails to start upon retrying update</xref> to correct this issue.</p>
+</li>
+<li>
+<p>Early Ubuntu Trusty kernel versions have known issues with KVM that can impact SSH connectivity to instances. Test hosts should have a minimum kernel version of 3.13.0-36-generic.</p>
+
+<p>The update steps, as root, are::</p>
+
+<codeblock>
+<codeph>apt-get update
+apt-get dist-upgrade
+reboot
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>If this issue is repeatedly encountered on a physical environment, the network infrastructure should be inspected for errors.</p>
+</li>
+<li>
+<p>Similar error messages might occur with long running processes, such as database creation/upgrade steps.  These cases will generally have partial program execution log output immediately before the broken pipe message visible.</p>
+
+<p>In this case, Ansible and OpenSSH might need to have their configuration files tuned to meet the needs of the environment.</p>
+
+<p>Consult the Ansible configuration file to see available connection settings <codeph>ssh_args</codeph>, <codeph>timeout</codeph>, and <codeph>pipelining</codeph>.</p>
+
+<p>See the <xref href="https://github.com/ansible/ansible/blob/release1.7.0/examples/ansible.cfg" scope="external" format="html" >ansible/examples/ansible.cfg GitHub</xref>.</p>
+
+<p>Because Ansible uses OpenSSH, refer to the ssh_config man page, in paricular the ServerAliveInterval and ServerAliveCountMax options.</p>
+</li>
+</ul>
+<p>
+  <xref href="#topic18446"> Return to Top </xref>
+</p>
+</section>
+<section id="posfix"> <title>Postfix fails to reload</title>
+<p>Occasionally the postfix mail transfer agent will fail to reload because it is not running when the system expects it to be running.</p>
+<p>
+  <b>Symptom:</b>
+</p>
+<p>The <codeph>/var/log/upstart/os-collect-config.log</codeph> shows that <codeph>service postfix reload</codeph>' failed.</p>
+<p>
+  <b>Solution:</b>
+</p>
+<p>Start postfix:</p>
+<codeblock>
+  <codeph>    sudo service postfix start
+</codeph>
+</codeblock>
+<p>
+  <xref href="#topic18446"> Return to Top </xref>
+</p>
+</section>
+<section id="apache2"> <title>Apache2 Fails to start</title>
+<p>Apache2 requires some self-signed SSL certificates to be put in place. If these certificates have not have been configured yet due to earlier failures in the setup process, the following error displays.</p>
+<p>
+  <b>Error Message:</b>
+</p>
+<codeblock>
+  <codeph>failed: [192.0.2.25] =&gt; (item=apache2) =&gt; {"failed": true, "item": "apache2"}
+msg: start: Job failed to start
+</codeph>
+</codeblock>
+<p>
+  <b>Symptoms:</b>
+</p>
+<ul>
+<li>
+<p>apache2 service fails to start</p>
+</li>
+<li>
+<p>
+<codeph>/etc/ssl/certs/ssl-cert-snakeoil.pem</codeph> is missing or empty</p>
+</li>
+</ul>
+<p>
+  <b>Solution:</b>
+</p>
+<p>Re-run <codeph>os-collect-config</codeph> to reassert the SSL certificates:</p>
+<codeblock>
+  <codeph>    sudo os-collect-config --force --one
+</codeph>
+</codeblock>
+<p>
+  <xref href="#topic18446"> Return to Top </xref>
+</p>
+</section>
+<section id="rabbitmq"> <title>RabbitMQ still running when restart is attempted</title>
+<p>There are certain system states that cause RabbitMQ to fail to respond to normal kill signals.</p>
+<p>
+  <b>Symptoms:</b>
+</p>
+<p>Attempts to start RabbitMQ fail because it is already running.</p>
+<p>
+  <b>Solution:</b>
+</p>
+<p>Find any processes running as <codeph>rabbitmq</codeph> on the box, and kill them, forcibly if need be.</p>
+<p>
+  <xref href="#topic18446"> Return to Top </xref>
+</p>
+</section>
+<section id="shutoff"> <title>Instance reported as powering on but the instance is in shutoff state</title>
+<p>If Compute attempts to restart an instance when the compute node is not ready, Compute could enter into a state where it determines that an instance is starting when in fact the compute node is down.</p>
+<p>
+  <b>Symptoms:</b>
+</p>
+<ul>
+<li>
+<p>Command <codeph>nova list --all-tenants</codeph> reports instance(s) with <codeph>STATUS == "SHUTOFF"</codeph> and task_state <codeph>== "powering on"</codeph>.</p>
+</li>
+<li>
+<p>Instance cannot be pinged.</p>
+</li>
+<li>
+<p>No instance appears to be running on the compute node.</p>
+</li>
+<li>
+<p>Compute service hangs upon retrieving logs or returns old logs from the previous boot.</p>
+</li>
+<li>
+<p>Console session cannot be established.</p>
+</li>
+</ul>
+<p>
+  <b>Solution:</b>
+</p>
+<p>On a controller logged in as root, after executing <codeph>source stackrc</codeph>:</p>
+<ol>
+<li>
+<p>Execute <codeph>nova list --all-tenants</codeph> to obtain instance ID(s)</p>
+</li>
+<li>
+<p>Execute <codeph>nova show &lt;instance-id&gt;</codeph> on each suspected ID to identify suspected compute nodes.</p>
+</li>
+<li>
+<p>Log into the suspected compute node(s) and execute:</p>
+
+<codeblock>
+<codeph>`os-collect-config --force --one`
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Return to the controller node that you were logged into previously, and using the instance IDs obtained previously, take the following steps.</p>
+</li>
+<li>
+<p>Execute <codeph>nova reset-state --active &lt;instance-id&gt;</codeph>
+</p>
+</li>
+<li>
+<p>Execute <codeph>nova stop &lt;instance-id&gt;</codeph>
+</p>
+</li>
+<li>
+<p>Execute <codeph>nova start &lt;instance-id&gt;</codeph>
+</p>
+</li>
+<li>
+<p>Once the above steps have been taken in order, you should see the instance status return to ACTIVE and the instance become accessible over the network.</p>
+</li>
+</ol>
+<p>
+  <xref href="#topic18446"> Return to Top </xref>
+</p>
+</section>
+<section id="mnt"> <title>State drive /mnt is not mounted</title>
+<p>In the rare event that something bad happened between the state drive being unmounted and the rebuild command being triggered, the <codeph>/mnt</codeph> volume on the instance that was being executed upon at that time will be in an unmounted state.</p>
+<p>In such a state, pre-flight checks will fail attempting to start MySQL and
+RabbitMQ.</p>
+<p>
+  <b>Error Messages:</b>
+</p>
+<ul>
+<li>
+<p>Pre-flight check returns an error similar to:</p>
+
+<codeblock>
+<codeph>failed: [192.0.2.24] =&gt; {"changed": true, "cmd": "rabbitmqctl -n rabbit@$(hostname) status"
+stderr: Error: unable to connect to node 'rabbit@overcloud-controller0-vahypr34iy2x': nodedown
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Attempting to manually start MySQL or RabbitMQ return:</p>
+
+<codeblock>
+<codeph>start: Job failed to start
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Upgrade execution returns with an error indicating:</p>
+
+<codeblock>
+<codeph>TASK: [fail msg="Galera Replication - Node appears to be the last node in a cluster - cannot safely proceed unless overridden via single_controller setting - See README.rst"] *** 
+</codeph>
+</codeblock>
+</li>
+</ul>
+<p>
+  <b>Symptoms:</b>
+</p>
+<ul>
+<li>
+<p>Execution of the <codeph>df</codeph> command does not show a volume mounted as /mnt.</p>
+</li>
+<li>
+<p>Unable to manually start services.</p>
+</li>
+</ul>
+<p>
+  <b>Solution:</b>
+</p>
+<ol>
+<li>
+<p>Execute the <codeph>os-collect config</codeph> which will re-mount the state drive. This command might fail without additional intervention, however it should mount the state drive which is all that is needed to proceed to the next step.</p>
+
+<codeblock>
+<codeph>sudo os-collect-config --force --one
+</codeph>
+</codeblock>
+
+<p>At this point, the <codeph>/mnt</codeph> volume should be visible in the output of the <codeph>df</codeph> command.</p>
+</li>
+<li>
+<p>Start MySQL by executing:</p>
+
+<codeblock>
+<codeph>sudo /etc/init.d/mysqld start
+</codeph>
+</codeblock>
+
+<p>If MySQL fails to start and you have verified that MySQL is not running on any controller nodes, you will need to identify the <i>last</i> node that MySQL was stopped on and consult <xref type="section" href="#topic18446/mysqlfails">MySQL fails to start upon retrying update</xref> for guidance on restarting the cluster.</p>
+</li>
+<li>
+<p>Start RabbitMQ by executing:</p>
+
+<codeblock>
+<codeph>service rabbitmq-server start
+</codeph>
+</codeblock>
+
+<ul>
+<li>If <codeph>rabbitmq-server</codeph> fails to start, the cluster might be down. If this is the case, then the <i>last</i> node to be stopped will need to be identified and started before attempting to restart RabbitMQ on this node.</li>
+</ul>
+</li>
+<li>
+<p>Re-execute the pre-flight check, and proceed with the upgrade.</p>
+</li>
+</ol>
+<p>
+  <xref href="#topic18446"> Return to Top </xref>
+</p>
+</section>
+<section id="ironic"> <title>Ironic intermittently set maintenance mode to True during installation</title>
+<p>This issue can happen during the update of undercloud or overcloud nodes. The update will fail for one or more nodes. <!-- CORE-2082 --></p>
+<p>
+  <b>Symptoms:</b>
+</p>
+<p>If the update fails, from undercloud node:</p>
+<ol>
+<li>
+<p>Source the stackrc file:</p>
+
+<codeblock>
+<codeph>source stackrc 
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Execute the <codeph>nova list</codeph> command to determine which Compute node(s) is in an error state. The node will have a status of ERROR.</p>
+
+<codeblock>
+<codeph>nova list
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Execute the <codeph>heat stack-list</codeph> command to determine which Heat stack is in an error state. The stack will have a status of <codeph>CREATE_FAILED</codeph>.</p>
+
+<codeblock>
+<codeph>heat stack-list
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Execute the <codeph>ironic node-list</codeph> command to determine which node(s) is in maintenance mode. The stack will have a maintenance of <codeph>TRUE</codeph>.</p>
+
+<codeblock>
+<codeph>ironic node-list
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Execute the <codeph>ironic node-show</codeph> command for the node that is node(s) is in maintenance mode. The stack will have a maintenance of <codeph>TRUE</codeph>.</p>
+
+<codeblock>
+<codeph>ironic node-show &lt;UUID&gt;
+</codeph>
+</codeblock>
+
+<p>In the output, check the <codeph>last_error</codeph> field for an error similar to the following:</p>
+
+<codeblock>
+<codeph>During sync_power_state, max retries exceeded for node 81baacd5-657e-476f-b7ef, node state None does not match expected state
+
+'None'. Updating DB state to 'None' Switching node to maintenance mode. 
+</codeph>
+</codeblock>
+</li>
+</ol>
+<p>
+  <b>Solution</b>
+</p>
+<ol>
+<li>
+<p>Remove the node in maintenance mode using the following command:</p>
+
+<codeblock>
+<codeph>nova node-delete &lt;ID of error node&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>List the stacks using the following command:</p>
+
+<codeblock>
+<codeph>heat stack-list
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Delete the stack with the failed Nova node.</p>
+
+<codeblock>
+<codeph>heat stack-delete &lt;ID of failed node&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Change the node(s) to false for the maintenance option, using the following command:</p>
+
+<codeblock>
+<codeph>ironic node-update &lt;id&gt; replace maintenance=False
+</codeph>
+</codeblock>
+</li>
+</ol>
+</section>
+<section id="ansible"> <title>Ironic service cannot be restarted on the undercloud</title>
+<p>When performing the upgrade to HPE Helion OpenStack 1.0.1 using the Ansible-based helper script, the Ironic service cannot be restarted because of a lock situation in Ironic. The update process fails with no specific error message.</p>
+<p>
+  <b>Symptom</b>
+</p>
+<ul>
+<li>
+<p>A message similar to the following appears in the <codeph>ironic-api.log</codeph> file:</p>
+
+<codeblock>
+<codeph>2014-10-23 23:03:51.302 31612 WARNING wsme.api [-] Client-side error: Node c241b0d5-abe1-4219-883c-e8dbaf1c5b35 is locked by host hLinux, please retry after the current operation is completed.
+Traceback (most recent call last):
+</codeph>
+</codeblock>
+
+<p>The file is located at: <codeph>/var/log/upstart/ironic-api.log</codeph>. Search for <codeph>locked by host hLinux</codeph>.</p>
+</li>
+</ul>
+<p>
+  <b>Solution</b>
+</p>
+<p>Workaround when this happens is:</p>
+<ol>
+<li>
+<p>Execute the following command in the undercloud:</p>
+
+<codeblock>
+<codeph>mysql --defaults-file=/mnt/state/root/metadata.my.cnf --socket /var/run/mysqld/mysqld.sock ironic -e 'update nodes set reservation=NULL where reservation="hLinux";'
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Change the <b>Instance</b> status from <codeph>Error</codeph> to <codeph>Active</codeph>.</p>
+
+<codeblock>
+<codeph>nova reset-state --active &lt;instance ID&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Start the server manually or use the following command:</p>
+
+<codeblock>
+<codeph>nova stop/nova start
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Execute the update process again.</p>
+</li>
+</ol>
+</section>
+<section id="ansible2"> <title>A lock problem occurred in Ironic during update of the undercloud using the Ansible script</title>
+<p>When performing the upgrade to HPE Helion OpenStack 1.0.1 using the Ansible-based helper script, the Ironic service cannot be restarted because of a lock situation in Ironic. The update process fails with no specific error message. <!-- CORE 2043 --></p>
+<p>
+  <b>Symptom</b>
+</p>
+<ul>
+<li>
+<p>A message similar to the following appears in the <codeph>ironic-api.log</codeph> file:</p>
+
+<codeblock>
+<codeph>2014-10-23 23:03:51.302 31612 WARNING wsme.api [-] Client-side error: Node c241b0d5-abe1-4219-883c-e8dbaf1c5b35 is locked by host hLinux, please retry after the current operation is completed.
+Traceback (most recent call last):
+</codeph>
+</codeblock>
+
+<p>The file is located at: <codeph>/var/log/upstart/ironic-api.log</codeph>. Search for <codeph>locked by host hLinux</codeph>.</p>
+</li>
+</ul>
+<p>**Solution **</p>
+<p>Workaround when happen is:</p>
+<ol>
+<li>
+<p>Execute the following command in the undercloud:</p>
+
+<codeblock>
+<codeph>mysql --defaults-file=/mnt/state/root/metadata.my.cnf --socket /var/run/mysqld/mysqld.sock ironic -e 'update nodes set reservation=NULL where reservation="hLinux";'
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Change the <b>Instance</b> status from <codeph>Error</codeph> to <codeph>Active</codeph>.</p>
+
+<codeblock>
+<codeph>nova reset-state --active &lt;instance ID&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Start the server manually or use the following command:</p>
+
+<codeblock>
+<codeph>nova stop/nova start
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Execute the update process again.</p>
+</li>
+</ol>
+<p>
+  <xref href="#topic18446"> Return to Top </xref>
+</p>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+</body>
+</topic>

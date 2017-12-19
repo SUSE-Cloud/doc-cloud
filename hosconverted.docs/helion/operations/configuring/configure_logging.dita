@@ -1,0 +1,360 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="configure_logging">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Configuring the Centralized Logging Service</title>
+  <body><!--not tested-->
+    <section id="config">
+      <p>In Helion, you have the option to configure the Centralized
+        Logging service for your specific needs. This topic covers the following:</p>
+      <ul>
+        <li><xref href="#configure_logging/config_files">Main Configuration Files</xref></li>
+        <li><xref href="#configure_logging/general_config">General Configuration</xref></li>
+        <li><xref href="#configure_logging/kibana_config">Kibana Configuration</xref></li>
+        <li><xref href="#configure_logging/elasticsearch_config">Elasticsearch Configuration</xref></li>
+      </ul>
+    </section>
+    <section id="config_files"><title>Main Configuration Files</title>
+      <p>Centralized Logging can be configured via the configuration files in the
+          <codeph>~/helion/my_cloud/config/logging/</codeph> directory on the lifecycle manager.
+        These files and their use are described below:</p>
+      <table frame="all" rowsep="1" colsep="1" id="table_wtv_rc5_st">
+        <tgroup cols="2">
+          <colspec colname="c1" colnum="1"/>
+          <colspec colname="c2" colnum="2"/>
+          <thead>
+            <row>
+              <entry>File</entry>
+              <entry>Description</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>main.yml</entry>
+              <entry>Main configuration file for all centralized logging components.</entry>
+            </row>
+            <row>
+              <entry>elasticsearch.yml.j2</entry>
+              <entry>Main configuration file for Elasticsearch.</entry>
+            </row>
+            <row>
+              <entry>elasticsearch-default.j2</entry>
+              <entry>Default overrides for the Elasticsearch init script.</entry>
+            </row>
+            <row>
+              <entry>kibana.yml.j2</entry>
+              <entry>Main configuration file for Kibana.</entry>
+            </row>
+            <row>
+              <entry>kibana-apache2.conf.j2</entry>
+              <entry>Apache configuration file for Kibana.</entry>
+            </row>
+            <row>
+              <entry>logstash.conf.j2</entry>
+              <entry>Logstash inputs/outputs configuration.</entry>
+            </row>
+            <row>
+              <entry>logstash-default.j2</entry>
+              <entry>Default overrides for the Logstash init script.</entry>
+            </row>
+            <row>
+              <entry>beaver.conf.j2</entry>
+              <entry>Main configuration file for Beaver.</entry>
+            </row>
+            <row>
+              <entry>vars</entry>
+              <entry>Path to logrotate configuration files.</entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </table>
+    </section>
+    <section id="general_config">
+      <title>General Configuration</title>
+      <p>The Centralized Logging service needs to have enough resources available to it to perform
+        adequately for different scale environments. The base logging levels are tuned during
+        installation according to the amount of RAM allocated to your control plane nodes to ensure
+        optimum performance.</p>
+      <table frame="all" rowsep="1" colsep="1" id="table_grx_2f5_st">
+        <tgroup cols="7">
+          <colspec colname="c1" colnum="1"/>
+          <colspec colname="c2" colnum="2"/>
+          <colspec colname="c3" colnum="3"/>
+          <colspec colname="c4" colnum="4"/>
+          <colspec colname="c5" colnum="5"/>
+          <colspec colname="c6" colnum="6"/>
+          <colspec colname="c7" colnum="7"/>
+          <thead>
+            <row>
+              <entry>Component</entry>
+              <entry>Ansible Variable</entry>
+              <entry>Demo (&lt;32 GB)</entry>
+              <entry>Small (&lt;64 GB)</entry>
+              <entry>Medium (&lt;128 GB)</entry>
+              <entry>Large (>= 128 GB)</entry>
+              <entry>Description</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>Elasticsearch</entry>
+              <entry>elasticsearch_heap_size</entry>
+              <entry>256 MB</entry>
+              <entry>8 GB</entry>
+              <entry>16 GB</entry>
+              <entry>32 GB</entry>
+              <entry>Amount of heap allocated to Elasticsearch.</entry>
+            </row>
+            <row>
+              <entry>Logstash</entry>
+              <entry>logstash_heap_size</entry>
+              <entry>256 MB</entry>
+              <entry>2 GB</entry>
+              <entry>4 GB</entry>
+              <entry>8 GB</entry>
+              <entry>Amount of heap allocated to Logstash.</entry>
+            </row>
+            <row>
+              <entry>Logstash</entry>
+              <entry>logstash_num_workers</entry>
+              <entry>10 threads</entry>
+              <entry>10 threads</entry>
+              <entry>20 threads</entry>
+              <entry>30 threads</entry>
+              <entry>Number of Logstash threads to spawn.</entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </table>
+      <p>These values can be viewed and changed in the
+          <codeph>~/helion/my_cloud/config/logging/main.yml</codeph> file, but you will need to run
+        a reconfigure of the Centralized Logging service if changes are made.</p>
+      <note type="warning">The total process memory consumption for Elasticsearch will be the above
+        allocated heap value plus any Java Virtual Machine (JVM) overhead.</note>
+      <p><b>Disk Size Requirements</b></p>
+      <p>In the entry-scale models, the disk partition sizes on your controller nodes for the
+        logging and elasticsearch data are set as a percentage of your total disk size. You can see
+        these in the <codeph>~/helion/my_cloud/definition/data/disks_controller.yml</codeph> file on
+        the lifecycle manager.</p>
+      <p>Here are snippets:</p>
+      <codeblock># Local Log files.
+- name: log
+  size: 13%
+  mount: /var/log
+  fstype: ext4
+  mkfs-opts: -O large_file
+
+# Data storage for centralized logging. This holds log entries from all
+# servers in the cloud and hence can require a lot of disk space.
+- name: elasticsearch
+  size: 30%
+  mount: /var/lib/elasticsearch
+  fstype: ext4</codeblock>
+      <p>Given these percentages, you will want to ensure your total disk size for your controller
+        nodes is enough that you meet the following partition size requirements depending on the
+        total scale of your environment:</p>
+      <table frame="all" rowsep="1" colsep="1" id="table_xld_n31_t5">
+        <tgroup cols="4">
+          <colspec colname="c1" colnum="1"/>
+          <colspec colname="c2" colnum="2"/>
+          <colspec colname="c3" colnum="3"/>
+          <colspec colname="c4" colnum="4"/>
+          <thead>
+            <row>
+              <entry>Partition</entry>
+              <entry>Small Scale</entry>
+              <entry>Medium Scale</entry>
+              <entry>Large Scale</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>/var/log</entry>
+              <entry>200 GB</entry>
+              <entry>400 GB</entry>
+              <entry>500 GB</entry>
+            </row>
+            <row>
+              <entry>/var/lib/elasticsearch</entry>
+              <entry>1.5 TB</entry>
+              <entry>3 TB</entry>
+              <entry>6 TB</entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </table>
+    </section>
+    <section id="kibana_config">
+      <title>Kibana Configuration</title>
+      <p>The access information for Kibana is defined in the
+          <codeph>~/helion/my_cloud/config/logging/main.yml</codeph> file and implemented in the
+        Kibana configuration file
+          <codeph>~/helion/my_cloud/config/logging/kibana-apache2.conf.j2</codeph>.</p>
+      <table frame="all" rowsep="1" colsep="1" id="table_spl_rg5_st">
+        <tgroup cols="3">
+          <colspec colname="c1" colnum="1"/>
+          <colspec colname="c2" colnum="2"/>
+          <colspec colname="c3" colnum="3"/>
+          <thead>
+            <row>
+              <entry>Ansible Variable</entry>
+              <entry>Default Value</entry>
+              <entry>Description</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>kibana_user</entry>
+              <entry>kibana</entry>
+              <entry>Username that will be required for logging into the Kibana UI.</entry>
+            </row>
+            <row>
+              <entry>kibana_pass</entry>
+              <entry>random password is generated</entry>
+              <entry>Password generated during installation that is used to login to the Kibana
+                UI.</entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </table>
+    </section>
+    <section id="elasticsearch_config">
+      <title>Elasticsearch Configuration</title>
+      <p>Elasticsearch includes some tunable options exposed in its configuration. Helion uses these options in Elasticsearch to prioritize indexing speed over search speed. Helion also configures Elasticsearch for optimal performance in low RAM environments.
+        The options that Helion modifies are listed below along with an explanation about why they were modified.</p>
+      <p>These configurations are defined in the
+          <codeph>~/helion/my_cloud/config/logging/main.yml</codeph> file and are implemented in the
+        Elasticsearch configuration file
+          <codeph>~/helion/my_cloud/config/logging/elasticsearch.yml.j2</codeph>.</p>
+      <table frame="all" rowsep="1" colsep="1" id="table_qsd_3h5_st">
+        <tgroup cols="5">
+          <colspec colname="c1" colnum="1"/>
+          <colspec colname="c2" colnum="2"/>
+          <colspec colname="c3" colnum="3"/>
+          <colspec colname="c4" colnum="4"/>
+          <colspec colname="c5" colnum="5"/>
+          <thead>
+            <row>
+              <entry>Ansible Variable</entry>
+              <entry>Configuration Parameter</entry>
+              <entry>Default Value</entry>
+              <entry>Elasticsearch Default Value</entry>
+              <entry>Comments</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>elasticsearch_cluster_name</entry>
+              <entry>cluster name</entry>
+              <entry>elasticsearch</entry>
+              <entry>elasticsearch</entry>
+              <entry>Name of the Elasticsearch cluster. This variable cannot be changed after the
+                initial deployment. Doing so will reset all Elasticsearch indices.</entry>
+            </row>
+            <row>
+              <entry>elasticsearch_indices_fielddata_cache_size</entry>
+              <entry>indices.fielddata.cache.size</entry>
+              <entry>15%</entry>
+              <entry>unbounded</entry>
+              <entry>By default, this setting is <b>unbounded</b>—Elasticsearch will never evict
+                data from fielddata, which is less than ideal when trying to conserve on memory
+                usage.</entry>
+            </row>
+            <row>
+              <entry>elasticsearch_indices_breaker_fielddata_limit</entry>
+              <entry>indices.breaker.fielddata.limit</entry>
+              <entry>25%</entry>
+              <entry>60%</entry>
+              <entry>The field data circuit breaker enables Elasticsearch to estimate the amount of
+                memory a field will require to be loaded into memory. This value must be greater
+                than <b>cache.size</b> to evict data properly.</entry>
+            </row>
+            <row>
+              <entry>elasticsearch_indices_ttl_bulk_size</entry>
+              <entry>indices.ttl.bulk_size</entry>
+              <entry>100000</entry>
+              <entry>10000</entry>
+              <entry>The number of expired docs to delete at once.</entry>
+            </row>
+            <row>
+              <entry>elasticsearch_indices_cache_filter_size</entry>
+              <entry>indices.cache.filter.expire</entry>
+              <entry>6h</entry>
+              <entry>-1</entry>
+              <entry>By default, this setting is -1 (i.e., never expires).</entry>
+            </row>
+            <row>
+              <entry>elasticsearch_indices_memory_index_buffer_size</entry>
+              <entry>indices.memory.index_buffer_size</entry>
+              <entry>50%</entry>
+              <entry>10%</entry>
+              <entry>Slanting performance in favor of heavier indexing usage over search
+                usage.</entry>
+            </row>
+            <row>
+              <entry>elasticsearch_indices_memory_min_index_buffer_size</entry>
+              <entry>indices.memory.min_index_buffer_size</entry>
+              <entry>200 MB</entry>
+              <entry>48 MB</entry>
+              <entry>Slanting performance in favor of heavier indexing usage over search
+                usage.</entry>
+            </row>
+            <row>
+              <entry>elasticsearch_indices_memory_min_shard_index_buffer_size</entry>
+              <entry>indices.memory.min_shard_index_buffer_size</entry>
+              <entry>12 MB</entry>
+              <entry>4 MB</entry>
+              <entry>Slanting performance in favor of heavier indexing usage over search
+                usage.</entry>
+            </row>
+            <row>
+              <entry>elasticsearch_indices_store_throttle_type</entry>
+              <entry>indices.store.throttle.type</entry>
+              <entry>merge</entry>
+              <entry>merge</entry>
+              <entry>Configures store module throttle for merges.</entry>
+            </row>
+            <row>
+              <entry>elasticsearch_indices_store_throttle_max_bytes_per_sec</entry>
+              <entry>indices.store.throttle.max_bytes_per_sec</entry>
+              <entry>80 MB</entry>
+              <entry>20 MB</entry>
+              <entry>Slanting performance in favor of heavier indexing usage over search
+                usage.</entry>
+            </row>
+            <row>
+              <entry>elasticsearch_index_refresh_interval</entry>
+              <entry>index.refresh_interval</entry>
+              <entry>30s</entry>
+              <entry>1s</entry>
+              <entry>Increasing refresh interval reduces overhead.</entry>
+            </row>
+            <row>
+              <entry>elasticsearch_index_merge_scheduler_max_thread_count</entry>
+              <entry>index.merge.scheduler.max_thread_count</entry>
+              <entry>1</entry>
+              <entry>cores/2</entry>
+              <entry>Elasticsearch recommends 1 if using spinning disks.</entry>
+            </row>
+            <row>
+              <entry>elasticsearch_index_translog_flush_threashhold_ops</entry>
+              <entry>index.translog.flush_threshhold_ops</entry>
+              <entry>150000</entry>
+              <entry>unlimited</entry>
+              <entry>Each shard has a transaction log or write ahead log associated with it. This
+                setting controls when commits occur.</entry>
+            </row>
+            <row>
+              <entry>elasticsearch_index_translog_flush_threshhold_size</entry>
+              <entry>index.translog.flush_threshhold_size</entry>
+              <entry>1 GB</entry>
+              <entry>512 MB</entry>
+              <entry>Increasing this setting decreases fsync.</entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </table>
+    </section>
+    <section><title>Other Topics</title></section>
+  </body>
+</topic>

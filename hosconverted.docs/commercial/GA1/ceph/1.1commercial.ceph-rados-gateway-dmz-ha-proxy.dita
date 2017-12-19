@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic
+  PUBLIC "-//OASIS//DTD DITA Topic//EN" "http://docs.oasis-open.org/dita/v1.1/OS/dtd/topic.dtd" ><topic xml:lang="en-us" id="topic6547">
+<title>HPE Helion <tm tmtype="reg">OpenStack</tm> 1.1 and 1.1.1: Ceph RADOS Gateway - DMZ HAProxy</title>
+<titlealts>
+<searchtitle>HPE Helion Openstack 1.1 Ceph RADOS Gateway - DMZ HAProxy</searchtitle>
+</titlealts>
+<prolog>
+<metadata>
+<othermeta name="layout" content="default"/>
+<othermeta name="product-version" content="HPE Helion Openstack"/>
+<othermeta name="product-version" content="HPE Helion Openstack 1.1"/>
+<othermeta name="role" content="Storage Engineer"/>
+<othermeta name="role" content="Storage Architect"/>
+<othermeta name="role" content="Storage Administrator"/>
+<othermeta name="role" content="Storage Engineer"/>
+<othermeta name="role" content="Service Developer"/>
+<othermeta name="role" content="Cloud Administrator"/>
+<othermeta name="role" content="Application Developer"/>
+<othermeta name="role" content="Paul F, Binamra S"/>
+<othermeta name="product-version1" content="HPE Helion Openstack"/>
+<othermeta name="product-version2" content="HPE Helion Openstack 1.1"/>
+</metadata>
+</prolog>
+<body>
+<p>
+<!--PUBLISHED-->
+ <!--./commercial/GA1/ceph/1.1commercial.ceph-rados-gateway-dmz-ha-proxy.md-->
+ <!--permalink: /helion/openstack/1.1/ceph-rados-gateway-dmz-ha-proxy/--></p>
+<p>The Ceph storage system is successfully integrated with HPE Helion OpenStack Ceph has a RADOS gateway that is a public facing interface and is vulnerable. Hence, any end user can gain access into a Helion system with this integration. To minimize risks, an external HAProxy is built in a DMZ environment behind a firewall. HAProxy is commonly used as a load balancer for TCP- and HTTP-based applications. It works as a reverse-proxy, which means it maintains two connections when allowing a client to cross it: a connection between HAProxy and the client, and  another between HAProxy and the server.</p>
+<p>To ensure secured connectivity, the connections should use HTTPS (SSL over HTTP). Stunnel is used as an intermediate between the client with an HTTPs request and the HAProxy.  During normal operation, Stunnel receives the HTTPS request from client and hands  the request to a HAProxy instance that is bound to the loopback address (127.0.0.1) on the same box. HAProxy now forwards the HTTPs request to gateway nodes listening on port 443.</p>
+<p>The following diagram illustrates the communication flow between Helion-Ceph-DMZ and the HAProxy-Ceph Gateway</p>
+<p>
+  <image href="../../../media/ceph-physical-architecture.png" placement="break"/>
+</p>
+<section id="assumptions"> <title>Assumptions</title>
+<p>This illustration relies on the following assumptions:</p>
+<ol>
+<li>hLinux or Ubuntu based HAProxy 1.5 and above that supports native SSL</li>
+<li>Dual-homed Proxy server in the DMZ. The public facing address for Internet clients and a private address to connect to gateway nodes.</li>
+<li>Gateway nodes are in a private network - 192.0.2.x</li>
+<li>Ceph Gateway nodes may or may not be integrated with Helion 1.1 or 1.1.1 Keystone</li>
+<li>The client node is in a public network - 192.168.122.x</li>
+</ol>
+</section>
+<section id="install-general-packages"> <title>Install General Packages</title>
+<p>To install the general packages (curl, openssl and libnss3-tools) in the proxy server, enter:</p>
+<codeblock><codeph>apt-get install curl
+apt-get install openssl ssl-cert
+apt-get install libnss3-tools
+</codeph></codeblock>
+</section>
+<section id="stunnel-install-and-configuration"> <title>Stunnel Install and Configuration</title>
+<p>To install and configure Stunnel, enter:</p>
+<ol>
+        <li>To install stunel4,
+          enter:<codeblock><codeph>apt-get install stunnel4
+</codeph></codeblock></li>
+        <li>To create a local CA and HAProxy certificates in the <codeph>/etc/ssl/certs</codeph>
+          directory, perform the following step. <ul id="ul_o1b_2pg_ps">
+            <li>To create the CA key and certificate,
+              enter:<codeblock><codeph>openssl genrsa -out ca.key 1024
+    openssl req -x509 -new -nodes -key ca.key -days 1024 -out ca.crt
+</codeph></codeblock></li>
+            <li>
+              <p>To create the HAProxy key, CSR, and certificate (as shown below), enter:</p>
+              <codeblock><codeph>openssl genrsa -out ha.key 1024
+openssl req -new -key ha.key -out ha.csr
+openssl x509 -req -in ha.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out ha.crt -days 1023
+</codeph></codeblock>
+            </li>
+            <li>Create the <codeph>ha.pem</codeph> file by
+              entering:<codeblock>cat /etc/ssl/certs/ha.key /etc/ssl/certs/ha.crt /etc/stunnel/ha.pem</codeblock></li>
+            <li>To copy the CA certificate to the client node making Swift or HTTPS requests,
+              enter:<codeblock><codeph>scp ca.key &amp;#60;user&gt;@&lt;client node&gt;:/usr/local/share/ca-certifciates
+</codeph></codeblock></li>
+          </ul></li>
+        <li>To configure the Stunnel, edit the <codeph>stunnel.cfg</codeph> file at
+            <codeph>/etc/stunnel/stunnel.cfg</codeph>. Note the <codeph>radosgw</codeph> section
+          where the IP address is for the proxy server. The proxy server certificate generated above
+          is used for
+          authentication.<codeblock><codeph>sslVersion = all
+cert = /etc/ssl/certs/ha.pem
+pid = /var/run/stunnel4/stunnel4.pid
+debug = 7
+output = /var/log/stunnel4/stunnel.log
+verify = 0
+
+[radosgw]   
+accept = 192.168.122.152:443
+connect = 127.0.0.1:81
+</codeph></codeblock></li>
+        <li>To enable automatic Stunnel startup, edit <codeph>/etc/default/stunnel4</codeph> by
+          entering:<codeblock><codeph>ENABLED=1 
+</codeph></codeblock></li>
+        <li> To restart the Stunnel service,
+            enter:<codeblock><codeph>   /etc/init.d/stunnel4 restart 
+</codeph></codeblock><p>or
+            <codeblock> etc/stunnel/stunnel4 stunnel.cfg</codeblock></p></li>
+      </ol>
+</section>
+<section id="haproxy-install-and-configuration"> <title>HAProxy Install and Configuration</title>
+<p>To install and configure HAProxy, perform the following steps.</p>
+<ol>
+<li>To install HAProxy, enter:<codeblock><codeph>apt-get install haproxy
+</codeph></codeblock></li>
+<li>To configure HAProxy, edit <codeph>haproxy.cfg</codeph> at
+            <codeph>/etc/haproxy/haproxy.cfg</codeph>. Note the RADOSGW section where address to
+          listen on and the addresses of the gateway nodes are specified as per the test
+          setup.<codeblock><codeph>global
+    log /dev/log    local0
+    log /dev/log    local1 notice
+    chroot /var/lib/haproxy
+     stats socket /run/haproxy/admin.sock mode 660 level admin
+    stats timeout 30s
+     user haproxy
+    group haproxy
+    daemon
+    # Default SSL material locations
+    ca-base /etc/ssl/certs
+    crt-base /etc/ssl/private
+     # Default ciphers to use on SSL-enabled listening sockets.
+     # For more information, see ciphers(1SSL).
+    ssl-default-bind-ciphers kEECDH+aRSA+AES:kRSA+AES:+AES256:RC4-SHA:!kEDH:!LOW:!EXP:!MD5:!aNULL:!eNULL
+    ssl-default-bind-options no-sslv3
+
+    defaults
+    log     global
+    option  dontlognull
+    timeout  http-request 10s
+    timeout  queue 1m
+    timeout  connect 10s
+    timeout  client 10m
+    timeout  server 10m
+    timeout  check 10s
+    mode  tcp
+    option  tcpka
+    option  tcplog
+    balance source
+    errorfile 400 /etc/haproxy/errors/400.http
+    errorfile 403 /etc/haproxy/errors/403.http
+    errorfile 408 /etc/haproxy/errors/408.http
+    errorfile 500 /etc/haproxy/errors/500.http
+    errorfile 502 /etc/haproxy/errors/502.http
+    errorfile 503 /etc/haproxy/errors/503.http
+    errorfile 504 /etc/haproxy/errors/504.http
+
+    listen radosgw 127.0.0.1:81 ssl crt /etc/ssl/certs/ha.pem
+    balance roundrobin
+    server gateway 192.x.x.x:443 maxconn 1500 ssl verify none
+    server gateway1 192.x.x.x:443 maxconn 1500 ssl verify none
+    reqadd X-Forwarded-Proto:\ https
+
+    listen haproxy.stats :1993
+    mode http
+    stats enable
+    stats uri /
+</codeph></codeblock></li>
+<li>To restart haproxy service,
+          enter:<codeblock><codeph>/etc/init.d/haproxy restart
+</codeph></codeblock></li>
+</ol>
+</section>
+<section id="validating-the-installation"> <title>Validating the Installation</title>
+<p>To validate the Ceph RADOS Gateway - DMZ HAProxy installation, consider:</p>
+<ul>
+<li>Validation is performed from client node. </li>
+<li>Make sure the HAProxy and stunnel service are running on  the proxy server.</li>
+<li>Make sure the RADOSGW daemons are running as root in debug mode on the backend Ceph gateway nodes</li>
+<li>Swift requests are purely v1 as the Identity service (Keystone) is not integrated into this system. Therefore, make sure that S3 and the Swift user are created using the <codeph>radosgw-admin</codeph> commands.</li>
+<li>Make sure the CA certificate is available in <codeph>/usr/local/share/ca-certificates</codeph>
+</li>
+<li>Execute <codeph>update-ca-certificates</codeph>
+</li>
+<li>
+<p>cURL or Swift calls as shown below must succeed.</p>
+
+<codeblock><codeph>curl  https://192.168.122.152 
+swift -V 1.0 -A https://HA.ex.com/auth/v1.0 -U s3User:swiftUser -K Ks0qeIDJz5SBU7WuVi6RattjaXign54seoNqAh1O list
+</codeph></codeblock>
+</li>
+</ul>
+</section>
+<section id="next-steps"> <title>Next Steps</title>
+<p>
+  <xref href="../../../commercial/GA1/ceph/1.1commercial.ceph-rados-gateway-client.dita" >RADOS Gateway Client</xref>
+</p>
+<p>
+  <xref href="#topic6547"> Return to Top </xref>
+</p>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+</body>
+</topic>

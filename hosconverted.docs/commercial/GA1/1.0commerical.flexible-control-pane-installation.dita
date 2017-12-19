@@ -1,0 +1,630 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic
+  PUBLIC "-//OASIS//DTD DITA Topic//EN" "http://docs.oasis-open.org/dita/v1.1/OS/dtd/topic.dtd" ><topic xml:lang="en-us" id="topic15783">
+<title>HPE Helion <tm tmtype="reg">OpenStack</tm> 1.0: Flexible Control Plane Installation</title>
+<prolog>
+<metadata>
+<othermeta name="layout" content="default"/>
+</metadata>
+</prolog>
+<body>
+<p>
+<!--PUBLISHED-->
+ <!--./commercial/GA1/1.0commerical.flexible-control-pane-installation.md-->
+ <!--permalink: /helion/openstack/flexiblecontrol/install/--></p>
+<p>
+
+As you read in the <xref href="../../commercial/GA1/1.0commerical.flexible-control-pane-overview.dita" >overview</xref>, HPE Helion OpenStack Flexible Control Plane allows you to deploy the control plane in a virtual environment, reducing the control plane footprint to just three servers for proof of concept, evaluation, and exploration of HPE Helion OpenStack features.</p>
+<p>The overview covered the <xref href="../../commercial/GA1/1.0commerical.flexible-control-pane-overview.dita" >prerequisites</xref>. Now we will walk through the installation.</p>
+<p>This topic contains:</p>
+<ul>
+<li>
+<xref type="section" href="#topic15783/instruct">Step-by-step Installation Instructions</xref>
+</li>
+<li>
+<xref type="section" href="#topic15783/postinstall">Post-Installation Steps</xref>
+</li>
+<li>
+<xref type="section" href="#topic15783/addnodes">Adding the Overcloud Nodes</xref>
+</li>
+<li>
+<xref type="section" href="#topic15783/knownissues">Known Issues and Resolutions</xref>
+</li>
+</ul>
+<section id="before-you-begin"> <title>Before You Begin</title>
+<p>Before you can install the Flexible Control Plane, you will need to:</p>
+<ul>
+<li>
+  <xref href="../../commercial/GA1/1.0commerical.flexible-control-pane-overview.dita#topic9437/prereq" type="section">Review prerequisites and configure the infrastructure</xref> accordingly</li>
+<li>
+<xref href="../../commercial/GA1/1.0commerical.flexible-control-pane-overview.dita#configfiles" type="section">Create configuration files</xref>
+</li>
+<li>
+<xref href="../../commercial/GA1/1.0commerical.flexible-control-pane-overview.dita#kvmsetup" type="section">Set up KMV hosts</xref>
+</li>
+<li>Deploy an HPE Helion cloud</li>
+</ul>
+</section>
+<section id="instruct"> <title>Step-by-step Installation Instructions</title>
+<ol>
+<li>On each of the three <xref href="../../commercial/GA1/1.0commerical.flexible-control-pane-overview.dita#kvmsetup" type="section">KVM hosts</xref> prepared earlier, create a <i>brbm</i> bridge and add the physical NIC which connects to the Helion Management network (that carries the PXE/DHCP, message queue, and other API-related traffic) along with other networks.</li>
+<li>
+<p>For example, on KVM Host A, the NIC is <b>eth1</b>:</p>
+
+<codeblock>
+<codeph>ovs-vsctl add-br brbm
+ovs-vsctl add-port brbm eth1
+export BRIDGE_INTERFACE=brbm
+ifconfig brbm 192.168.124.2
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Similarly, for KVM Hosts B and C</p>
+
+<codeblock>
+<codeph>ovs-vsctl add-br brbm
+ovs-vsctl add-port brbm eth0
+export BRIDGE_INTERFACE=brbm
+ifconfig brbm 192.168.124.3
+ovs-vsctl add-br brbm
+ovs-vsctl add-port brbm eth0
+export BRIDGE_INTERFACE=brbm
+ifconfig brbm 192.168.124.4
+</codeph>
+</codeblock>
+</li>
+<li>Log in to KVM Host A.</li>
+<li>
+<p>Create an SSH key by executing:</p>
+
+<codeblock>
+<codeph>ssh-keygen -t rsa -N ""
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Copy the private and public keys to KVM Hosts B and C.</p>
+
+<codeblock>
+<codeph>ssh-copy-id -i /root/.ssh/id_rsa.pub root@192.168.124.3
+scp /root/.ssh/id_rsa 192.168.124.3:/root/.ssh/
+</codeph>
+</codeblock>
+</li>
+<li>Test and ensure that you can connect to Hosts B and C from A without having to provide any password.</li>
+<li>
+<p>Download and extract the installer to the <i>/root</i> folder on KVM Host A.</p>
+
+<codeblock>
+<codeph>cd /root
+tar zxvf ee_installer.tgz
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Enable the Flexible Control Plane feature.</p>
+
+<codeblock>
+<codeph>bash /root/tripleo/tripleo-incubator/scripts/hp_ced_enable_hybrid.sh
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Create a kvms.csv file with the details of the three KVM hosts:</p>
+
+<codeblock>
+<codeph>cat &gt; /root/kvms.csv &lt;&lt;EOF
+192.168.124.2,root
+192.168.124.3,root
+192.168.124.4,root
+EOF
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Set the required environment variables. Note that by default, 8 VMs are created with the configuration: 8GB RAM, 1 CPU and 512GB HDD. We recommend increasing the CPU and RAM for this feature to a minimum of 12 CPU cores and 16384MB RAM, as we have done here.</p>
+
+<codeblock>
+<codeph>export NODE_CPU=12
+export NODE_MEM=16384
+export HP_VM_MODE=HYBRID
+export HP_VM_MODE_MULTIKVM=3
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Initiate the seed VM installation.</p>
+
+<codeblock>
+<codeph>bash -x /root/tripleo/tripleo-incubator/scripts/hp_ced_host_manager.sh --create-seed |&amp; tee install.log
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Wait for the message</p>
+
+<codeblock>
+<codeph>-completed setup seed
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Once the seed VM installation completes, you will observe that the process has created shell VMs on the 3 KVM hosts provided in the kvms.csv file.</p>
+</li>
+<li>
+<p>This process also creates a virtual power public key on KVM Host A. Copy this file to KVM hosts B and C.</p>
+
+<codeblock>
+<codeph>ssh-copy-id -i/root/.ssh/id_rsa_virt_power.pub root@192.168.124.3
+ssh-copy-id -i/root/.ssh/id_rsa_virt_power.pub root@192.168.124.4
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Log in to the seed VM and change to the /root directory. A baremetal.csv file should exist in this location. This file contains information about the virtual machines that will be created when step 22 is executed. 
+The baremetal.csv file will appear as shown below. Note the last 2 columns. Without any change, the undercloud and overcloud controllers would be distributed randomly, which could result in a non high-availability (HA) configuration.</p>
+
+<codeblock>
+<codeph>00:17:00:3a:7d:25,root,undefined,192.168.124.2,12,16384,512,vm,all
+00:7e:d1:97:ca:b6,root,undefined,192.168.124.3,12,16384,512,vm,all
+00:e8:3f:a9:7e:a2,root,undefined,192.168.124.4,12,16384,512,vm,all
+00:43:e3:33:9e:7f,root,undefined,192.168.124.2,12,16384,512,vm,all
+00:5d:ff:f4:80:a2,root,undefined,192.168.124.3,12,16384,512,vm,all
+00:2b:8a:73:29:82,root,undefined,192.168.124.4,12,16384,512,vm,all
+00:65:cc:54:b1:0f,root,undefined,192.168.124.2,12,16384,512,vm,all
+</codeph>
+</codeblock>
+
+<p>In order to ensure that the overcloud control plane nodes land on different KVM hosts to maintain HA, modify the baremetal.csv file and update the last column as shown below such that the overcloud controller nodes represented by the 2nd, 3rd and 4th row land on different KVM hosts.
+After modification, the baremetal.csv will look like the one given below.</p>
+
+<codeblock>
+<codeph>00:17:00:3a:7d:25,root,undefined,192.168.124.2,12,16384,512,vm,all
+00:7e:d1:97:ca:b6,root,undefined,192.168.124.2,12,16384,512,vm,occm
+00:e8:3f:a9:7e:a2,root,undefined,192.168.124.3,12,16384,512,vm,occ1
+00:43:e3:33:9e:7f,root,undefined,192.168.124.4,12,16384,512,vm,occ2
+00:5d:ff:f4:80:a2,root,undefined,192.168.124.3,12,16384,512,vm,all
+00:2b:8a:73:29:82,root,undefined,192.168.124.4,12,16384,512,vm,all
+</codeph>
+</codeblock>
+
+<p>Now, in order to add baremetal nodes that will be used as compute nodes and/or VSA nodes, modify the baremetal.csv file and add the required information about the physical nodes, as shown below. The final baremetal.csv will look like the following.</p>
+
+<codeblock>
+<codeph>00:65:cc:54:b1:af,iloAdmin,iloPassword,192.168.1.51,12,12288,1000,bm,vsa
+00:65:cc:54:b1:bf,iloAdmin,iloPassword,192.168.1.52,12,12288,1000,bm,vsa
+00:65:cc:54:b1:ca,iloAdmin,iloPassword,192.168.1.53,12,12288,1000,bm,vsa
+00:65:cc:54:b1:ff,iloAdmin,iloPassword,192.168.1.54,40,98304,2000,bm,ocN
+00:65:cc:54:b1:25,iloAdmin,iloPassword,192.168.1.55,40,98304,2000,bm,ocN
+00:65:cc:54:b2:26,iloAdmin,iloPassword,192.168.1.56,40,98304,2000,bm,ocN
+00:65:cc:54:b2:27,iloAdmin,iloPassword,192.168.1.57,40,98304,2000,bm,ocN
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Create the user-defined <i>uc_custom_flavors.json</i> file, which specifies the values and contains mapping of the node_type. The format is shown below. Note that while the overcloud controllers have different flavor names (controllerMgmtFlavor, controller0Flavor, controller1Flavor) they must all be of the same configuration.</p>
+
+<codeblock>
+<codeph>{
+"flavors": [
+{
+"name": "controllerMgmtFlavor",
+"memory": 16384,
+"disk": 512,
+"cpu": 12,
+"arch": "amd64",
+"hw_type": "vm",
+"node_type": "occm"
+},
+{
+"name": "controller0Flavor",
+"memory": 16384,
+"disk": 512,
+"cpu": 12,
+"arch": "amd64",
+"hw_type": "vm",
+"node_type": "occ1"
+},
+{
+"name": "controller1Flavor",
+"memory": 16384,
+"disk": 512,
+"cpu": 12,
+"arch": "amd64",
+"hw_type": "vm",
+"node_type": "occ2"
+},
+{
+"name": "vsaFlavor",
+"memory": "12288",
+"disk": "1000",
+"cpu": "12",
+"arch": "amd64",
+"hw_type": "bm",
+"node_type": "vsa"
+},
+{
+"name": "computeFlavor",
+"memory": "98304",
+"disk": "2000",
+"cpu": "40",
+"arch": "amd64",
+"hw_type": "bm",
+"node_type": "ocN"
+}
+]
+}
+</codeph>
+</codeblock>
+</li>
+<li>
+  <p>Create the <i>overcloud-config.json</i> file with the following contents. For definitions of the variables used and suggested values refer to the list of available <xref href="1.0commercial.install-GA-JSON.dita" >environment variables</xref>.</p>
+
+<codeblock>
+<codeph>{
+"cloud_type": "KVM",
+"vsa_scale": 3,
+"vsa_ao_scale": 0,
+"so_swift_storage_scale": 0,
+"so_swift_proxy_scale": 0,
+"compute_scale": 3,
+"bridge_interface": "brbm",
+"virtual_interface": "eth0",
+"fixed_range_cidr": "172.0.100.0/24",
+"control_virtual_router_id": "202",
+"baremetal": {
+"network_seed_ip": "192.168.124.10",
+"network_cidr": "192.168.124.0/24",
+"network_gateway": "192.168.124.5",
+"network_seed_range_start": "192.168.124.14",
+"network_seed_range_end": "192.168.124.22",
+"network_undercloud_range_start": "192.168.124.23",
+"network_undercloud_range_end": "192.168.124.126"
+},
+"neutron": {
+"public_interface_raw_device": "eth0",
+"overcloud_public_interface": "vlan331",
+"undercloud_public_interface": "eth0"
+},
+"ntp": {
+"overcloud_server": "16.110.135.123",
+"undercloud_server": "16.110.135.123"
+},
+"floating_ip": {
+"start": "172.32.100.15",
+"end": "172.32.100.245",
+"cidr": "172.32.100.0/24"
+},
+"svc": {
+"interface": "vlan332",
+"interface_default_route": "192.168.125.1",
+"allocate_start": "192.168.132.2",
+"allocate_end": "192.168.132.250",
+"allocate_cidr": "192.168.132.0/24",
+"overcloud_bridge_mappings": "svcnet1:br-svc",
+"overcloud_flat_networks": "svcnet1",
+"customer_router_ip": "192.168.124.5"
+},
+"codn": {
+"undercloud_http_proxy": "http://16.85.175.150:8080",
+"undercloud_https_proxy": "http://16.85.175.150:8080",
+"overcloud_http_proxy": "http://16.85.175.150:8080",
+"overcloud_https_proxy": "http://16.85.175.150:8080"
+}
+}
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Load the configuration file</p>
+
+<codeblock>
+<codeph>source /root/tripleo/triple-incubator/scripts/hp_ced_load_config.json overcloud-config.json
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Set the following values</p>
+
+<codeblock>
+<codeph>export HP_VM_MODE=HYBRID
+export controller0Flavor=controller0Flavor
+export controller1Flavor=controller1Flavor
+export OvercloudControlFlavor=controllerMgmtFlavor
+export OvercloudComputeFlavor=computeFlavor
+export OvercloudVsaFlavor=vsaFlavor
+export OVERCLOUD_LIBVIRT_TYPE=kvm
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Start the installation</p>
+
+<codeblock>
+<codeph>bash -x /root/tripleo/tripleo-incubator/scripts/hp_ced_installer.sh |&amp; tee install.log
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Wait for the completion of the installer script to display a message similar to the following:</p>
+
+<codeblock>
+<codeph>HPE - completed - Tue Oct 23 16:20:20 UTC 2014
+</codeph>
+</codeblock>
+</li>
+</ol>
+</section>
+<section id="postinstall"> <title>Post-Installation Steps</title>
+<ul>
+<li>
+  <xref href="1.0commercial.install-GA-kvm.dita">Verify the installation</xref>
+</li>
+<li>Configure Block Storage
+
+<ul>
+<li>
+  <xref href="1.0commercial.-vsa-overview.dita">For VSA</xref>
+</li>
+<li>
+  <xref href="1.0commercial.install-3par.dita">For 3PAR</xref>
+</li>
+</ul>
+</li>
+</ul>
+</section>
+<section id="addnodes"> <title>Adding the Overcloud Nodes</title>
+<p>This section describes the process of adding baremetal nodes to an existing cloud deployed using the Flexible Control Plane option. This process differs from the process documented for the baremetal install.</p>
+<ol>
+<li>
+<p>SSH to the undercloud VM as the heat-admin user from the seed VM.</p>
+
+<codeblock>
+<codeph>ssh heat-admin@&lt;IP Address&gt;
+sudo -i
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Source the stackrc configuration file created during the installation process.</p>
+
+<codeblock>
+<codeph>source stackrc
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Register the new baremetal server in the Ironic database. Replace the CPU, memory, local disk size, IPMI address, and IPMI password values with your baremetal settings.</p>
+
+<codeblock>
+<codeph>ironic node-create -d pxe_ipmitool -p cpus=&lt;value&gt; -p memory_mb=&lt;value&gt; -p local_gb=&lt;value&gt; -p cpu_arch=&lt;value&gt; -i ipmi_address=&lt;IP Address&gt; -i ipmi_username=&lt;username&gt; -i ipmi_password=&lt;password&gt; -p capabilities=hw_type:&lt;bm_or_VM&gt;,node_type:&lt;node_type&gt;
+</codeph>
+</codeblock>
+
+<p>Here is an example with sample values set:</p>
+
+<codeblock>
+<codeph>ironic node-create -d pxe_ipmitool -p cpus=12 -p memory_mb=98304 -p local_gb=1800 -p cpu_arch=amd64 -i ipmi_address=10.12.22.70 -i ipmi_username=admin -i ipmi_password=password capabilities=hw_type:bm,node_type:Compute
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Create the Ironic port for the Ironic node created in the previous step.</p>
+
+<codeblock>
+<codeph>ironic port-create --address $MAC_ADDR --node_uuid $NODE_UUID
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>List the baremetal nodes. This command also lists the newly-added nodes.</p>
+
+<codeblock>
+<codeph>ironic node-list
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Log out from undercloud to go back to the seed VM:</p>
+
+<codeblock>
+<codeph>ssh root@&lt;IP Address&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Make the respective baremetal entry in <i>/root/baremetal.csv</i>. Ensure the <b>hw_type</b> and <b>node_type</b> values are correct.</p>
+</li>
+<li>
+<p>Edit the overcloud-config.json file as follows to define the appropriate scale number:</p>
+
+<codeblock>
+<codeph>"compute_scale":&lt;number of compute nodes&gt;,
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Source the environment variables file that you updated.</p>
+
+<codeblock>
+<codeph>source tripleo/tripleo-incubator/scripts/hp_ced_load_config.sh /root/ overcloud-config.json
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Run the installer script.</p>
+
+<codeblock>
+<codeph>bash -x tripleo/tripleo-incubator/scripts/hp_ced_installer.sh --update-overcloud 2&gt;&amp;1 | tee update.log
+</codeph>
+</codeblock>
+</li>
+</ol>
+</section>
+<section id="knownissues"> <title>Known Issues and Resolutions</title>
+</section>
+<section id="esx-virtual-control-plane-installation-fails-during-undercloud-configuration"> <title>ESX virtual control plane installation fails during undercloud configuration</title>
+<p>
+  <b>System Behavior</b>
+</p>
+<p>The installer suddenly exits at the following stage:</p>
+<codeblock>
+  <codeph>Service storage_management created
++----------+----------------------------------+
+| Property |              Value               |
++----------+----------------------------------+
+|    id    | b620ae4d0c464968ab4b4263b9843009 |
+|   name   |         heat_stack_user          |
++----------+----------------------------------+
++---------------------+-------+
+| Field               | Value |
++---------------------+-------+
+| floatingip          | -1    |
+| network             | -1    |
+| port                | -1    |
+| router              | -1    |
+| security_group      | -1    |
+| security_group_rule | -1    |
+| subnet              | -1    |
++---------------------+-------+
+</codeph>
+</codeblock>
+<p>
+<b>Probable Cause</b>
+The installer can stop abruptly at this point for the following reasons:
+- Undercloud Ironic service is unable to reach the KVM hosts
+- Undercloud Ironic service is unable to reach the IPMI network of the overcloud nodes
+- Duplicate MAC addresses seen</p>
+<p>
+<b>Possible Resolution</b>
+Ensure that you are able to connect to the KVM hosts and IPMI network from the undercloud node.</p>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="flexible-control-plane-controller-nodes-fail-with-no-bootable-device-found-during-installation"> <title>Flexible Control Plane Controller nodes fail with "No bootable device found" during installation</title>
+<p>
+  <b>System Behavior</b>
+</p>
+<p>In some cases during installation, the message:</p>
+<codeblock>No bootable device found</codeblock>
+<p>is displayed on the console of the VM that is getting deployed and the node deployment results in a failure.</p>
+<p>
+  <b>Probable Cause</b>
+</p>
+<p>The values exported for Neutron public interface are incorrect.</p>
+<p>
+  <b>Possible Resolution</b>
+</p>
+<p>Define the <b>UNDERCLOUD_NeutronPublicInterface</b> and <b>OVERCLOUD_NeutronPublicInterface</b> values as <codeph>eth0</codeph>
+</p>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="during-flexible-control-plane-deployment-in-kvm-the-tripleoconfig-folder-in-the-seed-node-is-missing"> <title>During Flexible Control Plane deployment in KVM the tripleo/config/ folder in the seed node is missing.</title>
+<p>
+  <b>System Behavior</b>
+</p>
+<p>On the deployed seed node the <b>tripleo/config/</b> folder is not available.</p>
+<p>
+  <b>Probable Cause</b>
+</p>
+<p>The folder was not automatically copied onto the seed node from the KVM host.</p>
+<p>
+  <b>Possible Resolution</b>
+</p>
+<p>Manually copy the contents of the <b>tripleo/config</b> folder from the KVM host onto the seed node.</p>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="after-the-reboot-of-the-compute-node-new-fips-associated-to-the-instance-are-not-accessible"> <title>After the reboot of the compute node, new FIPs associated to the instance are not accessible</title>
+<p>
+  <b>System Behavior</b>
+</p>
+<p>After updating the cloud, any new FIP being allocated to and associated with an existing or new VM is not accessible.</p>
+<p>
+  <b>Possible Resolution</b>
+</p>
+<p>Currently, the issue can be resolved by deleting the link being added where it is giving an error.</p>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="after-the-reboot-of-compute-nodes-the-instance-goes-into-error-state"> <title>After the  reboot of compute nodes, the instance goes into error state</title>
+<p>
+  <b>System Behavior</b>
+</p>
+<p>After the reboot of compute nodes which have instances running, two issues are noticed:</p>
+<p>Issue 1</p>
+<codeblock>
+  <codeph>error: Failed to start domain instance-0000020d
+error: unsupported configuration: Domain requires KVM, but it is not available. 
+</codeph>
+</codeblock>
+<p>Check that virtualization is enabled in the host BIOS and that host configuration is set up to load the KVM modules.</p>
+<p>Issue 2</p>
+<codeblock>
+  <codeph>error: failed to connect to the hypervisor
+error: no valid connection
+error: Failed to connect socket to '/var/run/libvirt/libvirt-sock': No such file or directory.
+</codeph>
+</codeblock>
+<p>
+  <b>Possible Resolution</b>
+</p>
+<p>Issue 1: Manual steps to recover</p>
+<codeblock>
+  <codeph>lsmod | grep kvm
+</codeph>
+</codeblock>
+<p>If there is no output, issue the following commands:</p>
+<codeblock>
+  <codeph>modprobe -v kvm 
+modprobe -v kvm_intel
+service libvirt-bin restart
+</codeph>
+</codeblock>
+<p>Issue 2: Manual steps to recover</p>
+<codeblock>
+  <codeph>pkill -ulibvirt-qemu
+reboot
+</codeph>
+</codeblock>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="a-few-vms-with-two-interfaces-pvt-and-svc-lost-network-plumbing-on-compute-node-post-update"> <title>A few VMs with two interfaces (pvt and svc) lost network plumbing on compute node (post update)</title>
+<p>
+  <b>System Behavior</b>
+</p>
+<p>After updating, the VM guest is not accessible on its SVC interface.</p>
+<p>
+  <b>Possible Resolution</b>
+</p>
+<p>No Resolution</p>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="environment-may-be-unstable-upon-rebooting-of-overcloud-controllers"> <title>Environment may be unstable upon rebooting of overcloud controllers</title>
+<p>
+  <b>System Behavior</b>
+</p>
+<p>Environment may be unstable for some time when overcloud controllers are rebooted.</p>
+<p>
+  <b>Probable Cause</b>
+</p>
+<p>On the overcloud controller reboot scenario the cloud takes some time to stabilize.</p>
+<p>
+  <b>Possible Resolution</b>
+</p>
+<p>If overcloud controllers are rebooted, you must wait for some time for the cloud to become stable. Verify basic cloud functionality before proceeding further.</p>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="if-the-kvm-environment-is-rebooted-the-instances-in-the-spawned-state-cannot-be-reached-via-ping"> <title>If the KVM environment is rebooted, the  instances in the  spawned state cannot be reached via ping</title>
+<p>
+  <b>System Behavior</b>
+</p>
+<p>In the case of an entire KVM environment reboot, previously spawned instances may not be reachable via the ping command.</p>
+<p>
+  <b>Possible Resolution</b>
+</p>
+<p>Hard reboot the spawned instance from the Horizon dashboard to make it reachable.</p>
+<!-- ===================== horizontal rule ===================== -->
+<p>Return to the <xref href="../../commercial/GA1/1.0commerical.flexible-control-pane-overview.dita" >architectural and configuration files overview</xref> information.</p>
+</section>
+</body>
+</topic>

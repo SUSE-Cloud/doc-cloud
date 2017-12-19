@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="customizing_inputmodel">
+    <title><ph conkeyref="HOS-conrefs/product-title"/>Customizing the Input Model</title>
+    <body><!--not tested-->
+        <p conkeyref="HOS-conrefs/applies-to"/>
+ 
+        <!--<ul>
+                <li><xref href="example_configurations.dita#example_configurations/disks_controller"
+                    >Disks_controller.yml</xref>
+                  <ul>
+                    <li><xref href="example_configurations.dita#example_configurations/filesystems"
+                        >File Systems Storage</xref></li>
+                    <li><xref href="example_configurations.dita#example_configurations/swiftstorage"
+                        >Swift Storage</xref></li>
+                  </ul>
+                </li>
+                <li><xref href="example_configurations.dita#example_configurations/disks_vsa"
+                    >Disks_vsa.yml</xref></li>
+                <li><xref href="example_configurations.dita#example_configurations/disks_compute"
+                    >Disks_compute.yml</xref></li>
+              </ul>-->
+
+            <p>This section covers additional changes that you can make to further adapt the example to
+                your environment:</p>
+            <ul>
+                <li>Update <codeph>disks_controller.yml</codeph> to add additional disk capacity to your
+                    controllers.</li>
+                <li>Update <codeph>disks_vsa.yml</codeph> to add additional disk capacity to your VSA
+                    servers.</li>
+                <li>Update <codeph>disks_compute.yml</codeph> to add additional disk capacity to your
+                    compute servers.</li>
+            </ul>
+
+        <section id="disks_controller"><title>disks_controller.yml</title>
+            <p>The disk configuration of the controllers consists of two sections: a definition of a
+                volume group that provides a number of file-systems for various subsystems, and device-group
+                that provides disk capacity for Swift.</p>
+        </section>
+        
+        <section id="filesystems"><title>File Systems Storage</title>
+            <p>The root volume group (hlm-vg) is divided into a number of logical volumes that provide
+                separate file systems for the various services that are co-hosted on the controllers in the
+                entry-scale examples. The capacity of each file system is expressed as a percentage of the
+                overall volume group capacity. Because not all file system usage scales linearly, two
+                different disk configurations are provided:</p>
+            <ul>
+                <li><b>CONTROLLER-DISKS</b> - Based on a 512 GB root volume group.</li>
+                <li><b>CONTROLLER-1TB-DISKS</b> - Provides a higher percentage of space for the logging
+                    service.</li>
+            </ul>
+            <p>As supplied, the example uses the smaller disk model. To use the larger disk model you need
+                to modify the <codeph>disk-models</codeph> parameter in the
+                <codeph>server_roles.yml</codeph> file, as shown below:</p>
+            <codeblock>
+    server-roles:
+        
+       - name: CONTROLLER-ROLE
+         interface-model: CONTROLLER-INTERFACES
+         disk-model: CONTROLLER-1TB-DISKS</codeblock>
+            <p>To add additional disks to the root volume group, you need to modify the volume group
+                definition in whichever disk model you are using. The following example shows adding an
+                additional disk, <codeph>/dev/sdd</codeph> to the <codeph>disks_controller.yml</codeph>
+                file:</p>
+            <codeblock>
+   disk-models:
+      - name: CONTROLLER-DISKS
+        
+        volume-groups:
+         - name: hlm-vg
+           physical-volumes:
+        
+              # NOTE: 'sda_root' is a templated value. This value is checked in
+              # os-config and replaced by the partition actually used on sda
+              #e.g. sda1 or sda5
+              - /dev/sda_root
+              <b>- /dev/sdd</b></codeblock>
+        </section>
+        
+        <section id="swiftstorage"><title>Swift Storage</title>
+            <p>Swift storage is configured as a device-group and has a syntax that allows disks to be
+                allocated to specific rings. In the example, two disks are allocated to Swift to be shared
+                by the account, container, and object-0 rings.</p>
+            <codeblock>
+   device-groups:
+       - name: swiftobj
+         devices:
+            - name: /dev/sdb
+            - name: /dev/sdc
+            # Add any additional disks for swift here
+            # -name: /dev/sdd
+            # -name: /dev/sde
+         consumer:
+           name: swift
+           attrs:
+              rings:
+                 - account
+                 - container
+                       - object-0</codeblock>
+            <p>For instruction to configure additional Swift storage, see <xref
+                href="../../planning/objectstorage/allocating_disk_drives.dita"/>.</p>
+        </section>
+        
+        <section id="disks_vsa"><title>disks_vsa.yml</title>
+            <p>VSA storage is configured as a device-group and has a syntax that allows disks to be
+                allocated for data storage or for adaptive optimization (caching). As a best practice, you
+                should use solid state drives for adaptive optimization. The example disk configuration for
+                VSA nodes has two disks, one for data and one of adaptive optimization. (For more
+                information, see <xref
+                    keyref="configure_vsa_ao/deploy-vsa-with-ao-without-ao">VSA with
+                    AO or without AO</xref>.)</p>
+            <codeblock>
+   device-groups:
+       - name: vsa-data
+         consumer:
+           name: vsa
+           usage: data
+         devices:
+           - name: /dev/sdc
+       - name: vsa-cache
+         consumer:
+           name: vsa
+           usage: adaptive-optimization
+         devices:
+            - name: /dev/sdb</codeblock>
+            <p>Additional capacity can be added by adding more disks to the <codeph>vsa-data</codeph>
+                device group. Similarly, caching capacity can be increased by adding more high speed storage
+                devices to the <codeph>vsa-cache</codeph> device group.</p>
+        </section>
+        
+        <section id="disks_compute"><title>disks_compute.yml</title>
+            <p>The example disk configuration for compute nodes consists of two volume groups: one for the
+                operating system and one for the ephemeral storage for virtual machines, with one disk
+                allocated to each.</p>
+            <p>Additional virtual machine ephemeral storage capacity can be configured by adding
+                additional disks to the <codeph>vg-comp</codeph> volume group. The following example shows
+                the addition of two more disks, <codeph>/dev/sdc</codeph> and <codeph>/dev/sdd</codeph>, to
+                the <codeph>disks_compute.yml</codeph> file:</p>
+            <codeblock>
+   - name: vg-comp
+        physical-volumes:
+          - /dev/sdb
+          - /dev/sdc
+          - /dev/sdd
+        logical-volumes:
+          - name: compute
+            size: 95%
+            mount: /var/lib/nova
+            fstype: ext4
+                  mkfs-opts: -O large_file</codeblock>
+        </section>
+        
+ 
+    </body>
+</topic>

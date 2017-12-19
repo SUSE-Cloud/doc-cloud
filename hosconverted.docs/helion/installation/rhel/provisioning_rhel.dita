@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="provisioning_rhel">
+    <title><ph conkeyref="HOS-conrefs/product-title"/>Provisioning RHEL Yourself</title>
+    <body><!--not tested-->
+        <p conkeyref="HOS-conrefs/applies-to"/>
+        
+        <section>
+            <title>Introduction</title>
+            
+            <p>This article outlines the steps needed to manually provision a RHEL node so that 
+                it can be added to a new or existing <keyword keyref="kw-hos-phrase"/> cloud.</p>
+            
+        </section>
+        
+        <section>
+            <title>Install RHEL 7.2</title>
+            <p>Install RHEL 7.2 using the standard iso (RHEL-7.2-20151030.0-Server-x86_64-dvd1.iso)</p>
+            
+        </section>
+        
+        <section>
+            <title>Assign a static IP</title>
+            
+            <ol>
+                <li> Use the <codeph>ip addr</codeph> command to find out what network devices are
+                    on your system:
+                    <codeblock>1: lo: &lt;LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host
+       valid_lft forever preferred_lft forever
+2: <b>eno1</b>: &lt;BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP qlen 1000
+    link/ether <b>f0:92:1c:05:89:70</b> brd ff:ff:ff:ff:ff:ff
+    inet 10.13.111.178/26 brd 10.13.111.191 scope global eno1
+       valid_lft forever preferred_lft forever
+    inet6 fe80::f292:1cff:fe05:8970/64 scope link
+       valid_lft forever preferred_lft forever
+3: eno2: &lt;BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP qlen 1000
+    link/ether f0:92:1c:05:89:74 brd ff:ff:ff:ff:ff:ff</codeblock>
+                </li>
+                
+                <li>Identify the one that matches the MAC address of your server and edit the
+                    corresponding config file in <codeph>/etc/sysconfig/network-scripts</codeph>.
+                    <codeblock>vi /etc/sysconfig/network-scripts/<b>ifcfg-eno1</b> </codeblock>
+                </li>
+                
+                <li>Edit the <codeph>IPADDR</codeph> and <codeph>NETMASK</codeph> values to match
+                    your environment. Note that the <codeph>IPADDR</codeph> is used in the
+                    corresponding stanza in <codeph>servers.yml</codeph>. You may also need to set
+                        <codeph>BOOTPROTO</codeph> to <codeph>none</codeph>.
+                    <codeblock>TYPE=Ethernet
+<b>BOOTPROTO=none</b>
+DEFROUTE=yes
+PEERDNS=yes
+PEERROUTES=yes
+IPV4_FAILURE_FATAL=no
+IPV6INIT=yes
+IPV6_AUTOCONF=yes
+IPV6_DEFROUTE=yes
+IPV6_PEERDNS=yes
+IPV6_PEERROUTES=yes
+IPV6_FAILURE_FATAL=no
+NAME=eno1
+UUID=36060f7a-12da-469b-a1da-ee730a3b1d7c
+DEVICE=eno1
+ONBOOT=yes
+<b>NETMASK=255.255.255.192</b>
+<b>IPADDR=10.13.111.14</b></codeblock>
+                </li>
+                
+                <li>[OPTIONAL] Reboot your RHEL node and ensure that it can be accessed from the lifecycle manager.</li>
+                
+            </ol>
+        
+            
+        </section>
+        
+        <section>
+            <title>Add <codeph>stack</codeph> user and home directory</title>
+            
+<codeblock>useradd -m stack
+passwd stack</codeblock>            
+            
+        </section>
+        
+        
+        <section>
+            <title>Allow user <codeph>stack</codeph> to <codeph>sudo</codeph> without password</title>        
+        
+            <p>There are a number of different ways to achieve this - here is one possibility using the
+                pre-existing <codeph>wheel</codeph> group.</p>
+            
+            <ol>
+                <li>Add the <codeph>stack</codeph> user to the <codeph>wheel</codeph> group.
+                    <codeblock>usermod -aG wheel stack</codeblock>
+                </li>
+                <li>Run the <codeph>visudo</codeph> command</li>
+                <li>Uncomment the line specifying <codeph>NOPASSWD: ALL</codeph> for the
+                        <codeph>wheel</codeph> group.
+                    <codeblock>## Allows people in group wheel to run all commands
+%wheel  ALL=(ALL)       ALL
+
+## Same thing without a password
+<b> %wheel ALL=(ALL)       NOPASSWD: ALL</b></codeblock>
+                </li>
+                
+                <li>To facilitate using ssh from the deployer and running a command via sudo,
+                    comment out the lines for <codeph>requiretty</codeph> and
+                        <codeph>!visiblepw</codeph>
+                    <codeblock>#
+# Disable "ssh hostname sudo &lt;cmd>", because it will show the password in clear.
+#         You have to run "ssh -t hostname sudo &lt;cmd>".
+#
+<b>#</b>Defaults    requiretty
+
+#
+# Refuse to run if unable to disable echo on the tty. This setting should also be
+# changed in order to be able to use sudo without a tty. See requiretty above.
+#
+<b>#</b>Defaults   !visiblepw</codeblock>
+                </li>
+                
+            </ol>
+        
+        </section>
+        
+        <section>
+            <title>Set up yum repository</title>
+            
+            <p>You need to set up a yum repository, either external or local, containing a <keyword keyref="kw-hos"/>
+                supported RHEL distro. You must have a full repository including ResilientStorage and HighAvailability addons.
+                One possible method for setting up a local repository is outlined in this section.
+            
+            </p>
+            
+            <ol>
+                <li>Mount the RHEL iso and expand it
+                    <codeblock>mkdir /tmp/localrhel
+mount -o loop rhel7.iso /mnt
+cd /mnt
+tar cvf - . | (cd /tmp/localrhel ; tar xvf -)
+cd /
+umount /mnt</codeblock>
+                </li>
+                
+                <li>Create a repo file <codeph>/etc/yum.repos.d/localrhel.repo</codeph>
+                    <codeblock>[localrhel]
+name=localrhel
+baseurl=file:///tmp/localrhel
+enabled=1
+gpgcheck=0
+
+[localrhel-1]
+name=localrhel-1
+baseurl=file:///tmp/localrhel/addons/ResilientStorage
+enabled=1
+gpgcheck=0
+
+[localrhel-2]
+name=localrhel-2
+baseurl=file:///tmp/localrhel/addons/HighAvailability
+enabled=1
+gpgcheck=0</codeblock>
+                </li>
+                
+                <li>Run <codeph> yum clean all</codeph>.</li>
+                
+            </ol>
+            
+            
+            
+        </section>
+        
+        <section>
+            <title>Add Required Packages</title>
+            
+            <p>As documented in the <xref keyref="install_entryscale_kvm/thirdparty">Using 3rd Party
+                    Baremetal Installers</xref> section of <xref keyref="install_entryscale_kvm"
+                    >Installation for Helion Entry-scale KVM Cloud</xref>, you will need to add some
+                extra packages that are required.<!-- <ph
+                    conkeyref="install_entryscale_kvm/baremetal_prereqs"/>-->
+                
+                <ph id="baremetal_prereqs_rhel">Ensure that <codeph>openssh-server</codeph>,
+                    <codeph>python</codeph>, <!--<codeph>python-apt</codeph>,--> and <codeph>rsync</codeph> are
+                    installed.</ph>
+            </p>
+            
+        </section>
+ 
+ 
+        
+        <section>
+            <title>Set up passwordless SSH access</title>
+            
+            <p>Once you have started your installation using the lifecycle manager, or
+            if you are adding a RHEL node to an existing cloud, you need to copy the 
+            deployer public key to the RHEL node. One way of doing this is to copy the 
+            <codeph>/home/stack/.ssh/authorized_keys</codeph> from another node in the cloud
+                to the same location on the RHEL node.
+             If you are installing a new cloud, this file will be available on the nodes 
+             after running the <codeph>bm-reimage.yml</codeph> playbook.
+             <note type="important">
+                 Ensure that there is global read access to the file <codeph>/home/stack/.ssh/authorized_keys</codeph>.
+             </note>   
+                
+            </p>
+            
+            <p>Now test passwordless ssh from the deployer and check your ability to remotely
+                execute sudo commands:
+                <codeblock>ssh  stack@&lt;&lt;ip of rhel node>> "sudo tail -5 /var/log/messages"</codeblock>
+            </p>
+
+        </section>
+                
+
+                
+
+            
+
+    </body>
+</topic>

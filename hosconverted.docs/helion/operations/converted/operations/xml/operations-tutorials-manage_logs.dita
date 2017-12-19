@@ -1,0 +1,207 @@
+<?xml version="1.0"?>
+<!DOCTYPE section PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN" "http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd" [ <!ENTITY % entities SYSTEM "entities.xml"> %entities; ]><!--Edit status: Edited (Michael)-->
+<section id="log_management_integration">
+   <title>Log Management and Integration</title>
+        
+      <bridgehead renderas="sect4">Overview</bridgehead>
+      <para><phrase/> uses the ELK (Elasticsearch, Logstash, Kibana) stack for
+                log management across the entire cloud infrastructure. This configuration
+                facilitates simple administration as well as integration with third-party tools.
+                This tutorial covers how to forward your logs to a third-party tool or service, and
+                how to access and search the Elasticsearch log stores through API endpoints.</para>
+
+      
+   
+        
+      <bridgehead renderas="sect4">The ELK stack</bridgehead>
+      
+      <para>The ELK logging stack is comprised of the Elasticsearch, Logstash, and Kibana
+                elements:</para>
+
+      
+   
+        
+      <bridgehead renderas="sect4">Using the Elasticsearch API</bridgehead>
+      
+      <para>You can query the Elasticsearch
+                indexes
+                through various language-specific APIs, as well as directly over the IP address and
+                port that Elasticsearch exposes on your implementation. By default, Elasticsearch
+                presents from localhost, port 9200. You can run queries directly from a terminal
+                using <literal>curl</literal>. For example:</para>
+
+      
+      <screen>curl -XGET 'http://localhost:9200/_search?q=tag:yourSearchTag'</screen>
+
+      <para>The preceding command searches all
+                indexes
+                for all data with the "yourSearchTag" tag.</para>
+
+      
+      
+      <para>You can also use the Elasticsearch API from outside the logging node. This method
+                connects over the Kibana VIP address, port 5601, using basic http authentication.
+                For example, you can use the following command to perform the same search as the
+                preceding search: </para>
+
+      
+      <screen>curl -u kibana:&lt;password&gt; kibana_vip:5601/_search?q=tag:yourSearchTag</screen>
+
+      
+      
+      <para>You can further refine your search to a specific index of data, in this case the
+                "elasticsearch" index:</para>
+
+      
+      <screen>curl -XGET 'http://localhost:9200/elasticsearch/_search?q=tag:yourSearchTag'</screen>
+
+      
+      
+      <para>The search API is RESTful, so responses are provided in JSON format. Here's a sample
+                (though empty) response:</para>
+
+      
+      <screen>{
+    "took":13,
+    "timed_out":false,
+    "_shards":{
+        "total":45,
+        "successful":45,
+        "failed":0
+    },
+    "hits":{
+        "total":0,
+        "max_score":null,
+        "hits":[]
+    }
+}</screen>
+   
+        
+        
+        <para>You can find more detailed Elasticsearch API documentation at <ulink url="https://www.elastic.co/guide/en/elasticsearch/reference/current/search.html"/>.</para>
+
+        
+        <para>Review Elasticsearch Python API documentation at the following sources:</para>
+
+        <para><ulink url="http://elasticsearch-py.readthedocs.io/en/master/api.html"/></para>
+
+        <para><ulink url="http://elasticsearch-py.readthedocs.io/en/master/api.html"/></para>
+
+        
+        <para>Read Elasticsearch Java API documentation at </para>
+
+        <para><ulink url="https://www.elastic.co/guide/en/elasticsearch/client/java-api/current/index.html"/>.</para>
+
+        
+        
+        
+      <bridgehead renderas="sect4">Forwarding your logs</bridgehead>
+      
+      <para>You can configure
+            Logstash to ship your logs to an outside storage and indexing system, such as Splunk.
+            Setting up this configuration is as simple as editing a few configuration files, and
+            then running the Ansible playbooks that implement the changes. Here are the steps.</para>
+
+      
+      <orderedlist id="ol_mtz_mnr_bx">
+                    <listitem>
+               <para>Begin by logging in to the Lifecycle Manager.</para>
+               <para/>
+            </listitem>
+                    <listitem>
+               <para>Verify that the logging system is up and
+                        running:</para>
+               <screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts logging-status.yml</screen>
+               <para/>
+               <para>When
+                        the preceding playbook
+                        completes
+                        without error, proceed to the
+                        next step.</para>
+               <para/>
+            </listitem>
+                    <listitem>
+               <para>Edit the Logstash configuration file, found at the following
+                            location:</para>
+               <para/>
+               <screen>~/helion/hos/ansible/roles/logging-server/templates/logstash.conf.j2</screen>
+               <para/>
+               <para/>
+               <para>Near
+                            the end of the Logstash configuration file, you'll find a section for
+                            configuring Logstash output destinations. The following example
+                            demonstrates the changes necessary to forward your logs to an outside
+                            server (changes in bold). The configuration block sets up a TCP
+                            connection to the destination server's IP address over port
+                            5514.</para>
+               <para/>
+               <screen># Logstash outputs
+                        #----------------------------------------------------------------------------------------
+                        output {
+                        # Configure Elasticsearch output
+                        # http://www.elastic.co/guide/en/logstash/current/plugins-outputs-elasticsearch.html
+                        elasticsearch {
+                        hosts =&gt; ["{{ elasticsearch_http_host }}:{{ elasticsearch_http_port }}"]
+                        flush_size =&gt; 5000
+                        idle_flush_time =&gt; 5
+                        workers =&gt; {{ logstash_num_workers }}
+                        }
+                        <emphasis role="bold">  # Forward Logs to outside source on TCP port 5514
+                            tcp { 
+                            mode =&gt; "client"
+                            host =&gt; "&lt;Destination listener IP address&gt;"
+                            port =&gt; 5514</emphasis>
+                        }</screen>
+               <para/>
+               <para>Note
+                            that Logstash can forward log data to multiple sources, so there's no
+                            need to remove or alter the Elasticsearch section in the preceding file.
+                            However, if you choose to stop forwarding your log data to
+                            Elasticsearch, you can do so by removing the related section in this
+                            file, and then continue with the following steps.</para>
+               <para/>
+            </listitem>
+                    <listitem>
+               <para>Commit your changes to the local git
+                        repository:</para>
+               <screen>cd ~/helion/hos/ansible
+git add -A
+git commit -m "Your commit message"</screen>
+               <para/>
+               <para/>
+            </listitem>
+                    <listitem>
+               <para>Run the configuration
+                        processor
+                        to check the status of all configuration
+                        files:</para>
+               <para/>
+               <screen>ansible-playbook -i hosts/localhost config-processor-run.yml</screen>
+               <para/>
+            </listitem>
+                    <listitem>
+               <para>Run
+                        the ready-deployment
+                        playbook:</para>
+               <para/>
+               <screen>ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+               <para/>
+            </listitem>
+                    <listitem>
+               <para>Implement the changes to the Logstash configuration
+                        file:</para>
+               <para/>
+               <screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts logging-server-configure.yml</screen>
+            </listitem>
+                </orderedlist>
+
+   
+        
+        <para>Please note that the configuring the receiving service will vary from product to product.
+            Consult the documentation for your particular product for instructions on how to set it
+            up to receive log files from logstash.</para>
+
+        
+    </section>

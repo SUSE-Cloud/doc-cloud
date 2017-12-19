@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="add_storage_policy">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Adding a New Swift Storage Policy</title>
+  <body><!--not tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <p>This page describes how to add an additional storage policy to an existing system. For an
+      overview of storage policies, see <xref href="../../planning/objectstorage/storage_policies.dita"/>. </p>
+    <p><b>To Add a Storage Policy</b></p>
+    <p>Perform the following steps to add the storage policy to an existing system.</p>
+    <p>
+      <ol id="ol_rxn_3qn_pt">
+        <li>Log in to the lifecycle manager.</li>
+        <li>Select a storage policy index and ring name. <p>For example, if you already have
+            object-0 and object-1 rings in your ring-specifications (usually in the
+              <codeph>~/helion/my_cloud/definition/data/swift/rings.yml</codeph> file), the next
+            index is 2 and the ring name is object-2.</p></li>
+        <li>Select a user-visible name so that you can see when you examine container metadata or
+          when you want to specify the storage policy used when you create a container. The name
+          should be a single word (hyphen and dashes are allowed).</li>
+        <li>Decide if this new policy will be the default for all new containers.</li>
+        <li>Decide on other attributes such as <codeph>partition-power</codeph> and
+            <codeph>replica-count</codeph> if you are using a standard replication ring. However, if
+          you are using an erasure coded ring, you also need to decide on other attributes:
+            <codeph>ec-type</codeph>, <codeph>ec-num-data-fragments</codeph>,
+            <codeph>ec-num-parity-fragments</codeph>, and <codeph>ec-object-segment-size</codeph>.
+          For more details on the required attributes, see <xref href="../../planning/objectstorage/ring_specifications.dita"
+          />.</li>
+        <li>Edit the <codeph>ring-specifications</codeph> attribute (usually in the
+            <codeph>~/helion/my_cloud/definition/data/swift/rings.yml</codeph> file) and add the new
+          ring specification. If this policy is to be the default storage policy for new containers,
+          set the <codeph>default</codeph> attribute to <b>yes</b>.<note>
+            <ul id="ul_fgw_xqn_pt">
+              <li>Ensure that only one object ring has the <codeph>default</codeph> attribute set to
+                  <b>yes</b>. If you set two rings as default, Swift processes will not start.</li>
+              <li>Do not specify the <codeph>weight-step</codeph> attribute for the new object ring.
+                Since this is a new ring there is no need to gradually increase device weights.</li>
+            </ul>
+          </note></li>
+        <li>Update the appropriate disk model to use the new storage policy (for example, the
+            <codeph>data/disks_swobj.yml</codeph> file). The following sample shows that the
+            <b>object-2</b> has been added to the list of existing rings that use the drives:<codeblock>disk-models:
+- name: SWOBJ-DISKS
+  ...
+  device-groups:
+  - name: swobj
+    devices:
+       ...
+    consumer:
+        name: swift
+        attrs:
+            rings:
+            - object-0
+            - object-1
+            - <b>object-2</b>
+  ...</codeblock><note>
+            <p>You must use the new object ring on at least one node that runs the
+                <codeph>swift-object</codeph> service. If you skip this step and continue to run the
+                <codeph>swift-compare-model-rings.yml</codeph> or <codeph>swift-deploy.yml</codeph>
+              playbooks, they will fail with an error <b>There are no devices in this ring, or all
+                devices have been deleted</b>, as shown below:</p>
+            <codeblock>TASK: [swiftlm-ring-supervisor | build-rings | Build ring (make-delta, rebalance)] *** 
+failed: [padawan-ccp-c1-m1-mgmt] => {"changed": true, "cmd": ["swiftlm-ring-supervisor", "--make-delta", "--rebalance"], "delta": "0:00:03.511929", "end": "2015-10-07 14:02:03.610226", "rc": 2, "start": "2015-10-07 14:02:00.098297", "warnings": []}
+...
+Running: swift-ring-builder /etc/swiftlm/builder_dir/region-region1/object-2.builder rebalance 999
+ERROR: -------------------------------------------------------------------------------
+An error has occurred during ring validation. Common
+causes of failure are rings that are empty or do not
+have enough devices to accommodate the replica count.
+Original exception message:
+There are no devices in this ring, or all devices have been deleted
+-------------------------------------------------------------------------------</codeblock>
+          </note></li>
+        <li>Commit your
+          configuration:<codeblock>git add -A
+git commit -m "commit message"</codeblock></li>
+        <li>Run the configuration
+          processor:<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+        <li>Create a deployment
+          directory:<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+        <li>Validate the changes by running the <codeph>swift-compare-model-rings.yml</codeph>
+          playbook:<codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts swift-compare-model-rings.yml</codeblock>If
+          any errors occur, correct them. For instructions, see <xref
+            href="../troubleshooting/objectstorage/interpreting_swift_validate_input_model.dita"
+          />. Then, re-run steps <b>5 - 10</b>.</li>
+        <li>Create the new ring (for example, object-2). Then verify the Swift service status and
+          reconfigure the Swift node to use a new storage policy, by running these playbooks:
+          <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts swift-status.yml
+ansible-playbook -i hosts/verb_hosts swift-deploy.yml</codeblock></li>
+      </ol>
+    </p>
+    <p>After adding a storage policy, there is no need to rebalance the ring.</p>
+  </body>
+</topic>

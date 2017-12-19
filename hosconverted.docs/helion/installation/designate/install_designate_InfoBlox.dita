@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="DesignateInfoBlox">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Install the DNS Service with InfoBlox </title>
+  <body><!--not tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <section id="Overview">
+      <title>Install DNS Service with InfoBlox</title>
+      <p><keyword keyref="kw-hos"/> DNS Service can be installed with the <b>InfoBlox</b> backend
+        instead of the default <b>PowerDNS</b> backend. In order to use InfoBlox as the backend, all
+        prerequisites must be satisfied and the configuration of InfoBlox complete. 
+        <note>No DNS
+          server will be deployed onto the <keyword keyref="kw-hos"/> nodes. Instead, zones will be
+          hosted on the <b>InfoBlox</b> servers.</note>
+        <note type="important">The InfoBlox integration was enabled and validated in <keyword
+          keyref="kw-hos"/> 3.x. To use InfoBlox with version [4.x / 5.x] we recommend that you
+          review the InfoBlox Deployment guide which can be found here: <xref
+            href="https://www.infoblox.com/wp-content/uploads/infoblox-deployment-guide-infoblox-openstack-driver.pdf"
+            scope="external" format="pdf"
+            >https://www.infoblox.com/wp-content/uploads/infoblox-deployment-guide-infoblox-openstack-driver.pdf</xref>
+          and address any questions with your InfoBlox support contact.</note>
+      </p>
+    
+    </section>
+    <section id="prereqs">
+      <title>Prerequisites</title>
+        <ol>
+          <li>An existing InfoBlox system deployed within your organization.</li>
+          <li>IPs and other credentials required to access the InfoBlox WS API.</li>
+          <li>Network connectivity to and from the cluster containing designate and the InfoBlox WS
+          API.</li>
+        </ol>
+      <p>This information is available from your InfoBlox system administrator.</p>
+    </section>
+    
+    <section id="ConfigureBackend">
+      <title>Configure the Backend</title>
+      <p>If not already present, DNS Service components must be placed on a cluster. Additionally,
+        ensure the default <b>powerdns</b> component has been removed, and <b>bind</b> has not been
+        added. Replace the <codeph>designate-mdns</codeph> component with the
+          <codeph>designate-mdns-external</codeph> component.
+        <codeblock>control-planes: 
+          - name: control-plane-1
+            region-name: region1
+              - lifecycle-manager-target
+          
+          clusters:
+            - name: cluster1
+              service-components:
+              - lifecycle-manager
+              - mysql
+              - ip-cluster
+              - apache2
+              - ...
+              - designate-api
+              - designate-central
+              - designate-pool-manager
+              - designate-zone-manager
+              - designate-mdns-external
+              - designate-client</codeblock></p>
+      <p>You will need to provide DNS Service information details on your InfoBlox deployment. Open
+        the designate pool-manager configuration template:
+        <codeblock>$ cd ~/helion/my_cloud
+$ nano config/designate/pool-manager.conf.j2</codeblock></p>
+      <p>In the <codeph>config/designate/pool-manager.conf.j2</codeph>, find the following code
+        block:
+        <codeblock>  nameservers:
+    - host: &lt;infoblox-server-ip>
+      port: &lt;infoblox-port-number>
+   ...
+     also_notifies:
+    - host: &lt;infoblox-server-ip>
+      port: &lt;infoblox-port-number></codeblock></p>
+      <p>Make the following changes:
+        <ol>
+          <li>Uncomment the block for infoblox and also_notifies. In Jinja2, this means replacing
+            the {# and #} markers with {{ and }}.</li>
+          <li>Fill in the API URL, username, password, and all remaining fields.</li>
+          <li>Save the file.</li>
+        </ol>
+        </p>
+      <p>Once complete, the block should look like this:
+        <codeblock>    - type: infoblox
+      description: infoblox Cluster
+
+      masters:
+{% if DES_PMG.consumes_DES_MDN_EXT is defined %}
+{% for mdn_member in DES_PMG.consumes_DES_MDN_EXT.members.private %}
+        - host: {{ mdn_member.ip_address }}
+          port: {{ mdn_member.port }}
+{% endfor %}
+{% endif %}
+
+      options:
+        wapi_url: https://&lt;infoblox-server-ip>/wapi/v2.2.2/
+        username: hos-designate
+        password: MySecretPassword
+        ns_group: designate
+        sslverify: False
+        dns_view: default
+        network_view: default</codeblock></p>
+        
+      <p>You will need to inspect and commit the changes before proceeding with the deployment:
+        <codeblock>$diff --git a/hos/ansible/roles/designate-pool-manager/templates/pools.yaml.j2 b/hos/ansible/roles/designate-pool-manager/templates/pools.yaml.j2
+index 291c6c9..b7fb39c 100644
+--- a/hos/ansible/roles/designate-pool-manager/templates/pools.yaml.j2
++++ b/hos/ansible/roles/designate-pool-manager/templates/pools.yaml.j2
+@@ -28,6 +28,8 @@
+       priority: 2
+
+   nameservers:
++    - host: &lt;infoblox-server-ip>
++      port: &lt;infoblox-port-number>
+ {% if DES_PMG.consumes_FND_PDN is defined %}
+ {% for pdn_member in DES_PMG.consumes_FND_PDN.members.private %}
+     - host: {{ pdn_member.ip_address }}
+@@ -40,7 +42,9 @@
+       port: {{ bnd_member.port }}
+ {% endfor %}
+ {% endif %}
+-#  also_notifies:
++  also_notifies:
++    - host: &lt;infoblox-server-ip>
++      port: &lt;infoblox-port-number>
+   targets:
+ {% if DES_PMG.consumes_FND_PDN is defined %}
+     - type: powerdns
+@@ -89,27 +93,27 @@
+ {% endfor %}
+ {% endif %}
+
+-#
+-#    - type: infoblox
+-#      description: infoblox Cluster
+-#
+-#      masters:
++
++    - type: infoblox
++      description: infoblox Cluster
++
++      masters:
+ {% if DES_PMG.consumes_DES_MDN_EXT is defined %}
+ {% for mdn_member in DES_PMG.consumes_DES_MDN_EXT.members.private %}
+-#        - host: {{ mdn_member.ip_address }}
+-#          port: {{ mdn_member.port }}
++        - host: {{ mdn_member.ip_address }}
++          port: {{ mdn_member.port }}
+ {% endfor %}
+ {% endif %}
+-#
+-#      options:
+-#        wapi_url: https://127.0.0.1/wapi/v2.2.2/
+-#        username: admin
+-#        password: infoblox
+-#        ns_group: designate
+-#        sslverify: False
+-#        dns_view: default
+-#        network_view: default
+-#
++
++      options:
++        wapi_url: https://127.0.0.1/wapi/v2.2.2/
++        username: admin
++        password: infoblox
++        ns_group: designate
++        sslverify: False
++        dns_view: default
+        </codeblock>
+      </p>
+ 
+      <p><b>SSL and CA Certificate</b></p>
+ 
+      <p>To enable SSL Verify, edit the following
+        file:<codeblock>$ cd ~/helion/my_cloud
+$ nano config/designate/pools.yaml.j2</codeblock> </p>
+        <p>In the infoblox section, set sslverify to true: <codeblock>sslverify: True</codeblock>
+      </p>
+      <p>To generate a CA certificate for InfoBlox, follow these steps:
+        <ol>
+          <li>Login to the InfoBlox User Interface</li>
+          <li>Generate a self signed certificate by selecting: 
+          System->Certificate->HTTP Cert->Generate Self Signed Certificate</li>
+          <li>Provide the hostname as the InfoBlox server-ip</li>
+          <li>Reload the InfoBlox User Interface.  The certificate will be 
+            loaded and can be verified through the browser.</li>
+          <li>If you want to download the certificate, select:
+          System->Certificate->HTTP Cert->Download the Certificate</li>
+          <li>Copy Certificate file to <codeph>~/helion/my_cloud/config/tls/cacerts/</codeph></li>
+        </ol>
+      </p>
+     
+      
+      <p>Commit changes.
+        <codeblock>$ git commit -a -m "Configure Designate's InfoBlox Backend"</codeblock></p>
+	</section>
+
+  </body>
+</topic>

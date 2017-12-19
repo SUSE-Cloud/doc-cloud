@@ -1,0 +1,361 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="upgrade_git_merge">
+    <title>Resolving Git Merge Conflicts During Upgrade</title>
+    <body><!--not tested-->
+        <!--<p conkeyref="HOS-conrefs/applies-to"/>-->
+        <section id="overview">
+            <title>Introduction</title>
+            
+            <p>When you perform an upgrade, <keyword keyref="kw-hos"/> 
+            attempts to incorporate new or updated configuration information
+            on top of your existing environment. However, if you have made 
+            certain changes to your environment,  <keyword keyref="kw-hos"/>
+            cannot automatically determine whether to keep your changes 
+            or drop them in favour of the new or updated configurations that
+            it wants to put in place. This will result in a <codeph>merge conflict</codeph>
+            occurring during upgrade and it will be up to you to manually resolve 
+            the conflict before the upgrade can proceed.
+            </p>
+            
+            <p>This document gives an overview of how to approach the issue of 
+            merge conflicts, showing general procedures for determining where the conflict
+            is occurring, alternative methods for resolution, and a fallback procedure for 
+            the case where the resolution goes wrong and you need to start from scratch.</p>
+            
+            <p>For a general overview of how <keyword keyref="kw-hos"/> uses Git, see the 
+            introductory article in the Installation section <xref keyref="using_git">here</xref>.
+            In particular, note how the <codeph>site</codeph> branch is the one most used by
+                the end-user, while the <codeph>hos</codeph> branch contains the "upstream" 
+                 source code corresponding to the contents of the <codeph>~/helion</codeph> directory 
+                on a pristine fresh installation.
+            </p>
+            
+        </section>
+        
+        <section>
+            <title>Identifying the occurrence of a <codeph>merge conflict</codeph></title>
+    
+            <p>If you hit a <codeph>merge conflict</codeph> during upgrade, you will
+            observe output similar to the following on the console:</p>
+ 
+ 
+<codeblock>Auto-merging hos/ansible/roles/nova-compute-esx/defaults/main.yml
+Auto-merging hos/ansible/roles/nova-common/templates/nova.conf.j2
+<b>CONFLICT (content): Merge conflict in hos/ansible/roles/nova-common/templates/nova.conf.j2</b>
+Auto-merging hos/ansible/roles/nova-cli/tasks/availability_zones.yml
+Auto-merging hos/ansible/roles/nova-api/templates/api-paste.ini.j2</codeblock>
+            
+            
+        </section>
+            
+ 
+        <section>
+            <title>Examining Conflicts</title>
+            <p>Use <codeph>git status</codeph> to see the discover the source of the problem:</p>    
+            
+<codeblock>...
+        new file:   tech-preview/entry-scale-kvm-vsa-mml/data/swift/rings.yml
+        modified:   tech-preview/mid-scale/README.md
+        modified:   tech-preview/mid-scale/data/control_plane.yml
+
+Unmerged paths:
+  (use "git add/rm &lt;file>..." as appropriate to mark resolution)
+
+        <b>both modified:   hos/ansible/roles/nova-common/templates/nova.conf.j2</b></codeblock>
+            
+            <p>Edit the file <codeph>hos/ansible/roles/nova-common/templates/nova.conf.j2</codeph>
+            to see the conflict markers:</p>
+            
+            
+<codeblock>[neutron]
+admin_auth_url = {{ neutron_admin_auth_url }}
+admin_password = {{ neutron_admin_password }}
+admin_tenant_name = {{ neutron_admin_tenant_name }}
+admin_username = {{ neutron_admin_username }}
+<b>&lt;&lt;&lt;&lt;&lt;&lt;&lt;HEAD
+metadata_proxy_shared_secret = top_secret_password111
+=======
+metadata_proxy_shared_secret = {{ neutron_metadata_proxy_shared_secret }}
+>>>>>>> hos</b>
+neutron_auth_strategy = keystone
+neutron_ca_certificates_file = /etc/ssl/certs/ca-certificates.crt
+service_metadata_proxy = True</codeblock> 
+            
+            <p>This indicates that <keyword keyref="kw-hos-phrase-30"/> is trying to set the value of
+                <codeph>metadata_proxy_shared_secret</codeph> to be <codeph>{{ neutron_metadata_proxy_shared_secret }}</codeph>
+                whereas previously you have set its value to <codeph>top_secret_password111</codeph>.                        
+            </p>
+            
+
+        </section>
+        
+        <section>
+            <title>Examining differences between your current version and the previous upstream version</title>
+            
+            <p>Typically, the previous upstream version will be the last-but-one commit on the
+                    <codeph>hos</codeph> branch. This version will have been created during the
+                initial installation of your cloud (or perhaps during a previous upgrade). So in
+                total, there are three significant versions of the file: <ul>
+                    <li>The previous "upstream" version on the <codeph>hos</codeph> branch.</li>
+                    <li>Your current version on the <codeph>site</codeph> branch.</li>
+                    <li>The new "upstream" version on the <codeph>hos</codeph> branch. </li>
+                </ul></p>
+            
+            <p>You can identify the previous "upstream" version using <codeph>git merge-base</codeph></p>
+            
+<codeblock>git merge-base hos site
+<b>2eda1df48e2822533c50f80f5bfd7a9d788bdf73</b></codeblock>      
+            
+            <p>And then use <codeph>git log</codeph> to see where this commit occurs in the history of 
+            the <codeph>hos</codeph> branch.</p>
+ 
+<codeblock>git log hos --
+commit 22cfa83f3526baf30b3697e971a712930f86f611
+Author: Helion git user &lt;helion@hpe.com>
+Date:   Mon Jan 18 00:30:33 2016 +0000
+
+    New drop
+
+commit <b>2eda1df48e2822533c50f80f5bfd7a9d788bdf73</b>
+Author: Helion git user &lt;helion@hp.com>
+Date:   Sun Jan 17 19:14:01 2016 +0000
+
+    New drop</codeblock> 
+         
+         
+            <p>In this instance, we can see that the relevant commit is in fact the last-but-one commit
+                and so we can use the simplified name <codeph>hos^1</codeph> to identify that commit.</p>
+<codeblock>git diff <b>hos^1</b> HEAD -- hos/ansible/roles/nova-common/templates/nova.conf.j2</codeblock>
+
+
+            <p>In the diff output, you should be able to see how you changed the value for <codeph>metadata_proxy_shared_secret</codeph>
+                from <codeph>unset</codeph> to <codeph>top_secret_password111</codeph>:
+            </p>
+<codeblock>diff --git a/hos/ansible/roles/nova-common/templates/nova.conf.j2 b/hos/ansible/roles/nova-common/templates/nova.conf.j2
+index 597a982..05cb07c 100644
+--- a/hos/ansible/roles/nova-common/templates/nova.conf.j2
++++ b/hos/ansible/roles/nova-common/templates/nova.conf.j2
+@@ -132,7 +132,7 @@ admin_auth_url = {{ neutron_admin_auth_url }}
+ admin_password = {{ neutron_admin_password }}
+ admin_tenant_name = {{ neutron_admin_tenant_name }}
+ admin_username = {{ neutron_admin_username }}
+<b>-metadata_proxy_shared_secret = unset
++metadata_proxy_shared_secret = top_secret_password111</b>
+ neutron_auth_strategy = keystone
+ neutron_ca_certificates_file = /etc/ssl/certs/ca-certificates.crt
+ service_metadata_proxy = True</codeblock>   
+            
+   
+        </section>
+        
+        <section>
+            <title>Examining differences between your current version and the  new upstream version</title>        
+ 
+            <p>To compare your change with the new upstream version 
+                from <keyword keyref="kw-hos-phrase"/>
+                on the <codeph>hos</codeph> branch you can use 
+                <codeph>git diff HEAD hos -- &lt;&lt;path/to/file>></codeph>:</p>
+            
+<codeblock>git diff HEAD hos -- hos/ansible/roles/nova-common/templates/nova.conf.j2</codeblock>   
+            <p>In the extract of output below, you can see your value <codeph>top_secret_password111</codeph>
+                and the new value <codeph>{{ neutron_metadata_proxy_shared_secret }}</codeph> that 
+                <keyword keyref="kw-hos-phrase"/> wants to set.
+            </p>
+            
+<codeblock>..
+ admin_username = {{ neutron_admin_username }}
+<b>-metadata_proxy_shared_secret = top_secret_password111
++metadata_proxy_shared_secret = {{ neutron_metadata_proxy_shared_secret }}</b>
+ neutron_auth_strategy = keystone
+ neutron_ca_certificates_file = /etc/ssl/certs/ca-certificates.crt</codeblock>            
+ 
+ 
+        </section>
+        
+        <section>
+            <title>Examining differences between the new upstream version and the previous upstream version</title>        
+            
+            <p>To compare the new upstream version 
+                from <keyword keyref="kw-hos-phrase"/> with the previous upstream version from
+                your initial install (or previous upgrade):</p>
+            
+<codeblock>git diff $(git merge-base hos HEAD) hos -- hos/ansible/roles/nova-common/templates/nova.conf.j2</codeblock>  
+            
+            <p>In the extract of output below, you can see the new upstream value <codeph>{{ neutron_metadata_proxy_shared_secret }}</codeph> that 
+                <keyword keyref="kw-hos-phrase"/> wants to set and the previous upstream value
+                <codeph>unset</codeph>.
+
+            </p>            
+ 
+ <codeblock> admin_password = {{ neutron_admin_password }}
+ admin_tenant_name = {{ neutron_admin_tenant_name }}
+ admin_username = {{ neutron_admin_username }}
+<b>-metadata_proxy_shared_secret = unset
++metadata_proxy_shared_secret = {{ neutron_metadata_proxy_shared_secret }}</b>
+ neutron_auth_strategy = keystone
+ neutron_ca_certificates_file = /etc/ssl/certs/ca-certificates.crt</codeblock>
+ 
+        </section>
+        
+        <section>
+            <title>Using <codeph>stage markers</codeph> to view clean versions of files (without conflict markers)</title>
+            
+            <p>You can use the <codeph>git show</codeph> command with stage markers to view files
+            without having conflict markers embedded in them. Stage 1  is the 
+            previous upstream version (<b>:1</b>), stage 2  is your current version (<b>:2</b>) while stage 3 
+                is the new upstream version (<b>:3</b>).</p>
+            
+            <p><b>Stage 1</b></p>
+            
+<codeblock>git show <b>:1</b>:hos/ansible/roles/nova-common/templates/nova.conf.j2 </codeblock>     
+
+
+<codeblock>...
+admin_username = {{ neutron_admin_username }}
+<b>metadata_proxy_shared_secret = unset</b>
+neutron_auth_strategy = keystone
+neutron_ca_certificates_file = /etc/ssl/certs/ca-certificates.crt
+...</codeblock>
+
+
+            <p><b>Stage 2</b></p>
+            
+<codeblock>git show <b>:2</b>:hos/ansible/roles/nova-common/templates/nova.conf.j2</codeblock>   
+            
+<codeblock>...
+admin_username = {{ neutron_admin_username }}
+<b>metadata_proxy_shared_secret = top_secret_password111</b>
+neutron_auth_strategy = keystone
+neutron_ca_certificates_file = /etc/ssl/certs/ca-certificates.crt
+...</codeblock>  
+            
+            <p><b>Stage 3</b></p>
+<codeblock>git show <b>:3</b>:hos/ansible/roles/nova-common/templates/nova.conf.j2</codeblock>             
+            
+<codeblock>...
+admin_username = {{ neutron_admin_username }}
+<b>metadata_proxy_shared_secret = {{ neutron_metadata_proxy_shared_secret }}</b>
+neutron_auth_strategy = keystone
+neutron_ca_certificates_file = /etc/ssl/certs/ca-certificates.crt            
+...</codeblock>     
+            
+        </section>
+        
+        <section>
+            <title>Resolving the conflict</title>
+            
+            <p>There are two approaches to resolving the conflict:</p>
+            
+            <ol>
+                <li>Edit the merged file containing the conflict markers, keeping the change you want to preserve and
+                removing the conflict markers and any changes you want to discard.</li>
+                
+                <li>Take the new upstream version of the file and re-apply any changes you would like to keep from
+                your current version.</li>
+                
+            </ol>
+            
+        </section>
+        
+        <section>
+            <title>Resolving the conflict - editing the  file containing the  conflict markers</title>     
+            
+            
+            <p>Edit the file <codeph>hos/ansible/roles/nova-common/templates/nova.conf.j2</codeph> and if you want to maintain 
+                your change, then delete the lines in bold below:</p>
+
+<codeblock>[neutron]
+admin_auth_url = {{ neutron_admin_auth_url }}
+admin_password = {{ neutron_admin_password }}
+admin_tenant_name = {{ neutron_admin_tenant_name }}
+admin_username = {{ neutron_admin_username }}
+<b>&lt;&lt;&lt;&lt;&lt;&lt;&lt;HEAD</b>
+metadata_proxy_shared_secret = top_secret_password111
+<b>=======
+metadata_proxy_shared_secret = {{ neutron_metadata_proxy_shared_secret }}
+>>>>>>> hos</b>
+neutron_auth_strategy = keystone
+neutron_ca_certificates_file = /etc/ssl/certs/ca-certificates.crt
+service_metadata_proxy = True</codeblock> 
+            
+            <p>Your file should now look like this:</p>
+            
+            <codeblock>[neutron]
+admin_auth_url = {{ neutron_admin_auth_url }}
+admin_password = {{ neutron_admin_password }}
+admin_tenant_name = {{ neutron_admin_tenant_name }}
+admin_username = {{ neutron_admin_username }}
+metadata_proxy_shared_secret = top_secret_password111
+neutron_auth_strategy = keystone
+neutron_ca_certificates_file = /etc/ssl/certs/ca-certificates.crt
+service_metadata_proxy = True</codeblock>            
+            
+
+        </section>
+                
+        <section>
+            <title>Resolving the conflict - re-applying your changes to new upstream version</title> 
+            
+            <p>Create a copy of the new upstream version (see Stage 3 above) in your working directory:</p>
+            
+<codeblock>git show <b>:3</b>:hos/ansible/roles/nova-common/templates/nova.conf.j2 > \
+hos/ansible/roles/nova-common/templates/nova.conf.j2</codeblock>     
+            
+            <p>Now  edit the file <codeph>hos/ansible/roles/nova-common/templates/nova.conf.j2</codeph>
+                and manually re-apply that changes you want.
+            </p>
+            
+        </section>
+        
+        
+        <section>
+            <title>Completing the merge procedure</title>
+            
+            <p>You may want to check that the changes you have applied are correct. Compare the 
+            new upstream version with the version in your working directory:</p>
+            
+<codeblock>git diff hos -- hos/ansible/roles/nova-common/templates/nova.conf.j2</codeblock>            
+            
+            
+            <p>If you are happy with the resolution, you can stage your changes using:</p>
+            
+<codeblock>git add hos/ansible/roles/nova-common/templates/nova.conf.j2</codeblock>          
+            
+            <p>Apply the above steps to all the merge conflicts you encounter, and when you have
+            them resolved to your satisfaction, complete the merge:</p>
+            
+            
+<codeblock>git commit -m "complete merge"</codeblock>            
+            
+            
+        </section>
+        
+        <section>
+            <title>Recovering from Errors</title>
+            
+            <p>If you make a mistake during the resolution process, you can return your working directory
+            to a clean copy of the <codeph>site</codeph> branch using:
+                            
+            </p>
+            
+<codeblock>git reset --hard</codeblock>  
+            
+            <p>If the new upstream version contains files that didn't exist in the previous version, 
+                these files will be left behind - you can seem them using <codeph>git status</codeph>.
+                To clean up these files, remove them and then reset:                       
+            </p>
+
+<codeblock>git rm -rf hos
+git reset --hard</codeblock>
+            
+            <p>Alternatively, you can use <codeph>git stash</codeph> to save these files to transient stash queue.</p>
+
+        </section>
+        
+                
+                
+                
+    </body>
+</topic>

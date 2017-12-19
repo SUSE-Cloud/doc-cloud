@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="MagnumInstall">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Install the Magnum Service </title>
+  <body>
+    <p conkeyref="HOS-conrefs/applies-to"/>
+   
+    
+    <section id="Overview">
+      <title>Install the Magnum Service</title>
+        <p>Installing the Magnum Service can be performed as part of a new <keyword
+          keyref="kw-hos-phrase"/> environment or can be added to an existing <keyword
+          keyref="kw-hos-phrase"/> environment. Both installations require container management
+        services, running in Magnum cluster VMs with access to specific Openstack API endpoints. The
+        following TCP ports need to be open in your firewall to allow access from VMs to external
+        (public) <keyword keyref="kw-hos"/> endpoints. <table frame="all" rowsep="1" colsep="1"
+          id="table_bxy_141_4z">
+          <tgroup cols="2">
+            <colspec colname="c1" colnum="1" colwidth="1.0*"/>
+            <colspec colname="c2" colnum="2" colwidth="1.0*"/>
+            <thead>
+              <row>
+                <entry>TCP Port</entry>
+                <entry>Service</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>5000</entry>
+                <entry>Idenity</entry>
+              </row>
+              <row>
+                <entry>8004</entry>
+                <entry>Heat</entry>
+              </row>
+              <row>
+                <entry>9511</entry>
+                <entry>Magnum</entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+      </p>
+        <p>Additionally, Magnum is dependent on the following OpenStack services.
+          <ul>
+            <li>Keystone</li>
+            <li>Heat</li>
+            <li>Nova KVM</li>
+            <li>Neutron</li>
+            <li>Glance</li>
+            <li>Cinder</li>
+            <li>Swift</li>
+            <li>Barbican</li>
+            <li>LBaaS v2 (Octavia) - <i>optional</i></li>
+          </ul>
+          
+        </p>
+      <p>
+        <note type="warning">Magnum relies on the public discovery service
+          <b>https://discovery.etcd.io</b> during cluster bootstrapping and update. This service does not
+          perform authentication checks. Although running a cluster can't be harmed by unauthorized
+          changes in the public discovery registry, it can be compromised during a cluster update
+          operation. To avoid this, it is recommended that you keep your cluster discovery URL (i.e.
+          https://discovery.etc.io/&lt;some random ID>) secret.</note>
+      </p>
+    </section>
+    
+    <section id="install_magnum_new">
+      <title>Installing Magnum as part of new <keyword keyref="kw-hos-phrase"/> environment</title>
+      <p>Magnum components are already included in example <keyword keyref="kw-hos"/> models based
+        on Nova KVM, such as <b>entry-scale-kvm-vsa</b>, <b>entry-scale-kvm-vsa-mml</b> and
+          <b>mid-scale</b>. These models contain the Magnum dependencies (see above).  You can
+        follow generic installation instruction for Mid-Scale and Entry-Scale KM model by using this
+        guide: <xref keyref="install_entryscale_kvm"/>
+      
+        <note>
+          <ol>
+            <li>If you modify the cloud model to utilize a dedicated lifecycle manager, add
+                <codeph>magnum-client</codeph> item to the list of service components for the lifecycle
+              manager cluster.</li>
+            <li>Magnum needs a properly configured external endpoint. While preparing the cloud
+              model, ensure that <codeph>external-name</codeph> setting in
+                <codeph>data/network_groups.yml</codeph> is set to valid hostname, which can be
+              resolved on DNS server, and a valid TLS certificate is installed for your external
+              endpoint. For non-production test installations, you can omit
+                <codeph>external-name</codeph>. In test installations, the <keyword keyref="kw-hos"
+              /> installer will use an IP address as a public endpoint hostname, and automatically
+              generate a new certificate, signed by the internal CA. Please refer to <xref
+                href="../../operations/configuring_tls.dita"/> for more details.</li>
+            <li>To use LBaaS v2 (Octavia) for container management and container applications,
+              follow the additional steps to configure LBaaS v2 in the guide <xref
+                keyref="configure_lbaas"/>.</li>
+          </ol>
+        </note>
+      </p>
+    </section>
+    
+    <section id="install_magnum_existing">
+      <title>Adding Magnum to existing <keyword keyref="kw-hos-phrase"/> environment</title>
+      <p>Adding Magnum to an already deployed <keyword keyref="kw-hos-phrase"/> installation or
+        during and upgrade can be achieved by performing the following steps.</p>
+      <p>
+        <ol>
+          <li>Add items listed below to the list of service components in 
+            <codeph>/home/stack/helion/my_cloud/definition/data/control_plane.yml</codeph>.
+            Add them to clusters which have <codeph>server-role</codeph> set to 
+            <codeph>CONTROLLER-ROLE</codeph> (entry-scale models) or 
+            <codeph>CORE_ROLE</codeph> (mid-scale model).
+            <codeblock>- magnum-api
+- magnum-conductor</codeblock>
+          </li>
+          <li>If your environment utilizes a dedicated lifecycle manager, 
+            add <codeph>magnum-client</codeph> to the list of service components
+            for the lifecycle manager.</li>
+          <li>Commit your changes to the local git repository. Run the following playbooks as
+            described in <xref keyref="using_git"/> for your Installation. <ul>
+              <li><codeph>config-processor-run.yml</codeph></li>
+              <li><codeph>ready-deployment.yml</codeph></li>
+              <li><codeph>site.yml</codeph></li>
+            </ul>
+          </li> 
+          <li>Ensure that your external endpoint is configured correctly. The current public
+            endpoint configuration can be verified by running the following commands on the
+            lifecycle manager.
+            <codeblock>$ source service.osrc
+$ openstack endpoint list --interface=public --service=identity  
++----------------------------------+---------+--------------+--------------+---------+-----------+---------------------------------+
+| ID                               | Region  | Service Name | Service Type | Enabled | Interface | URL                             |
++----------------------------------+---------+--------------+--------------+---------+-----------+---------------------------------+
+| d83e87ef474a497f8d8373357cce4aa3 | region1 | keystone     | identity     | True    | public    | https://10.245.41.168:5000/v2.0 |
++----------------------------------+---------+--------------+--------------+---------+-----------+---------------------------------+</codeblock>Ensure
+            that the endpoint URL is using either an IP address, or a valid hostname, which can be
+            resolved on the DNS server. If the URL is using an invalid hostname (for example,
+            'myhelion.test'), follow the steps described in <xref
+              href="../../operations/configuring_tls.dita#tls30"/> to configure a valid external
+            endpoint. You will need to update the <codeph>external-name</codeph> setting in the
+              <codeph>data/network_groups.yml</codeph> to a valid hostname, which can be resolved on
+            DNS server, and provide a valid TLS certificate for the external endpoint. For
+            non-production test installations, you can omit the <codeph>external-name</codeph>. The
+              <keyword keyref="kw-hos"/> installer will use an IP address as public endpoint
+            hostname, and automatically generate a new certificate, signed by the internal CA.
+            Please refer to <xref href="../../operations/configuring_tls.dita"/>
+            for more information. </li>
+          <li>Ensure that LBaaS v2 (Octavia) is correctly configured.  See <xref
+            keyref="configure_lbaas"/> for more information.
+          </li>
+        </ol>
+      </p>
+      
+      
+      <note type="warning">By default <keyword keyref="kw-hos"/> stores the private key used by
+        Magnum and its passphrase in Barbican which provides a secure place to store such
+        information. You can change this such that this sensitive information is stored on the file
+        system or in the database without encryption. Making such a change exposes you to the risk
+        of this information being exposed to others. If stored in the database then any database
+        backups, or a database breach, could lead to the disclosure of the sensitive information.
+        Similarly, if stored unencrypted on the file system this information is exposed more broadly
+        than if stored in Barbican.</note>
+	  </section>
+
+  </body>
+</topic>

@@ -1,0 +1,463 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic
+  PUBLIC "-//OASIS//DTD DITA Topic//EN" "http://docs.oasis-open.org/dita/v1.1/OS/dtd/topic.dtd" ><topic xml:lang="en-us" id="topic6842">
+<title>HPE Helion <tm tmtype="reg">OpenStack</tm> 1.1: Recovering After Power Outage</title>
+<prolog>
+<metadata>
+<othermeta name="layout" content="default"/>
+<othermeta name="product-version" content="HPE Helion Openstack"/>
+<othermeta name="product-version" content="HPE Helion Openstack 1.1"/>
+<othermeta name="role" content="Systems Administrator"/>
+<othermeta name="role" content="Cloud Architect"/>
+<othermeta name="role" content="Storage Administrator"/>
+<othermeta name="role" content="Network Administrator"/>
+<othermeta name="role" content="Service Developer"/>
+<othermeta name="role" content="Cloud Administrator"/>
+<othermeta name="role" content="Application Developer"/>
+<othermeta name="role" content="Network Engineer"/>
+<othermeta name="role" content="Paul F"/>
+<othermeta name="product-version1" content="HPE Helion Openstack"/>
+<othermeta name="product-version2" content="HPE Helion Openstack 1.1"/>
+</metadata>
+</prolog>
+<body>
+<p>
+<!--PUBLISHED-->
+ <!--./commercial/GA1/1.1commerical.high-availability-restore.md-->
+ <!--permalink: /helion/openstack/1.1/high-availability/recover/--></p>
+<p>If your datacenter had a power outage and the HPE Helion OpenStack cloud system experienced a non-graceful shutdown, you must restart the servers in a specific order and execute some specific manual commands to bring back the overcloud controller cluster.</p>
+<p>The following sections provide detailed instructions on how to recover a HPE Helion OpenStack cloud system:</p>
+<ul>
+<li>
+<xref type="section" href="#topic6842/seed">Recover the seed</xref>
+</li>
+<li>
+<xref type="section" href="#topic6842/uc">Recover the undercloud</xref>
+</li>
+<li>
+<xref type="section" href="#topic6842/oc">Recover the overcloud</xref>
+</li>
+<li>
+<xref type="section" href="#topic6842/comp">Recover the HPE Helion OpenStack components</xref>
+</li>
+<li>
+<xref type="section" href="#topic6842/vm">Connect to the VMs</xref>
+</li>
+</ul>
+        <note>Several of the procedures in this document use the <codeph>nova start</codeph>
+            command. If <codeph>nova start</codeph> fails with a message such as <i>ERROR
+                (Conflict): Instance 9769893e in task_state powering-off. Cannot start while the
+                instance is in this state. (HTTP 409)</i>, power on the node manually using the iLO
+            console.</note>
+<section id="seed"> <title>Recover the seed</title>
+<ol>
+<li>
+<p>Power on the seed cloud host. Ensure that the networking is operating, by logging into the seed cloud host remotely.</p>
+
+<p>If the network is not working, run the following commands to remove the Ethernet drivers from the kernel and add the module back to the kernel:</p>
+
+<codeblock>
+<codeph>rmmod mlx_*
+modprobe mlx4_core
+</codeph>
+</codeblock>
+
+<p>If you cannot access the seed cloud host through the external interface, run the following command to restart the Open vSwitch (OVS) service:</p>
+
+<codeblock>
+<codeph>service openvswitch-force-reload-kmod restart
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Launch a terminal and log in to your seed VM as root.</p>
+
+<codeblock>
+<codeph>sudo su -
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Boot the seed VM using the following command:</p>
+
+<codeblock>
+<codeph>BRIDGE_INTERFACE=eth2 
+bash -x ~root/tripleo/tripleo-incubator/scripts/hp_ced_host_manager.sh --boot-seed
+</codeph>
+</codeblock>
+
+<p>The BRIDGE_INTERFACE command sets the interface on the seed cloud host to use as the bridge interface, for example em2 or eth2.</p>
+</li>
+</ol>
+</section>
+<section id="uc"> <title>Recover the undercloud</title>
+<ol>
+<li>
+<p>Launch a terminal and log in to your seed VM as root.</p>
+
+<codeblock>
+<codeph>sudo su -
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Make sure you can ping the iLO of the undercloud node.</p>
+</li>
+<li>
+<p>On the seed VM, run the following command to restart services on the undercloud:</p>
+
+<codeblock>
+<codeph>os-refresh-config
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Run the following command to source the OpenStack configuration file:</p>
+
+<codeblock>
+<codeph>source stackrc
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Run the following command and note UUID of undercloud.</p>
+
+<codeblock>
+<codeph>nova list
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Run the following command, using the UUID you obtained, to stop the undercloud:</p>
+
+<codeblock>
+<codeph>nova stop &lt;UUID&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Run the following command, using the UUID you obtained, to start the undercloud:</p>
+
+<codeblock>
+<codeph>nova start &lt;UUID&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Once the undercloud is up, use the following command to verify the host name.</p>
+
+<codeblock>
+<codeph>hostname
+</codeph>
+</codeblock>
+
+<p>When the undercloud is properly configured, the host name is similar to <codeph>undercloud-undercloud-rweuuzkaj4</codeph> and not <codeph>hlinux</codeph>.</p>
+</li>
+</ol>
+</section>
+<section id="oc"> <title>Recover the overcloud</title>
+<ol>
+<li>
+<p>Launch a terminal and log in to your undercloud as root.</p>
+
+<codeblock>
+<codeph>sudo su -
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Run the following command to restart services:</p>
+
+<codeblock>
+<codeph>os-refresh-config
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Run the following command to source the OpenStack configuration file:</p>
+
+<codeblock>
+<codeph>source stackrc
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Run the following command and note the status and UUID of each overcloud node:</p>
+
+<codeblock>
+<codeph>nova list
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>For each controller with a status of <codeph>ACTIVE</codeph>, run the following command, using the UUID you obtained, to stop the node:</p>
+
+<codeblock>
+<codeph>nova stop &lt;UUID&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>When all Overcloud nodes have a status of <codeph>SHUTOFF</codeph>, run the following command for each overcloud node, using the UUID you obtained for each:</p>
+
+<codeblock>
+<codeph>nova start &lt;UUID&gt;
+</codeph>
+</codeblock>
+
+<p>If any of the nova commands used to start the nodes fail, wait and try again later.</p>
+</li>
+<li>
+<p>Once the overcloud is up, use the following command to verify the host name.</p>
+
+<codeblock>
+<codeph>hostname
+</codeph>
+</codeblock>
+
+<p>When the overcloud is properly configured, the host name is similar to <codeph>overcloud-ce-controller-rweuuzkaj4</codeph> and not <codeph>hlinux</codeph>.</p>
+</li>
+</ol>
+</section>
+<section id="comp"> <title>Recover the HPE Helion OpenStack components</title>
+<p>After a power outage, the various HPE Helion OpenStack components might not restart or might need to be reconfigured.</p>
+<ul>
+<li>
+<xref type="section" href="#topic6842/mysql">Restart MySQL</xref>
+</li>
+<li>
+<xref type="section" href="#topic6842/rabbit">Restart RabbitMQ</xref>
+</li>
+<li>
+<xref type="section" href="#topic6842/swift">Restart the Swift nodes</xref>
+</li>
+<li>
+<xref type="section" href="#topic6842/vsa">Restart the VSA nodes</xref>
+</li>
+<li>
+<xref type="section" href="#topic6842/compute">Restart the compute nodes</xref>
+</li>
+<li>
+<xref type="section" href="#topic6842/vm">Connect to the VMs</xref>
+</li>
+</ul>
+</section>
+<section id="mysql"> <title>Restart MySQL</title>
+<p>After a power outage MySQL might not restart on the overcloud controllers on boot. If this is the case, perform the following steps.</p>
+<ol>
+<li>
+<p>Run the following command on each overcloud controller to display the sequence number (seqno) for that controller:</p>
+
+<codeblock>
+<codeph>cat /mnt/state/var/lib/mysql/grastate.dat
+</codeph>
+</codeblock>
+
+<p>The controller with the highest sequence number has the most updated database and should be used to bootstrap the other controllers.</p>
+</li>
+<li>
+<p>On the controller with the highest sequence number, run the following command to use that controller as the bootstrap:</p>
+
+<codeblock>
+<codeph>/etc/init.d/mysql bootstrap-pxc
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Connect to each controller and restart MySQL:</p>
+
+<codeblock>
+<codeph>/etc/init.d/mysql start
+</codeph>
+</codeblock>
+</li>
+</ol>
+</section>
+<section id="rabbit"> <title>Restart RabbitMQ</title>
+<p>RabbitMQ is a component used by the centralized logging service.</p>
+<ol>
+<li>
+<p>Run the following command to determine if the RabbitMQ service is running correctly:</p>
+
+<codeblock>
+<codeph>rabbitmqctl cluster_status
+</codeph>
+</codeblock>
+
+<p>If all three overcloud controller nodes are listed in both the <codeph>nodes</codeph> and <codeph>running</codeph> sections then RabbitMQ is working properly.</p>
+</li>
+<li>
+<p>If the nodes are not listed correctly, run the following commands on each overcloud controller node in turn:</p>
+
+<p>
+<b>Important:</b> Do not run all three commands on a single controller at the same time.</p>
+
+<p>a. Run the following command on each overcloud controller node:</p>
+
+<codeblock>
+<codeph>pkill rabbit
+</codeph>
+</codeblock>
+
+<p>b. Then, run the following commands on each overcloud controller node:</p>
+
+<codeblock>
+<codeph>mv /var/lib/rabbitmq/mnesia/ /var/lib/rabbitmq/mnesia.orig
+</codeph>
+</codeblock>
+
+<p>c. Then, run the following command on each overcloud controller node:</p>
+
+<codeblock>
+<codeph>os-refresh-config
+</codeph>
+</codeblock>
+</li>
+</ol>
+</section>
+<section id="swift"> <title>Restart the Swift nodes</title>
+<p>Log into the undercloud to start each of the Swift nodes.</p>
+<ol>
+<li>
+<p>Log onto the undercloud as root:</p>
+
+<codeblock>
+<codeph>sudo su -
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Run the following command and note the UUID of each Swift node:</p>
+
+<codeblock>
+<codeph>nova list
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Run the following command to start each Swift nodes:</p>
+
+<codeblock>
+<codeph>nova start &lt;UUID&gt;
+</codeph>
+</codeblock>
+
+<p>Wait for each node to start up and stabilize.</p>
+</li>
+</ol>
+</section>
+<section id="vsa"> <title>Restart the VSA nodes</title>
+<p>Use the undercloud to start each of the VSA nodes.</p>
+<ol>
+<li>
+<p>Run the following command and note the UUID of each VSA node:</p>
+
+<codeblock>
+<codeph>nova list
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Run the following command to start each VSA nodes:</p>
+
+<codeblock>
+<codeph>nova start &lt;UUID&gt;
+</codeph>
+</codeblock>
+
+<p>Wait for the server(s) to start up and stabilize.</p>
+</li>
+</ol>
+</section>
+<section id="compute"> <title>Restart the compute nodes</title>
+<p>Use the undercloud to start each of the compute nodes.</p>
+<ol>
+<li>
+<p>Run the following command and note the UUID of each compute node:</p>
+
+<codeblock>
+<codeph>nova list
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Run the following command to start each compute nodes:</p>
+
+<codeblock>
+<codeph>nova start &lt;UUID&gt;
+</codeph>
+</codeblock>
+
+<p>Wait for the server(s) to start up and stabilize.</p>
+</li>
+</ol>
+</section>
+<section id="vm"> <title>Connect to the VMs</title>
+<ol>
+<li>
+<p>Verify that pre-existing guest VMs are up and reachable.</p>
+</li>
+<li>
+<p>Verify that it is possible to create and reach new VMs.</p>
+</li>
+</ol>
+<p>After the system is running again, the output of the <codeph>nova list</codeph> command on the undercloud might appear similar to the following image:</p>
+<p>
+  <image href="../../media/Restore-Nova-List.png" placement="break"/>
+</p>
+<!-- hiding
+### Start the seed cloud host
+
+1. Re-create the bridge configuration ?? I do not know if someone already have this documented. waiting for Tom Hancock information
+
+2. SSH to the KVM Host and start the Seed VM (virsh start seed)
+
+
+    Wait the VM boot up
+
+3. Start Undercloud Node (using nova start in Seed VM)
+
+    Wait the server start up and stabilize
+
+4. Start all overcloud controllers
+
+
+    Wait the server startup and stabilize
+
+5. Execute the command `cat /mnt/state/var/lib/mysql/grastate.dat` in all the controller to find who has the most updated database (seqno) - Still need to add information to check if the database is corrupted or not.
+
+    Example of result:
+
+        cat /mnt/state/var/lib/mysql/grastate.dat
+
+        GALERA saved state
+        version: 2.1
+        uuid: 98414b8c-661a-11e4-945b-5f36f0cd94d6
+        seqno: 959325
+
+6. In the controller with the higher seqno execute the command "/etc/init.d/mysql bootstrap-pxc"
+
+7. Connect to the other controllers and normally start MySQL (/etc/init.d/mysql start)
+
+8. When all nodes joined the cluster execute "os-refresh-config" in all the overcloud nodes, one each time to restart all the services and finish the startup.
+
+9. Start Swift0 and 1 Nodes
+
+    Wait the server start up and stabilize.
+
+10. Start VSA Nodes
+
+    Wait the server start up and stabilize.
+
+11. Start Compute Nodes when everything else is running
+
+    Wait the server start up and stabilize the instances should start automatically.
+-->
+<p>
+  <xref href="#topic6842"> Return to Top </xref>
+</p>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+</body>
+</topic>

@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="networkroutevalidation">
+    <title><ph conkeyref="HOS-conrefs/product-title"/>Network Route Validation</title>
+    <body><!--not tested-->
+        <p conkeyref="HOS-conrefs/applies-to"/>
+        
+
+
+    <p>Once the configuration processor has allocated all of the required
+        <uicontrol>servers</uicontrol> and matched them to the appropriate
+        <uicontrol>networks</uicontrol>, it validates that all
+        <uicontrol>service-components</uicontrol> have the required network routes to other
+        <uicontrol>service-components</uicontrol>.</p>
+    <p>It does this by using the data in the services section of the input model which provides
+        details of which <uicontrol>service-components</uicontrol> need to connect to each other.
+        This data is not configurable by the administrator; however, it is provided as part of the
+        <keyword keyref="kw-hos"/> release.</p>
+    <p>For each <uicontrol>server</uicontrol>, the configuration processor looks at the list of
+        <uicontrol>service-components</uicontrol> it runs and determines the network addresses of
+        every other <uicontrol>service-component</uicontrol> it needs to connect to (depending on
+        the service, this might be a virtual IP address on a load balancer or a set of addresses for
+        the service).</p>
+    <p>If the target address is on a <uicontrol>network</uicontrol> that this
+        <uicontrol>server</uicontrol> is connected to, then there is no routing required. If the
+        target address is on a different <uicontrol>network</uicontrol>, then the Configuration
+        Processor looks at each <uicontrol>network</uicontrol> the server is connected to and looks
+        at the routes defined in the corresponding <uicontrol>network-group</uicontrol>. If the
+        <uicontrol>network-group</uicontrol> provides a route to the
+        <uicontrol>network-group</uicontrol> of the target address, then that route is considered
+        valid.</p>
+    <p><uicontrol>Networks</uicontrol> within the same <uicontrol>network-group</uicontrol> are
+        always considered as routed to each other; <uicontrol>networks</uicontrol> from different
+        <uicontrol>network-groups</uicontrol> must have an explicit entry in the
+        <codeph>routes</codeph> stanza of the <uicontrol>network-group</uicontrol> definition.
+        Routes to a named <uicontrol>network-group</uicontrol> are always considered before a
+        "default" route.</p>
+    <p>A warning is given for any routes which are using the "default" route since it is possible
+        that the user did not intend to route this traffic. Such warning can be removed by adding
+        the appropriate <uicontrol>network-group</uicontrol> to the list of routes.</p>
+    <p>The configuration processor provides details of all routes between networks that it is
+        expecting to be configured in the <codeph>info/route_info.yml</codeph> file.</p>
+    <p>To illustrate how network routing is defined in the input model, consider the following
+        example:</p>
+    <p>A compute server is configured to run nova-compute which requires access to the Neutron API
+        servers and the VSA block storage service. The Neutron API servers have a virtual IP address
+        provided by a load balancer in the INTERNAL-API network-group and the VSA service is
+        connected to the ISCSI network-group. Nova-compute itself is part of the set of components
+        attached by default to the MANAGEMENT network-group. The intention is to have virtual
+        machines on the compute server connect to the VSA storage via the ISCSI network.</p>
+    <p>The physical network is shown below:</p>
+    <p><image href="../../../../media/inputmodel/hphelionopenstack_networkroutevalidation.png"/></p>
+    <p><xref href="../../../../media/inputmodel/hphelionopenstack_networkroutevalidation_lg.png"
+        scope="external" format="html">Download a high-res version</xref></p>
+    <p>The corresponding entries in the <uicontrol>network-groups</uicontrol> are:</p>
+        <codeblock>
+  - name: INTERNAL-API  
+    hostname-suffix: intapi
+        
+    load-balancers:
+       - provider: ip-cluster
+         name: lb
+         components:
+           - default
+         roles:
+           - internal
+           - admin
+        
+       - name: MANAGEMENT
+         hostname-suffix: mgmt
+         hostname: true
+        
+         component-endpoints:
+           - default
+        
+         routes:
+           - INTERNAL-API
+           - default
+        
+       - name: ISCSI
+         hostname-suffix: iscsi
+         
+         component-endpoints:
+            - vsa</codeblock>
+    <p>And the <uicontrol>interface-model</uicontrol> for the compute server looks like this:</p>
+        <codeblock>
+  - name: INTERFACE_SET_COMPUTE
+    network-interfaces:
+      - name: BOND0
+        device:
+           name: bond0
+        bond-data:
+           options:
+              mode: active-backup
+              miimon: 200
+              primary: hed5
+           provider: linux
+           devices:
+              - name: hed4
+              - name: hed5
+        network-groups:
+          - MANAGEMENT
+          - ISCSI</codeblock>
+    <p>When validating the route from nova-compute to the Neutron API, the configuration processor
+        will detect that the target address is on a network in the INTERNAL-API network group, and
+        that the MANAGEMENT network (which is connected to the compute server) provides a route to
+        this network, and thus considers this route valid.</p>
+    <p>When validating the route from nova-compute to VSA, the configuration processor will detect
+        that the target address is on a network in the ISCSI network group. However, because there
+        is no service component on the compute server connected to the ISCSI network (according to
+        the network-group definition) the ISCSI network will not have been configured on the compute
+        server (see <xref keyref="servernetworkselection">Server Network
+            Selection</xref>. The configuration processor will detect that the MANAGEMENT network-group
+        provides a "default" route and thus considers the route as valid (it is, of course, valid to
+        route ISCSI traffic); however, because this is using the default route, a warning will be
+        issued:</p>
+        <codeblock>#   route-generator-2.0       WRN: Default routing used between networks
+The following networks are using a 'default' route rule. To remove this warning 
+either add an explicit route in the source network group or force the network to 
+attach in the interface model used by the servers.
+  MANAGEMENT-NET-RACK1 to ISCSI-NET
+    helion-ccp-comp0001
+  MANAGEMENT-NET-RACK 2 to ISCSI-NET
+    helion-ccp-comp0002
+  MANAGEMENT-NET-RACK 3 to SCSI-NET
+    helion-ccp-comp0003</codeblock>
+    <p>To remove this warning, you can either add ISCSI to the list of routes in the MANAGEMENT
+        network group (routed ISCSI traffic is still a valid configuration) or force the compute
+        server to attach to the ISCSI network-group by adding it as a forced-network-group in the
+        interface-model, like this:</p>
+        <codeblock>
+  - name: INTERFACE_SET_COMPUTE
+      network-interfaces:
+        - name: BOND0
+          device:
+            name: bond0
+          bond-data:
+            options:
+               mode: active-backup
+               miimon: 200
+               primary: hed5
+            provider: linux
+            devices:
+               - name: hed4
+               - name: hed5
+          network-groups:
+             - MANAGEMENT
+          forced-network-groups:
+             - ISCSI</codeblock>
+    <p>With the attachment to the ISCSI network group forced, the configuration processor will
+        attach the compute server to a network in that group and validate the route as either being
+        direct or between networks in the same network-group.</p>
+    <p>The generated <codeph>route_info.yml</codeph> file will include entries such as the
+        following, showing the routes that are still expected to be configured between networks in
+        the MANAGEMENT network group and the INTERNAL-API network group.</p>
+        <codeblock>
+  MANAGEMENT-NET-RACK1:
+     INTERNAL-API-NET:
+        default: false
+        used_by:
+           nova-compute:
+              neutron-server:
+              - helion-ccp-comp0001
+   MANAGEMENT-NET-RACK2:
+     INTERNAL-API-NET:
+        default: false
+        used_by:
+          nova-compute:
+            neutron-server:
+            - helion-ccp-comp0003</codeblock>
+
+
+    </body>
+</topic>
+

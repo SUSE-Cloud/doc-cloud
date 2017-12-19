@@ -1,0 +1,291 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="config_3par">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Configuring for 3PAR Block Storage
+    Backend</title>
+  <abstract><shortdesc outputclass="hdphidden">Installation and configuration steps for your 3PAR
+      backend.</shortdesc>This page describes how to configure your 3PAR backend for the HPE Helion
+    Entry-scale with KVM cloud model. It consists of the following steps:</abstract>
+  <body><!--not tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <section id="expandCollapse">
+      <sectiondiv outputclass="expandall">Expand All Sections</sectiondiv>
+      <sectiondiv outputclass="collapseall">Collapse All Sections</sectiondiv>
+    </section>
+    <section id="prereqs">
+      <title outputclass="headerH">Prerequisites</title>
+      <sectiondiv outputclass="insideSection">
+        <ul>
+          <li>You must have the license for the following software before you start your 3PAR
+            backend configuration for the Helion Entry-scale with KVM cloud model:<ul
+              id="ul_b11_g23_nw">
+              <li>
+                <p>Thin Provisioning</p>
+              </li>
+              <li>Virtual Copy</li>
+              <li>
+                <p>System Reporter</p>
+              </li>
+              <li>
+                <p>Dynamic Optimization </p>
+              </li>
+              <li>
+                <p>Priority Optimization </p>
+              </li>
+            </ul></li>
+          <li>Your HPE Helion Entry-scale KVM Cloud should be up and running. Installation steps can
+            be found <xref href="installing_kvm.dita">here</xref>.</li>
+          <li>Your 3PAR Storage Array should be available in the cloud management network or routed
+            to the cloud management network and the 3PAR FC and iSCSI ports configured.</li>
+          <li>The 3PAR management IP and iSCSI port IPs must have connectivity from the controller
+            and compute nodes.</li>
+          <li>Please refer to the system requirements for 3PAR in the OpenStack configuration guide,
+            which can be found here: <xref
+              href="http://docs.openstack.org/liberty/config-reference/content/hp-3par-sys-reqs.html"
+              scope="external" format="html">3PAR System Requirements</xref>.</li>
+        </ul>
+      </sectiondiv>
+    </section>
+
+    <section id="notes"><title outputclass="headerH">Notes</title>
+      <sectiondiv outputclass="insideSection">
+        
+        <p><b>Encrypted 3Par Volume</b>: Attaching an encrypted 3Par volume is possible after installation by setting
+          <codeph>volume_use_multipath = true</codeph> under the libvirt stanza in the
+          <codeph>nova/kvm-hypervisor.conf.j2</codeph> file and reconfigure nova.
+        </p>
+        
+        <p id="multibackend"><b>Concerning using multiple backends:</b> If you are using multiple
+          backend options, ensure that you specify each of the backends you are using when
+          configuring your <codeph>cinder.conf.j2</codeph> file using a comma delimited list. An
+          example would be <codeph>enabled_backends=vsa-1,3par_iSCSI,ceph1</codeph> and is included
+          in the steps below. You will also want to create multiple volume types so you can specify
+          which backend you want to utilize when creating volumes. These instructions are included
+          below as well. In addition to our documentation, you can also read the OpenStack
+          documentation at <xref
+            href="http://docs.openstack.org/admin-guide-cloud/blockstorage_multi_backend.html"
+            scope="external" format="html">Configure multiple storage backends</xref> as
+          well.<!--DOCS-2681-->
+        </p>
+        <p><b>Concerning iSCSI and Fiber Channel:</b> You should not configure cinder backends so
+          that multipath volumes are exported  over both iSCSI and Fiber Channel from a 3PAR backend
+          to the same Nova compute server.<!--DOCS-2982--></p>
+        <p><b>3PAR driver has updated name:</b> In the OpenStack Mitaka release, the 3PAR driver
+          used for HPE Helion integration had its name updated from <codeph>HP3PARFCDriver</codeph>
+          and <codeph>HP3PARISCSIDriver</codeph> to <codeph>HPE3PARFCDriver</codeph> and
+            <codeph>HPE3PARISCSIDriver</codeph>. To prevent issues when upgrading from previous
+            <keyword keyref="kw-hos"/> releases, we left the names as-is in the release and provided
+          a mapping so that the integration would continue to work. This will produce a warning in
+          the <codeph>cinder-volume.log</codeph> file advising you of the deprecated name. The
+          warning will look similar to
+          this:<codeblock>Option "hp3par_api_url" from group "&lt;your section>" is deprecated. Use option "hpe3par_api_url" from group "&lt;your section>"'</codeblock></p>
+        <p>These are just warnings and can be ignored.</p>
+        <!-- SEE DOCS-4023
+        <p>If you would like to remove these warnings, use the following steps:<ol
+            id="ol_v1p_h3g_cy">
+            <li>Log in to the lifecycle manager.</li>
+            <li>Update the Cinder configuration file at the following
+              location:<codeblock>~/helion/hos/ansible/roles/_CND-CMN/templates/cinder.conf.j2</codeblock></li>
+            <li>Change each occurrence of <codeph>hplefthand_</codeph> to
+                <codeph>hpelefthand_</codeph> and each occurrence of <codeph>hp3par_</codeph> to
+                <codeph>hpe3par_</codeph> in the <codeph>cinder.conf.j2</codeph> file and save
+              it.</li>
+            <li>Commit your changes to
+              git:<codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -m "My config or other commit message"</codeblock></li>
+            <li>Update your deployment
+              directory:<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+            <li>Use the following playbook to reconfigure the Cinder service to implement the
+              changes:<codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts cinder-reconfigure.yml</codeblock></li>
+          </ol></p>
+          -->
+      </sectiondiv>
+    </section>
+    <section id="multipath"><title outputclass="headerH">Multipath Support</title>
+      <sectiondiv outputclass="insideSection">
+        <p>If you want to enable multipath for Cinder volumes carved from 3PAR FC/iSCSI storage
+          system, please go through the
+            <codeph>~/helion/hos/ansible/roles/multipath/README.md</codeph> file on the lifecycle
+          manager. The README.md file contains detailed procedures for configuring multipath for
+          3PAR FC/iSCSI Cinder volumes.</p>
+        <p>We have also included an additional set of steps needed if you are using 3PAR FC/iSCSI
+          multipath which is included below.</p>
+        <p>If you are using 3PAR FC/iSCSI multipath, an additional configuration is required:
+            <note>If you are planning on attaching an encrypted 3Par volume after istallation,
+            ensure that you <codeph>volume_use_multipath = true</codeph> under the libvirt section
+            in the <codeph>nova/kvm-hypervisor.conf.j2</codeph> file before configuring
+            Cinder.</note>
+        </p>
+        <ol>
+          <li>Log in to the lifecycle manager.</li>
+          <li>Edit the <codeph>~/helion/my_cloud/config/nova/kvm-hypervisor.conf.j2</codeph> file
+            add this line under the <codeph>[libvirt]</codeph> section:
+            <p>Example:</p><codeblock>[libvirt]
+...
+iscsi_use_multipath=true</codeblock></li>
+          <li>Edit the <codeph>~/helion/my_cloud/config/cinder/cinder.conf.j2</codeph> file add this
+            line under the <codeph>[DEFAULT]</codeph> section:
+            <p>Example:</p><codeblock>[DEFAULT]
+...
+use_multipath_for_image_xfer=true</codeblock></li>
+          <li>Commit your configuration to the <xref href="using_git.dita">local git repo</xref>, as
+            follows:
+            <codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -m "My config or other commit message"</codeblock></li>
+          <li>Run the configuration processor:
+            <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+          <li>Use the playbook below to create a deployment directory:
+            <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+          <li>Run the Nova reconfigure playbook:
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts nova-reconfigure.yml</codeblock></li>
+        </ol>
+      </sectiondiv>
+    </section>
+
+    <section id="config_fc">
+      <title outputclass="headerH">Configure 3PAR FC as a Cinder Backend</title>
+      <sectiondiv outputclass="insideSection">
+        <p>You must modify the <codeph>cinder.conf.j2</codeph> to configure the FC details.</p>
+        <p>Perform the following steps to configure 3PAR FC as Cinder backend:</p>
+        <ol>
+          <li>Log in to lifecycle manager.</li>
+          <li>Make the following changes to the
+              <codeph>~/helion/my_cloud/config/cinder/cinder.conf.j2</codeph> file: <ol>
+              <li>Add your 3PAR backend to the <codeph>enabled_backends</codeph> section:
+                  <codeblock># Configure the enabled backends
+enabled_backends=3par_FC</codeblock><note
+                  type="important">If you are using multiple backend types, you can use a comma
+                  delimited list here. For example, if you are going to use both VSA and 3par
+                  backends, you would specify something like this:
+                    <codeph>enabled_backends=vsa-1,3par_FC</codeph>.</note></li>
+              <li>[OPTIONAL] If you want your volumes to use a default volume type, then enter the
+                name of the volume type in the <codeph>[DEFAULT]</codeph> section with the syntax
+                below. <b>You will want to remember this value when you create your volume type in
+                  the next section.</b>
+                <p>
+                  <note type="important">If you do not specify a default type then your volumes will
+                    default to a non-redundant RAID configuration. It is recommended that you create
+                    a volume type and specify it here that meets your environments needs.</note>
+                </p><codeblock>[DEFAULT]
+# Set the default volume type
+default_volume_type = &lt;your new volume type></codeblock></li>
+              <li>Uncomment the <codeph>StoreServ (3par) iscsi cluster</codeph> section and fill the
+                values per your cluster information. Here is an example:
+                <codeblock>[3par_FC]
+san_ip: &#60;3par-san-ipaddr>
+san_login: &#60;3par-san-username>
+san_password: &#60;3par-san-password>
+hp3par_username: &#60;3par-username>
+hp3par_password: &#60;hp3par_password>
+hp3par_api_url: https://&#60;3par-san-ipaddr>:8080/api/v1
+hp3par_cpg: &#60;3par-cpg-name-1>[,&#60;3par-cpg-name-2>, ...]
+volume_backend_name: &#60;3par-backend-name>
+volume_driver: cinder.volume.drivers.san.hp.hp_3par_fc.HP3PARFCDriver</codeblock></li>
+            </ol><note type="attention">Do not use <codeph>backend_host</codeph> variable in
+                <codeph>cinder.conf</codeph> file. If <codeph>backend_host</codeph> is set, it will
+              override the [DEFAULT]/host value which <keyword keyref="kw-hos-phrase"/> is dependent
+              on.</note></li>
+          <li>Commit your configuration to the <xref href="../installation/using_git.dita">local git
+              repo</xref>, as follows:
+            <codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -m "My config or other commit message"</codeblock></li>
+          <li>Run the configuration processor:
+            <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+          <li>Update your deployment directory:
+            <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+          <li>Run the following playbook to complete the configuration:
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts cinder-reconfigure.yml</codeblock></li>
+        </ol>
+      </sectiondiv>
+    </section>
+
+    <section id="config_iscsi">
+      <title outputclass="headerH">Configure 3PAR iSCSI as Cinder backend</title>
+      <sectiondiv outputclass="insideSection">
+        <p>You must modify the <codeph>cinder.conf.j2</codeph> to configure the iSCSI details.</p>
+        <p>Perform the following steps to configure 3PAR iSCSI as Cinder backend:</p>
+        <ol id="iSCSI">
+          <li>Log in to lifecycle manager.</li>
+          <li>Make the following changes to the
+              <codeph>~/helion/my_cloud/config/cinder/cinder.conf.j2</codeph> file: <ol>
+              <li>Add your 3PAR backend to the <codeph>enabled_backends</codeph> section:
+                <codeblock># Configure the enabled backends
+enabled_backends=3par_iSCSI</codeblock></li>
+              <li>Uncomment the <codeph>StoreServ (3par) iscsi cluster</codeph> section and fill the
+                values per your cluster information. Here is an example:
+                  <codeblock id="3par-iscsi">[3par_iSCSI]
+san_ip: &#60;3par-san-ipaddr>
+san_login: &#60;3par-san-username>
+san_password: &#60;3par-san-password>
+hp3par_username: &#60;3par-username>
+hp3par_password: &#60;hp3par_password>
+hp3par_api_url: https://&#60;3par-san-ipaddr>:8080/api/v1
+hp3par_cpg: &#60;3par-cpg-name-1>[,&#60;3par-cpg-name-2>, ...]
+volume_backend_name: &#60;3par-backend-name>
+volume_driver: cinder.volume.drivers.san.hp.hp_3par_iscsi.HP3PARISCSIDriver
+hp3par_iscsi_ips: &#60;3par-ip-address-1>[,&#60;3par-ip-address-2>,&#60;3par-ip-address-3>, ...]
+hp3par_iscsi_chap_enabled=true</codeblock><note
+                  type="attention">Do not use <codeph>backend_host</codeph> variable in
+                    <codeph>cinder.conf</codeph> file. If <codeph>backend_host</codeph> is set, it
+                  will override the [DEFAULT]/host value which <keyword keyref="kw-hos-phrase"/> is
+                  dependent on.</note></li>
+            </ol></li>
+          <li>Commit your configuration your local git repository:
+            <codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -m "&lt;commit message>"</codeblock></li>
+          <li>Run the configuration processor:
+              <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock><p>When
+              you run the configuration processor you will be prompted for two passwords. Enter the
+              first password to make the configuration processor encrypt its sensitive data, which
+              is comprised of the random inter-service passwords that it generates and the Ansible
+              group_vars and host_vars that it produces for subsequent deploy runs. You will need
+              this key for subsequent Ansible deploy runs and subsequent configuration processor
+              runs. If you wish to change an encryption password that you have already used when
+              running the configuration processor then enter the new password at the second prompt,
+              otherwise just press carriage return.</p><p>For CI purposes you can specify the
+              required passwords on the ansible command line. For example, the command below will
+              disable encryption by the configuration processor
+              <codeblock>ansible-playbook -i hosts/localhost config-processor-run.yml -e encrypt="" -e rekey=""</codeblock>
+              If you receive an error during either of these steps then there is an issue with one
+              or more of your configuration files. We recommend that you verify that all of the
+              information in each of your configuration files is correct for your environment and
+              then commit those changes to git using the instructions above.</p></li>
+          <li>Run the following command to create a deployment directory.
+            <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+          <li>Run the following command to complete the configuration:
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts cinder-reconfigure.yml</codeblock></li>
+        </ol>
+
+      </sectiondiv>
+    </section>
+
+    <section id="post_install"><title outputclass="headerH">Post-Installation Tasks</title>
+      <sectiondiv outputclass="insideSection">
+        <p>After you have configured 3PAR as your Block Storage backend, here are some tasks you
+          will want to complete:</p>
+        <ul>
+          <li><xref href="../operations/blockstorage/creating_voltype.dita">Create a Volume Type
+              for your Volumes</xref></li>
+          <li><xref href="verify_block_storage.dita#verify_block_storage/volume_verify">Verify
+              Your Block Storage Configuration</xref></li>
+        </ul>
+      </sectiondiv>
+    </section>
+  </body>
+</topic>

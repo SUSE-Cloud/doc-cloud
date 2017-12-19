@@ -1,0 +1,825 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic
+  PUBLIC "-//OASIS//DTD DITA Topic//EN" "http://docs.oasis-open.org/dita/v1.1/OS/dtd/topic.dtd" ><topic xml:lang="en-us" id="topic19352">
+<title>HPE Helion <tm tmtype="reg">OpenStack</tm> 1.1 and 1.1.1: Deploying and Configuring OVSvApp on ESX hosts</title>
+<titlealts>
+<searchtitle>HPE Helion Openstack 1.1: Deploying and Configuring OVSvApp on ESX hosts</searchtitle>
+</titlealts>
+<prolog>
+<metadata>
+<othermeta name="layout" content="default"/>
+<othermeta name="product-version" content="HPE Helion Openstack 1.1"/>
+<othermeta name="role" content="Storage Administrator"/>
+<othermeta name="role" content="Storage Architect"/>
+<othermeta name="role" content="Michael B,"/>
+<othermeta name="product-version1" content="HPE Helion Openstack 1.1"/>
+</metadata>
+</prolog>
+<body>
+<p>
+<!--PUBLISHED-->
+ <!--./commercial/GA1/1.1commercial.install-GA-ovsvapp.md-->
+ <!--permalink: /helion/openstack/1.1/install/ovsvapp/--></p>
+<p>
+  <b>This document describes the installation process for HPE Helion OpenStack 1.1 and HPE Helion OpenStack 1.1.1.</b>
+</p>
+<p>(If you already have 1.1 installed, you can update Helion OpenStack from 1.1 to 1.1.1 by following the update procedures described in <xref href="../../commercial/GA1/1.1.1commercial.helion-update.dita" >HPE Helion OpenStack 1.1.1 Update Guide</xref>.)</p>
+<p>HPE Virtual Cloud Networking (VCN) is an enhanced Networking Operations (Neutron) service module of HPE Helion OpenStack that delivers network virtualization to orchestrate your data center infrastructure.</p>
+<p>The HPE Virtual Cloud Networking Open vSwitch vApp (OVSvApp) appliance must be installed on each ESX hypervisor in the HPE Helion OpenStack environment to provision VMs in your VMware vCenter environment. Once deployed, the OVSvApp enables networking between the tenant Virtual Machines (VMs).</p>
+<p>The deployment process includes the following basic steps:</p>
+<ol>
+<li>Uploading the OVSvApp file to one of the ESX hosts in your data center.</li>
+<li>Adding your settings to the configuration file so that the OVSvApp deployment script can clone the file on each host being managed by the overcloud controller.</li>
+<li>Running the deployment script.</li>
+</ol>
+<p>The following topics in this section explain how to deploy and verify deployment of OVSvApp for VCN on ESX hosts.</p>
+<ul>
+<li>
+<xref type="section" href="#topic19352/prereqs">Prerequisites</xref>
+</li>
+<li>
+<xref type="section" href="#topic19352/deploytemplate">Deploying the OVSvApp</xref>
+</li>
+<li>
+<xref type="section" href="#topic19352/deploymentverification">Verifying your deployment</xref>
+</li>
+<li>
+<xref type="section" href="#topic19352/managevcnnetworkservice">Managing the HPE VCN networking service</xref>
+</li>
+<li>
+<xref type="section" href="#topic19352/clean">Cleaning up or deleting the OVSvApp</xref>
+</li>
+<li>
+<xref type="section" href="#topic19352/update">Update OVSvApp</xref>
+</li>
+</ul>
+<p>If you are having issues with the installation or operation of the OVSvApp, see <xref href="../../commercial/GA1/1.1commercial.troubleshooting.ovsvapp.dita" >Troubleshooting</xref>
+</p>
+<section id="prereqs"> <title>Prerequisites</title>
+<p>Before you install the OVSvApp, ensure the following:</p>
+<ul>
+<li>
+<p>The HPE Helion OpenStack must be installed and configured.</p>
+</li>
+<li>
+<p>The VMware <tm tmtype="reg">vSphere</tm> platform must be installed and configured.</p>
+</li>
+<li>
+<p>The vCenter server must be reachable from the server where OVSvApp VM installation is launched.</p>
+</li>
+<li>
+<p>Unset the <codeph>https_proxy</codeph> environment variable on the server where OVSvApp VM deployment will be launched, using the following command:</p>
+
+<codeblock>
+<codeph>unset https_proxy
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Make sure that Python version is lower than 2.7.9 on the seed cloud host (the system from which the OVSvApp installation will be launched).</p>
+</li>
+<li>
+<p>Configure one of the following options to configure DVS:</p>
+
+<ul>
+<li>
+<p>
+<b>Automatic DVS configuration:</b> If the <codeph>auto_dvs</codeph> value in the <codeph>ovs_vapp.ini</codeph> file is set to true, the VDS will be configured during the deployment. Automatic configuration requires ESX 5.1 or greater. To consume this functionality,in addition to the data VLANs in the uplink, the ESX management VLAN should also be allowed. If an existing ESX management network is in a different uplink, the new L2 network should be created for the ESX compute proxy and ovsvapp VM consumption.</p>
+</li>
+<li>
+<p>
+<b>Manual DVS configuration:</b> If the <codeph>auto_dvs</codeph> value in the <codeph>ovs_vapp.ini</codeph> file is set to false, you need to create and configure the VDS as given below. Manual configuration requires ESX 5.0.0 or greater.</p>
+
+<p>There must be two Virtual Distributed Switches (VDS) and they are configured as follows:</p>
+
+<p>
+<b>VDS1</b>: This switch has no uplink ports configured and has a portgroup of type <b>VLAN</b> with <b>Trunking enabled</b>. The portgroup must contain the list of VLAN tags that are used by overcloud Networking Operations (Neutron) service. The <b>Promiscuous Mode</b> and <b>Forged Transmits</b> options must be set to <b>Accept</b> under the <b>Security</b> tab for the <b>Portgroup</b>.</p>
+                            <note> The name of VLAN trunk portgroup must be associated with
+                                    <codeph>trunk_port_name</codeph> parameter in the
+                                    <codeph>ovs_vapp.ini</codeph>. You will create the INI file in
+                                    <xref type="section" href="#topic19352/modify">Modify and
+                                    execute the installer</xref>.</note>
+
+<p>
+<b>VDS2</b>: This switch should have an uplink port connecting to the overcloud baremetal network. Two portgroups should be available for this switch - management, data.  Management portgroup handles the management traffic and may or may not be not configured for VLAN.</p>
+
+<p>The data portgroup should be of type VLAN with <codeph>Trunking enabled</codeph>. It should contain the list of VLAN tags that are used by overcloud Networking Operations service. The <b>Promiscuous Mode</b> and <b>Forged Transmits</b> options should be set to <b>Accept</b> under the <b>Security</b> tab for the data portgroup.</p>
+                            <note>You will need this information for a configuration file,
+                                    <codeph>ovs_vapp.ini</codeph>. The management portgroup must be
+                                associated with <codeph>mgmt_port_name</codeph> parameter and the
+                                data portgroup must be associated with
+                                    <codeph>data_port_name</codeph> parameter in the
+                                    <codeph>ovs_vapp.ini</codeph>. You will create the INI file in
+                                    <xref type="section" href="#topic19352/modify">Modify and
+                                    execute the installer</xref>.</note>
+</li>
+</ul>
+<p>Example:</p>
+
+<codeblock>
+<codeph>VDS1  - trunk portgroup name - vlan_trunk
+VDS2 
+    a. Portgroup1 name - mgmt
+    b. Portgroup2 name - data
+
+Changes in ovs_vapp.ini for the above values
+
+[network]
+
+trunk_port_name=vlan_trunk
+data_port_name=data
+mgmt_port_name=mgmt
+</codeph>
+</codeblock>
+
+<p>Use the following diagram for reference:
+<image href="../../media/ESXi_hypervisor_networking.png" placement="break"/>
+</p>
+</li>
+</ul>
+</section>
+<section id="esx"> <title>Notes for deploying OVSvApp VM onto ESX hypervisors</title>
+<ul>
+<li>
+<p>The ESX version required depends upon how VDS is deployed, as described in [Prerequisites](#prereqs}.</p>
+</li>
+<li>
+<p>Please make sure that ESX host does not have another iteration of the OVSvApp already deployed.</p>
+</li>
+<li>
+<p>The ESX host must be reachable from the server where OVSvApp VM installation is launched. The ipaddress of the ESX hosts should be the same ipaddress with which the vCenter server manages that host. For more information see <xref href="../../commercial/GA1/1.1commercial.install-GA-prereqs.dita#network_prepare" type="section">Preparing the network for an ESX installation</xref> in <i>Prerequisites</i>.</p>
+</li>
+<li>
+<p>All ESX hosts must have synchronized time settings. If hosts have different time, the deployment will fail.</p>
+</li>
+<li>
+<p>Use the vShpere client to select <b>Disable: Allow VM power on operations that violate availability constraints</b> as a part of cluster settings, as shaown. If not, ESX host might hang at 2% during transition to maintenance mode.</p>
+
+<p>
+<image href="../../media/OVSvApp_all_vm_power.png" placement="break"/>
+</p>
+</li>
+<li>
+<p>If VDS will be configured automatically (<codeph>auto_dvs = True</codeph>) the installer requires one physical NIC name as input. This physical NIC must be unused(not part of any VSS or VDS) and its name should be same across all ESX hosts within a datacenter.</p>
+</li>
+<li>
+<p>The traffic between two tenant VMs on the same network and on the same ESX Compute host cannot be blocked. If custom security groups are used, add explicit security group rules to allow traffic between the VMs, regardless of the compute host they are provisioned on. Using rules to allow traffic will help maintain VM connectivity.</p>
+</li>
+</ul>
+</section>
+<section id="deploytemplate">
+            <title>Deploy the OVSvApp</title>
+            <p>You must upload the OVSvApp appliance to one of the ESX hosts that is hosting VMs
+                provisioned from HPE Helion OpenStack environment. You must then configure the
+                settings in the configuration file. The file can be used to clone and deploy OVSvApp
+                on each host being managed by the controller.</p>
+            <p>The deploy process installs the OVSvApp as a virtual machine, which is referred to as
+                    <i>OVSvApp VM</i> in this document.</p>
+            <note/>
+            <ul>
+                <li>The OVSvApp VMs must be installed on each ESX hypervisor. </li>
+                <li>IP address are assigned to the OVSvApp VMs manually. The Administrator must keep
+                    a separate pool of IP addresses from the management VLAN to be assigned to the
+                    OVSvApp VMs. These IP addresses must be assigned to the Ethernet interfaces
+                    connecting to the management port group.</li>
+                <li>If <codeph>auto_dvs</codeph> is set to <codeph>True</codeph>, the OVSvApp VM
+                    management port group must be different than the Compute proxy management port
+                    group.</li>
+                <li>Specify distributed virtual switch (VDS) ports in the
+                        <codeph>ovs_vapp.ini</codeph>. Make sure the VDS ports are attached with the
+                    proper hosts.</li>
+            </ul>
+            <p>The deploy process installs the OVSvApp as a virtual machine, which is referred to as
+                    <i>OVSvApp VM</i> in this document.</p>
+            <ul>
+                <li>
+                    <xref type="section" href="#topic19352/createtemp">Create a VM template in
+                        vCenter</xref>
+                </li>
+                <li>
+                    <xref type="section" href="#topic19352/python">Install the prerequisite python
+                        libraries</xref>
+                </li>
+                <li>
+                    <xref type="section" href="#topic19352/modify">Modify and execute the
+                        installer</xref>
+                </li>
+            </ul>
+        </section>
+<section id="createtemp"> <title>Create a VM template in vCenter</title>
+<p>The first step in deploying the OVSvApp is to create a VM template that will make it easier to deploy the OVSvApp on each ESX hypervisor.</p>
+<p>To deploy the OVSvApp:</p>
+<ol>
+<li>
+<p>Create a directory <codeph>/ovsvapp</codeph> on any server in the Helion environment and upload <codeph>ovsvapp-1.1.tgz</codeph>. Extract the <codeph>ovsvapp_1.1.tgz</codeph> and locate  <codeph>overcloud_esx_ovsvapp.ova</codeph>. This is the OVSvApp appliance.</p>
+</li>
+<li>
+<p>Use the vSphere client to upload the <codeph>overcloud_esx_ovsvapp.ova</codeph> file to one of the ESX hosts in your data center:</p>
+
+<p>a. In the vSphere Client, click <b>File &#62; Deploy OVF Template</b>.</p>
+
+<p>b. Follow the instructions in the wizard that displays to specify the data center, cluster, and node to install onto. Refer to the VMWare vSphere documentation, as needed.</p>
+
+<p>The installer creates the OVSvApp appliance (VM) on the specified node. The appliance is listed in the left column of vCenter, by default named <codeph>overcloud-esx-ovsvapp-(time-stamp)</codeph>.</p>
+
+<!-- Remove per DOCS-1027
+
+3. Add a **CD-ROM** device to the OVSvApp appliance using the vCenter. 
+
+a. In the vSphere Client, right-click the OVSvApp appliance.
+
+b. Click **Edit Settings**. 
+
+c. Select the **Hardware** tab and click **Add**.
+
+d. Select **DVD/CD-ROM Drive**.
+
+e. Follow the instructions in the wizard that displays.
+
+Refer to the VMWare vSphere documentation, as needed.
+
+4. Enable the Virtual Machine Communication Interface (VMCI), a high-speed communication channel between a virtual machine and the ESX hypervisor.
+
+a. On the **Hardware** tab, select **Enable VMCI Between VMs**. The **Hardware** tab should be open from the previous step.
+
+b. Click **OK**.
+
+5. Power on the OVSvApp appliance using vCenter. The default credentials to login to the OVSvApp appliance are `stack/stack`. 
+
+6. Install the VMWare tools in the OVSvApp appliance: 
+
+a.In the vSphere Client, right-click the OVSvApp appliance.
+
+b. Select **Guest > Install/Upgrade VMware Tools**. 
+
+7. Launch the OVSvApp appliance console to install the VMware Tools from command line terminal: 
+
+a. Right-click the OVSvApp appliance and select **Open Console**.
+
+b. Enter the following commands:
+
+    sudo su
+    mkdir /mnt/vmware-tools
+    mount /dev/cdrom/ /mnt/vmware-tools
+    cp -f /mnt/vmware-tools/VMwareTools-*.tar.gz /tmp/
+    cd /tmp
+    tar -zxpf VMwareTools-*.tar.gz
+    cd vmware-tools-distrib/
+    ./vmware-install.pl -??-default
+
+Verify that VMWare Tools is running using the following command: 
+
+    service vmware-tools status
+
+Do not proceed with the installation if VMWare Tools is not running.
+
+
+8. When the installation completes, shutdown the OVSvApp appliance.
+
+9. Disable the VMCI: 
+
+a. Right-click the OVSvApp appliance. 
+
+b.  Click **Edit Settings**.    
+
+c. Remove the CD/DVD drive.
+
+d. Clear the **Enable VMCI between VMs** option.
+
+ --></li>
+<li>
+<p>Convert that OVSvApp appliance to template format.</p>
+
+<p>a. Right-click the OVSvApp appliance.</p>
+
+<p>b. Click <b>Template &#62; Convert to Template</b>.</p>
+
+<p>vCenter Server marks that virtual machine as a template and displays the task in the Recent Tasks pane.</p>
+</li>
+</ol>
+</section>
+<section id="python"> <title>Install the prerequisite python libraries</title>
+<p>On the server where you extracted the <codeph>ee_installer.tgz</codeph> file:</p>
+<ol>
+<li>
+<p>Install the pyvmomi <xref href="https://pypi.python.org/pypi/pyvmomi" scope="external" format="html" >pyvmomi package</xref>.</p>
+
+<codeblock>
+<codeph>pip install --upgrade pyvmomi
+
+pyVmomi is the Python SDK for the VMware vSphere API that allows you to manage ESX, ESXi, and vCenter.
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Install or update the Fabric python library (https://pypi.python.org/pypi/Fabric) using the following command:</p>
+
+<codeblock>
+<codeph>pip install --upgrade fabric
+</codeph>
+</codeblock>
+</li>
+</ol>
+</section>
+<section id="modify"> <title>Modify and execute the installer</title>
+<p>On the server where you extracted the <codeph>ee_installer.tgz</codeph> locate the <codeph>ovs_vapp.ini</codeph> under <codeph>tripleo/hp-ovsvapp/conf</codeph>.</p>
+<ol>
+<li>
+<p>Modify the <codeph>ovs_vapp.ini</codeph> file by adding settings for cloning and configuring OVSvApp VMs:</p>
+
+<p>a. Add VMware settings.</p>
+
+<codeblock>
+<codeph>[vmware]
+#VCenter IP
+
+vcenter_ip=
+#Vcenter FQDN(Provide FQDN, only if your vcenter certificate is generated with FQDN)(*OPTIONAL)
+vcenter_fqdn=
+#Vcenter username
+vcenter_username=
+#Vcenter password
+vcenter_password=
+#Vcenter HTTPS Port
+vcenter_https_port=443
+#Datacenter name
+datacenter=
+#Clusters on which OVSvAPP will be hosted
+clusters=
+#SSL Communication Settings between OVSvAPP and Vcenter(*OPTIONAL)
+cert_check=
+#Certificate Path. Must required if cert_check=True(*OPTIONAL)
+cert_path=
+
+[new-host-addition]
+#Keep this field False for Fresh Installation
+add_new_hosts=
+#Hosts in the given cluster are already added to DVS ? True if already part of DVS. False If you want to add.
+host_in_dvs=
+#If host_in_dvs=False then Except *OPTIONAL each and every other fields are mandatory.
+</codeph>
+</codeblock>
+
+<p>b. Add network port settings.</p>
+
+<codeblock>
+<codeph>[network]
+#Tenant network type(vlan/vxlan)
+tenant_network_type=
+#Do you want to use PCI Pass through.
+is_pci_passthrough=
+#If you want to use existing DVS and don't want to create DVS automatically then make it False
+auto_dvs=
+#Unused Physical NIC (same nic across all hosts) to be used for uplink DVS. Make sure no VSS or VDS is using this NIC(*Not required if auto_dvs=False).
+nic_name=
+#Trunk and Uplink DVS name. (*Not required if auto_dvs=False)
+trunk_dvs_name=vappTrunk
+#Not required if is_pci_passthrough=True
+uplink_dvs_name=vappUplink
+#Trunk Portgroup Name
+trunk_port_name=trunkPG
+#Data and Mgmt Portgroup Names (*Not required if is_pci_passthrough=True)
+data_port_name=dataPG
+mgmt_port_name=mgmtPG
+#VLAN ID for Management Port group(*OPTIONAL)
+mgmt_vlan=
+#VLAN Range for Data &amp; Trunk port group. Please provide the range separated by a hyphen(vlan-vlan). Multiple vlan or vlan ranges has to be a comma separated value(*OPTIONAL)
+vlan_range=
+#Start and End IP range for OVSvAPP
+start_ip_address=
+end_ip_address=
+#Netmask and gateway for OVSvAPP
+netmask=
+gateway_ip=
+</codeph>
+</codeblock>
+                    <note/>
+
+<p> The start IP address and the end IP address is the block of IPs that was reserved from the
+                        Management Network for OVSvApp deployment.</p>
+
+<ul>
+<li>The <codeph>trunk_port_name</codeph> must be the VLAN trunk portgroup, as described in the <xref type="section" href="#topic19352/prereqs">prerequisites</xref>. </li>
+<li>The <codeph>data_port_name</codeph> must be the second portgroup, as described in the <xref type="section" href="#topic19352/prereqs">prerequisites</xref>.</li>
+</ul>
+<p>c. Specify the name for cloning the OVSvApp.</p>
+
+<codeblock>
+<codeph>[template]
+#Provide the template/appliance name that will be used for cloning
+template_name=
+</codeph>
+</codeblock>
+
+<p>d. Specify a name, the number of CPUs, and the amount of RAM  for the deployed OVSvApp.</p>
+                    <note>During deployment, the <codeph>ovs_vm_name</codeph> setting is appended
+                        with each VM host name and IP address to appear as
+                            <codeph>&#60;ovs_vm_name&#62;_&#60;IP&#62;</codeph>.</note>
+
+<codeblock>
+<codeph>[vmconfig]
+#Number of CPUs for the OVSvAPP VM
+num_cpu=
+#Amount of RAM for the OVSvAPP VM(In MB)
+memory_mb=
+#SSH key file path for OVSvAPP password less login.
+ssh_key_path=
+</codeph>
+</codeblock>
+
+<p>e. Specify RabbitMQ settings. The <codeph>rabbitmq_host</codeph> should point to the overcloud controller's VIP</p>
+
+<codeblock>
+<codeph>[rabbitmq]
+#RabbitMQ host(Mulitple hosts can be given by comma separated value)
+rabbitmq_host=
+#RabbitMQ user
+rabbitmq_user=
+#RabbitMQ password
+rabbitmq_pass=
+</codeph>
+</codeblock>
+
+<p>f. Specify the IP address of your NTP server.</p>
+
+<codeblock>
+<codeph>[ntp]
+ntp_server=
+</codeph>
+</codeblock>
+
+<p>g. Specify disaster recovery information.</p>
+
+<codeblock>
+<codeph>[disaster-recovery]
+#If set to True(If you have a DRS enabled cluster), then on OVSvAPP crash/kernel panic the host will be put to maintenance mode.
+#Maintenance mode will trigger DRS to migrate the tenant VMS. If set to false, then esx host will be shut down along with all tenant VMs. (*OPTIONAL)
+esx_maintenance_mode=
+</codeph>
+</codeblock>
+                    <note>The agent monitoring module monitors the OVSvApp agent and takes the
+                        following action when OVSvApp VM's kernel panic occurs.</note>
+
+<ul>
+<li>If set to true, OVSvApp VM is powered off and the ESX host is put in Maintenance mode.</li>
+<li>If set to false, the ESX host will be shut down along with all tenant VMs.</li>
+</ul>
+<p>h. Specify update information.</p>
+
+<codeblock>
+<codeph>[update]
+#OVSvAPP update tar file location.
+update_file_path=
+#Do you want to enable backup ? If True then a backup will be taken. If false then nothing will be taken as backup.
+do_backup=
+#WARNING Keep blank if you have installed &#62;= v1.0.1 . Input only for v1.0 OVSvAPPs which are not distinguishable among other tenant VMs.(*OPTIONAL)
+ovsvapp_prefix=
+</codeph>
+</codeblock>
+
+<p>If you specify update_file_path, the script will update OVSvApp agent and configure SSL support for rabbitmq communication. If you do not enter the path, the script configures SSL support for rabbitmq communication, but will not update the agent.</p>
+
+<p>i. Specify the level for logging errors, and a log file location. Default file location is:<codeph>/var/log/ovsvapp_log</codeph>.</p>
+
+<codeblock>
+<codeph>[logger]
+#Kibana Rabbit host for Centralized Logging
+kibana_rabbit_host=
+#Username for Kibana rabbit host
+kibana_rabbit_user=
+#Password for Kibana rabbit host
+kibana_rabbit_pwd=
+#Log level. Such as DEBUG, INFO
+log_level=DEBUG
+</codeph>
+</codeblock>
+
+<p>j. For 1.1.1 installations, specify the IP address of the seed VM:</p>
+
+<codeblock>
+<codeph>[seed-ip]
+#Seed IP
+seed_ip=
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Invoke the installer using the following commands:</p>
+
+<codeblock>
+<codeph>sudo su
+cd tripleo/hp-ovsvapp/src/installer
+python invoke_vapp_installer.py
+</codeph>
+</codeblock>
+
+<p>The installation log file will be located at <codeph>tripleo/hp-ovsvapp/log/ovs_vapp.log</codeph>.</p>
+</li>
+</ol>
+</section>
+<section id="deploymentverification"> <title>Verify your deployment</title>
+<p>After the OVSvApp deployment script executes successfully, you can see the OVSvApp deployed on all the specified ESX hosts.</p>
+<ol>
+<li>
+<p>Login to the overcloud controller from the seed VM host:</p>
+
+<codeblock>
+<codeph>ssh heat-admin@&#60;ip overcloud controller&#62;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Switch to root.</p>
+</li>
+<li>
+<p>Enter the following command.</p>
+
+<codeblock>
+<codeph>source /root/stackrc
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Enter the following command.</p>
+
+<codeblock>
+<codeph>neutron agent-list 
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>For all the HPE VCN L2 agents check whether agent alive status is <b>:-)</b>. If  the status is <b>xxx</b> for an agent then login to that OVSvApp using SSH Key provided in ovs_vapp.ini file, restart the <codeph>hpvcn-neutron-agent</codeph> using the following command:</p>
+
+<codeblock>
+<codeph>sudo service hpvcn-neutron-agent restart 
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Re-verify the agent reporting in the overcloud controller by running the following command.</p>
+
+<codeblock>
+<codeph>neutron agent-list
+</codeph>
+</codeblock>
+
+<p>All agents should indicate alive status that is denoted by<b>:-)</b>.</p>
+</li>
+</ol>
+</section>
+<section id="managevcnnetworkservice"> <title>Manage HPE VCN networking</title>
+<p>Enter the following commands to stop and restart the HPE VCN networking service (<codeph>hpvcn-neutron-agent</codeph>):</p>
+<codeblock>
+  <codeph>sudo service hpvcn-neutron-agent stop
+sudo service hpvcn-neutron-agent start
+</codeph>
+</codeblock>
+</section>
+<section id="clean"> <title>Clean up or deleting the OVSvApp</title>
+<p>To clean up or delete the OVSvApp setup:</p>
+<ol>
+<li>
+<p>On the server where you extracted the <codeph>ee_installer.tgz</codeph> locate the <codeph>ovs_vapp.ini</codeph> under <codeph>tripleo/hp-ovsvapp/conf</codeph>.</p>
+</li>
+<li>
+<p>Modify the <codeph>ovs_vapp.ini</codeph> file by entering only the connection details in the [vmware] section.</p>
+                    <note>You do not need to specify the <codeph>Clusters on which OVSvApp will be
+                            hosted</codeph> value.</note>
+</li>
+<li>
+<p>Run the following commands and follow the instructions:</p>
+
+<codeblock>
+<codeph>cd tripleo/hp-ovsvapp/src/cleanup
+python cleanup.py
+</codeph>
+</codeblock>
+
+<p>The installer presents</p>
+</li>
+<li>
+<p>Select an option:</p>
+
+<codeblock>
+<codeph>1. Delete all OVSvApps from a Datacenter
+2. Delete all OVSvApps with Trunk and Uplink VDS from a Datacenter
+3. Delete all OVSvApps from given Clusters
+4. Delete a single or a comma separated list of OVSvApp
+</codeph>
+</codeblock>
+                    <note>For all the options, you have to fill the connection details which is the
+                        [vmware] section(Except clusters) of ovs_vapp.ini -For option 2, along with
+                        connection details you have to provide the uplink and trunk VDS/DVS name in
+                        [network] section of ovs_vapp.ini -For option 3 you have to fill the
+                        clusters field in the [vmware] section of ovs_vapp.ini -For option 4 you
+                        have to provide a single OVSvApp name or a comma separated list of
+                        names</note>
+</li>
+</ol>
+</section>
+<section id="update"> <title>Update OVSvApp</title>
+<p>Use the following steps from the seed cloud host to update the OVSvApp from version 1.1 to version 1.1.1.</p>
+<ol>
+<li>
+<p>Edit the <codeph>neutron.conf</codeph> file on all three overcloud controllers to disable Maintenance Mode for the OVSvApp by adding the following:</p>
+
+<codeblock>
+<codeph>enable_agent_monitor=False
+</codeph>
+</codeblock>
+
+<p>During the update, the OVSvApp might not be able to communicate with the controller. Setting this parameter to False will prevent the ESX host from being put into maintenance mode.</p>
+</li>
+<li>
+<p>Restart the Networking service (Neutron) server on all 3 overcloud controllers to take into effect:</p>
+
+<codeblock>
+<codeph>service neutron-server restart
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Install or update the Fabric python library (https://pypi.python.org/pypi/Fabric) using the following command:</p>
+
+<codeblock>
+<codeph>pip install --upgrade fabric 
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>From the seed cloud host, copy <codeph>/root/helion-update-1.1-to-&#60;version&#62;/tripleo/hp-ovsvapp/</codeph> folder from seed VM using the following command:</p>
+
+<codeblock>
+<codeph>scp -r root@&#60;seed-ip&#62;:/root/helion-update-1.1-to &#60;version&#62;/tripleo/hp-ovsvapp/ ./ 
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Edit the <codeph>ovs_vapp.ini</codeph> file in the downloaded <codeph>hp-ovsvapp</codeph> directory:</p>
+
+<p>a. Enter the following information in the [vmware] section:</p>
+
+<codeblock>
+<codeph>[vmware]
+#VCenter IP
+vcenter_ip=
+#Vcenter username
+vcenter_username=
+#Vcenter password
+vcenter_password=
+#Datacenter name
+datacenter=
+#Clusters on which OVSvAPP will be hosted
+clusters=
+</codeph>
+</codeblock>
+
+<p>b. Make sure the <codeph>update_file_path</codeph> value in the [update] section is blank.</p>
+
+<p>c. Make sure the <codeph>do_backup</codeph> value in the [update] section is blank.</p>
+
+<p>d. Make sure the <codeph>ovsvapp_prefix=</codeph> field is blank.</p>
+
+<p>e. Provide the Kibana Rabbit Host address and password in the [logger] section.</p>
+
+<p>f. Specify the IP address of the seed VM:</p>
+
+<codeblock>
+<codeph>[seed-ip]
+#Seed IP
+seed_ip=
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Execute the following commands:</p>
+
+<codeblock>
+<codeph>sudo su 
+cd /hp-ovsvapp/src/update #python updater.py
+</codeph>
+</codeblock>
+                    <note>If you see the following error while updating the OVSvApp, it means that
+                        the system from where update is launched does not have the passwordless
+                        authentication enabled for OVSvApp.</note>
+
+<codeblock>
+<codeph>Fatal error: Needed to prompt for a connection or sudo password (host: &#60;ovs-vapp-ip&#62;), but input would be ambiguous in parallel mode
+Aborting. 
+</codeph>
+</codeblock>
+
+<p>Re-run the update from the system where OVSvApp passwordless authentication is enabled.</p>
+</li>
+<li>
+<p>Enable agent monitoring, which is active by default, by setting the following varable in the <codeph>neutron.conf</codeph> file on all three overcloud controllers.</p>
+
+<codeblock>
+<codeph>enable_agent_monitor=True
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Restart the Networking service (Neutron) server on all 3 overcloud controllers to take into effect:</p>
+
+<codeblock>
+<codeph>service neutron-server restart
+</codeph>
+</codeblock>
+</li>
+</ol>
+<p>
+  <xref href="#topic19352"> Return to Top </xref>
+</p>
+<!-- Not needed?
+1. Make sure that DRS is enabled on the cluster on which 1.01 version of OVSvApp will be installed:
+
+    a. In the vSphere client, select the cluster in the vSphere Client inventory.
+
+    b. Right-click and select **Edit Settings**.
+
+    c. In the left panel, select General, and make sure **Turn On vSphere DRS** is selected.
+
+    d. Click **OK**.
+
+    **Note:** DRS safeguards tenant VM traffic from being black-holed.
+
+2. Disable vMotion from vSwitch properties. This will prevent DRS from bringing back VMs on the host when the host is brought back from maintenance mode as in Step 4. 
+
+    a. In the vSphere client, select the host in the vSphere Client inventory.
+
+    b. On the **Configuration** tab, select **Networking**.  
+
+    c. Click **Virtual Switch** to display the virtual switches for the host.
+    
+    d. Locate the virtual switch that has a VMkernel port group configured for vMotion, and click the **Properties** link.
+
+    e. On the **Ports** tab, select the port group that is configured for vMotion and click **Edit**.
+
+    f. On the **General** tab, clear the **Enabled** option for vMotion.
+
+    g. Click **OK** to close the port group **Properties** dialog, and click **Close** to close the vSwitch **Properties** dialog. 
+
+3. Place the ESX host on which the 1.01 version of OVSvApp will be installed into maintenance mode :
+
+    In the vSphere Client, right click on the ESX host and select **Enter Maintenance mode**.
+
+    All virtual machines on the host are migrated to different hosts when the host enters maintenance mode.
+
+4. Exit maintenance mode.
+
+    In the vSphere Client, right click on the ESX host and select **Exit Maintenance mode**.
+
+5. Delete the OVSvApp appliance:
+
+    a. Right-click the **OVSvApp VM**. 
+
+    b. Select **Delete**.
+
+6. On the controller, execute the following command to obtain the `ovsvapp_agent_id`.
+
+        neutron agent-list 
+
+    Note the ID.
+
+7. On the controller, execute the following command to remove the entry from `neutron agent-list`.
+
+        neutron agent-delete <ovsvapp_agent_id>
+
+    **Where:**
+
+    `<ovsvapp_agent_id>` is the OVSvApp ID obtained.
+
+9. Install 1.01 version of OVSvApp VM on that ESX host using the `add_new_hosts` variable under the `new-host-addition` section in `ovs_vapp.ini` file
+
+        add_new_hosts=True
+
+10. Invoke the installer using the following commands:
+
+        sudo su
+        cd /hp-ovsvapp/src/installer/
+        python invoke_vapp_installer.py
+
+    The installation log file will be located at `/hp-ovsvapp/log/ovs_vapp.log`.
+
+11. Re-enable vMotion on vSwitch properties of that ESX host.
+
+    a. In the vSphere Client, right click on the ESX host.
+
+    b. Click the **Configuration** tab.
+
+    c. In the **Hardware** section, click **Networking**. 
+
+    d. Click **Properties** for the virtual switch where a VMkernel port has been configured.
+
+    e. In the dialog box that opens, select `vmkernel` in the **Ports** tab and click **Edit**. 
+
+    f. Select **Enabled** next to vMotion.
+
+    g. Click **OK**.
+-->
+<!-- ===================== horizontal rule ===================== -->
+</section>
+</body>
+</topic>

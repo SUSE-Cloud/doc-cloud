@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic
+  PUBLIC "-//OASIS//DTD DITA Topic//EN" "http://docs.oasis-open.org/dita/v1.1/OS/dtd/topic.dtd" ><topic xml:lang="en-us" id="topic4147">
+<title>HPE Helion <tm tmtype="reg">OpenStack</tm> 1.0: Remove an existing Disk from Object Nodes</title>
+<prolog>
+<metadata>
+<othermeta name="layout" content="default"/>
+<othermeta name="product-version" content="HPE Helion Openstack"/>
+<othermeta name="product-version" content="HPE Helion Openstack 1.0"/>
+<othermeta name="product-version" content="HPE Helion Openstack 1.0.1"/>
+<othermeta name="product-version" content="HPE Helion Openstack 1.1"/>
+<othermeta name="role" content="Storage Administrator"/>
+<othermeta name="role" content="Storage Architect"/>
+<othermeta name="role" content="Keshava HPE Binamra S"/>
+<othermeta name="product-version1" content="HPE Helion Openstack"/>
+<othermeta name="product-version2" content="HPE Helion Openstack 1.0"/>
+<othermeta name="product-version3" content="HPE Helion Openstack 1.0.1"/>
+<othermeta name="product-version4" content="HPE Helion Openstack 1.1"/>
+</metadata>
+</prolog>
+<body>
+<p>
+<!--PUBLISHED-->
+ <!--./commercial/GA1/1.0commerical.services-swift-deployment-shrink-remove-exisitng-disk.md-->
+ <!--permalink: /helion/openstack/services/swift/deployment/remove-existing-disk/--></p>
+<p>
+
+</p>
+<p>Perform the following steps to remove a disk from object nodes.</p>
+<ol>
+<li>
+<xref type="section" href="#topic4147/prer">Prerequisite</xref>
+</li>
+<li>
+<xref type="section" href="#topic4147/remove-disk-from-ring">Removing disks from ring</xref>
+</li>
+</ol>
+<section id="prer"> <title>Prerequisite</title>
+<ul>
+<li>HPE Helion OpenStack cloud is successfully deployed.<p><i>(Starter Object Storage (Swift) nodes
+              are functional by default as they are part of cloud deployment)</i>
+          </p></li>
+<li>Scale-out object-ring:1 is deployed.</li>
+<li>All of the rings generated <b>must</b> be preserved, preferably at more than one location. Swift needs these rings to be consistent across all nodes.</li>
+<li>Take a backup of the rings before any operation.</li>
+</ul>
+</section>
+<section id="remove-disk-from-ring"> <title>Removing disks from ring</title>
+<p>Perform the following steps to remove disks from ring:</p>
+<ol>
+        <li>Log in to the undercloud from
+          seed.<codeblock><codeph># ssh heat-admin@&lt;undercloud IP address&gt; 
+# sudo -i</codeph></codeblock></li>
+        <li>Change the directory to ring
+          builder.<codeblock><codeph># cd /root/ring-building
+</codeph></codeblock></li>
+        <li>List the file in the directory.<codeblock><codeph># ls
+</codeph></codeblock><p>The file
+            with the name <codeph>object-1.builder</codeph> will be listed in the list.</p></li>
+        <li>List the disks in the current <codeph>object-1.builder</codeph>
+            file.<codeblock><codeph># ringos view-ring -f /root/ring-building/object-1.builder 
+</codeph></codeblock><p>The
+            following sample displays the output of the above
+          command:</p><codeblock><codeph>object-1.builder, build version 9
+1024 partitions, 3.000000 replicas, 1 regions, 3 zones, 9 devices, 100.00 balance
+The minimum number of hours before a partition can be reassigned is 1
+Devices:    id  region  zone      ip address  port  replication ip  replication port      name weight partitions balance meta
+             0       1     1      192.0.2.29  6000      192.0.2.29              6000 a1410063335 100.00          0 -100.00
+             1       1     1      192.0.2.29  6000      192.0.2.29              6000 b1410063336 100.00          0 -100.00
+             2       1     1      192.0.2.29  6000      192.0.2.29              6000 c1410063336 100.00          0 -100.00
+             3       1     2      192.0.2.30  6000      192.0.2.30              6000 a1410063357 100.00          0 -100.00
+             4       1     2      192.0.2.30  6000      192.0.2.30              6000 b1410063357 100.00          0 -100.00
+</codeph></codeblock></li>
+        <li>Identify the disk to be removed from the list.<p><b>Recommendation</b>:</p><ul
+            id="ul_t43_rsd_4s">
+            <li>Remove a drive gradually using a weighted approach to avoid degraded performance of
+              the Swift cluster. The weight will gradually decrease by 25% until it becomes 0. The
+              initial weight is 75.</li>
+          </ul></li>
+        <li> Set the weight of the disk.
+            <codeblock><codeph># ringos set-weight -f object-1.builder -s d&lt;device&gt; -w &lt;weight&gt;
+</codeph></codeblock><p>The
+            following sample displays the output of the above
+            command:<codeblock><codeph>    d7r1z3-192.0.2.31:6000R192.0.2.31:6000/b1410063386_"" weight set to 75.0
+</codeph></codeblock></p></li>
+        <li> Re-balance the ring.<codeblock><codeph># ringos rebalance-ring -f /root/ring-building/object-1.builder
+</codeph></codeblock><p>
+            <note>You must wait for <codeph>min_part_hours</codeph> before another re-balance
+              succeeds.</note>
+          </p></li>
+        <li>List all the Swift
+          nodes.<codeblock><codeph># ringos list-swift-nodes -t all
+</codeph></codeblock></li>
+        <li>Copy the <codeph>object-1.ring.gz</codeph> file to all
+          nodes.<codeblock><codeph># ringos copy-ring -s /root/ring-building/object-1.ring.gz -n &lt;Swift nodes IP address&gt;
+</codeph></codeblock></li>
+        <li> Repeat steps from <b>6 - 9</b> with the weights set to 50, 25, and 0 (w= 50, 25, 0).
+          These steps should be repeated until the weight becomes 0 for each disk.</li>
+        <li>11.Once the weight is set to 0, remove the disk from the
+            ring.<codeblock><codeph># ringos remove-disk-from-ring -f object-1.builder -s d&lt;disk&gt;
+</codeph></codeblock><p>The
+            following sample displays the output of the above
+            command:<codeblock><codeph>Removed disk(s) matching d7 from ring object-1.builder
+</codeph></codeblock></p></li>
+        <li>Re-balance the ring.<codeblock><codeph># ringos rebalance-ring -f /root/ring-building/object-1.builder
+</codeph></codeblock><p>
+            <note>You must wait for min_part_hours before another re-balance succeeds.</note>
+          </p></li>
+        <li>List all the Swift
+          nodes.<codeblock><codeph># ringos list-swift-nodes -t all
+</codeph></codeblock></li>
+        <li>Copy the <codeph>object-1.ring.gz</codeph> file to all
+          nodes.<codeblock><codeph># ringos copy-ring -s /root/ring-building/object-1.ring.gz -n &lt;Swift nodes IP address&gt;
+</codeph></codeblock></li>
+      </ol>
+<p>
+  <xref href="#topic4147"> Return to Top </xref>
+</p>
+<p>
+  <b>Related topics</b>
+</p>
+<ul>
+<li>
+<xref href="../../commercial/GA1/1.0commerical.services-swift-deployment-shrink-swift-cluster.dita" >Shrink Object Storage (Swift) Cluster</xref>
+</li>
+</ul>
+</section>
+</body>
+</topic>

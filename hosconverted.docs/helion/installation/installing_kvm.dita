@@ -1,0 +1,396 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="install_kvm">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Installing Mid-scale and Entry-scale KVM</title>
+  <body>
+    <!--not tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <section id="about">
+      <ul>
+        <li><xref href="installing_kvm.dita#install_kvm/setup_deployer">Set up the
+            Lifecycle-manager</xref></li>
+        <li><xref href="installing_kvm.dita#install_kvm/configuration">Configure Your
+            Environment</xref></li>
+        <li><xref href="installing_kvm.dita#install_kvm/provision">Provision Your Baremetal
+            Nodes</xref></li>
+        <li><xref href="installing_kvm.dita#install_kvm/config_processor">Run the Configuration
+            Processor</xref></li>
+        <li><xref href="installing_kvm.dita#install_kvm/security">Configure TLS</xref></li>
+        <li><xref href="installing_kvm.dita#install_kvm/deploy">Deploy the Cloud</xref></li>
+        <li><xref href="installing_kvm.dita#install_kvm/configure_backend">Configure a Block Storage
+            Backend (Optional)</xref></li>
+        <li><xref href="installing_kvm.dita#install_kvm/post_installation">Post-Installation
+            Verification and Administration</xref></li>
+      </ul></section>
+
+    <section id="important_notes"><title>Important Notes</title>
+      <ul>
+        <li id="notes-gui">If you are looking for information about when to use the GUI installer
+          and when to use the CLI, see the <xref href="installation_overview.dita#install_overview"
+            >Installation Overview</xref>.</li>
+        <li id="notes-hardware">Review the <xref
+            href="../planning/recommended_hardware_minimums.dita">recommended minimum hardware
+            requirements</xref> that we have listed.</li>
+        <li id="notes-release">Review the <xref href="../releasenotes50.dita">Release Notes</xref>
+          to make yourself aware of any known issues and limitations.</li>
+        <li id="notes-phases">The installation process can occur in different phases. For example,
+          you can install the control plane only and then add Compute nodes afterwards if you would
+          like.</li>
+        <!-- consider including steps to achieve this -->
+        <li id="notes-trouble">If you run into issues during installation, we have put together a
+          list of <xref href="installation_troubleshooting.dita">Installation Troubleshooting
+            Steps</xref> you can reference.</li>
+        <li id="notes-disks">Make sure all disks on the system(s) are wiped before you begin the
+          install. (For Swift, refer to <xref
+            href="../planning/objectstorage/swift_device_groups.dita">Swift Requirements for Device
+            Group Drives</xref>)</li>
+        <li id="notes-network">There is no requirement to have a dedicated network for OS-install
+          and system deployment, this can be shared with the management network. More information
+          can be found on the <xref keyref="example_configurations">Example Configuration</xref>
+          page.</li>
+        <li id="notes-deployer">You may see the terms deployer and lifecycle manager used
+          interchangeably. These are referring to the same nodes in your environment.</li>
+        <li id="notes-ansible">When running the Ansible playbook in this installation guide, if a
+          runbook fails you will see in the error response to use the <codeph>--limit</codeph>
+          switch when retrying a playbook. This should be avoided. You can simply re-run any
+          playbook without this switch.</li>
+        <li>DVR is not supported with ESX compute.</li>
+        <li>When you attach a Cinder volume to the VM running on the ESXi host, the volume will not
+          get detected automatically.
+          <!--Therefore you must login to the VM and run a SCSI bus rescan to detect the newly presented volumes or restart the VM to reflect the disks attached as volumes.-->
+          Make sure to set the image metadata <b>vmware_adaptertype=lsiLogicsas</b> for image before
+          launching the instance. This will help to discover the volume change appropriately. </li>
+      </ul>
+    </section>
+    <section id="prereqs">
+      <title>Before You Start</title>
+      <p>We have put together a <xref href="preinstall_checklist.dita">Pre-Installation
+          Checklist</xref> that should help with the recommended pre-installation tasks.</p>
+    </section>
+    <section id="setup_deployer">
+      <title>Set up the Lifecycle Manager</title>
+      <p><b>Installing the Lifecycle Manager</b></p>
+      <p>The lifecycle manager will contain the installation scripts and configuration files to
+        deploy your cloud. You can set up the lifecycle manager on a dedicated node or you do so on
+        your first controller node. The default choice is to use the first controller node as the
+        lifecycle manager.</p>
+      <ol>
+        <li>Sign in and download the product and signature files at the link below: <ol>
+            <li><xref href="http://www.hpe.com/software/entitlements" format="html" scope="external"
+                >Software Entitlement Portal</xref></li>
+          </ol></li>
+        <li>You can verify the download was complete via the signature verification process outlined
+            <xref
+            href="https://h20392.www2.hpe.com/portal/swdepot/displayProductInfo.do?productNumber=HPLinuxCodeSigning"
+            scope="external" format="html">here</xref>.</li>
+        <li>Boot your lifecycle manager from the ISO contained in the download.</li>
+        <li>Enter "install" to start installation. <note>"install" is all lower case</note></li>
+        <li>Select the language. Note that only the English language selection is currently
+          supported.</li>
+        <li>Select the location.</li>
+        <li>Select the keyboard layout.</li>
+        <li>Select the primary network interface, if prompted:<ol>
+            <li>Assign IP address, subnet mask, and default gateway</li>
+          </ol></li>
+        <li>Create new account:<ol>
+            <li>Enter a username.</li>
+            <li>Enter a password.</li>
+            <li>Enter time zone.</li>
+          </ol></li>
+      </ol>
+      <p>Once the initial installation is finished, complete the lifecycle manager setup with these
+        steps:</p>
+      <ol>
+        <li>Ensure your lifecycle manager has a valid DNS nameserver specified in
+            <codeph>/etc/resolv.conf</codeph>.</li>
+        <li>Set the environment variable LC_ALL: <codeblock>export LC_ALL=C</codeblock><note>This
+            can be added to <codeph>~stack/.bashrc</codeph> or
+            <codeph>/etc/bash.bashrc</codeph>.</note></li>
+      </ol>
+      <p>At the end of this section you should have a node set up with Linux for HPE Helion on
+        it.</p>
+      <p><b>Configure and Run the Lifecycle Manager</b></p>
+      <note type="important">It is critical that you don't run any of the commands below as the
+          <codeph>root</codeph> user or use <codeph>sudo</codeph>, unless it is stated explicitly in
+        the steps. Run then as the user you just created (or <codeph>stack</codeph> if you left the
+        default of "stack").</note>
+      <ol>
+        <li>Log into your lifecycle manager as the user you created and mount the install media at
+            <codeph>/media/cdrom</codeph>. It may be necessary to use <codeph>wget</codeph> or
+          another file transfer method to transfer the install media to the lifecycle manager before
+          completing this step. Here is the command to mount the media: <p>Example for <keyword
+              keyref="kw-hos-tm"/>
+            <keyword keyref="kw-hos-version"
+          /></p><codeblock>sudo mount HelionOpenStack-5.0.iso /media/cdrom</codeblock></li>
+
+
+        <li>Unpack the tarball that is in the <codeph>/media/cdrom/hos/</codeph> directory:
+            <p>Example for <keyword keyref="kw-hos-phrase"/>
+          </p><codeblock>tar xvf /media/cdrom/hos/hos-5.0.0-&lt;timestamp>.tar</codeblock></li>
+        <li>Run the hos-init.bash script which is included in the build: <p>Example for <keyword
+              keyref="kw-hos-tm"/>
+            <keyword keyref="kw-hos-version"
+            /></p><codeblock>~/hos-5.0.0/hos-init.bash</codeblock><p>You will be prompted to enter
+            an optional SSH passphrase when running <codeph>hos-init.bash</codeph>. This passphrase
+            is used to protect the key used by Ansible when connecting to its client nodes. If you
+            do not want to use a passphrase then just press return at the prompt.</p><p>For
+            automated installation (e.g. CI) it is possible to disable SSH passphrase prompting by
+            setting the <codeph>HOS_INIT_AUTO</codeph> environment variable before running
+              <codeph>hos-init.bash</codeph>, like
+          this:</p><codeblock>export HOS_INIT_AUTO=y</codeblock></li>
+      </ol>
+      <p>If you have protected the SSH key with a passphrase then execute the following commands to
+        avoid having to enter the passphrase on every attempt by Ansible to connect to its client
+        nodes:</p>
+      <codeblock>eval $(ssh-agent)
+ssh-add ~/.ssh/id_rsa</codeblock>
+      <p>At the end of this section you should have a local directory structure, as described
+        below:</p>
+      <codeblock>~/helion/                        Top level directory
+~/helion/examples/               Directory contains the config input files of the example clouds
+~/helion/my_cloud/definition/    Directory contains the config input files
+~/helion/my_cloud/config/        Directory contains .j2 files which are symlinks to the ~/helion/hos/ansible directory
+~/helion/hos/                    Directory contains files used by the installer</codeblock>
+      <note type="warning">It's important that you do not add any extra files in the
+          <codeph>~/helion</codeph> directory on your lifecycle manager. This includes temporary
+        save files. Doing so will cause errors during the installation.</note>
+      <note conkeyref="twosystems/symlinks"/>
+      <p>For any troubleshooting information regarding these steps, see <xref
+          href="installation_troubleshooting.dita#troubleshooting_installation/deployer_setup"
+          >Troubleshooting Your Installation</xref></p>
+    </section>
+
+
+    <section id="configuration">
+      <title>Configure Your Environment</title>
+      <p>During the configuration phase of the installation you will be making modifications to the
+        example configuration input files to match your cloud environment. You should use the <xref
+          keyref="example_configurations">Example Configurations</xref> documentation for detailed
+        information on how to do this. There is also a README.md file included in each of the
+        example directories on the lifecycle manager that has useful information about the
+        models.</p>
+      <p>In the steps below we show how to set up the directory structure with the example input
+        files as well as use the optional encryption methods for your sensitive data.</p>
+      <ol>
+        <li>Setup your configuration files, as follows: <ol>
+            <li>Copy the example configuration files into the required setup directory and edit them
+              to contain the details of your environment. <p>For example, if you want to use the
+                Helion Mid-scale KVM with VSA model, you can use this command to copy the files to
+                your cloud definition
+                directory:</p><codeblock>cp -r ~/helion/examples/mid-scale-kvm-vsa/* ~/helion/my_cloud/definition/</codeblock><p>If
+                you want to use the Helion Entry-scale KVM with VSA model, you can use this command
+                to copy the files to your cloud definition
+              directory:</p><codeblock>cp -r ~/helion/examples/entry-scale-kvm-vsa/* ~/helion/my_cloud/definition/</codeblock></li>
+            <li>Begin inputting your environment information into the configuration files in the
+                <codeph>~/helion/my_cloud/definition</codeph> directory. <p>If you are using the
+                Mid-scale or Entry-scale KVM with VSA model, see <xref
+                  keyref="modify_entryscale_kvm_vsa">Modifying the Entry-scale KVM with VSA model
+                  for your Environment</xref> for details.</p><p>If you are using the Entry-scale
+                KVM with Ceph model, see <xref href="ceph/ceph_overview.dita">Ceph Overview</xref>
+                for details.</p></li>
+          </ol></li>
+
+
+        <li id="hosencrypt">[OPTIONAL] - You can use the <codeph>hosencrypt.py</codeph> script to
+          encrypt your iLo passwords. This script uses OpenSSL. <ol>
+            <li>Change to the Ansible directory: <codeblock>cd ~/helion/hos/ansible</codeblock></li>
+            <li>Put the encryption key into the following environment variable:
+              <codeblock>export HOS_USER_PASSWORD_ENCRYPT_KEY=&#60;encryption key></codeblock></li>
+            <li>Run the python script below and follow the instructions. Enter a password that you
+              want to encrypt. <codeblock>./hosencrypt.py</codeblock></li>
+            <li>Take the string generated and place it in the <codeph>"ilo-password"</codeph> field
+              in your <codeph>~/helion/my_cloud/definition/data/servers.yml</codeph> file,
+              remembering to enclose it in quotes.</li>
+            <li>Repeat the above for each server. <note>Before you run any playbooks, remember that
+                you need to export the encryption key in the following environment variable:
+                  <codeph>export HOS_USER_PASSWORD_ENCRYPT_KEY=&#60;encryption
+              key></codeph></note></li>
+          </ol></li>
+
+        <li id="commit">Commit your configuration to the <xref href="using_git.dita">local git
+            repo</xref>, as follows:<codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -m "My config or other commit message"</codeblock><p>
+            <note type="important">This step needs to be repeated any time you make changes to your
+              configuration files before you move onto the following steps. See <xref
+                href="using_git.dita">Using Git for Configuration Management</xref> for more
+              information.</note>
+          </p></li>
+      </ol>
+    </section>
+
+
+    <section id="provision"><title>Provision Your Baremetal Nodes</title>
+      <p>To provision the baremetal nodes in your cloud deployment you can either use the automated
+        operating system installation process provided by <keyword keyref="kw-hos"/> or you can use
+        the 3rd party installation tooling of your choice. We will outline both methods below:</p>
+      <p id="thirdparty"><b>Using 3rd Party Baremetal Installers</b></p>
+      <p>If you do not wish to use the automated operating system installation tooling included with
+          <keyword keyref="kw-hos-version"/> then the requirements that have to be met using the
+        installation tooling of your choice are:</p>
+      <ul>
+        <li>The operating system must be installed via the HPE Linux for <keyword keyref="kw-hos"/>
+          ISO provided on the <xref href="http://www.hpe.com/software/entitlements" format="html"
+            scope="external">Software Entitlement Portal</xref>.</li>
+        <li>Each node must have SSH keys in place that allows the same user from the lifecycle
+          manager node who will be doing the deployment to SSH to each node without a password.</li>
+        <li>Passwordless sudo needs to be enabled for the user.</li>
+        <li>There should be a LVM logical volume as <codeph>/root</codeph> on each node.</li>
+        <li>If the LVM volume group name for the volume group holding the "root" LVM logical volume
+          is hlm-vg then it will align with the disk input models in the examples.</li>
+        <li><ph id="baremetal_prereqs">Ensure that <codeph>openssh-server</codeph>,
+              <codeph>python</codeph>, <codeph>python-apt</codeph>, and <codeph>rsync</codeph> are
+            installed.</ph></li>
+      </ul>
+      <p>If you chose this method for installing your baremetal hardware, skip forward to the <xref
+          href="installing_kvm.dita#install_kvm/config_processor">Run the Configuration
+          Processor</xref> step.</p>
+      <p>If you would like to use the automated operating system installation tools provided by
+          <keyword keyref="kw-hos-version"/> then complete all of the steps below.</p>
+      <p><b>Using the Automated Operating System Installation Provided by <keyword keyref="kw-hos"
+          /></b></p>
+      <p><b>Part One: Deploy Cobbler</b></p>
+      <p>This phase of the install process takes the baremetal information that was provided in
+          <codeph>servers.yml</codeph> and installs the Cobbler provisioning tool and loads this
+        information into Cobbler. This sets each node to <codeph>netboot-enabled: true</codeph> in
+        Cobbler. Each node will be automatically marked as <codeph>netboot-enabled: false</codeph>
+        when it completes its operating system install successfully. Even if the node tries to PXE
+        boot subsequently, Cobbler will not serve it. This is deliberate so that you can't reimage a
+        live node by accident.</p>
+      <p>The <codeph>cobbler-deploy.yml</codeph> playbook prompts for a password - this is the
+        password that will be encrypted and stored in Cobbler, which is associated with the user
+        running the command on the lifecycle manager, that you will use to log in to the nodes via
+        their consoles after install. The username is the same as the user set up in the initial
+        dialogue when installing the lifecycle manager from the iso, and is the same user that is
+        running the cobbler-deploy play.</p>
+      <ol>
+        <li>Run the following playbook which confirms that there is iLo connectivity for each of
+          your nodes so that they are accessible to be re-imaged in a later step:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost bm-power-status.yml</codeblock></li>
+        <li>Run the following playbook to deploy Cobbler:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost cobbler-deploy.yml</codeblock></li>
+      </ol>
+      <p><b>Part Two: Image the Nodes</b></p>
+      <p>This phase of the install process goes through a number of distinct steps: <ol>
+          <li>Powers down the nodes to be installed</li>
+          <li>Sets the nodes hardware boot order so that the first option is a network boot.</li>
+          <li>Powers on the nodes. (The nodes will then boot from the network and be installed using
+            infrastructure set up in the previous phase)</li>
+          <li>Waits for the nodes to power themselves down (this indicates a success install). This
+            can take some time.</li>
+          <li>Sets the boot order to hard disk and powers on the nodes.</li>
+          <li>Waits for the nodes to be ssh-able and verifies that they have the signature
+            expected.</li>
+        </ol></p>
+      <p>The reimage command is:</p>
+      <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost bm-reimage.yml [-e nodelist=node1,node2,node3]</codeblock>
+      <p>If a nodelist is not specified then the set of nodes in cobbler with
+          <codeph>netboot-enabled: True</codeph> is selected. The playbook pauses at the start to
+        give you a chance to review the set of nodes that it is targeting and to confirm that it's
+        correct.</p>
+      <p>You can use the command below which will list all of your nodes with the
+          <codeph>netboot-enabled: True</codeph> flag set:</p>
+      <codeblock>sudo cobbler system find --netboot-enabled=1</codeblock>
+      <p>For any troubleshooting information regarding these steps, see <xref
+          href="installation_troubleshooting.dita#troubleshooting_installation/deploy_cobbler"
+          >Troubleshooting Your Installation</xref></p>
+    </section>
+
+    <section id="config_processor"><title>Run the Configuration Processor</title>
+      <p>Once you have your configuration files setup you need to run the configuration processor to
+        complete your configuration.</p>
+      <p id="encrypt">When you run the configuration processor you will be prompted for two
+        passwords. Enter the first password to make the configuration processor encrypt its
+        sensitive data, which is comprised of the random inter-service passwords that it generates
+        and the ansible <codeph>group_vars</codeph> and <codeph>host_vars</codeph> that it produces
+        for subsequent deploy runs. You will need this password for subsequent ansible deploy and
+        configuration processor runs. If you wish to change an encryption password that you have
+        already used when running the configuration processor then enter the new password at the
+        second prompt, otherwise just press carriage return to bypass this.</p>
+      <p>Run the configuration processor with this command:</p>
+      <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock>
+      <p>For automated installation (e.g. CI) you can specify the required passwords on the ansible
+        command line. For example, the command below will disable encryption by the configuration
+        processor
+        <codeblock>ansible-playbook -i hosts/localhost config-processor-run.yml -e encrypt="" -e rekey=""</codeblock></p>
+      <p>If you receive an error during this step then there is probably an issue with one or more
+        of your configuration files. We recommend that you verify that all of the information in
+        each of your configuration files is correct for your environment and then commit those
+        changes to git using the instructions in the previous section before re-running the
+        configuration processor again.</p>
+      <p>For any troubleshooting information regarding these steps, see <xref
+          href="installation_troubleshooting.dita#troubleshooting_installation/config_processor"
+          >Troubleshooting Your Installation</xref></p>
+    </section>
+
+    <section id="security"><title>Configuring TLS</title>
+      <note type="important">This section is optional, but recommended, for a <keyword
+          keyref="kw-hos"/> installation.</note>
+      <p>After you run the configuration processor the first time, the IP addresses for your
+        environment will be generated and populated in the
+          <codeph>~/helion/my_cloud/info/address_info.yml</codeph> file. It's at this point that you
+        will want to take into consideration whether or not you want to configure TLS and setup a
+        SSL certificate for your environment. Please read <xref
+          href="../operations/configuring_tls.dita">Enabling TLS</xref> before proceeding for how to
+        achieve this.</p>
+    </section>
+
+    <section id="deploy"><title>Deploy the Cloud</title>
+      <ol>
+        <li>Use the playbook below to create a deployment directory:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+        <li>[OPTIONAL] - Run the <codeph>wipe_disks.yml</codeph> playbook to ensure all of your
+          partitions on your nodes are completely wiped before continuing with the installation. If
+          you are using fresh machines this step may not be necessary.
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts wipe_disks.yml</codeblock><p>If
+            you have used an encryption password when running the configuration processor use the
+            command below and enter the encryption password when prompted:
+            <codeblock>ansible-playbook -i hosts/verb_hosts wipe_disks.yml --ask-vault-pass</codeblock></p></li>
+        <li>Run the <codeph>site.yml</codeph> playbook below:
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts site.yml</codeblock><p>If
+            you have used an encryption password when running the configuration processor use the
+            command below and enter the encryption password when prompted:
+            <codeblock>ansible-playbook -i hosts/verb_hosts site.yml --ask-vault-pass </codeblock></p><note>The
+            step above runs <codeph>osconfig</codeph> to configure the cloud and
+              <codeph>hlm-deploy</codeph> to deploy the cloud. Therefore, this step may run for a
+            while, perhaps 45 minutes or more, depending on the number of nodes in your
+            environment.</note></li>
+        <li>Verify that the network is working correctly. Ping each IP in the
+            <codeph>/etc/hosts</codeph> file from one of the controller nodes.</li>
+      </ol>
+      <p>For any troubleshooting information regarding these steps, see <xref
+          href="installation_troubleshooting.dita#troubleshooting_installation/deploy_cloud"
+          >Troubleshooting Your Installation</xref></p>
+    </section>
+
+    <section id="configure_backend"><title>Configure a Block Storage Backend (Optional)</title>
+      <p><keyword keyref="kw-hos"/> supports VSA, 3PAR, and Ceph as block storage backend options.
+        You can utilize one or more of these as setting up multiple block storage backends and
+        multiple volume types is supported.</p>
+      <p>Regardless of whether you have a single or multiple block storage backends defined in your
+          <codeph>cinder.conf.j2</codeph> file then you can create one or more volume types using
+        the specific attributes associated with the backend. You can find details on how to do that
+        for each of the supported backend types here:</p>
+      <ul>
+        <li><xref href="configure_vsa.dita">VSA Configuration</xref></li>
+        <li><xref href="ceph/ceph_overview.dita">Ceph Configuration</xref></li>
+        <li><xref href="configure_3par.dita">3PAR Configuration</xref></li>
+      </ul>
+    </section>
+
+    <section id="post_installation"><title>Post-Installation Verification and Administration</title>
+      <p>We recommend verifying the installation using the <xref href="cloud_verification.dita"
+          >Cloud Verification</xref> page.</p>
+      <p>There are also a list of other common post-installation administrative tasks listed in the
+          <xref href="postinstall_tasks.dita">Common Post-Installation Tasks</xref> list.</p>
+    </section>
+  </body>
+</topic>

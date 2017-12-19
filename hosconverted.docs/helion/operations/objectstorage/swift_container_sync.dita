@@ -1,0 +1,280 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="topic_el2_cqv_mv">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Configuring your Swift System to Allow Container
+    Sync</title>
+  <body>
+    <!--not tested-->
+    <section id="about">
+      <p>Swift has a feature where all the contents of a container can be mirrored to another
+        container through background synchronization. Swift operators configure their system to
+        allow/accept sync requests to/from other systems, and the user specifies where to sync their
+        container to along with a secret synchronization key. For an overview of this feature, refer
+        to <xref href="http://docs.openstack.org/developer/swift/overview_container_sync.html"
+          scope="external" format="html">OpenStack Swift - Container to Container
+          Synchronization</xref>.</p>
+    </section>
+    <section id="notes"><title>Notes and limitations</title>
+      <p>The container synchronization is done as a background action. When you put an object into
+        the source container, it will take some time before it becomes visible in the destination
+        container. Storage services will not necessarily copy objects in any particular order,
+        meaning they may be transferred in a different order to which they were created.</p>
+      <p>Container sync may not be able to keep up with a moderate upload rate to a container. For
+        example, if the average object upload rate to a container is greater than one object per
+        second, then container sync may not be able to keep the objects synced.</p>
+      <p>If container sync is enabled on a container that already has a large number of objects then
+        container sync may take a long time to sync the data. For example, a container with one
+        million 1KB objects could take more than 11 days to complete a sync.</p>
+      <p>You may operate on the destination container just like any other container -- adding or
+        deleting objects -- including the objects that are in the destination container because they
+        were copied from the source container. To decide how to handle object creation, replacement
+        or deletion, the system uses timestamps to determine what to do. In general, the latest
+        timestamp "wins" i.e., if you create an object, replace it, delete it and the re-create it,
+        the destination container will eventually contain the most recently created object. However,
+        if you also create and delete objects in the destination container, you get some subtle
+        behaviours as follows:</p>
+      <ul>
+        <li>If an object is copied to the destination container and then deleted, it remains deleted
+          in the destination even though there is still a copy in the source container. If you
+          modify the object (replace or change its metadata) in the source container, it will
+          reappear in the destination again.</li>
+        <li>The same applies to a replacement or metadata modification of an object in the
+          destination container -- the object will remain as-is unless there is a replacement or
+          modification in the source container.</li>
+        <li>If you replace or modify metadata of an object in the destination container and then
+          delete it in the source container, it is <b>not</b> deleted from the destination. This is
+          because your modified object has a later timestamp than the object you deleted in the
+          source.</li>
+        <li>If you create an object in the source container and before the system has a chance to
+          copy it to the destination, you also create an object of the same name in the destination,
+          then the object in the destination is <b>not</b> overwritten by the source container's
+          object.</li>
+      </ul>
+      <sectiondiv><p><b>Segmented objects</b></p>
+        <p>Segmented objects (objects larger than 5GB) will not work seamlessly with container
+          synchronization. If the manifest object is copied to the destination container before the
+          object segments, when you perform a GET operation on the manifest object, the system may
+          fail to find some or all of the object segments. If your manifest and object segments are
+          in different containers, don't forget that both containers must be synchonized and that
+          the container name of the object segments must be the same on both source and
+          destination.</p>
+      </sectiondiv>
+    </section>
+    <section id="prereqs"><title>Prerequisites</title>
+      <p>Container to container synchronization requires that SSL certificates are configured on
+        both the source and destination systems. For more information on how to implement SSL, see
+          <xref href="../configuring_tls.dita"/></p>
+    </section>
+    <section id="configure"><title>Configuring container sync</title>
+      <p>Container to container synchronization requires that both the source and destination Swift
+        systems involved be configured to allow/accept this. These instructions are for a <keyword
+          keyref="kw-hos-version-30"/> system. If you are synchronizing with another Swift system
+        that uses a different deployment system, you may have to adapt the instructions provided
+        here for that system.</p>
+      <p>In the context of container to container synchronization, Swift uses the term
+          <i>cluster</i> to denote a Swift system. This corresponds to a <i>Control Plane</i> in the
+          <keyword keyref="kw-hos-version-30"/> terminology.</p>
+      <sectiondiv><p><b>Gather the public API endpoints for both Swift systems</b></p>
+        <p>Gather information about the external/public URL used by each system, as follows:</p>
+        <ol>
+          <li>On the lifecycle manager of one system, get the public API endpoint of the system by
+            running the following commands:
+              <codeblock>source ~/service.osrc
+openstack endpoint list | grep swift</codeblock><p>The
+              output of the command will look similar to
+              this:</p><codeblock>$ openstack endpoint list | grep swift
+| 063a84b205c44887bc606c3ba84fa608 | region1 | swift           | object-store    | True    | admin     | https://10.13.111.176:8080/v1/AUTH_%(tenant_id)s |
+| 3c46a9b2a5f94163bb5703a1a0d4d37b | region1 | swift           | object-store    | True    | public    | <b>https://10.13.120.105:8080/v1</b>/AUTH_%(tenant_id)s |
+| a7b2f4ab5ad14330a7748c950962b188 | region1 | swift           | object-store    | True    | internal  | https://10.13.111.176:8080/v1/AUTH_%(tenant_id)s |</codeblock><p>The
+              portion that you want is the endpoint up to, but not including, the
+                <codeph>AUTH</codeph> part. It is bolded in the above example,
+                <codeph>https://10.13.120.105:8080/v1</codeph>.</p></li>
+          <li>Repeat these steps on the other Swift system so you have both of the public API
+            endpoints for them.</li>
+        </ol>
+      </sectiondiv>
+      <sectiondiv><p><b>Validate connectivity between both systems</b></p>
+        <p>The Swift nodes running the <codeph>swift-container</codeph> service must be able to
+          connect to the public API endpoints of each other for the container sync to work. You can
+          validate connectivity on each system using these steps.</p>
+        <p>For the sake of the examples, we will use the terms <i>source</i> and <i>destination</i>
+          to notate the nodes doing the synchronization.</p>
+        <ol>
+          <li>Log in to a Swift node running the <codeph>swift-container</codeph> service on the
+            source system. You can determine this by looking at the service list in your
+              <codeph>~/helion/my_cloud/info/service_info.yml</codeph> file for a list of the
+            servers containing this service.</li>
+          <li>Verify the SSL certificates by running this command against the destination Swift
+            server:
+              <codeblock>echo | openssl s_client -connect &lt;public API endpoint>:8080 -CAfile /etc/ssl/certs/ca-certificates.crt</codeblock><p>If
+              the connection was successful you should see a return code of <codeph>0 (ok)</codeph>
+              similar to
+            this:</p><codeblock>...
+Timeout   : 300 (sec)
+Verify return code: 0 (ok)</codeblock></li>
+          <li>Also verify that the source node can connect to the destination Swift system using
+            this command:
+              <codeblock>curl -k &lt;destination IP or hostname>:8080/healthcheck</codeblock><p>If
+              the connection was successful, you should see a response of
+            <codeph>OK</codeph>.</p></li>
+          <li>Repeat these verification steps on any system involved in your container
+            synchronization setup.</li>
+        </ol>
+      </sectiondiv>
+      <sectiondiv>
+        <p><b>Configure container to container synchronization</b></p>
+        <p>Both the source and destination Swift systems must be configured the same way, using sync
+          realms. For more details on how sync realms work, see <xref
+            href="http://docs.openstack.org/developer/swift/overview_container_sync.html#configuring-container-sync"
+            format="html" scope="external">OpenStack Swift - Configuring Container Sync</xref>.</p>
+        <p>To configure one of the systems, follow these steps:</p>
+        <ol>
+          <li>Log in to the lifecycle manager.</li>
+          <li>Edit the <codeph>~/helion/my_cloud/config/swift/container-sync-realms.conf.j2</codeph>
+            file and uncomment the sync realm section. <p>Here is a sample showing this section in
+              the
+            file:</p><codeblock>#Add sync realms here, for example:
+# [realm1]
+# key = realm1key
+# key2 = realm1key2
+# cluster_name1 = https://host1/v1/
+# cluster_name2 = https://host2/v1/</codeblock></li>
+          <li>Add in the details for your source and destination systems. Each realm you define is a
+            set of clusters that have agreed to allow container syncing between them. These values
+            are case sensitive. <p>Only one <codeph>key</codeph> is required. The second key is
+              optional and can be provided to allow an operator to rotate keys if desired. The
+              values for the clusters must contain the prefix <codeph>cluster_</codeph> and will be
+              populated with the public API endpoints for the systems.</p></li>
+          <li>Commit the changes to git:
+            <codeblock>git add -A
+git commit -a -m "Add node &lt;name>"</codeblock></li>
+          <li>Run the configuration processor:
+            <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+          <li>Update the deployment directory:
+            <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+          <li>Run the Swift reconfigure playbook:
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible/
+ansible-playbook -i hosts/verb_hosts swift-reconfigure.yml</codeblock></li>
+          <li>Run this command to validate that your container synchronization is configured:
+              <codeblock>source ~/service.osrc
+swift capabilities</codeblock><p>Here is a snippet of
+              the output showing the container sync information. This should be populated with your
+              cluster
+            names:</p><codeblock>...
+Additional middleware: container_sync
+ Options:
+  realms: {u'INTRACLUSTER': {u'clusters': {u'THISCLUSTER': {}}}}</codeblock></li>
+          <li>Repeat these steps on any other Swift systems that will be involved in your sync
+            realms.</li>
+        </ol>
+      </sectiondiv>
+    </section>
+    
+    <section id="intra_cluster_sync">
+      <title>Configuring Intra Cluster Container Sync</title>
+      <p>It is possible to use the swift container sync functionality to sync objects 
+        between containers within the same swift system. Swift is automatically 
+        configured to allow intra cluster container sync. Each swift PAC server 
+        will have an intracluster container sync realm defined in 
+        <codeph>/etc/swift/container-sync-realms.conf</codeph>.
+      </p>
+      <p>For example:
+        <codeblock># The intracluster realm facilitates syncing containers on this system
+[intracluster]
+key = lQ8JjuZfO
+# key2 = 
+cluster_thiscluster = http://&lt;Swift-Proxy-Vip&gt;:8080/v1/</codeblock>
+        <note>The key is automatically generated during system configuration.</note>
+      </p>
+      <p>
+        <ol>
+          <li>Create two containers, for example container-src and container-dst. In this example we
+            will sync one way from container-src to
+            container-dst.<codeblock>swift post container-src
+swift post container-dst</codeblock>
+          </li>
+          <li>Determine your swift account. In the following example it is
+            AUTH_1234<codeblock>swift stat
+                                 Account: AUTH_1234
+                              Containers: 3
+                                 Objects: 42
+                                   Bytes: 21692421
+Containers in policy "erasure-code-ring": 3
+   Objects in policy "erasure-code-ring": 42
+     Bytes in policy "erasure-code-ring": 21692421
+                            Content-Type: text/plain; charset=utf-8
+             X-Account-Project-Domain-Id: default
+                             X-Timestamp: 1472651418.17025
+                              X-Trans-Id: tx81122c56032548aeae8cd-0057cee40c
+                           Accept-Ranges: bytes</codeblock>
+          </li>
+          <li>Configure container-src to sync to container-dst using the key 
+            specified in the intracluster realm in 
+            <codeph>/etc/swift/container-sync-realms.conf</codeph>
+            <codeblock>swift post -t '//intracluster/thiscluster/AUTH_1234/container-dst' -k 'lQ8JjuZfO' container-src</codeblock>
+          </li>
+          <li>Configure container-dst to accept synced objects with this key
+            <codeblock>swift post -k 'lQ8JjuZfO' container-dst</codeblock>
+          </li>          
+          <li>Upload objects to container-src. Within a number of minutes the objects 
+            should be automatically synced to container-dst.</li>
+        </ol>
+      </p>
+      <p><b>Changing the intracluster realm key</b></p>
+      <p>The intracluster realm key used by container sync to sync objects between containers in the
+        same swift system is automatically generated. The process for changing passwords is
+        described in <xref href="../change_service_passwords.dita#servicePasswords"/>.
+      </p>
+      <p>The steps to change the intracluster realm key are as follows.
+        <ol>
+          <li>On the lifecycle manager create a file called
+              <codeph>~/helion/change_credentials/swift_data_metadata.yml</codeph> with the contents
+            included below.  The <codeph>consuming-cp</codeph> and <codeph>cp</codeph> are the 
+            control plane name specified in
+            <codeph>~/helion/my_cloud/definition/data/control_plane.yml</codeph> where the
+            swift-container service is running.
+            <codeblock>swift_intracluster_sync_key:
+ metadata:
+ - clusters:
+   - swpac
+   component: swift-container
+   consuming-cp: control-plane-1
+   cp: control-plane-1
+ version: '2.0'</codeblock>
+          </li>
+          <li>Run the following commands
+            <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock>
+          </li>
+          <li> Reconfigure the swift credentials
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible/
+ansible-playbook -i hosts/verb_hosts swift-reconfigure-credentials-change.yml</codeblock>
+          </li>
+          <li>Delete <codeph>~/helion/change_credentials/swift_data_metadata.yml</codeph>
+            <codeblock>rm ~/helion/change_credentials/swift_data_metadata.yml</codeblock>
+          </li>
+          <li>On a swift PAC server check that the intracluster realm key has been 
+            updated in <codeph>/etc/swift/container-sync-realms.conf</codeph>
+            <codeblock># The intracluster realm facilitates syncing containers on this system
+[intracluster]
+key = aNlDn3kWK</codeblock>
+          </li>
+          <li>Update any containers using the intracluster container sync to use the 
+            new intracluster realm key
+            <codeblock>swift post -k 'aNlDn3kWK' container-src
+swift post -k 'aNlDn3kWK' container-dst</codeblock>
+          </li>
+        </ol>
+      </p>
+      
+      
+      
+      
+      
+    </section>
+  </body>
+</topic>

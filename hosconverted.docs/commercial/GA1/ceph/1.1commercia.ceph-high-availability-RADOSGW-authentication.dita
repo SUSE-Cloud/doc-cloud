@@ -1,0 +1,266 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic
+  PUBLIC "-//OASIS//DTD DITA Topic//EN" "http://docs.oasis-open.org/dita/v1.1/OS/dtd/topic.dtd" ><topic xml:lang="en-us" id="topic8041">
+<title>HPE Helion <tm tmtype="reg">OpenStack</tm> 1.1 and 1.1.1: Ceph RADOS Gateway- Keystone Authentication</title>
+<titlealts>
+<searchtitle>HPE Helion Openstack 1.1: Ceph RADOS Gateway- Keystone Authentication</searchtitle>
+</titlealts>
+<prolog>
+<metadata>
+<othermeta name="layout" content="default"/>
+<othermeta name="product-version" content="HPE Helion Openstack"/>
+<othermeta name="product-version" content="HPE Helion Openstack 1.1"/>
+<othermeta name="role" content="Storage Engineer"/>
+<othermeta name="role" content="Storage Architect"/>
+<othermeta name="role" content="Storage Administrator"/>
+<othermeta name="role" content="Storage Engineer"/>
+<othermeta name="role" content="Service Developer"/>
+<othermeta name="role" content="Cloud Administrator"/>
+<othermeta name="role" content="Application Developer"/>
+<othermeta name="role" content="Paul F, Binamra S"/>
+<othermeta name="product-version1" content="HPE Helion Openstack"/>
+<othermeta name="product-version2" content="HPE Helion Openstack 1.1"/>
+</metadata>
+</prolog>
+<body>
+<p>
+<!--PUBLISHED-->
+ <!--./commercial/GA1/ceph/1.1commercia.ceph-high-availability-RADOSGW-authentication.md-->
+ <!--permalink: /helion/openstack/1.1/ceph-rados-gateway-keystone-authentication/--></p>
+<p>Integrating the RADOS Gateway with the HPE Helion OpenStack identity service (Keystone) sets up the Gateway to authorize and accept Keystone users automatically. Users are created in RADOS pools provided they have valid Keystone token. For more details see, <xref href="http://ceph.com/docs/master/radosgw/keystone/" scope="external" format="html" >Ceph OpenStack documentation</xref>
+</p>
+<p>Helion OpenStack 1.1 and 1.1.1 HAProxy can be used to enable high availability and load balancing for RADOS Gateway nodes. With HAProxy, Swift requests are load balanced between two gateway nodes. If one of them goes down, then all requests are processed by the remaining live node. Once the failed node recovers, load balancing is re-enabled. Load balancing is done using the round robin algorithm so that each node is used in turn, and load balancing is fair.</p>
+<section id="assumptions"> <title>Assumptions</title>
+<p>The following assumptions apply to this configuration:</p>
+<ul>
+<li>
+<p>Apache2/FastCGI without <codeph>100 continue support</codeph>
+</p>
+</li>
+<li>
+<p>Two RADOS gateway nodes with two distinct users sharing same RADOSGW keyring</p>
+</li>
+</ul>
+</section>
+<section id="steps"> <title>Steps</title>
+<p>The steps to achieve integration of HPE Helion OpenStack HAProxy, Keystone, and RADOSGW are:</p>
+</section>
+<section id="ceph-admin-node"> <title>Ceph Admin Node</title>
+<ul>
+<li>
+<p>On the Ceph admin node, edit the <codeph>ceph.conf</codeph> file to include the following (the Keystone URL is Helion VIP and the Keystone admin token is taken from <codeph>/etc/keystone/keystone.conf</codeph> on the controller node):</p>
+
+<codeblock><codeph>[global]
+rgw keystone url = https://192.0.2.21:5000 
+rgw keystone admin token = 337b8816f019a04396a2e00e65e6c30ea96ba59b
+rgw keystone accepted roles = Member, admin, swiftoperator
+rgw keystone token cache size = 500
+rgw keystone revocation interval = 500
+rgw s3 auth use keystone = true
+rgw nss db path = /var/ceph/nss
+</codeph></codeblock>
+</li>
+<li>
+<p>Re-deploy the <codeph>ceph.conf</codeph> file on all nodes in the Ceph cluster and on the Helion Controller nodes.</p>
+</li>
+</ul>
+</section>
+<section id="helion-controller-nodes"> <title>Helion Controller Nodes</title>
+<ul>
+<li>
+<p>On any controller node, register the RADOS gateway endpoint with Keystone. The IP address used is the Helion VIP address and port 10080 is the RADOSGW port:</p>
+
+<codeblock><codeph>keystone service-create --name swift --type object-store [Note down service ID]
+
+keystone endpoint-create --service-id e001b96dc4b54a6c9f672418c21eb132 --publicurl https://192.0.2.x:10080/swift/v1 --internalurl https://192.0.2.x:10080/swift/v1 --adminurl https://192.0.2.x:10080/swift/v1
+</codeph></codeblock>
+</li>
+<li>
+<p>Execute <codeph>keystone endpoint-get --service object-store</codeph>. This should return a pointer to the Ceph store and not default to the Swift store. Before proceeding:</p>
+
+<ul>
+<li>Download and backup any images from Glance.</li>
+<li>Delete existing Swift endpoints if the above command returns a Swift store.</li>
+<li>Configure the Ceph store as explained in this section.</li>
+<li>Re-upload Glance images and use the Ceph store for Glance images going forward</li>
+</ul>
+</li>
+<li>
+<p>On all controller nodes, edit the <codeph>haproxy.cfg</codeph> file at <codeph>/etc/haproxy/haproxy.cfg</codeph>as shown below (IP address used is Helion VIP):</p>
+
+<codeblock><codeph>listen radosgw
+bind 192.0.2.x:10080
+balance roundrobin
+server gateway 192.x.x.x:443 check inter 2000 rise 2 fall 5 maxconn 1500
+server gateway1 192.x.x.x:443 check inter 2000 rise 2 fall 5 maxconn 1500
+</codeph></codeblock>
+</li>
+<li>
+<p>Restart the HAProxy service on all controller nodes by entering:</p>
+
+<codeblock><codeph>service haproxy restart
+</codeph></codeblock>
+</li>
+<li>
+<p>On all controller nodes, <codeph>edit /etc/stunnel4/from-heat.conf</codeph> where the IP address used is the physical IP address of the respective controller node. For example:</p>
+
+<codeblock><codeph>[radosgw]
+accept = 192.0.2.x:10080
+connect = 127.0.0.1:10080
+ciphers=ECDH+AESGCM:DH+AESGCM:ECDH+AES256:DH+AES256:ECDH+AES128:DH+AES:ECDH+3DES:DH+3DES:RSA+AESGCM:RSA+AES:RSA+3DES:!aNULL:!MD5:!DSS
+</codeph></codeblock>
+</li>
+<li>
+<p>Restart the <codeph>stunnel4service</codeph> on all controller nodes as shown below:</p>
+
+<codeblock><codeph>/etc/init.d/stunnel4 restart
+</codeph></codeblock>
+</li>
+<li>
+<p>Open port 10080 on all controller nodes as shown below:</p>
+
+<codeblock><codeph>add-rule INPUT -p tcp --dport 10080 -j ACCEPT
+iptables-save|grep 10080
+</codeph></codeblock>
+</li>
+<li>
+<p>On all controller nodes, edit the  <codeph>/etc/apache2/sites-enabled/keystone_modwsgi.conf</codeph> to include <codeph>WSGIChunkedRequest</codeph> as shown below (for more details, see <xref href="http://tracker.ceph.com/issues/7796" scope="external" format="html" >http://tracker.ceph.com/issues/7796</xref>):</p>
+
+<codeblock><codeph>&lt;VirtualHost *:35357&gt;
+......
+
+&lt;Directory /etc/keystone&gt;
+......
+WSGIChunkedRequest On
+......
+&lt;/Directory&gt;
+......
+&lt;/VirtualHost&gt;
+
+&lt;VirtualHost *:5000&gt;
+......
+&lt;Directory /etc/keystone&gt;
+......
+WSGIChunkedRequest On
+......
+&lt;/Directory&gt;
+......
+&lt;/VirtualHost&gt;
+</codeph></codeblock>
+</li>
+<li>
+<p>Restart the Apache2 service on all controller nodes by entering:</p>
+
+<codeblock><codeph>service apache2 restart
+</codeph></codeblock>
+</li>
+</ul>
+<!--
+*  On any controller node, convert OpenSSL certificates that Keystone uses to the NSS database format. To perform this, make sure the `certutil` package is available on controller or gateway nodes.
+
+    * `apt-get install libnss3-tools`
+    * `mkdir /var/ceph/nss`
+    * `openssl x509 -in /mnt/state/etc/keystone/ssl/certs/ca.pem -pubkey | certutil -d /var/ceph/nss -A -n ca -t "TCu,Cu,Tuw"`
+    * `openssl x509 -in /mnt/state/etc/keystone/ssl/certs/signing_cert.pem -pubkey | certutil -A -d /var/ceph/nss -n signing_cert -t "P,P,P"`
+-->
+</section>
+<section id="ceph-rados-gateway-nodes"> <title>Ceph RADOS Gateway Nodes</title>
+<ol>
+<li>Create the following directory on gateway node(s) by
+          entering:<codeblock><codeph>mkdir /var/ceph/nss
+</codeph></codeblock></li>
+<li>As root, convert OpenSSL certificates that Keystone uses to the NSS DB format. To do this, make
+          sure that the <codeph>certutil</codeph> package is available on the gateway nodes.<ul>
+            <li>
+              <p>Copy <codeph>ca.pem</codeph> and <codeph>signing_cert.pem</codeph> in
+                  <codeph>/mnt/state/etc/keystone/ssl/certs/</codeph> on any controller node to the
+                  <codeph>/tmp</codeph> directory on the gateway node.</p>
+              <codeblock><codeph>openssl x509 -in /tmp/ca.pem -pubkey | certutil -d /var/ceph/nss -A -n ca -t "TCu,Cu,Tuw"
+
+openssl x509 -in /tmp/signing_cert.pem -pubkey | certutil -A -d /var/ceph/nss -n signing_cert -t "P,P,P"
+</codeph></codeblock>
+            </li>
+          </ul></li>
+<li>Copy following certificates from Helion setup to <codeph>/etc/ssl/certs</codeph>:<ul>
+            <li>
+              <codeph>eca</codeph> keys from the seed node</li>
+            <li>
+              <codeph>ca-certificates.crt</codeph> from controller node </li>
+            <li>
+              <codeph>from-heat.cr</codeph>t and <codeph>from-heat.key</codeph> from the Swift or
+              controller nodes </li>
+          </ul></li>
+<li>On the RADOS gateway node(s), edit the <codeph>/etc/apache2/sites-available/rgw.conf</codeph>
+          file as shown
+          below:<codeblock><codeph>SSLEngine on
+SSLCertificateFile /etc/ssl/from-heat.crt
+SSLCertificateKeyFile /etc/ssl/from-heat.key
+SSLCACertificateFile /etc/ssl/certs/eca.crt
+SetEnv SERVER_PORT_SECURE 443
+</codeph></codeblock></li>
+<li>Restart the Apache2 service by
+          entering:<codeblock><codeph>/etc/init.d/apache2 restart
+</codeph></codeblock></li>
+<li>Restart the RADOSGW service by
+          entering:<codeblock><codeph>/etc/init.d/radosgw restart
+</codeph></codeblock></li>
+</ol>
+</section>
+<section id="validating-the-configuration"> <title>Validating the Configuration</title>
+<ol>
+<li>Make sure proxy is not set on the gateway nodes by
+          entering:<codeblock><codeph>unset http_proxy https_proxy
+</codeph></codeblock></li>
+<li>Run the RADOSGW service in debug mode to make sure that there are no obvious errors in the logs
+          on both gateway nodes by
+          entering:<codeblock><codeph>/usr/bin/radosgw -d -c /etc/ceph/ceph.conf --debug-rgw 20 --rgw-socket-path=/var/run/ceph/ceph.radosgw.gateway.fastcgi.sock
+</codeph></codeblock></li>
+<li>From the controller node, make a Swift v1 request like that shown below. In this example the IP
+          address used is the Helion VIP address followed by the RADOSGW service port. It is assumed
+          that <codeph>s3User</codeph> is already created using the <codeph>radosgw-admin</codeph>
+          command and that correct credentials for <codeph>s3User</codeph> were used in making the
+          request. Output should list containers, if
+          any.<codeblock><codeph>swift --insecure -V 1.0 -A https://192.0.2.x:10080/auth/v1.0 -U s3User:swiftUser -K abc list
+</codeph></codeblock></li>
+<li>From the controller node, make a Swift v2 request using Keystone. Ceph Object Gateway's
+          user:subuser tuple maps to the tenant:user tuple expected by Swift. The IP address used
+          will is the Helion VIP address followed by the Keystone service port. Admin credentials
+          are considered. Output should list containers, if
+          any.<codeblock><codeph>swift -V 2.0 -A http://192.0.2.21:5000/v2.0 -U admin:admin -K abc list
+</codeph></codeblock></li>
+<li>If these Swift calls fail:<ul>
+            <li>Make sure port 10080 is open on all controller nodes.</li>
+            <li>Verify that certificates in use have not expired. If any have expired, copy the
+              respective certificates from Helion nodes as explained above,</li>
+          </ul></li>
+<li>From the controller node, get the admin tenant ID by
+            entering:<codeblock><codeph>Keystone tenant-list
+</codeph></codeblock><p>Output:</p><codeblock><codeph>+----------------------------------+---------+---------+
+| id                               | name    | enabled |
++----------------------------------+---------+---------+
+| 627770d0c17c4423b8c27a2607e60798 | admin   | True    |
+| aa70711bd69e4958ac239e2564c18054 | demo    | True    |
+| 250bf66045814455a5b3c3e6c7fb7c19 | service | True    |
++----------------------------------+---------+---------+
+</codeph></codeblock></li>
+<li>Verify that the admin user is created in the RADOS pool as shown below, and make sure the admin
+          user is indeed
+          present<codeblock><codeph>rados --pool .users.uid ls
+s3User
+s3User.buckets
+627770d0c17c4423b8c27a2607e60798
+627770d0c17c4423b8c27a2607e60798.buckets
+</codeph></codeblock></li>
+</ol>
+<!--not required
+## Next Steps
+
+[Ceph Related Topics]( /helion/openstack/1.1/ceph/ceph-related-topics/)
+-->
+<p>
+  <xref href="#topic8041"> Return to Top </xref>
+</p>
+</section>
+</body>
+</topic>

@@ -1,0 +1,507 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="config_vsa">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Configuring for VSA Block Storage
+    Backend</title>
+  <abstract><shortdesc outputclass="hdphidden">Installation and configuration steps for your VSA
+      backend.</shortdesc>This page describes how to configure your VSA backend for the Helion
+    Entry-scale with KVM cloud model. This procedure can be performed during or after
+    installation.</abstract>
+  <body>
+    <!-- Joel tested on 4/30/2016 -->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+
+    <section id="prereq"><title>Prerequisites</title>
+      <p><ul>
+          <li>Your <keyword keyref="kw-hos"/> cloud must be fully deployed using the a KVM cloud
+            model with VSA added. The Entry-Scale KVM with VSA cloud model is an example of such a
+            model. For more details on the installation refer to <xref href="installing_kvm.dita"
+            />.</li>
+          <li>It's important that all of your systems have the correct date/time because the HPE
+            StoreVirtual VSA license has a start date. If the start date is later than the system
+            time then the installation will fail.</li>
+        </ul>
+      </p>
+    </section>
+
+    <section id="notes"><title>Notes</title>
+      <p>
+        <ul id="ul_kg4_y3k_5v">
+          <li>The license for the HPE StoreVirtual VSA license is bundled with <keyword
+              keyref="kw-hos"/> and comes with a free trial which allows a maximum limit of 50 TB
+            per node. Hence the total amount of the configured storage on an individual VSA node
+            should not exceed 50 TB. To extend the 50 TB per node limit, you can add nodes. A VSA
+            cluster can support up to 16 nodes, which means configured storage on a VSA cluster can
+            be as much as 800 TB. <note type="notice">The HPE StoreVirtual VSA default license is
+              for five (5) years with all supported functionality detailed above. During
+              installation, the CMC utility may display a message that some features are not
+              licensed. This message displays in error and can be ignored.</note>
+            <!-- this para for HOS -->
+            <p product="HOS">You can deploy VSA with Adaptive Optimization (AO) or without. The
+              deployment process for each of these options is similar, you just need to make a
+              change in the disk input model. For more detailed information, refer to <b>VSA with or
+                without Adaptive Optimization (AO)</b> in <xref
+                href="../architecture/modify/modify_entryscale_kvm_vsa.dita#modify_entryscale_kvm_vsa"
+              />.</p>
+            <!-- this para for CG -->
+            <!--<p product="CG">You can deploy VSA with Adaptive Optimization (AO) or without. The
+              deployment process for each of these options is similar, you just need to make a
+              change in the disk input model. For more detailed information, refer to <b>VSA with or
+                without Adaptive Optimization (AO)</b> in <xref href="configure_vsa_ao.dita"
+            />.</p>--></li>
+          <li>A single VSA node can have a maximum of seven raw disks (excluding the operating
+            system disks) attached to it, which is defined in the disk input model for your VSA
+            nodes. It is expected that no more than seven disks are specified (including Adaptive
+            Optimization disks) per VSA node. For example, if you want to deploy VSA with two disks
+            for Adaptive Optimization then your disk input model should not specify more than five
+            raw disks for data and two raw disks for Adaptive Optimization. Exceeding the disk limit
+            causes VSA deployment failure.</li>
+          <li>You can create more than one VSA cluster of same or different type by specifying the
+            configuration in cloud model. For more details, refer to <xref
+              href="../operations/blockstorage/vsa/create_multiple_vsa_clusters.dita"/>.</li>
+          <li>Usernames and passwords designated during VSA configuration or repair must be alphabetic only.</li>
+        </ul>
+      </p>
+      <p id="multibackend"><b>Concerning using multiple backends:</b> If you are using multiple
+        backend options, ensure that you specify each of the backends you are using when configuring
+        your <codeph>cinder.conf.j2</codeph> file using a comma delimited list. An example would be
+          <codeph>enabled_backends=vsa-1,3par_iSCSI,ceph1</codeph> and is included in the steps
+        below. You will also want to create multiple volume types so you can specify which backend
+        you want to utilize when creating volumes. These instructions are included below as well. In
+        addition to our documentation, you can also read the OpenStack documentation at <xref
+          href="http://docs.openstack.org/admin-guide/blockstorage_multi_backend.html"
+          scope="external" format="html">Configure multiple storage backends</xref> as well.</p>
+      <p><b>VSA driver has updated name:</b> In the OpenStack Mitaka release, the VSA driver used
+        for HPE Helion integration had its name updated from <codeph>hplefthand_</codeph> to
+          <codeph>hpelefthand_</codeph>. To prevent issues when upgrading from previous <keyword
+          keyref="kw-hos"/> releases, we left the names as-is in the release and provided a mapping
+        so that the integration would continue to work. This will produce a warning in the
+          <codeph>cinder-volume.log</codeph> file advising you of the deprecated name. The warning
+        will look similar to
+        this:<codeblock>Option "hplefthand_username" from group "&lt;your section>" is deprecated. Use option "hpelefthand_username" from group "&lt;your section>"
+should be ignored.</codeblock></p>
+      <p>These are just warnings and can be ignored.</p>
+    </section>
+
+    <section id="create_cluster">
+      <title>Configure HPE StoreVirtual VSA</title>
+      <p>The process for configuring HPE StoreVirtual VSA for <keyword keyref="kw-hos"/> involves
+        two major steps:</p>
+      <p>
+        <ul id="ul_kbm_n3k_5v">
+          <li>Creating a cluster</li>
+          <li>Configuring VSA as the block storage backend</li>
+        </ul>
+      </p>
+      <p>You can perform these tasks in an automated process using the provided Ansible playbooks or
+        manually using the HPE StoreVirtual Centralized Management Console (CMC) GUI.</p>
+      <note>Using Ansible playbooks to create clusters is strongly recommended. Cluster creation
+        using HPE StoreVirtual Centralized Management Console (CMC) GUI is deprecated in <keyword
+          keyref="kw-hos-phrase"/>. Clusters created using CMC manually cannot be reconfigured using
+        the Ansible playbooks. If you used CMC to create the clusters, you must continue to use CMC
+        to administer those clusters.</note>
+    </section>
+
+    <section id="ansible"><title>Using Ansible</title>
+      <p>Perform the following steps to create the cluster using the provided Ansible playbooks.</p>
+      <ol>
+        <li>Log in to the lifecycle manager.</li>
+        <li>Run the following playbook, which will both create your management group and your
+          cluster:
+          <codeblock>cd ~/scratch/ansible/next/hos/ansible/
+ansible-playbook -i hosts/verb_hosts vsalm-configure-cluster.yml</codeblock></li>
+        <li>When prompted, enter an administrative user name and password you will use to administer
+          the CMC utility. <p>Administrative user naming requirements:</p><ul>
+            <li>3 to 30 characters</li>
+            <li>Must begin with a letter</li>
+            <li>Allowed characters: 0-9, a-z, A-Z, hyphen (-), underline (_)</li>
+            <li>Disallowed characters: Multibyte character set</li>
+          </ul><p>Administrative user password requirements:</p><ul>
+            <li>5 to 40 characters</li>
+            <li>Must begin with a letter</li>
+            <li>Many ASCII and extended ASCII characters, Multibyte character set</li>
+            <li>Disallowed characters: dot (.), colon (:), forward slash (/), comma (,), backward
+              slash (\), semi-colon (;), single-quote (‘), space ( ), equals (=)</li>
+          </ul><note type="important">You will need to remember these values to access the cluster
+            using the CMC utility or to re-run this playbook later if further management of your VSA
+            system is needed. Do not change the credentials for one or more clusters using CMC as it
+            will make the cluster automation playbook ignore those clusters for
+            reconfiguration.</note></li>
+        <li>In the output of the Ansible playbook you will see different steps where you can locate
+          the values for your VSA cluster name, the virtual IP address, and the IP addresses of each
+          of the VSA hosts in the cluster. You will use these values later when configuring your
+            backend.<p>The following is an example, with the important information
+            bolded.</p><p>This step displays the VSA cluster name and the virtual IP address of the
+            cluster:<codeblock>TASK: [vsalm | _create_cluster | Display the status of cluster creation performed in above step] ***
+ok: [helion-cp1-vsa0001-mgmt] => {
+    "msg": "Created cluster - Name=<b>cluster-vsa</b>, IP=<b>10.13.111.142</b>"
+}</codeblock></p></li>
+        <li>You can view the added node to the cluster in CMC GUI as follows: <ol id="ol_r5f_ll3_wv">
+            <li>Launch the CMC utility. See <xref href="#config_vsa/cmc" format="dita">Launching the
+                CMC utility GUI</xref> for more details.</li>
+            <li>Find the new VSA system. </li>
+            <li>View the added node in the cluster.</li>
+          </ol></li>
+        <!--<li>Run the following command from your first controller node which will open the HPE
+          StoreVirtual Centralized Management Console (CMC) GUI on your local machine:
+          <codeblock>/opt/HP/StoreVirtual/UI/jre/bin/java -jar /opt/HP/StoreVirtual/UI/UI.jar</codeblock></li>
+        <li>In the CMC GUI, click the Find menu and then select the Find Systems options.Once
+          systems are found, new created clusters can been observed in CMC.</li>
+        <li>In the CMC GUI, click the <b>Find</b> menu and then select the <b>Find Systems</b>
+          options. <p>After the systems are found, the newly created clusters are displayed in
+            CMC.</p><p>The management group name is automatically creating using the following
+            pattern: <codeph>mg-&lt;resource-prefix></codeph></p><p>The cluster name is
+            automatically creating using the following pattern:
+              <codeph>cluster-&lt;resource-prefix></codeph></p></li>-->
+      </ol>
+    </section>
+
+    <section id="cmc">
+      <title outputclass="headerH">Using the CMC Utility</title>
+      <sectiondiv outputclass="insideSection">
+        <p>In <keyword keyref="kw-hos"/>, cluster creation using HPE StoreVirtual Centralized
+          Management Console (CMC) GUI is deprecated. The clusters created by CMC manually cannot be
+          configured using Ansible playbooks.</p>
+        <p>Perform the following steps to create the cluster using CMC.</p>
+        <p id="launching-cmc-utility"><b>Launching the CMC utility GUI</b></p>
+        <p>The HPE StoreVirtual Centralized Management Console (CMC) GUI is an interface where you
+          can configure VSA. </p>
+        <p>The CMC utility requires a GUI to access it. You can use either of the following methods
+          to launch the CMC GUI.</p>
+        <p>
+          <ul>
+            <li><xref href="#config_vsa/vnc" format="dita">RDP/VNC connect</xref></li>
+            <li><xref href="#config_vsa/xming" format="dita">Any X Display Tool</xref></li>
+          </ul>
+        </p>
+        <p><b>RDP/VNC connect method</b></p>
+        <p id="vnc">Setup VNC connect on the Controller Node</p>
+        <p>The following steps will allow you to setup a VNC connect to your controller node so you
+          can view the GUI.</p>
+        <ol>
+          <li>Log in to your first controller node. </li>
+          <li>Run the following command to install the package that is required to launch CMC:
+            <codeblock>sudo apt-get install -y xrdp</codeblock></li>
+          <li>Start <codeph>vnc4server</codeph> using the instructions below. You will be prompted
+            for a password (min 6 characters). Enter a password and proceed. A sample output is
+            shown below: <codeblock>stack@helion-cp1-c1-m1-mgmt:~$ vnc4server
+            
+You will require a password to access your desktops.
+            
+Password:
+Verify:
+xauth:  file /home/stack/.Xauthority does not exist
+            
+New 'helion-cp1-c1-m1-mgmt:3 (stack)' desktop is helion-cp1-c1-m1-mgmt:3
+            
+Creating default startup script /home/stack/.vnc/xstartup
+Starting applications specified in /home/stack/.vnc/xstartup
+Log file is /home/stack/.vnc/helion-cp1-c1-m1-mgmt:3.log</codeblock>
+            <note>If you directly use xrdp to connect to the first controller node without using the
+              VNC server then a remote session is created whenever you login. To avoid this, a
+              dedicated VNC server instance is launched and connected to that instance by xrdp. This
+              helps to maintain the session.</note></li>
+          <li>Run <codeph>netstat -anp | grep vnc</codeph> to determine the public port that VNC is
+            using. In the example below, the port is 5903: <codeblock>stack@helion-cp1-c1-m1-mgmt:~$ netstat -anp | grep vnc
+(Not all processes could be identified, non-owned process info
+will not be shown, you would have to be root to see it all.)
+tcp        0      0 0.0.0.0:6003            0.0.0.0:*               LISTEN      1413/Xvnc4
+tcp6       0      0 :::5903                 :::*                    LISTEN      1413/Xvnc4</codeblock><p>
+              <note>If you reboot the controller node then you must repeat the steps <b>3</b> and
+                  <b>4</b>.</note>
+            </p></li>
+          <li>Connect to your controller node through any remote desktop or VNC client. We will show
+            the xrdp method first and the VNC method is below it: <ol>
+              <li>Connecting through remote desktop client <ol>
+                  <li>Login to your remote desktop. You will be prompted with xrdp login screen.<p>
+                      <image href="../../media/vsa/xrdp1.PNG"/></p></li>
+                  <li>Click the <b>Module</b> drop-down list and select
+                        <codeph>vnc-any</codeph>.<p><image href="../../media/vsa/xrdp2.PNG"
+                    /></p></li>
+                  <li>Enter the IP address, port and password in the respective fields.<p><image
+                        href="../../media/vsa/xrdp3.PNG"/></p></li>
+                  <li>Click <b>Ok</b>.</li>
+                </ol></li>
+              <li>Connecting through a VNC client, such as <xref
+                  href="https://www.realvnc.com/download/viewer/" format="html" scope="external">VNC
+                  Viewer</xref>: <ol>
+                  <li>Enter the IP address and port and click <b>Connect</b>. You will be prompted
+                    for your password once the connection is established. <p><image
+                        href="../../media/vsa/vncview1.png"/></p></li>
+                </ol></li>
+            </ol>A terminal emulator will be displayed where you can enter the CMC launch command.
+            Note that the CMC launch with this method will have the following limitations: by
+            default, CMC-xterm disables all the title bars and borders. This is an expected
+            behavior.</li>
+        </ol>
+        <p id="xming"><b>Install (any) X Display Tool </b><note>You can use SSH to an X server but
+            the performance may be poor.</note></p>
+        <p>You must configure an X display tool to launch CMC. User can select <b>any</b> X display
+          tool. In this section we are using <b>Xming</b> tool as an example to launch CMC. The
+          following example provides the steps to install Xming and launch CMC in a Windows
+          environment. Another alternative (not shown in the documentation) is <xref
+            href="http://mobaxterm.mobatek.net/" scope="external" format="html">MobaXterm</xref>. <ol>
+            <li>Download and install <b>Xming</b> on a Windows machine that can access the lifecycle
+              manager. You can download Xming from <xref
+                href="http://sourceforge.net/projects/xming/" format="html" scope="external"
+                >Sourceforge.net</xref>.</li>
+            <li>Select <b>Enable X11 forwarding</b> checkbox on the PuTTy session for lifecycle
+              manager. You can do this in PuTTY by: <ol>
+                <li>Navigate to the <codeph>Connection -> SSH -> X11</codeph> option in PuTTy</li>
+                <li>Click the <codeph>Enable X11 forwarding box to ensure it has a checkmark in
+                    it</codeph></li>
+              </ol>
+              <p><image href="../../media/vsa/xming1.png"/></p>
+            </li>
+            <li>SSH to first control plane node. <codeblock>ssh -X</codeblock><p>and enter the CMC
+                command (as mentioned below) to launch CMC.</p></li>
+          </ol></p>
+        <ol id="ol_yln_fhl_jt">
+          <li>Run the following command from your first controller node which will open the CMC GUI
+            on your local
+              machine:<codeblock>/opt/HP/StoreVirtual/UI/jre/bin/java -jar /opt/HP/StoreVirtual/UI/UI.jar</codeblock><p>By
+              default, the CMC GUI is configured to discover the VSA nodes in the subnet in which it
+              is installed. This discovery functionality of VSA nodes using the CMC controller node
+              is not supported in <keyword keyref="kw-hos"/>. Instead, you must manually add each
+              VSA node, as shown below.</p></li>
+          <li>In the CMC GUI, click the <b>Find</b> menu and then select the <b>Find Systems</b>
+            options. <p><image href="../../media/vsa/cmc1.png" id="image_dqt_p3k_5v"/></p>
+          </li>
+          <li>Click the <b>Add</b> button which will open the <b>Enter IP Address</b> dialogue box
+            where you can enter the IP address of your VSA nodes which you noted earlier from your
+              <codeph>~/scratch/ansible/next/my_cloud/stage/info/net_info.yml</codeph> file.
+                <p><image href="../../media/vsa/cmc2.png" id="image_eqt_p3k_5v"/></p></li>
+          <li>Once you have all of your VSA nodes entered, click the <b>Close</b> button. <p><image
+                href="../../media/vsa/cmc3.png" id="image_fqt_p3k_5v"/></p></li>
+          <li>Next, click the <b>Tasks</b> menu and then navigate to the <b>Management Group</b>
+            submenu and select the <b>New Management Group</b> option. <p><image
+                href="../../media/vsa/cmc4.png" id="image_gqt_p3k_5v"/></p></li>
+          <li>In the Management Group wizard, click <b>Next</b> and then select <b>New Management
+              Group</b> and then <b>Next</b> again to continue. <p><image
+                href="../../media/vsa/cmc5.png" id="image_hqt_p3k_5v"/></p></li>
+          <li>Enter a name in the <b>New Management Group Name</b> field and then click <b>Next</b>.
+                <p><image href="../../media/vsa/cmc6.png" id="image_iqt_p3k_5v"/></p></li>
+          <li>On the <b>Add Administrative User</b> you will enter a username and password you will
+            use to administer the CMC utility. <p>
+              <note type="important">You will need to remember these values as you will input them
+                into your <codeph>cinder.conf.j2</codeph> file later.</note>
+            </p>
+            <p><image href="../../media/vsa/cmc7.png" id="image_jqt_p3k_5v"/></p></li>
+          <li>Click <b>Next</b> to display the <b>Management Group Time</b> page.</li>
+          <li>Add your NTP server information and click <b>Next</b>
+            <p><image href="../../media/vsa/cmc8.png" id="image_kqt_p3k_5v"/></p></li>
+          <li>Skip the DNS and SMTP sections. To do so, click <b>Next</b> and a popup will display
+            where you can choose the <b>Accept Incomplete</b> option. Repeat this to skip SMTP
+            section as well. <p><image href="../../media/vsa/cmc9.png" id="image_lqt_p3k_5v"
+            /></p></li>
+          <li>On the <b>Create a Cluster</b> options, select <b>Standard Cluster</b> from the
+            displayed options and click <b>Next</b>. <p><image href="../../media/vsa/cmc10.png"
+                id="image_mqt_p3k_5v"/></p></li>
+          <li>In the <b>Cluster Name</b> field, enter a name for the cluster and click <b>Next</b>.
+                <p><image href="../../media/vsa/cmc11.png" id="image_nqt_p3k_5v"/></p></li>
+          <li>On the <b>Assign Virtual IPs and Subnet Masks</b> page, click <b>Add</b> and enter the
+            virtual IP address and subnet mask of the cluster in the respective boxes and click
+              <b>OK</b>. <note>The virtual IP address will be found as the
+                <codeph>cluster_ip</codeph> value in your
+                <codeph>~/scratch/ansible/next/my_cloud/stage/info/net_info.yml</codeph> file and
+              your subnet mask will be the subnet address from the network your VSA nodes are
+              attached to, usually your <codeph>MANAGEMENT</codeph> network.</note>
+            <p><image href="../../media/vsa/cmc12.png" id="image_oqt_p3k_5v"/></p></li>
+          <li>The CMC utility will verify the virtual IP address information and then you can click
+            the <b>Next</b> button.</li>
+          <li>Select the checkbox for <b>Skip Volume Creation</b> and click the <b>Finish</b> button
+            which will display your VSA management cluster. <p><image
+                href="../../media/vsa/cmc13.png" id="image_pqt_p3k_5v"/></p>Cluster creation using
+            CMC takes approximately 10 minutes or longer.<note type="attention">You may get a pop-up
+              notice telling you that your hostnames are not unique. This can be ignored by clicking
+              the OK button.</note></li>
+          <li>If this process is successful you will see a summary page at the end which outlines
+            what you have completed. <p>
+              <note type="important">You can create more than one VSA cluster of same or different
+                type by specifying the configuration in cloud model. For more details, refer to
+                Modifying Cloud Model to Create Multiple Clusters</note>
+            </p></li>
+        </ol>
+      </sectiondiv>
+    </section>
+
+
+
+
+    <section id="config_backend">
+      <title>Configure VSA as the Backend</title>
+      <p>You will use the information you input to the CMC utility to configure your Cinder backend
+        to use your VSA environment.</p>
+      <p>To update your Cinder configuration to add VSA storage you must modify the
+          <codeph>~/helion/my_cloud/config/cinder/cinder.conf.j2</codeph> file on your lifecycle
+        manager as follows:</p>
+      <ol>
+        <li>Log in to the lifecycle manager.</li>
+        <li>Make the following changes to the
+            <codeph>~/helion/my_cloud/config/cinder/cinder.conf.j2</codeph> file: <ol>
+            <li>Add your VSA backend to the <codeph>enabled_backends</codeph> section: <codeblock># Configure the enabled backends
+enabled_backends=vsa-1</codeblock>
+              <note type="important">If you are using multiple backend types, you can use a comma
+                delimited list here. For example, if you are going to use both VSA and Ceph
+                backends, you would specify something like this:
+                  <codeph>enabled_backends=vsa-1,ceph1</codeph>.</note></li>
+            <li>[OPTIONAL] If you want your volumes to use a default volume type, then enter the
+              name of the volume type in the <codeph>[DEFAULT]</codeph> section with the syntax
+              below. <b>You will want to remember this value when you create your volume type in the
+                next section.</b>
+              <p>
+                <note type="important">If you do not specify a default type then your volumes will
+                  default to a non-redundant RAID configuration. It is recommended that you create a
+                  volume type and specify it here that meets your environments needs.</note>
+              </p>
+              <codeblock>[DEFAULT]
+# Set the default volume type
+default_volume_type = &lt;your new volume type></codeblock></li>
+            <li>Uncomment the <codeph>StoreVirtual (VSA) cluster</codeph> section and fill the
+              values as per your cluster information. If you have more than one cluster, you will
+              need to add another similar section with its respective values. In the following
+              example only one cluster is added. <codeblock>[vsa-1]
+hplefthand_password: &lt;vsa-cluster-password>
+hplefthand_clustername: &lt;vsa-cluster-name>
+hplefthand_api_url: https://&lt;vsa-cluster-vip>:8081/lhos
+hplefthand_username: &lt;vsa-cluster-username>
+hplefthand_iscsi_chap_enabled: false
+volume_backend_name: &lt;vsa-backend-name>
+volume_driver: cinder.volume.drivers.san.hp.hp_lefthand_iscsi.HPLeftHandISCSIDriver
+hplefthand_debug: false</codeblock>
+              <p>where:</p>
+              <table frame="all" rowsep="1" colsep="1" id="table_gc4_c5t_5t">
+                <tgroup cols="2">
+                  <colspec colname="c1" colnum="1"/>
+                  <colspec colname="c2" colnum="2"/>
+                  <thead>
+                    <row>
+                      <entry>Value</entry>
+                      <entry>Description</entry>
+                    </row>
+                  </thead>
+                  <tbody>
+                    <row>
+                      <entry>hplefthand_password</entry>
+                      <entry>Password entered during cluster creation in the CMC utility. If you
+                        have chosen to encrypt this password, enter the value in this format: <codeblock>hplefthand_password: {{ '&#60;encrypted vsa-cluster-password>' | hos_user_password_decrypt }}</codeblock>
+                        <p>See <xref href="../security/encrypted_storage.dita">Encryption of
+                            Passwords and Sensitive Data</xref> for more details.<note
+                            type="warning">The <codeph>hos_user_password_decrypt</codeph> filter is
+                            applied to strings in <codeph>cinder.conf.j2</codeph>, even if the line
+                            is commented out. So if you run a playbook on a
+                              <codeph>cinder.conf.j2</codeph> file that has a commented out
+                            encrypted password, and if the key in
+                              <codeph>HOS_USER_PASSWORD_ENCRYPT_KEY</codeph> is not the one used to
+                            encrypt the password, then the decryption will fail and the ansible play
+                            will fail. Therefore you should not comment out any lines containing the
+                              <codeph>hos_user_password_decrypt</codeph> filter, delete them
+                            instead.</note></p></entry>
+                    </row>
+                    <row>
+                      <entry>hplefthand_clustername</entry>
+                      <entry>Name of the VSA cluster provided while creating a cluster in the CMC
+                        utility.</entry>
+                    </row>
+                    <row>
+                      <entry>hplefthand_api_url</entry>
+                      <entry>Virtual IP address of your VSA cluster, found in your
+                          <codeph>~/scratch/ansible/next/my_cloud/stage/info/net_info.yml</codeph>
+                        file.</entry>
+                    </row>
+                    <row>
+                      <entry>hplefthand_username</entry>
+                      <entry>Username given during cluster creation in the CMC utility.</entry>
+                    </row>
+                    <row>
+                      <entry>hplefthand_iscsi_chap_enabled</entry>
+                      <entry>If you set this option as <b>true</b> then the hosts will not be able
+                        to access the storage without the generated secrets. And if you set this
+                        option as <b>false</b> then no CHAP authentication is required for the ISCSI
+                        connection.</entry>
+                    </row>
+                    <row>
+                      <entry>volume_backend_name</entry>
+                      <entry>Name given to the VSA backend. You will specify this value later in the
+                        Associate the Volume Type to a Backend steps.</entry>
+                    </row>
+                    <row>
+                      <entry>volume_driver</entry>
+                      <entry>Cinder volume driver. Leave this as the default value for VSA.</entry>
+                    </row>
+                    <row>
+                      <entry>hplefthand_debug</entry>
+                      <entry>If you set this option as true then the Cinder driver for the VSA will
+                        generate logging in debug mode; these logging entries can be found in
+                          <b>cinder-volume.log</b>.</entry>
+                    </row>
+                  </tbody>
+                </tgroup>
+              </table>
+              <p>[OPTIONAL] <keyword keyref="kw-hos-phrase"/> supports VSA deployment for KVM
+                hypervisor only but it can be used as pre-deployed (or out of the band deployed)
+                Lefthand storage boxes or VSA appliances (running on ESX/hyper-v/KVM hypervisor). It
+                also supports Cinder configuration of physical Lefthand storage device and VSA
+                appliances. Depending upon your setup, you will have to edit the below section if
+                your storage array is running LeftHand OS lower than version 11:</p>
+              <codeblock>[&lt;unique-section-name>]
+volume_driver=cinder.volume.drivers.san.hp.hp_lefthand_iscsi.HPLeftHandISCSIDriver
+volume_backend_name=lefthand-cliq
+san_ip=&lt;san-ip>
+san_login=&lt;san_username>
+If adding a password here, then the password can be encrypted using the
+mechanism specified in the documentation. If the password has been encrypted
+add the value and the hos_user_password_decrypt filter like so:
+san_password= {{ '&lt;encrypted san_password>' | hos_user_password_decrypt }}
+Note that the encrypted value has to be enclosed in quotes
+If you choose not to encrypt the password then the unencrypted password
+must be set as follows:
+san_password=&lt;san_password>
+san_ssh_port=16022
+san_clustername=&lt;vsa-cluster-name>
+volume_backend_name=&lt;vsa-backend-name></codeblock>
+              <note type="attention">
+                <p>Similar to your <codeph>hplefthand_password</codeph> in the previous example,
+                  encryption for your <codeph>san_password</codeph> is supported. If you chose to
+                  use encryption you would use the syntax below to express that: </p>
+                <codeblock>san_password= {{ '&#60;encrypted san_password>' | hos_user_password_decrypt }}</codeblock>
+                <p>See <xref href="../security/encrypted_storage.dita">Encryption of Passwords and
+                    Sensitive Data</xref> for more details.</p>
+              </note></li>
+          </ol><note type="attention">Do not use <codeph>backend_host</codeph> variable in
+              <codeph>cinder.conf</codeph> file. If <codeph>backend_host</codeph> is set, it will
+            override the [DEFAULT]/host value which <keyword keyref="kw-hos-phrase"/> is dependent
+            on.</note></li>
+        <li>Commit your configuration to a <xref href="using_git.dita">local repository</xref>:
+            <codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -m "configured VSA backend"</codeblock><note>Before
+            you run any playbooks, remember that you need to export the encryption key in the
+            following environment variable:<codeph> export
+              HOS_USER_PASSWORD_ENCRYPT_KEY=&lt;encryption key></codeph> See <xref
+              href="installing_kvm.dita#install_kvm"/> for reference.</note></li>
+        <li>Run the configuration processor:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+        <li>Run the following command to create a deployment
+          directory:<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+        <li>Run the Cinder Reconfigure Playbook:
+          <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts cinder-reconfigure.yml</codeblock></li>
+      </ol>
+    </section>
+
+    <section id="post_install"><title>Post-Installation Tasks</title>
+      <p>After you have configured VSA as your Block Storage backend, here are some tasks you will
+        want to complete:</p>
+      <ul>
+        <li><xref href="../operations/blockstorage/creating_voltype.dita">Create a Volume Type for
+            your Volumes</xref></li>
+        <li><xref href="verify_block_storage.dita#verify_block_storage/volume_verify">Verify Your
+            Block Storage Configuration</xref></li>
+      </ul>
+    </section>
+  </body>
+</topic>

@@ -1,0 +1,424 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic
+  PUBLIC "-//OASIS//DTD DITA Topic//EN" "http://docs.oasis-open.org/dita/v1.1/OS/dtd/topic.dtd" ><topic xml:lang="en-us" id="topic11470">
+<title>HPE Helion <tm tmtype="reg">OpenStack</tm> 1.1: Metering Service (Ceilometer): Best Practices and Optimization</title>
+<prolog>
+<metadata>
+<othermeta name="layout" content="default"/>
+<othermeta name="product-version" content="HPE Helion Openstack"/>
+<othermeta name="product-version" content="HPE Helion Openstack 1.1"/>
+<othermeta name="product-version1" content="HPE Helion Openstack"/>
+<othermeta name="product-version2" content="HPE Helion Openstack 1.1"/>
+</metadata>
+</prolog>
+<body>
+<p>
+<!--PUBLISHED-->
+ <!--./commercial/GA1/ceilometer/1.1commerical.services-reporting-bestpractice.md-->
+ <!--permalink: /helion/openstack/1.1/services/reporting/bestpractices/--></p>
+<p>Configuration changes that improve reporting API and database responsiveness by keeping data storage to a reasonable level.</p>
+<ul>
+<li>
+<xref type="section" href="#topic11470/ceilandnova">Nova</xref>
+
+<ul>
+<li>
+<xref type="section" href="#topic11470/novadata">Data Collected by Ceilometer (default list)</xref>
+</li>
+<li>
+<xref type="section" href="#topic11470/novaconfigfile">Enabling Nova Notifications</xref>
+</li>
+</ul>
+</li>
+<li>
+<xref type="section" href="#topic11470/webserverapi">Configuring the Web Server for API Performance</xref>
+</li>
+<li>
+<xref type="section" href="#topic11470/meterlist">Modifying the List of Active Meters</xref>
+</li>
+<li>
+<xref type="section" href="#topic11470/pollinterval">Modifying Polling Intervals</xref>
+</li>
+<li>
+<xref type="section" href="#topic11470/swift">Swift</xref>
+</li>
+</ul>
+<section id="ceilandnova"> <title>Nova</title>
+<p>The Nova service is configured by default to send certain notifications regarding usage and VM status information collected by Ceilometer. To increase, decrease, or stop these notifications  from the Nova service, modify <xref type="section" href="#topic11470/novaconfigfile">Nova's Ceilometer configuration file</xref>.</p>
+</section>
+<section id="novadata"> <title>Data Collected by Ceilometer</title>
+<p>Once the <i>openstack.common.rpc</i> notifications are enabled in the configuration file, Nova will send the following data to Ceilometer:</p>
+<table pgwide="1">
+<tgroup cols="5">
+                    <colspec colname="col1" colsep="1" rowsep="1"/>
+                    <colspec colname="col2" colsep="1" rowsep="1"/>
+                    <colspec colname="col3" colsep="1" rowsep="1"/>
+                    <colspec colname="col4" colsep="1" rowsep="1"/>
+                    <colspec colname="col5" colsep="1" rowsep="1"/>
+                    <tbody>
+                        <row>
+                            <entry>
+                                <b>Name</b>
+                            </entry>
+                            <entry>
+                                <b>Unit</b>
+                            </entry>
+                            <entry>
+                                <b>Type</b>
+                            </entry>
+                            <entry>
+                                <b>Resource</b>
+                            </entry>
+                            <entry>
+                                <b>Note</b>
+                            </entry>
+                        </row>
+                        <row>
+                            <entry>instance</entry>
+                            <entry>g</entry>
+                            <entry>instance</entry>
+                            <entry> inst ID</entry>
+                            <entry>Existence of instance</entry>
+                        </row>
+                        <row>
+                            <entry>instance: <varname>type</varname>
+                            </entry>
+                            <entry>g</entry>
+                            <entry>instance</entry>
+                            <entry> inst ID</entry>
+                            <entry>Existence of instance of <varname>type</varname> (Where
+                                    <varname>type</varname> is a valid OpenStack types.) </entry>
+                        </row>
+                        <row>
+                            <entry>memory</entry>
+                            <entry>g</entry>
+                            <entry>MB</entry>
+                            <entry> inst ID</entry>
+                            <entry>Volume of allocated RAM. Measured in MB.</entry>
+                        </row>
+                        <row>
+                            <entry>vcpus</entry>
+                            <entry>g</entry>
+                            <entry>vcpu</entry>
+                            <entry> inst ID</entry>
+                            <entry>Number of VCPUs</entry>
+                        </row>
+                        <row>
+                            <entry>disk.root.size</entry>
+                            <entry>g</entry>
+                            <entry>GB</entry>
+                            <entry> inst ID</entry>
+                            <entry>Size of root disk. Measured in GB.</entry>
+                        </row>
+                        <row>
+                            <entry>disk.ephemeral.size</entry>
+                            <entry>g</entry>
+                            <entry>GB</entry>
+                            <entry> inst ID</entry>
+                            <entry>Size of ephemeral disk. Measured in GB.</entry>
+                        </row>
+                    </tbody>
+                </tgroup>
+</table>
+</section>
+<section id="novaconfigfile"> <title>Enable Nova Notifications</title>
+<p>This example is an excerpt of the configuration file including only the changes necessary to enable notifications. When notification publishing has been enabled, the <i>nova.conf</i> file will appear as follows.</p>
+<codeblock>
+  <codeph>notification_driver=nova.openstack.common.notifier.rpc_notifier
+notification_topics=notifications
+notify_on_state_change=vm_and_task_state
+instance_usage_audit=True
+instance_usage_audit_period=hour
+</codeph>
+</codeblock>
+<p>The <i>instance_usage_audit_period</i> interval can be set to check the instance's status every hour, once a day, once a week or once a month. Every time the audit period elapses, Nova sends a notification to Ceilometer to record whether or not the instance is live and running. Metering this statistic is critical if billing depends on usage.</p>
+</section>
+<section id="restart-the-nova-service"> <title>Restart the Nova Service</title>
+<p>Note that the Nova service must be restarted to pick up the changes to the configuration file. Log in to the controller node and execute the following to restart the Compute services:</p>
+<codeblock>
+  <codeph>service nova-api restart
+service nova-cert restart
+service nova-consoleauth restart
+service nova-scheduler restart
+service nova-conductor restart
+service nova-novncproxy restart
+</codeph>
+</codeblock>
+<p>For a more in-depth look at how information is sent over <i>openstack.common.rpc</i>, refer to the <xref href="http://docs.openstack.org/developer/ceilometer/measurements.html" scope="external" format="html" >OpenStack Ceilometer documentation</xref>.</p>
+<p>
+<b>Validation</b>
+After the Nova service is re-started, the notification daemons using the namespace <i>ceilometer.notification</i> should receive some traffic. Each plugin can listen to any topic(s), but by default it will listen to <i>notifications.info</i>.</p>
+</section>
+<section id="webserverapi"> <title>Configuring the Web Server for API Performance</title>
+<p>Reporting API provide the main access point for data stored in Ceilometer. An excessive increase of concurrent access at the front-end tends to put strain on the database. Use this procedure to optimize both the front-end and back-end (database) and improve performance.</p>
+<ol>
+<li>Add the <i>ceilometer.conf</i> file to the <i>/etc/apache2/sites-available</i> folder.</li>
+<li>
+<p>Add the following data to the <i>ceilometer.conf</i> file:</p>
+
+<codeblock>
+<codeph>Listen &lt;ipaddress&gt;:8777 
+&lt;VirtualHost *:8777&gt;
+    WSGIDaemonProcess ceilometer user=ceilometer group=ceilometer processes=4 threads=5 home=/opt/stack/venvs/openstack python-path=/opt/stack/venvs/openstack/lib/python2.7/site-packages
+    WSGIScriptAlias / /opt/stack/venvs/openstack/lib/python2.7/site-packages/ceilometer/api/app.wsgi
+    SetEnv APACHE_RUN_USER ceilometer
+    SetEnv APACHE_RUN_GROUP ceilometer
+    WSGIProcessGroup ceilometer
+    ErrorLog /var/log/apache2/ceilometer_error.log
+    LogLevel info
+    CustomLog /var/log/apache2/ceilometer_access.log combined
+    &lt;Directory /&gt;
+        Require all granted
+    &lt;/Directory&gt;
+&lt;/VirtualHost&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Create a softlink for the <i>ceilometer.conf</i> file in the <i>/etc/apache2/sites-enabled</i> folder.</p>
+
+<codeblock>
+<codeph>ln -s /etc/apache2/sites-available/ceilometer.conf /etc/apache2/sites-enabled
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Apply the WSGIDaemon recommended settings.</p>
+
+<p>The Ceilometer API run as WSGI processes. Each process can have a certain amount of threads to handle the filters and applications that make up the processing pipeline. Increasing the number of threads will improve responsiveness, but only up to a point.</p>
+
+<p>The recommended configuration is to have <b>four</b> processes running in parallel with <b>five</b> threads per process. Add the following lines to the <i>ceilometer.conf</i> file:</p>
+
+<codeblock>
+<codeph>processes=4
+threads=5
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Reload the Web Server</p>
+
+<p>For the changes to take effect, the Apache2 service also needs to be reloaded. After reload, the system administrator can change the configuration of processes and threads and experiment if alternative settings as necessary.</p>
+
+<codeblock>
+<codeph>sudo service apache2 reload
+</codeph>
+</codeblock>
+</li>
+</ol>
+<p>
+  <b>Verification</b>
+</p>
+<ol>
+<li>
+<p>Verify that the Ceilometer API are running. Execute:</p>
+
+<codeblock>
+<codeph>ps -ef | grep apache
+</codeph>
+</codeblock>
+
+<p>If everything is working, this command should generate an output similar to the following:</p>
+
+<codeblock>
+<codeph>ceilome+ 31430 31427 10 16:29 ? 00:02:40 /usr/sbin/apache2 -k start
+ceilome+ 31431 31427 10 16:29 ? 00:02:41 /usr/sbin/apache2 -k start
+ceilome+ 31432 31427 10 16:29 ? 00:02:42 /usr/sbin/apache2 -k start
+ceilome+ 31433 31427 10 16:29 ? 00:02:43 /usr/sbin/apache2 -k start  
+</codeph>
+</codeblock>
+
+<p>Note that the number of entries in the output should match the number of    processors set in the configuration file. The recommended value is four.</p>
+</li>
+<li>
+<p>Verify that Apache2 is accepting incoming traffic on port 8777:</p>
+
+<codeblock>
+<codeph>netstat -tulpn | grep 8777
+</codeph>
+</codeblock>
+
+<p>This command should produce the following output:</p>
+
+<codeblock>
+<codeph>tcp6 0 0 :::8777 :::* LISTEN 8959/apache2
+</codeph>
+</codeblock>
+</li>
+</ol>
+</section>
+<section id="meterlist"> <title>Modifying the List of Meters</title>
+<p>Reducing the amount of unnecessary data sent to the storage reduces the load on the SQL-based cluster, which increases performance.
+Ceilometer data collection is configured by modifying the <i>pipeline.yml</i> file. This configuration file is located in the <i>/etc/ceilometer</i> folder on all of the controller nodes.</p>
+<p>
+<b>Note</b>: The <i>pipeline.yml</i> configuration file needs to be changed on <b>all</b> the controller nodes to actually affect the white-listing and or polling strategy.</p>
+<p>The configuration file is comprised of two major elements: <b>sources</b> and <b>sinks</b>. <b>Sources</b> are data harvested from notifications posted by services or collected through polling. <b>Sinks</b> represent how that data is modified before it is published to the internal queue for collection and storage.</p>
+<p>In the Sources section there is a list of default meters. These meters are the data that is going
+                to be collected. The list of meters can be easily reduced or increased by editing
+                the <i>pipeline.yml</i> configuration file and then restarting the <xref
+                    href="1.1commerical.services-reporting-components.dita#topic4362/centralagent"
+                />and the  <xref
+                    href="1.1commerical.services-reporting-components.dita#topic4362/collector"/>.
+                If more meters are desired, please refer to the <xref
+                    href="http://docs.openstack.org/developer/ceilometer/measurements.html#measurements"
+                    type="section" scope="external" format="html">OpenStack
+                    Ceilometer documentation</xref>.</p>
+<codeblock>
+  <codeph>---
+sources:
+    - name: meter_source
+      interval: 604800
+      meters:
+          - "instance"
+          - "image"
+          - "image.size"
+          - "image.upload"
+          - "image.delete"
+          - "volume"
+          - "volume.size"
+          - "snapshot"
+          - "snapshot.size"
+          - "ip.floating"
+          - "network.*"
+          - "compute.instance.create.end"
+          - "compute.instance.delete.end"
+          - "compute.instance.update"
+          - "compute.instance.exists"
+      sinks:
+          - meter_sink
+sinks:
+    - name: meter_sink
+      transformers:
+      publishers:
+          - notifier://
+</codeph>
+</codeblock>
+</section>
+<section id="pollinterval"> <title>Modifying the Polling Intervals</title>
+<p>This option does not apply to meters that are notification-only because those meters are not polled.</p>
+<p>The <b>interval attribute</b> is the time between polls. 
+Meters that are available as both notification <i>and</i> polling are going to be polled at the specified interval. To rely on notifications rather than polling, set the interval attribute to 604800 seconds, or once a week.</p>
+<p>Here it is an example of a compute-only <i>pipeline.yml</i> file where the poll interval has been increased to once daily.</p>
+<p>
+<b>Note</b>: These changes will also completely STOP reception of data from all the non-listed meters.</p>
+<codeblock>
+  <codeph>---
+sources:
+    - name: meter_source
+      interval: 86400
+      meters:
+          - "instance"
+          - "memory"
+          - "vcpus"
+          - "compute.instance.create.end"
+          - "compute.instance.delete.end"
+          - "compute.instance.update"
+          - "compute.instance.exists"
+      sinks:
+          - meter_sink
+sinks:
+    - name: meter_sink
+      transformers:
+      publishers:
+          - notifier://
+</codeph>
+</codeblock>
+</section>
+<section id="swift"> <title>Swift Considerations</title>
+<p>Ceilometer, by default, does not collect any data from Swift. Swift data can only be collected using polling, not notifications, and the service could easily generate enough traffic to overwhelm any back-end solution not specifically built to handle Big Data.</p>
+<p>Polling can be a big performance hit due to the sheer amount of data that the system may have to ingest. It also greatly increases query response time when the database has overly-large amounts of data to scan. Such scans usually consume excessive amounts of CPU and memory resources. In the worst cases, long waits for query replies can result in timeouts.</p>
+<p>The Swift service has five separate polling meters:</p>
+<ul>
+<li>storage.objects</li>
+<li>storage.objects.size</li>
+<li>storage.objects.containers</li>
+<li>storage.containers.objects</li>
+<li>storage.containers.objects.size</li>
+</ul>
+<p>Here is an example of the <i>pipeline.yml</i> configuration file updating the Swift meters to poll only once an hour.</p>
+<codeblock>
+  <codeph>---
+sources:
+    - name: meter_source
+      interval: 604800
+      meters:
+          - "instance"
+          - "image"
+          - "image.size"
+          - "image.upload"
+          - "image.delete"
+          - "volume"
+          - "volume.size"
+          - "snapshot"
+          - "snapshot.size"
+          - "ip.floating"
+          - "network.*"
+          - "compute.instance.create.end"
+          - "compute.instance.delete.end"
+          - "compute.instance.update"
+          - "compute.instance.exists"
+      sinks:
+          - meter_sink
+    - name: swift_source
+      interval: 3600
+      meters:
+          - "storage.objects"
+          - "storage.objects.size"
+          - "storage.objects.containers"
+          - "storage.containers.objects"
+          - "storage.containers.objects.size"
+      sinks:
+          - meter_sink
+sinks:
+    - name: meter_sink
+      transformers:
+      publishers:
+          - notifier://
+</codeph>
+</codeblock>
+<p>Every time polling interval elapses, it collects at least five messages per <b>each</b> existing Swift object and container. The following table illustrate the amount of data produced hourly in different scenarios:</p>
+<table>
+<tgroup cols="4">
+<colspec colname="col1"/>
+<colspec colname="col2"/>
+<colspec colname="col3"/>
+<colspec colname="col4"/>
+<tbody>
+<row>
+    <entry>Swift Containers</entry>
+    <entry>Objects Per Container</entry>
+    <entry>Number of Samples Per Hour (5 meters)</entry>
+    <entry>Total Samples Stored in a 24-hour Period </entry>
+  </row>
+<row>
+    <entry>10</entry>
+    <entry>10</entry>
+    <entry>500</entry>
+    <entry>12,000</entry>
+  </row>
+<row>
+    <entry>10</entry>
+    <entry>100</entry>
+    <entry>5000</entry>
+    <entry>120,000</entry>
+  </row>
+<row>
+    <entry>100</entry>
+    <entry>100</entry>
+    <entry>50,000</entry>
+    <entry>1,200,000</entry>
+  </row>
+<row>
+    <entry>100</entry>
+    <entry>1000</entry>
+    <entry>500,000</entry>
+    <entry>120,000,000</entry>
+  </row>
+</tbody>
+</tgroup>
+</table>
+<p>Even a very, very small Swift storage with only 10 containers and 100 files will store 120,000 samples a day. File size doesn't matter; it's the sheer number of samples that risks a severe performance impact on the database.</p>
+</section>
+</body>
+</topic>

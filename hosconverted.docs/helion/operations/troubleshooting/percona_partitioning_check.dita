@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="topic_hzq_2nz_sw">
+  <title><keyword keyref="kw-hos-tm"/>
+    <keyword keyref="kw-hos-version-301"/>: Checking for Percona Cluster Partitioning</title>
+
+  <body>
+<section>
+     <!-- <p>A new check has been added to the Percona play to check whether the Percona cluster has
+        become partitioned.</p>
+      <p>You may need to run this check if you experience unexplained behavior or service errors,
+        because one possible cause is that the MySQL database that stores all the services' internal
+        configuration data may be incorrect or out of sync. This can happen if your Percona cluster
+        is partitioned. If it is, you can have multiple versions of the database with incorrect/out
+        of sync data. This needs to be fixed to avoid data corruption. Therefore, you can run this
+        check to troubleshoot and remove the partitions.</p>-->
+      <p>A new check has been added to the Percona play to check whether your Percona cluster has
+        become partitioned. If it has, you could have mutliple versions of your dtabase with
+        incorrect/out of sync data which need to be re-aligned. This would typically cause
+        unexplained behaviour or service errors because the MySQL databases which underpin services
+        may not be in the same state on all nodes of your HLM cluster.</p>
+      <p>Partitioning could happen because of an issue present in an earlier version or by running
+        bootstrap on one host of a cluster which has Percona up and running.</p>
+      <p>You can run this check to troubleshoot and correct the partitioned cluster.</p>
+      <p>This check is from the percona-status play and logs the following in the event of a
+        cluster</p>
+      <p>partition.</p>
+    <codeblock>TASK: [FND-MDB | status | Report if the cluster seems partitioned] ************ 
+failed: [multicp-cp1-c1-m1-mgmt] =>
+{"failed": true}
+msg: The cluster size is 2
+The number of nodes in the cluster 3
+The number of nodes with mysql down is 0
+Check the cluster is not partitioned!!
+FATAL: all hosts have already failed – aborting</codeblock>
+      <p>This indicates your cluster is partitioned. </p>
+      <p>The number of nodes in each cluster partition can be identified as follows:</p>
+      <codeblock>sudo mysql -sNe "SHOW GLOBAL STATUS LIKE 'wsrep_cluster_size'"
+wsrep_cluster_size 2</codeblock>
+      <p>And the nodes in each partition can be identified as follows:</p>
+      <codeblock>sudo mysql -sNe "SHOW GLOBAL STATUS LIKE 'wsrep_incoming_addresses'"
+wsrep_incoming_addresses 192.168.245.5:3306,192.168.245.4</codeblock>
+      <p>To fix the partitioned cluster:</p>
+      <ol><li>Identify which node or nodes of your cluster have the "correct" version of your database; i.e.,
+          which cluster partition is correct. <p>Generally, in MySQL  all queries are directed to
+            the first node of your cluster through haproxy, so the first node of the cluster or
+            controller 1 is likely to be in the up-to-date cluster. Examine some of the service
+            databases to establish if recent updates in Nova compute or Glance have been applied to
+            this database.</p>
+        </li><li>Shut down MySQL on the node or nodes which have been identified as in the "incorrect" partition
+          or having an incorrect version of the database:
+          <codeblock>$ sudo service mysql stop</codeblock>
+        </li><li>Confirm that MySQL is fully shut down and that no daemons are running
+          <codeblock>$ ps -elf|grep -i mysql</codeblock>
+        </li><li>Make a copy of the database on the node:
+          <codeblock>$ sudo cp -r /var/lib/mysql /var/lib/mysql.save</codeblock>
+        </li><li>Try to start MySQL on the node. <codeblock>sudo service mysql start</codeblock>If this database
+          has been updated then this may fail an SST as follows: A typical warning in the logs would
+          be:
+          <codeblock>2016-06-23 17:28:13 26494 [ERROR] WSREP:
+gcs/src/gcs_group.cpp:group_post_state_exchange():321: Reversing history: 442 -> 440, this
+member has applied 2 more events than the primary component.Data loss is possible.
+Aborting.</codeblock>If
+          this fails, execute step 6. Otherwise, skip to step 7. </li><li>Remove the <codeph>grastate.dat</codeph> file on the problem node to force a full SST from one
+          of the other cluster nodes and start
+          <codeblock>$ sudo rm -rf /var/lib/mysql/grastate.dat
+$ sudo service mysql start</codeblock>
+        </li><li>Check the database on this node to confirm it is now fully aligned with the "good" cluster
+          partition.</li>
+        <li>Run percona-status to make sure it is running and that the cluster partition check no
+          longer reports a partitioned cluster
+          <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts percona-status.yml</codeblock></li>
+      
+      
+      </ol>
+    </section>
+  </body>
+</topic>

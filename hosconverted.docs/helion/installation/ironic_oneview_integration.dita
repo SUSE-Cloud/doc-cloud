@@ -1,0 +1,340 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="ironic_oneview_integration">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Ironic OneView Integration</title>
+  <body>
+    <p conkeyref="HOS-conrefs/applies-to"/>
+
+    <section id="summary">
+      <title>Summary</title>
+      <p><keyword keyref="kw-hos-phrase"/> supports integration of Ironic (Baremetal) service with HPE OneView using
+          <i>agent_pxe_oneview</i> driver. Please refer to <xref
+          href="https://docs.openstack.org/developer/ironic/drivers/oneview.html" format="html"
+          scope="external">OpenStack Documentation</xref> for more information.</p>
+    </section>
+
+    <section id="prereqs">
+      <title>Prerequesites</title>
+      <p>
+        <ol id="prereq_list">
+          <li>Installed <keyword keyref="kw-hos-phrase"/> with entry-scale-ironic-flat-network or
+            entry-scale-ironic-multi-tenancy model.</li>
+          <li>OneView 3.0 instance is running and connected to management network.</li>
+          <li>OneView configuration is set into <codeph>definition/data/ironic/ironic_config.yml</codeph> (and
+            <codeph>ironic-reconfigure.yml</codeph> playbook ran if needed). This should enable <i>agent_pxe_oneview</i> driver
+            in ironic conductor.</li>
+          <li>Managed node(s) should support PXE booting in legacy BIOS mode.</li>
+          <li>Managed node(s) should have PXE boot NIC listed first. That is, embedded 1Gb NIC must be
+            disabled (otherwise it always goes first).</li>
+        </ol>
+      </p>
+    </section>
+    
+    <section id="integrating">
+      <title>Integrating with OneView</title>
+      <p>
+        <ol>
+          <li>On the lifecycle manager, open the file
+              <codeph>~/helion/my_cloud/definition/data/ironic/ironic_config.yml</codeph>
+            <codeblock>~$ cd ~/helion
+~/helion$ vi my_cloud/definition/data/ironic/ironic_config.yml</codeblock>
+          </li>
+          <li>Modify the settings listed below:
+            <ol>
+              <li><codeph>enable_oneview</codeph>: should be set to "true" for Oneview
+                integration</li>
+              <li><codeph>oneview_manager_url</codeph>: HTTPS endpoint of Oneview management
+                interface, for example: <b>https://10.0.0.10/</b></li>
+              <li><codeph>oneview_username</codeph>: OneView username, for example:
+                  <b>Administrator</b></li>
+              <li><codeph>oneview_encrypted_password</codeph>: OneView password in encrypted or
+                clear text form. Encrypted form is distinguished by presence of '@hos@' at the
+                beginning of the string. Encrypted form can be created by running hosencrypt.py
+                program. This program is shipped as part of <keyword keyref="kw-hos"/> and can be
+                found in <codeph>~/helion/hos/ansible</codeph> directory on lifecycle manager.</li>
+              <li><codeph>oneview_allow_insecure_connections</codeph>: should be set to "true" if
+                OneView is using self-generated certificate.</li>
+            </ol>
+          </li>
+          <li>Once you have saved your changes and exited the editor, add files, commit changes to
+            local git repository, and run <codeph>config-processor-run.yml</codeph> and
+              <codeph>ready-deployment.yml</codeph> playbooks, as described at <xref
+              href="https://docs.hpcloud.com/hos-4.x/#helion/installation/using_git.html"
+              format="html" scope="external">Using Git for Configuration Management</xref>
+            <codeblock>~/helion$ git add my_cloud/definition/data/ironic/ironic_config.yml
+~/helion$ cd hos/ansible
+~/helion/hos/ansible$ ansible-playbook -i hosts/localhost config-processor-run.yml
+...
+~/helion/hos/ansible$ ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock>
+          </li>
+          <li>Run ironic-reconfigure.yml playbook.
+            <codeblock>$ cd ~/scratch/ansible/next/hos/ansible/
+              
+# This is needed if password was encrypted in ironic_config.yml file
+~/scratch/ansible/next/hos/ansible$ export HOS_USER_PASSWORD_ENCRYPT_KEY=your_password_encrypt_key
+              
+~/scratch/ansible/next/hos/ansible$ ansible-playbook -i hosts/verb_hosts ironic-reconfigure.yml 
+...</codeblock>
+          </li>
+        </ol>
+      </p>
+    </section>
+
+    <section id="registering_oneview">
+      <title>Registering Node in OneView</title>
+      <p>In the OneView web interface:
+        <ol>
+          <li>Navigate to Menu -> <b>Server Hardware</b>. Add new <b>Server Hardware</b> item, using managed node
+            iLO IP and credentials. If this is the first node of this type being added,
+            corresponding <b>Server Hardware Type</b> will be created automatically.</li>
+          <li>Navigate to Menu -> <b>Server Profile Template</b>. Add <b>Server Profile Template</b>. Use
+              <b>Server Hardware Type</b> corresponding to node being registered. In <b>BIOS
+              Settings</b> section, set <b>Manage Boot Mode</b> and <b>Manage Boot Order</b> options
+            must be turned on: <p><image href="../../media/ironic/OneViewWebRegister.png"
+                id="image_xxs_kkb_m1b"/></p>
+          </li>
+          <li>Verify that node is powered off. Power the node off if needed.
+            <note type="warning">Oneview does not support managing boot order for HPE DL servers in UEFI mode. Therefore, HPE DL servers can be only managed in Legacy BIOS mode .</note>
+          </li>
+        </ol>
+      </p>
+      
+    </section>
+
+
+    <section id="provisioning_ironic_node">
+      <title>Provisioning Ironic Node</title>
+      <p>
+        <ol>
+          <li>Login to the lifecycle manager and source respective credentials file (e.g. service.osrc for admin account).</li>
+          <li>Review glance images with <codeph>glance image-list</codeph>
+            <codeblock>$ glance image-list
++--------------------------------------+--------------------------+
+| ID                                   | Name                     |
++--------------------------------------+--------------------------+
+| c61da588-622c-4285-878f-7b86d87772da | cirros-0.3.4-x86_64      |
+| 6616ef6a-ee7a-478c-b1bf-4c93088a123f | ir-deploy-iso-HOS5.0     |
+| 633d379d-e076-47e6-b56d-582b5b977683 | ir-deploy-kernel-HOS5.0  |
+| d5828785-edf2-49fa-8de2-3ddb7f3270d5 | ir-deploy-ramdisk-HOS5.0 |
+| d6b5d971-42fd-492b-b33e-6e5f2d88e942 | Ubuntu Trusty 14.04 BIOS |
++--------------------------------------+--------------------------+</codeblock>
+            <p>Ironic deploy images ("ir-deploy-*") were created automatically by HOS installer. We
+              will be using <b>agent_pxe_oneview</b> Ironic driver which needs
+                <b>ir-deploy-kernel</b> and <b>ir-deploy-ramdisk</b> images. Managed node will be
+              deployed using <b>Ubuntu Trusty 14.04 BIOS</b> image.</p>
+          </li>
+          <li>Create node using <codeph>agent_pxe_oneview</codeph> driver.
+            <codeblock>$ ironic --ironic-api-version 1.22 node-create -d agent_pxe_oneview --name test-node-1 --network-interface neutron -p memory_mb=131072 -p cpu_arch=x86_64 -p local_gb=80 -p cpus=2 \
+    -p 'capabilities=boot_mode:bios,boot_option:local,server_hardware_type_uri:/rest/server-hardware-types/E5366BF8-7CBF-48DF-A752-8670CF780BB2,server_profile_template_uri:/rest/server-profile-templates/00614918-77f8-4146-a8b8-9fc276cd6ab2' \
+    -i 'server_hardware_uri=/rest/server-hardware/32353537-3835-584D-5135-313930373046' \
+    -i dynamic_allocation=True \
+    -i deploy_kernel=633d379d-e076-47e6-b56d-582b5b977683 \
+    -i deploy_ramdisk=d5828785-edf2-49fa-8de2-3ddb7f3270d5
+ 
++-------------------+--------------------------------------------------------------------------+
+| Property          | Value                                                                    |
++-------------------+--------------------------------------------------------------------------+
+| chassis_uuid      |                                                                          |
+| driver            | agent_pxe_oneview                                                        |
+| driver_info       | {u'server_hardware_uri': u'/rest/server-                                 |
+|                   | hardware/32353537-3835-584D-5135-313930373046', u'dynamic_allocation':   |
+|                   | u'True', u'deploy_ramdisk': u'd5828785-edf2-49fa-8de2-3ddb7f3270d5',     |
+|                   | u'deploy_kernel': u'633d379d-e076-47e6-b56d-582b5b977683'}               |
+| extra             | {}                                                                       |
+| name              | test-node-1                                                              |
+| network_interface | neutron                                                                  |
+| properties        | {u'memory_mb': 131072, u'cpu_arch': u'x86_64', u'local_gb': 80, u'cpus': |
+|                   | 2, u'capabilities':                                                      |
+|                   | u'boot_mode:bios,boot_option:local,server_hardware_type_uri:/rest        |
+|                   | /server-hardware-types/E5366BF8-7CBF-                                    |
+|                   | 48DF-A752-8670CF780BB2,server_profile_template_uri:/rest/server-profile- |
+|                   | templates/00614918-77f8-4146-a8b8-9fc276cd6ab2'}                         |
+| resource_class    | None                                                                     |
+| uuid              | c202309c-97e2-4c90-8ae3-d4c95afdaf06                                     |
++-------------------+--------------------------------------------------------------------------+</codeblock>
+            <p>
+              <note>
+                <ul>
+                  <li>For deployments created via Ironic/OneView integration, <codeph>memory_mb</codeph> property
+                    must reflect physical amount of RAM installed in managed node.  That is, for a server
+                    with 128 Gb of RAM it works out to 132*1024=13072.</li>
+                  <li>Boot mode in capabilities property must reflect boot mode used by the server,
+                    i.e. 'bios' for Legacy BIOS and 'uefi' for UEFI.</li>
+                  <li>Values for <codeph>server_hardware_type_uri</codeph>, <codeph>server_profile_template_uri</codeph> and
+                    <codeph>server_hardware_uri</codeph> can be grabbed from browser URL field while navigating to
+                    respective objects in OneView UI. URI corresponds to the part of URL which
+                    starts form the token '/rest'. That is, URL
+                    https://oneview.mycorp.net/#/profile-templates/show/overview/r/rest/server-profile-templates/12345678-90ab-cdef-0123-012345678901
+                    corresponds to URI
+                    /rest/server-profile-templates/12345678-90ab-cdef-0123-012345678901.</li>
+                  <li>Grab IDs of <codeph>deploy_kernel</codeph> and <codeph>deploy_ramdisk</codeph> from <b>glance image-list</b> output above.</li>
+                </ul>
+              </note>
+            </p>
+          </li>
+          <li>Create port.
+            <codeblock>$ ironic --ironic-api-version 1.22 port-create \
+    --address aa:bb:cc:dd:ee:ff \
+    --node c202309c-97e2-4c90-8ae3-d4c95afdaf06 \
+    -l switch_id=ff:ee:dd:cc:bb:aa \
+    -l switch_info=MY_SWITCH \
+    -l port_id="Ten-GigabitEthernet 1/0/1" \
+    --pxe-enabled true
++-----------------------+----------------------------------------------------------------+
+| Property              | Value                                                          |
++-----------------------+----------------------------------------------------------------+
+| address               | 8c:dc:d4:b5:7d:1c                                              |
+| extra                 | {}                                                             |
+| local_link_connection | {u'switch_info': u'C20DATA', u'port_id': u'Ten-GigabitEthernet |
+|                       | 1/0/1',    u'switch_id': u'ff:ee:dd:cc:bb:aa'}                 |
+| node_uuid             | c202309c-97e2-4c90-8ae3-d4c95afdaf06                           |
+| pxe_enabled           | True                                                           |
+| uuid                  | 75b150ef-8220-4e97-ac62-d15548dc8ebe                           |
++-----------------------+----------------------------------------------------------------+</codeblock>
+            <p>
+              <note type="warning">Ironic Multi-Tenancy networking model is used in this example.
+                Therefore, ironic port-create command contains information about the physical
+                switch. OneView integration can also be performed using the Ironic Flat Networking
+                model. Please refer to <xref keyref="ironic_examples">Ironic Examples</xref> for
+                details.</note>
+            </p>
+          </li>
+          <li>Move node to manageable provisioning state. The connectivity between Ironic and
+            OneView will be verified, Server Hardware Template settings validated, and Server
+            Hardware power status retrieved from OneView and set into the Ironic node.
+            <codeblock>$ ironic node-set-provision-state test-node-1 manage</codeblock>
+          </li>
+          <li>Verify that node power status is populated.
+            <codeblock>$ ironic node-show test-node-1
++------------------------+--------------------------------------------------------------------------+
+| Property               | Value                                                                    |
++------------------------+--------------------------------------------------------------------------+
+| chassis_uuid           |                                                                          |
+| clean_step             | {}                                                                       |
+| console_enabled        | False                                                                    |
+| created_at             | 2017-06-30T21:00:26+00:00                                                |
+| driver                 | agent_pxe_oneview                                                        |
+| driver_info            | {u'server_hardware_uri': u'/rest/server-                                 |
+|                        | hardware/32353537-3835-584D-5135-313930373046', u'dynamic_allocation':   |
+|                        | u'True', u'deploy_ramdisk': u'd5828785-edf2-49fa-8de2-3ddb7f3270d5',     |
+|                        | u'deploy_kernel': u'633d379d-e076-47e6-b56d-582b5b977683'}               |
+| driver_internal_info   | {}                                                                       |
+| extra                  | {}                                                                       |
+| inspection_finished_at | None                                                                     |
+| inspection_started_at  | None                                                                     |
+| instance_info          | {}                                                                       |
+| instance_uuid          | None                                                                     |
+| last_error             | None                                                                     |
+| maintenance            | False                                                                    |
+| maintenance_reason     | None                                                                     |
+| name                   | test-node-1                                                              |
+| network_interface      |                                                                          |
+| power_state            | power off                                                                |
+| properties             | {u'memory_mb': 131072, u'cpu_arch': u'x86_64', u'local_gb': 80, u'cpus': |
+|                        | 2, u'capabilities':                                                      |
+|                        | u'boot_mode:bios,boot_option:local,server_hardware_type_uri:/rest        |
+|                        | /server-hardware-types/E5366BF8-7CBF-                                    |
+|                        | 48DF-A752-8670CF780BB2,server_profile_template_uri:/rest/server-profile- |
+|                        | templates/00614918-77f8-4146-a8b8-9fc276cd6ab2'}                         |
+| provision_state        | manageable                                                               |
+| provision_updated_at   | 2017-06-30T21:04:43+00:00                                                |
+| raid_config            |                                                                          |
+| reservation            | None                                                                     |
+| resource_class         |                                                                          |
+| target_power_state     | None                                                                     |
+| target_provision_state | None                                                                     |
+| target_raid_config     |                                                                          |
+| updated_at             | 2017-06-30T21:04:43+00:00                                                |
+| uuid                   | c202309c-97e2-4c90-8ae3-d4c95afdaf06                                     |
++------------------------+--------------------------------------------------------------------------+</codeblock>
+          </li>
+          <li>Move node to available provisioning state. The Ironic node will be reported to Nova as available. 
+            <codeblock>$ ironic node-set-provision-state test-node-1 provide</codeblock>
+          </li>
+          <li>Verify that node resources were added to Nova hypervisor stats.
+            <codeblock>$ nova hypervisor-stats
++----------------------+--------+
+| Property             | Value  |
++----------------------+--------+
+| count                | 1      |
+| current_workload     | 0      |
+| disk_available_least | 80     |
+| free_disk_gb         | 80     |
+| free_ram_mb          | 131072 |
+| local_gb             | 80     |
+| local_gb_used        | 0      |
+| memory_mb            | 131072 |
+| memory_mb_used       | 0      |
+| running_vms          | 0      |
+| vcpus                | 2      |
+| vcpus_used           | 0      |
++----------------------+--------+</codeblock>
+          </li>
+          <li>Create Nova flavor.
+            <codeblock>$ nova flavor-create m1.ironic auto 131072 80 2        
++--------------------------------------+-----------+-----------+------+-----------+------+-------+-------------+-----------+
+| ID                                   | Name      | Memory_MB | Disk | Ephemeral | Swap | VCPUs | RXTX_Factor | Is_Public |
++--------------------------------------+-----------+-----------+------+-----------+------+-------+-------------+-----------+
+| 33c81884-b8aa-46b7-ab3f-076f3b72f8d8 | m1.ironic | 131072    | 80   | 0         |      | 2     | 1.0         | True      |
++--------------------------------------+-----------+-----------+------+-----------+------+-------+-------------+-----------+
+$ nova flavor-key m1.ironic set capabilities:boot_mode="bios"
+$ nova flavor-key m1.ironic set capabilities:boot_option="local"
+$ nova flavor-key m1.ironic set cpu_arch=x86_64</codeblock>
+            <p><note>All parameters (specifically, amount of RAM and boot mode) must correspond to ironic node parameters.</note></p>
+          </li>
+          <li>Create Nova keypair if needed.
+            <codeblock>$ nova keypair-add ironic_kp --pub-key ~/.ssh/id_rsa.pub</codeblock>
+          </li>
+          <li>Boot Nova instance.
+            <codeblock>$ nova boot --flavor m1.ironic --image d6b5d971-42fd-492b-b33e-6e5f2d88e942 --key-name ironic_kp --nic net-id=5f36f0d9-2df3-4ee3-810c-baffd458dcf3 test-node-1
++--------------------------------------+-----------------------------------------------------------------+
+| Property                             | Value                                                           |
++--------------------------------------+-----------------------------------------------------------------+
+| OS-DCF:diskConfig                    | MANUAL                                                          |
+| OS-EXT-AZ:availability_zone          |                                                                 |
+| OS-EXT-SRV-ATTR:host                 | -                                                               |
+| OS-EXT-SRV-ATTR:hypervisor_hostname  | -                                                               |
+| OS-EXT-SRV-ATTR:instance_name        |                                                                 |
+| OS-EXT-STS:power_state               | 0                                                               |
+| OS-EXT-STS:task_state                | scheduling                                                      |
+| OS-EXT-STS:vm_state                  | building                                                        |
+| OS-SRV-USG:launched_at               | -                                                               |
+| OS-SRV-USG:terminated_at             | -                                                               |
+| accessIPv4                           |                                                                 |
+| accessIPv6                           |                                                                 |
+| adminPass                            | pE3m7wRACvYy                                                    |
+| config_drive                         |                                                                 |
+| created                              | 2017-06-30T21:08:42Z                                            |
+| flavor                               | m1.ironic (33c81884-b8aa-46b7-ab3f-076f3b72f8d8)                |
+| hostId                               |                                                                 |
+| id                                   | b47c9f2a-e88e-411a-abcd-6172aea45397                            |
+| image                                | Ubuntu Trusty 14.04 BIOS (d6b5d971-42fd-492b-b33e-6e5f2d88e942) |
+| key_name                             | ironic_kp                                                       |
+| metadata                             | {}                                                              |
+| name                                 | test-node-1                                                     |
+| os-extended-volumes:volumes_attached | []                                                              |
+| progress                             | 0                                                               |
+| security_groups                      | default                                                         |
+| status                               | BUILD                                                           |
+| tenant_id                            | c8573f7026d24093b40c769ca238fddc                                |
+| updated                              | 2017-06-30T21:08:42Z                                            |
+| user_id                              | 2eae99221545466d8f175eeb566cc1b4                                |
++--------------------------------------+-----------------------------------------------------------------+
+</codeblock>
+            <p>During nova instance boot, the following operations will be performed by Ironic via OneView REST API.
+              <ul>
+                <li>In OneView, new Server Profile is generated for specified Server Hardware, using
+                  specified Server Profile Template. Boot order in Server Profile is set to list PXE
+                  as the first boot source.</li>
+                <li>Managed node is powered on and boots IPA image from PXE.</li>
+                <li>IPA image writes user image onto disk and reports success back to Ironic.</li>
+                <li>Ironic modifies Server Profile in OneView to list 'Disk' as default boot option.</li>
+                <li>Ironic reboots the node (via OneView RESt API call).</li>
+              </ul>
+            </p>
+          </li>
+        </ol>
+      </p>
+    </section>
+  </body>
+</topic>

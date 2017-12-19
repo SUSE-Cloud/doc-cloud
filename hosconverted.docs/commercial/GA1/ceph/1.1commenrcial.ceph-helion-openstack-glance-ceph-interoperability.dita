@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic
+  PUBLIC "-//OASIS//DTD DITA Topic//EN" "http://docs.oasis-open.org/dita/v1.1/OS/dtd/topic.dtd" ><topic xml:lang="en-us" id="topic4604">
+<title>HPE Helion <tm tmtype="reg">OpenStack</tm> 1.1 and 1.1.1: Glance-Ceph Interoperability</title>
+<titlealts>
+<searchtitle>HPE Helion Openstack 1.1: Glance-Ceph Interoperability</searchtitle>
+</titlealts>
+<prolog>
+<metadata>
+<othermeta name="layout" content="default"/>
+<othermeta name="product-version" content="HPE Helion Openstack"/>
+<othermeta name="product-version" content="HPE Helion Openstack 1.1"/>
+<othermeta name="role" content="Storage Engineer"/>
+<othermeta name="role" content="Storage Architect"/>
+<othermeta name="role" content="Storage Administrator"/>
+<othermeta name="role" content="Storage Engineer"/>
+<othermeta name="role" content="Service Developer"/>
+<othermeta name="role" content="Cloud Administrator"/>
+<othermeta name="role" content="Application Developer"/>
+<othermeta name="role" content="Paul F"/>
+<othermeta name="product-version1" content="HPE Helion Openstack"/>
+<othermeta name="product-version2" content="HPE Helion Openstack 1.1"/>
+</metadata>
+</prolog>
+<body>
+<p>
+<!--PUBLISHED-->
+ <!--./commercial/GA1/ceph/1.1commenrcial.ceph-helion-openstack-glance-ceph-interoperability.md-->
+ <!--permalink: /helion/openstack/1.1/ceph-hp-helion-openstack-glance-ceph-interoperability/--></p>
+<p>Image Operations (Glance), Volume Storage (Cinder) and Compute (Nova)  files are stored on Ceph RADOS Block Device (RBD). The benefit of storing Glance images, Cinder volume, and Nova nodes on RDB are:</p>
+<ul>
+<li>Snapshots</li>
+<li>Live migration</li>
+<li>Recovery</li>
+<li>Copy-on-write Clones from Glance images to Cinder volumes</li>
+</ul>
+<p>For Glance-Ceph integration, the HPE Helion OpenStack Ceph Configuration service performs the following steps. For more details about the process of integrating a Ceph storage cluster with Glance, refer to  <xref href="http://ceph.com/docs/master/rbd/rbd-openstack/?highlight=openstack%20glance" scope="external" format="html" >Ceph documentation</xref>
+</p>
+<p>The following steps are automatically performed when you download and execute <codeph>Ceph_client</codeph> script from the controller and compute nodes as per the readme file in the tar file.</p>
+<ol>
+<li>Create a new Ceph pool to store Glance
+                    images.<codeblock><codeph>ceph osd pool create &lt;glance pool name&gt; &lt;pg-num&gt;
+</codeph></codeblock><p>Example:</p><codeblock><codeph>ceph osd pool create helion-ceph-glance 100
+</codeph></codeblock></li>
+<li>Change <codeph>glance-api.conf</codeph> to reference the Ceph rbd storage only on overcloud
+                controller nodes.<p>The following sample displays the
+                        <codeph>glance-api.conf</codeph> references to the Ceph rbd storage only on
+                    overcloud controller
+                nodes.</p><codeblock><codeph># For ceph integration
+
+default_store = rbd
+rbd_store_user = glance
+rbd_store_pool = helion-ceph-glance
+show_image_direct_url = True
+known_stores = glance.store.filesystem.Store, glance.store.swift.Store, glance.store.rbd.Store
+
+#Enable debug for troubleshooting only
+#debug = True
+#verbose = True
+</codeph></codeblock></li>
+<li>Create symbolic or softlinks to the relevant files on overcloud controller
+                nodes.<codeblock><codeph>ln -s /usr/lib/python2.7/dist-packages/rados* /opt/stack/venvs/openstack/lib/python2.7/site-packages/.
+ln -s /usr/lib/python2.7/dist-packages/rbd* /opt/stack/venvs/openstack/lib/python2.7/site-packages/.
+</codeph></codeblock></li>
+<li>Restart Glance services on all the overcloud controller
+                nodes.<codeblock><codeph>service glance-api restart
+service glance-reg restart
+glance-manage db_sync
+</codeph></codeblock></li>
+<li>Create a sample Glance RAW image on any controller
+                    nodes.<codeblock><codeph>glance image-create --name RImg --is-public=true --disk-format=raw --container-format=bare --file cirros-0.3.2-x86_64-disk.raw
+</codeph></codeblock><p>Raw
+                    data format is used with RBD for instant image snapshots and protection. For
+                    more details, refer to <xref
+                        href="http://ceph.com/docs/master/rbd/qemu-rbd/?highlight=raw"
+                        scope="external" format="html">ceph documentation</xref>
+                </p><p>For the image conversion, use a conversion tool like qemu-img to convert one
+                    image format to another.</p><p>For
+                example:</p><codeblock><codeph>qemu-img convert -f {source-format} -O {output-format} {source-filename} {output-filename}
+
+qemu-img convert -f qcow2 -O raw cirros-0.3.2-x86_64-disk.img cirros-0.3.2-x86_64-disk.raw
+
+glance image-create --name RImg --is-public=true --disk-format=raw --container-format=bare --file cirros-0.3.2-x86_64-disk.raw
+</codeph></codeblock></li>
+<li>Ensure that the uploaded Glance image is available in the Dashboard (Horizon) UI and correctly
+                stored in the appropriate pool in
+                    Ceph.<codeblock><codeph>rbd ls -l &lt;glance pool name&gt;
+
+glance image-list
+</codeph></codeblock><p>You
+                    can also login to Horzion UI and view the changes.</p></li>
+<li>If problem occur in any of the above steps, do the following:<ul>
+                    <li>Enable logging in <codeph>glance-api.conf</codeph>
+                    </li>
+                    <li>Restart Glance services and re-run the problem step. </li>
+                    <li>Collect Glance debug logs in the <codeph>/var/log/glance</codeph> directory </li>
+                    <li>Contact HPE support team for inputs. </li>
+                </ul></li>
+</ol>
+<section id="ceph-glance-clone-copy-on-write"> <title>Ceph Glance Clone Copy on Write</title>
+<p>To clone an image quickly and easily, Ceph implements Clone Copy on Write from the Protected Snapshot. During the image import in Glance, images are snapshotted and protected, clones are quickly created from the snapshot and a volume is created from an image. For more details, see <xref href="http://ceph.com/docs/master/dev/rbd-layering/?highlight=rbd%20layering" scope="external" format="html" >http://ceph.com/docs/master/dev/rbd-layering/?highlight=rbd%20layering</xref>.</p>
+<p>The following steps are automatically performed when you download and execute <codeph>Ceph_client</codeph> script from the controller and compute nodes as per the readme file in the tar file.</p>
+<ol>
+<li>Edit the <codeph>cinder.conf</codeph> file on all overcloud controller
+                    nodes.<codeblock><codeph>glance_api_version=2
+</codeph></codeblock></li>
+<li>Restart the Cinder services on all overcloud controller
+                    nodes.<codeblock><codeph>service cinder-volume restart
+service cinder-scheduler restart
+service cinder-api restart
+</codeph></codeblock><!--
+3. To create Glance image, enter:
+
+    glance image-create
+
+Note that Clone COW is achieved when the image is in RAW format. To convert from one format to another, use a onversion tool like qemu-img. 
+
+For example:
+
+    qemu-img convert -f {source-format} -O {output-format} {source-filename} {output-filename}
+    qemu-img convert -f qcow2 -O raw cirros-0.3.2-x86_64-disk.img cirros-0.3.2-x86_64-disk.raw
+    glance image-create -??-name RImg -??-is-public=true -??-disk-format=raw -??-container-format=bare -??-file cirros-0.3.2-x86_64-disk.raw
+
+4. Create the Cinder volume from the Glance image created on step 1 on any controller node.
+
+    cinder create -image-id <glance image id> -??-display-name RVol 2
+
+5. Ensure that the Cinder volume created is available at `rbd` pool
+
+    rbd ls -l <cinder pool name>
+
+    cinder list
+
+6. Track clones to demonstrate the copy-on-write feature by first listing snapshots of Glance images and then listing the children of the snapshot
+
+    rbd -??-pool <glance pool name> snap ls <glance image id>
+
+    rbd -??-pool <glance pool name> children -??-image <glance image id> -??-snap <snap name>
+
+    rbd children <glance pool name>/<glance-image id>@<snap name>
+--></li>
+<li>If you have any problems in any of the above steps, do the following:<ul>
+                        <li>Enable logging in <codeph>glance-api.conf</codeph> and
+                                <codeph>cinder.conf</codeph>. </li>
+                        <li>Restart Glance and Cinder services and re-run problem step. </li>
+                        <li>Collect Glance debug logs in <codeph>/var/log/glance</codeph> directory
+                            and Cinder debug logs in <codeph>/var/log/upstart</codeph>
+                            directory.</li>
+                        <li>Contact HPE support team for inputs.</li>
+                    </ul></li>
+</ol>
+</section>
+<section id="next-steps"> <title>Next Steps</title>
+<p>
+  <xref href="../../../commercial/GA1/ceph/1.1commenrcial.ceph-helion-openstack-ceph-hp-helion-openstack-cinder-storage.dita" >Ceph Cinder Storage</xref>
+</p>
+<p>
+  <xref href="#topic4604"> Return to Top </xref>
+</p>
+</section>
+</body>
+</topic>

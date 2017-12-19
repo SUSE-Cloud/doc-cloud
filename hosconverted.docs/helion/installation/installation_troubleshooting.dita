@@ -1,0 +1,469 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="troubleshooting_installation">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Troubleshooting the Installation</title>
+  <abstract><shortdesc outputclass="hdphidden">We have gathered some of the common issues that occur
+      during installation and organized them by when they occur during the
+    installation.</shortdesc></abstract>
+  <body>
+    <!--not tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <section id="about">
+      <p>We have gathered some of the common issues that occur during installation and organized
+        them by when they occur during the installation. These sections will coincide with the steps
+        labeled in the installation instructions.</p>
+      <ul>
+        <li><xref
+            href="installation_troubleshooting.dita#troubleshooting_installation/deployer_setup"
+            >Issues during Lifecycle-manager Setup</xref></li>
+        <li><xref
+            href="installation_troubleshooting.dita#troubleshooting_installation/deploy_cobbler"
+            >Issues while Provisioning your Baremetal Nodes</xref></li>
+        <li><xref
+            href="installation_troubleshooting.dita#troubleshooting_installation/config_processor"
+            >Issues while Updating Configuration Files</xref></li>
+        <li><xref href="installation_troubleshooting.dita#troubleshooting_installation/deploy_cloud"
+            >Issues while Deploying the Cloud</xref></li>
+        <li><xref href="blockstorageconfig_troubleshooting.dita">Issues during Block Storage Backend
+            Configuration</xref></li>
+      </ul>
+    </section>
+    <section id="deployer_setup"><title>Issues during Lifecycle-manager Setup</title>
+      <p><b>Issue: Running the hos-init.bash script when configuring your lifecycle manager does not
+          complete</b></p>
+      <p>Part of what the <codeph>~/hos-3.0.0/hos-init.bash</codeph> script does is install git and
+        so if your DNS nameserver(s) is not specified in your <codeph>/etc/resolv.conf</codeph>
+        file, is not valid, or is not functioning properly on your lifecycle manager then it won't
+        be able to complete.</p>
+      <p>To resolve this issue, double check your nameserver in your
+          <codeph>/etc/resolv.conf</codeph> file and then re-run the script.</p>
+    </section>
+    <section id="deploy_cobbler"><title>Issues while Provisioning your Baremetal Nodes</title>
+      <!-- RECEIVED VIA USER FEEDBACK -->
+      <p><b>Issue: The bm-power-status.yml playbook returns an error.</b></p>
+      <p>If the output of the bm-power-status.yml playbook gives you an error like the one below for
+        one of your servers then the most likely cause is an issue with the information located in
+        the ~/helion/my_cloud/definition/servers.yml file. It could be that the information is
+        incorrect or the iLO username you are using does not have administrator privileges. Verify
+        all of the information for that server and recommit the changes to git and re-run the
+        playbook if the information was incorrect. If it's a rights issue, ensure the iLO user has
+        administrative privileges.</p>
+      <p>Error:</p>
+      <codeblock>failed: [vsa1] => {"cmd": "ipmitool -I lanplus -E -N 5 -R 12 -U iLOAdmin -H 10.12.11.185 power status", "failed": true, "rc": 1}
+stderr: Error: Unable to establish IPMI v2 / RMCP+ session</codeblock>
+      <p>This error below, which may come with running the <codeph>bm-power-status.yml</codeph>
+        playbook, may be resolved by placing the<codeph> ilo-password</codeph> values in your
+          <codeph>servers.yml</codeph> file in double quotes.</p>
+      <p>Error:<codeblock>failed: [controller2] => {"failed": true}
+msg: ipmi: 'int' object has no attribute 'startswith'</codeblock></p>
+      <p><b>Cobbler Deployment Fails due to CIDR Error</b></p>
+      <p>The error will look similar to this:</p>
+      <codeblock>TASK: [cobbler | set variables | Find baremetal nic] **************************
+failed: [localhost] => {"failed": true}
+msg: matchcidr: no nic matching 10.242.115.0/24
+lo 127.0.0.1/8
+eth0 10.242.115.18/26</codeblock>
+      <p>The most likely cause of this is that your <codeph>netmask</codeph> entry in the
+          <codeph>~/helion/my_cloud/definition/data/servers.yml</codeph> file is incorrect.</p>
+      <p>To resolve this issue ensure that you have the correct <codeph>subnet</codeph> and
+          <codeph>netmask</codeph> entries in the
+          <codeph>~/helion/my_cloud/definition/data/servers.yml</codeph> for your Management
+        network.</p>
+      <p>You can also verify these values exist in the
+          <codeph>/etc/network/interfaces.d/ethX</codeph> file on your lifecycle manager. These
+        should match the entries in the <codeph>servers.yml</codeph> file.</p>
+      <p>Once you make your corrections to your configuration files, commit the changes with these
+        steps:</p>
+      <ol>
+        <li>Ensuring that you stay within the <codeph>~/helion</codeph> directory, commit the
+          changes you just made:
+          <codeblock>cd ~/helion
+git commit -a -m "commit message"</codeblock></li>
+        <li>Redeploy Cobbler:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost cobbler-deploy.yml</codeblock></li>
+      </ol>
+      <p><b>Issue: Configuration changes needed after Cobbler deploy</b></p>
+      <p>If you've made a mistake or wish to change your
+          <codeph>~/helion/my_cloud/definition/data/servers.yml</codeph> configuration file after
+        you've already run the <codeph>cobbler-deploy.yml</codeph> playbook, follow these steps to
+        ensure Cobbler gets updated with the new server information:</p>
+      <ol>
+        <li>Ensure your <codeph>servers.yml</codeph> file is updated</li>
+        <li>Ensuring that you stay within the <codeph>~/helion</codeph> directory, commit the
+          changes you just made:
+          <codeblock>cd ~/helion
+git commit -a -m "commit message"</codeblock></li>
+        <li>Determine which nodes you have entered into Cobbler by using:
+          <codeblock>sudo cobbler system list</codeblock></li>
+        <li>Remove the nodes that had the old information from Cobbler using:
+          <codeblock>sudo cobbler system remove --name &lt;nodename></codeblock></li>
+        <li>Re-run the <codeph>cobbler-deploy.yml</codeph> playbook to update the new node
+          definitions to Cobbler: <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost cobbler-deploy.yml</codeblock>
+          <note>If you've also already run the <codeph>bm-reimage.yml</codeph> playbook then read
+            the <xref href="#troubleshooting_installation/reimage">How to re-image an existing
+              node</xref> section below for how to ensure your nodes get re-imaged when re-running
+            this playbook.</note>
+        </li>
+      </ol>
+      <p><b>Issue: bm-reimage.yml playbook doesn't find any nodes to image</b></p>
+      <p>You may receive this error when running the <codeph>bm-reimage.yml</codeph> playbook:</p>
+      <codeblock>TASK: [cobbler | get-nodelist | Check we have targets] ************************
+failed: [localhost] => {"failed": true}
+msg: There is no default set of nodes for this command, use -e nodelist
+        
+FATAL: all hosts have already failed -- aborting</codeblock>
+      <p>This behavior occurs when you don't specify the <codeph>-e nodelist</codeph> switch to your
+        command and all of your nodes are marked as <codeph>netboot-enabled: false</codeph> in
+        Cobbler. By default, without the <codeph>-e nodelist</codeph> switch, the
+          <codeph>bm-reimage.yml</codeph> playbook will only reimage the nodes marked as
+          <codeph>netboot-enabled: True</codeph>, which you can verify which nodes you have that are
+        marked as such with this command:</p>
+      <codeblock>sudo cobbler system find --netboot-enabled=1</codeblock>
+      <p>If this is on a fresh install and none of your nodes have been imaged with the <keyword
+          keyref="kw-hos"/> ISO, then you should be able to remove all of your nodes from Cobbler
+        and re-run the <codeph>cobbler-deploy.yml</codeph> playbook. You can do so with these
+        commands:</p>
+      <ol>
+        <li>Get a list of your nodes in Cobbler:
+          <codeblock>sudo cobbler system list</codeblock></li>
+        <li>Remove each of them with this command:
+          <codeblock>sudo cobbler system remove --name SYSTEM_NAME</codeblock></li>
+        <li>Confirm they are all removed in Cobbler:
+          <codeblock>sudo cobbler system list</codeblock></li>
+        <li>Re-run <codeph>cobbler-deploy.yml</codeph>:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost cobbler-deploy.yml</codeblock></li>
+        <li>Confirm they are all now set to <codeph>netboot-enabled: True</codeph>:
+          <codeblock>sudo cobbler system find --netboot-enabled=1</codeblock></li>
+      </ol>
+      <p><b>Issue: The --limit switch does not do anything</b></p>
+      <p>If the <codeph>cobbler-deploy.yml</codeph> playbook fails, it makes a mention that to retry
+        you should use the <codeph>--limit</codeph> switch, as seen below:</p>
+      <codeblock>to retry, use: --limit @/home/headmin/cobbler-deploy.retry</codeblock>
+      <p>This is a standard Ansible message but it is not needed in this context. Please use our
+        instructions described above to remove your systems, if necessary, from Cobbler before
+        re-running the playbook as the <codeph>--limit</codeph> is not needed. Note that using the
+          <codeph>--limit</codeph> switch does not cause any harm and won't prevent the playbook
+        from completing, it's just not a necessary step.</p>
+      <p id="install_fail"><b>Issue: Dealing With Nodes that Fail to Install</b></p>
+      <p>The <codeph>bm-reimage.yml</codeph> playbook will take every node as far as it can through
+        the baremetal install process. Nodes that fail will not prevent the others from continuing
+        to completion. At the end of the run you will get a list of the nodes (if any) that failed
+        to install.</p>
+      <p>If you run <codeph>bm-reimage.yml</codeph> a second time, by default it will target only
+        the failed nodes the second time round (because the others are already marked as
+        "completed"). Alternatively you can target specific nodes for reimage using <codeph>-e
+          nodelist</codeph> as described in the section below.</p>
+      <p>The places where you are most likely to see a node fail is timeout in the "wait for
+        shutdown" step, which means that the node did not successfully install an operating system
+        (e.g. it could be stuck in POST) or a timeout in "wait for ssh" at the end of the baremetal
+        install. This means that the node did not come back up after being powered on. To fix the
+        issues you'll need to connect to the nodes' consoles and investigate.</p>
+      <p id="reimage"><b>How to re-image an existing node</b></p>
+      <p>Once Linux for HPE Helion has been successfully installed on a node, that node will be
+        marked as "installed" and subsequent runs of <codeph>bm-reimage.yml</codeph> (and related
+        playbooks) will not target it. This is deliberate so that you can't reimage the node by
+        accident. If you do need to reimage existing nodes you will need to use the <codeph>-e
+          nodelist</codeph> option to target them specifically. For example:</p>
+      <codeblock>ansible-playbook -i hosts/localhost bm-reimage.yml -e nodelist=cpn-0044,cpn-0045</codeblock>
+      <note>You can target all nodes with <codeph>-e nodelist=all</codeph></note>
+      <p>This will power cycle the specified nodes and reinstall the operating system on them, using
+        the existing settings stored in Cobbler.</p>
+      <p>If you want to change settings for a node in the configuration files, see the <xref
+          href="#troubleshooting_installation/deploy_cobbler">Configuration changes needed after
+          Cobbler deploy</xref> section above.</p>
+      <p><b>Issue: Wait for SSH phase in bm-reimage.yml hangs </b></p>
+      <p>This issue has been observed during deployment to systems configured with QLogic based
+        BCM578XX network adapters utilizing the bnx2x driver and is currently under investigation.
+        The symptom manifests following a cold boot during deployment at the "wait for SSH" phase in
+        bm-reimage.yml which will result in a hang and eventually timeout, causing the baremetal
+        install to fail. The presence of this particular issue can be further confirmed by
+        connecting to the remote console of the server via iLO or by checking the server's dmesg
+        output for the presence of bnx2_panic_dump messages, similar to the following:
+        <codeblock>
+bnx2x: [bnx2x_prev_unload_common:10433(eth%d)]Failed to empty BRB, hope for the best  ...
+bnx2x: [bnx2x_stats_update:1268(eth0)]storm stats were not updated for 3 times
+bnx2x: [bnx2x_stats_update:1269(eth0)]driver assert
+bnx2x: [bnx2x_panic_dump:929(eth0)]begin crash dump -----------------  .....
+bnx2x: [bnx2x_panic_dump:1163(eth0)]end crash dump -----------------</codeblock>
+        This workaround is completed by rebooting the server.</p>
+      <p><b>Subsequent runs of bm-reimage.yml sometimes fail to trigger network install</b></p>
+      <!-- HLM-3522 -->
+      <p>If you've run the <codeph>site.yml</codeph> playbook during an install and have a reason to
+        run the <codeph>bm-reimage.yml</codeph> playbook afterwards, it may fail to trigger the
+        network install over PXE due to the name of the interface changing during this process.</p>
+      <p>To resolve this issue, you can run the <codeph>cobbler-deploy.yml</codeph> playbook to
+        refresh these settings and then proceed to run <codeph>bm-reimage.yml</codeph>.</p>
+      <p><b>Issue: Soft lockup at imaging</b></p>
+      <p>When imaging your nodes, if you see a kernel error of the type "BUG: soft lockup - CPU#10
+        stuck...." you should reset the node and make sure it is imaged properly next time. Note
+        that depending on when you get the error, you may have to rerun
+          <codeph>cobbler-deploy.yml</codeph>. If the bm-reimage playbook says it failed to image
+        the node, then cobbler knows this has occurred and you can reset the node. If not, you can
+        follow the instructions above for <xref href="#troubleshooting_installation/reimage"
+          >reimaging the node</xref>.</p>
+      <p><b>Blank Screen Seen When Monitoring the Imaging Step</b></p>
+      <p>If you are watching the <codeph>os-install</codeph> process on a node via the console
+        output, there can be a pause between 2-3 minutes in length where nothing gets reported to
+        the console screen. This is just after the grub menu has been displayed on a UEFI-based
+        system.</p>
+      <p>This is normal and nothing to be concerned with. The imaging process will continue on after
+        this pause.</p>
+      <!-- RECEIVED VIA USER FEEDBACK -->
+      <p><b>Unable to SSH to a Compute Node after the bm-reimage Step Even Though SSH Keys Are In
+          Place</b></p>
+      <p>If after running the <codeph>bm-reimage.yml</codeph> playbook you get a reported failure
+        when attempting to SSH to one or more Compute nodes stating that permission was denied and
+        you've confirmed that the SSH keys are correctly coped from the lifecycle manager to the
+        Compute node then you can follow the steps below to resolve this issue.</p>
+      <p>The suspected root cause of this issue is that the bm-reimage playbook is finding a
+        different MAC address when attempting to SSH to the Compute node than was specified in the
+          <codeph>servers.yml</codeph> file. This could be because you entered an incorrect MAC
+        address or you may have specified the same IP address to two different Compute nodes.</p>
+      <p>To resolve this issue you can follow these steps:</p>
+      <ol>
+        <li>Remove the Compute node that failed from Cobbler using this command: <codeblock>sudo cobbler system remove --name &lt;node name></codeblock>
+          <note>Use <codeph>sudo cobbler system list</codeph> to get a list of your nodes in
+            Cobbler.</note></li>
+        <li>Correct the IP and MAC address information in your
+            <codeph>~/helion/my_cloud/definition/data/servers.yml</codeph> file.</li>
+        <li>Commit your changes to git:
+          <codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -m "My config or other commit message"</codeblock></li>
+        <li>Re-run the <codeph>bm-reimage.yml</codeph> playbook and confirm the error is not
+          received again.</li>
+      </ol>
+      <!-- RECEIVED VIA USER FEEDBACK -->
+      <p><b>Server Crashes During Imaging</b></p>
+      <p>If your server suffers a kernel panic just after it gets PXE booted, a possible cause could
+        be that you have an incorrect bus address for the server specified in the
+          <codeph>nic_mappings.yml</codeph> file.</p>
+      <p>To resolve this issue you will need to obtain the proper bus address. You can do this by
+        installing HP Linux for OpenStack on the node and once you receive a terminal prompt you can
+        use the command below to obtain the proper bus address:</p>
+      <codeblock>sudo lspci -D | grep -i eth</codeblock>
+      <p>Once you have the proper bus address, follow these steps to finish the reimage:</p>
+      <ol>
+        <li>Remove the node that failed from Cobbler using this command: <codeblock>sudo cobbler system remove --name &lt;node name></codeblock>
+          <note>Use <codeph>sudo cobbler system list</codeph> to get a list of your nodes in
+            Cobbler.</note></li>
+        <li>Correct the bus address in your
+            <codeph>~/helion/my_cloud/definition/data/nic_mappings.yml</codeph> file.</li>
+        <li>Commit your changes to git:
+          <codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -m "My config or other commit message"</codeblock></li>
+        <li>Re-run the <codeph>bm-reimage.yml</codeph> playbook and confirm the error is not
+          received again.</li>
+      </ol>
+    </section>
+
+    <!-- FOR ISSUES DURING CONFIG PROCESSOR STEP -->
+    <section id="config_processor"><title>Issues while Updating Configuration Files</title>
+      <p><b>Configuration Processor Fails Due to Wrong yml Format</b></p>
+      <p>If you receive the error below when running the configuration processor then you may have a
+        formatting error:</p>
+      <codeblock>TASK: [fail msg="Configuration processor run failed, see log output above for details"]</codeblock>
+      <p>First you should check the ansible log in the location below for more details on which yml
+        file in your input model has the error:</p>
+      <codeblock>~/.ansible/ansible.log</codeblock>
+      <p>Check the configuration file to locate and fix the error, keeping in mind the following
+        tips below.</p>
+      <p>Check your files to ensure that they don't contain the following:</p>
+      <ul>
+        <li>Non-ascii characters</li>
+        <li>Unneeded spaces</li>
+      </ul>
+      <p>Once you have fixed the formatting error in your files, commit the changes with these
+        steps:</p>
+      <ol>
+        <li>Commit your changes to git:
+          <codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -m "My config or other commit message"</codeblock></li>
+        <li>Re-run the configuration processor playbook and confirm the error is not received
+          again.</li>
+      </ol>
+      <p><b>Configuration processor fails with provider network OCTAVIA-MGMT-NET error</b></p>
+      <p>If you receive the error below when running the configuration processor then you have not
+        correctly configured your VLAN settings for Octavia.</p>
+      <codeblock>
+"################################################################################",
+"# The configuration processor failed.  ",
+"#   config-data-2.0           ERR: Provider network OCTAVIA-MGMT-NET host_routes: destination '192.168.10.0/24' is not defined as a Network in the input model. Add 'external: True' to this host_route if this is for an external network.",
+"################################################################################"</codeblock>
+      <p>To resolve the issue, ensure that your settings in
+          <codeph>~/helion/my_cloud/definition/data/neutron/neutron_config.yml</codeph> are correct
+        for the VLAN setup for Octavia.</p>
+      <!-- NEED TO PUT LINK TO STEPS HERE -->
+      <p><b>Changes Made to your Configuration Files</b></p>
+      <p>If you have made corrections to your configuration files and need to re-run the
+        Configuration Processor, the only thing you need to do is commit your changes to your local
+        git:</p>
+      <codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -m "commit message"</codeblock>
+      <p>You can then re-run the configuration processor:</p>
+      <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock>
+      <p><b>Configuration Processor Fails Because Encryption Key Does Not Meet Requirements</b></p>
+      <p>If you choose to set an encryption password when running the configuration processor, you
+        may receive the following error if the chosen password does not meet the complexity
+        requirements:<codeblock>################################################################################
+            # The configuration processor failed.
+            #   encryption-key ERR: The Encryption Key does not meet the following requirement(s):
+            #       The Encryption Key must be at least 12 characters
+            #       The Encryption Key must contain at least 3 of following classes of characters: Uppercase Letters, Lowercase Letters, Digits, Punctuation
+################################################################################</codeblock>
+      </p>
+      <p>If you receive the above error, simply run the configuration processor again and select a
+        password that meets the complexity requirements detailed in the error message:</p>
+      <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock>
+    </section>
+
+    <!-- FOR ISSUES DURING READY DEPLOYMENT OR SITE.YML STEP -->
+    <section id="deploy_cloud"><title>Issues while Deploying the Cloud</title><p><b>Issue: If the
+          site.yml playbook fails, you can query the log for the reason</b></p><p>Ansible is good
+        about outputting the errors into the command line output, however if you'd like to view the
+        full log for any reason the location is:</p><p>
+        <codeblock>~/.ansible/ansible.log</codeblock>
+      </p><p>This log is updated real time as you run ansible playbooks.</p><note type="tip">Use
+        grep to parse through the log. Usage: <codeph>grep &lt;text>
+        ~/.ansible/ansible.log</codeph></note><p id="wipe"><b>Issue: How to Wipe the Disks of your
+          Machines</b></p><p>If you have re-run the <codeph>site.yml</codeph> playbook, you may need
+        to wipe the disks of your nodes</p><p>You would generally run the playbook below after
+        re-running the <codeph>bm-reimage.yml</codeph> playbook but before you re-run the
+          <codeph>site.yml</codeph>
+        playbook.</p><codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts wipe_disks.yml</codeblock><p>The
+        playbook will show you the disks to be wiped in the output and allow you to confirm that you
+        want to complete this action or abort it if you do not want to proceed. You can optionally
+        use the <codeph>--limit &lt;NODE_NAME></codeph> switch on this playbook to restrict it to
+        specific nodes.</p><p>If you receive an error stating that <codeph>osconfig</codeph> has
+        already run on your nodes then you will need to remove the
+          <codeph>/etc/hos/osconfig-ran</codeph> file on each of the nodes you want to wipe with
+        this command:</p><codeblock>sudo rm /etc/hos/osconfig-ran</codeblock><p>That will clear this
+        flag and allow the disk to be wiped.</p><!-- DOCS-2270 --><p><b>Issue: Errors during
+          create_db Task</b></p><p>If you are doing a fresh installation on top of a previously used
+        system and you have not completely wiped your disk prior to the installation, you may run
+        into issues when the installation attempts to create new Vertica databases. The
+        recommendation here is to wipe your disks and re-start the installation, however we have
+        included a playbook for cleaning your Vertica databases if they need to be re-used.</p><p>To
+        run this playbook, follow these
+          steps:</p><codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts monasca-vertica-dbclean.yml</codeblock><p><b>Issue:
+          Freezer installation fails if an independent network is used for the
+        External_API.</b></p><p> Currently the Freezer installation fails if an independent network
+        is used for the External_API. If you intend to deploy the External API <!--in Beta 2--> on
+        an independent network, the following changes need to be made: </p><p>In
+          <codeph>roles/freezer-agent/defaults/main.yml</codeph> add the following line:
+        <codeblock>backup_freezer_api_url: "{{ FRE_API | item('advertises.vips.private[0].url', default=' ') }}"</codeblock>
+        In <codeph>roles/freezer-agent/templates/backup.osrc.j2</codeph> add the following line:
+        <codeblock>export OS_FREEZER_URL={{ backup_freezer_api_url }}</codeblock>
+      </p><p><b>Error Received if Root Logical Volume is Too Small</b></p><p>When running the
+          <codeph>site.yml</codeph> playbook, you may receive the error below if your root
+        logical-volume is too
+        small:</p><codeblock>2015-09-29 15:54:02,751 p=26345 u=stack |  TASK: [osconfig | disk config | Extend root LV] *******************************
+2015-09-29 15:54:03,021 p=26345 u=stack |  failed: [helion-ccp-swpac-m1-mgmt] => (item=({'physical_volumes': ['/dev/sda_root'], 'consumer': {'name': 'os'},
+'name': 'hlm-vg'}, {'mount': '/', 'fstype': 'ext4', 'name': 'root', 'size': '10%'})) => {"changed": true, "cmd": ["lvextend", "-l", "10%VG", "/dev/hlm-
+vg/root"], "delta": "0:00:00.022983", "end": "2015-09-29 10:54:18.925855", "failed": true, "failed_when_result": true, "item": [{"consumer": {"name": 
+"os"}, "name": "hlm-vg", "physical_volumes": ["/dev/sda_root"]}, {"fstype": "ext4", "mount": "/", "name": "root", "size": "10%"}], "rc": 3, "start": "2015-
+09-29 10:54:18.902872", "stdout_lines": [], "warnings": []}
+2015-09-29 15:54:03,022 p=26345 u=stack |  stderr:   New size given (7128 extents) not larger than existing size (7629 extents)</codeblock><p>The
+        specific part of this error to parse out and resolve
+        is:</p><codeblock>stderr:   New size given (7128 extents) not larger than existing size (7629 extents)</codeblock><p>The
+        error also references the root
+        volume:</p><codeblock>"name": "root", "size": "10%"</codeblock><p>The problem is that the
+        root logical-volume, as specified in the <codeph>disks_controller.yml</codeph> file, is set
+        to <codeph>10%</codeph> of the overall physical volume and this value is too small.</p><p>To
+        resolve this issue you need to ensure that the percentage is set properly for the size of
+        your logical-volume. The default values in the configuration files is based on a 500GB disk,
+        so if your logical-volumes are smaller you may need to increase the percentage so there is
+        enough room.</p><!-- RECEIVED VIA USER FEEDBACK --><p><b>Multiple Keystone Failures Received
+          during Site.yml</b></p><p>If you receive the Keystone error below during your
+          <codeph>site.yml</codeph> run then follow these
+        steps:</p><codeblock>TASK: [OPS-MON | _keystone_conf | Create Ops Console service in Keystone] *****
+failed: [helion-cp1-c1-m1-mgmt] => {"failed": true}
+msg: An unexpected error prevented the server from fulfilling your request. (HTTP 500) (Request-ID: req-23a09c72-5991-4685-b09f-df242028d742), failed
+
+FATAL: all hosts have already failed -- aborting</codeblock><p>The
+        most likely cause of this error is that the virtual IP address is having issues and the
+        Keystone API communication through the virtual IP address is not working properly. You will
+        want to check the Keystone log on the controller where you will likely see authorization
+        failure errors.</p><p>Verify that your virtual IP address is active and listening on the
+        proper port on all of your controllers using this
+        command:</p><codeblock>netstat -tplan | grep 35357</codeblock><p>Ensure that your lifecycle
+        manager did not pick the wrong (unusable) IP address from the list of IP addresses assigned
+        to your Management network.</p><p>The lifecycle manager will take the first available IP
+        address after the <codeph>gateway-ip</codeph> defined in your
+          <codeph>~/helion/my_cloud/definition/data/networks.yml</codeph> file. This IP will be used
+        as the virtual IP address for that particular network. If this IP address is used and
+        reserved for another purpose outside of your <keyword keyref="kw-hos"/> deployment then you
+        will receive the error above.</p><p>To resolve this issue we recommend that you utilize the
+          <codeph>start-address</codeph> and possibly the <codeph>end-address</codeph> (if needed)
+        options in your <codeph>networks.yml</codeph> file to further define which IP addresses you
+        want your cloud deployment to use. See <xref
+          href="../architecture/input_model/configobj/networks.dita">Input Model - Networks</xref>
+        for more details.</p><p>After you have made changes to your <codeph>networks.yml</codeph>
+        file, follow these steps to commit the changes:</p><ol>
+        <li>Ensuring that you stay within the <codeph>~/helion</codeph> directory, commit the
+          changes you just made:
+          <codeblock>cd ~/helion
+git commit -a -m "commit message"</codeblock></li>
+        <li>Run the configuration processor:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+        <li>Update your deployment directory:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+        <li>Re-run the site.yml playbook:
+          <codeblock>cd ~/scratch/ansible/next/hos/ansible 
+ansible-playbook -i hosts/verb_hosts site.yml</codeblock></li>
+      </ol><p><b>VSA installer failed during deployment</b></p>VSA deployment might fails
+      sporadically due to a defect in the HPE StoreVirtual VSA installation files for the KVM host.
+      The following error messages is displayed and VSA installation will hang for more than 45-60
+      minutes: <codeblock>14:10:13 TASK: [VSA-DEP | deploy | Create VSA appliance] ******************************* 
+14:18:32 changed: [hlm003-cp1-vsa0003-mgmt]
+15:32:36 fatal: [hlm003-cp1-vsa0002-mgmt] => SSH Error: Shared connection to 10.240.20.200 closed.
+15:32:36 It is sometimes useful to re-run the command using -vvvv, which prints SSH debug output to help diagnose the issue.
+15:32:36 fatal: [hlm003-cp1-vsa0001-mgmt] => SSH Error: Shared connection to 10.240.20.199 closed.
+15:32:36 It is sometimes useful to re-run the command using -vvvv, which prints SSH debug output to help diagnose the issue.
+15:32:37 </codeblock><p>
+        <note>VSA deployment can take approximately usually 15-30 minutes, depending on how many
+          disks are configured. Do not terminate the installation until 60 minutes have passed
+          and/or you see the error.</note>
+      </p><p>To correct this issue:<ol id="ol_llp_gzd_wv">
+          <li>Log into the failed VSA node.</li>
+          <li>Change to the root user:<codeblock>sudo -i</codeblock></li>
+          <li>Destroy the VSA VM:
+            <codeblock>virsh destroy &lt;VSA_VM_Name>
+virsh undefine &lt;VSA_VM_Name></codeblock>For
+            example: <codeblock>virsh destroy VSA-VM-vsa2
+virsh undefine VSA-VM-vsa2</codeblock>To
+            get the name of the VSA VM, execute the following
+            command:<codeblock>virsh list --all
+Id    Name                           State
+----------------------------------------------------
+ 2    VSA-VM-vsa2                    running</codeblock></li>
+          <li>Destroy the VSA
+            network:<codeblock>virsh net-destroy vsa-network
+virsh net-undefine vsa-network</codeblock></li>
+          <li>Destroy the VSA storage-pool:
+            <codeblock>virsh pool-destroy vsa-storage-pool
+virsh pool-undefine vsa-storage-pool</codeblock></li>
+          <li>Remove the <codeph>vsa-installer</codeph> directory:
+            <codeblock>rm -rf /home/vsa-installer</codeblock></li>
+          <li>Remove the VSA image:<codeblock>rm -rf /mnt/state/vsa-kvm-storage</codeblock></li>
+          <li>Reboot the VSA VM: <codeblock>reboot</codeblock></li>
+          <li>Log into your lifecycle manager. </li>
+          <li>Run the deployment playbooks from the resulting scratch directory:
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts site.yml</codeblock></li>
+        </ol></p></section>
+  </body>
+</topic>

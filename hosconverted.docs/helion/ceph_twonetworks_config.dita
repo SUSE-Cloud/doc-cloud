@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="ceph_twonetworks">
+  <title>Entry-scale KVM with Ceph Model with Two Networks</title>
+  <body>
+    <section id="about">
+      <p><keyword keyref="kw-hos"/> Ceph is a unified storage system for various storage use cases
+        for an OpenStack-based cloud. It is highly reliable, easy to manage, and horizontally
+        scalable as demand grows.</p>
+      <p>Ceph clients directly talk to OSD daemons for storage operations instead of client routing
+        the request to a specific gateway as is commonly found in other storage solutions. OSD
+        daemons perform data replication and participate in recovery activities. In general, a pool
+        is configured with a replica count of three, causing daemons to tranact three times the
+        amount of client data over the cluster network. So, every 4 MB of write data is likely to
+        result in 12 MB of data movement across Ceph clusters. Considering this network traffic, it
+        is important to segregate Ceph data traffic, which can be primarily categorized into three
+        segments:</p>
+      <ul>
+        <li><b>Management traffic</b> - primarily includes all admin related operations such as pool
+          creation, crush map modification, user creation, etc.</li>
+        <li><b>Client (data) traffic</b> - primarily includes client requests sent to OSD
+          daemons.</li>
+        <li><b>Cluster (replication) traffic</b> - primarily includes replication and recovery data
+          traffic among OSD daemons.</li>
+      </ul>
+      <p>For a high performing cluster, the network configuration is important. Segregating the data
+        traffic using multiple networks allows for this. For medium-size production environments we
+        recommend to have a cluster with at least two networks: a client data network (front-side)
+        and a cluster (back-side) network. For larger production environments we recommend that you
+        segregate all three network traffic types by utilizing three networks. This particular
+        document shows you how to setup two networks but you can use the same principles to create
+        three networks.</p>
+      <p>Also, segregating networks provides additional security as well because your cluster
+        network does not need to be connected to the internet directly. This helps in preventing
+        spoof attacks and allows the OSD daemons to keep communicating without intervention so that
+        placement groups can be brought to active + clean state whenever required.</p>
+    </section>
+    <p>This model is a variant of the Entry-scale KVM with Ceph model. It is designed with two
+      VLANs: a public (front-side) network and a cluster (back-side) network. This enables more
+      options in regards to scaling.</p>
+    <p>This model uses the following components:<ul id="ul_ckz_3tl_s5">
+        <li>Three controller nodes, one KVM compute node, and three Ceph OSD nodes.</li>
+        <li>The Ceph monitor component of the Ceph cluster is deployed on the controller nodes along
+          with other OpenStack service components. This limits your cloud to three monitor nodes
+          which should be suitable for most production environments.</li>
+        <li>Allows two VLANs (i.e. management VLAN and OSD VLAN) which segregates Ceph client
+          traffic from Ceph cluster traffic. The management network will be used to carry cloud
+          management data, such as RabbitMQ, HOPS, and database traffic, Ceph management data, such
+          as pool creation, as well as client data traffic, such as cinder-volume writing blocks to
+          Ceph storage pools. The Ceph cluster network will be dedicated for OSD daemons and will be
+          used to carry replication traffic.</li>
+        <li>A single compute node is initially provided with this example configuration. If
+          additional compute capacity is required then further compute nodes can be added to the
+          configuration by adding more nodes to the compute resource plane. The same applies to OSD
+          nodes as well. Three OSD nodes are initially provided with this example configuration. If
+          additional OSD capacity is required then further OSD nodes can be added to the
+          configuration by adding more nodes to the OSD resource plane.</li>
+      </ul></p>
+    <p>This diagram below illustrates the physical networking used in this configuration.</p>
+    <p><image href="../media/hos.docs/entry_scale_kvm_ceph_two_network.png"/></p>
+    <p><xref href="../media/hos.docs/entry_scale_kvm_ceph_two_network_lg.png" scope="external"
+        format="html">Download a high-resolution version</xref></p>
+    <p>This configuration is baesd on the entry-scale-kvm-ceph cloud input model which is included
+      with the <keyword keyref="kw-hos"/> distro. You will need to make the changes outlined below
+      prior to the deployment of your Ceph cluster with two networks. Note that if you already have
+      a Ceph cluster deployed with a single network these steps cannot be used to migrate to a
+      dual-network setup. The recommendation in these cases will be that you make a clean
+      installation which will result in the loss of your existing data unless you make arrangements
+      to have it backed up beforehand.</p>
+    <section id="nicmappings"><title>Nic_mappings.yml</title>
+      <p>Ensure that your baremetal server NIC interfaces are correctly specified in the
+          <codeph>~/helion/my_cloud/definition/data/nic_mappings.yml</codeph> file and that they
+        meet the server requirements.</p>
+    </section>
+    <section id="netinterfaces"><title>Net_interfaces.yml</title>
+      <p>Define a new interface set for your OSD interfaces in the
+          <codeph>~/helion/my_cloud/definition/data/net_interfaces.yml</codeph> file.</p>
+      <p>Ensure that the appropriate NIC is configured to both the Management and OSD network
+        groups, indicated below:</p>
+      <codeblock>- name: OSD-INTERFACES
+  network-interfaces:
+     - name: ETH3
+       device:
+          name: hed3
+       network-groups:
+         - MANAGEMENT
+     - name: ETH4
+       device:
+          name: bed4
+       network-groups:
+          - OSD</codeblock>
+    </section>
+    <section id="networksgroups"><title>Network_groups.yml</title>
+      <p>Define the OSD network group in the
+          <codeph>~/helion/my_cloud/definition/data/network_groups.yml</codeph> file:</p>
+      <codeblock>#
+# OSD
+#
+# This is the network group that will be used for
+# internal traffic of cluster among OSDs.
+#
+- name: OSD
+  hostname-suffix: osd
+
+  component-endpoints:
+     - ceph-osd-internal</codeblock>
+    </section>
+    <section id="networks"><title>Networks.yml</title>
+      <p>Define the OSD VLAN in the <codeph>~/helion/my_cloud/definition/data/networks.yml</codeph>
+        file:</p>
+      <codeblock>
+- name: OSD-NET
+  vlanid: 112
+  tagged-vlan: false
+  cidr: 10.0.1.0/24
+  gateway-ip: 10.0.1.1
+  network-group: OSD</codeblock>
+    </section>
+    <section id="servergroups"><title>Server_groups.yml</title>
+      <p>Add the OSD network to the server groups in the
+          <codeph>~/helion/my_cloud/definition/data/server_groups.yml</codeph> file, indicated by
+        the bold portion below:</p>
+      <codeblock>- name: CLOUD
+  server-groups:
+     - AZ1
+     - AZ2
+     - AZ3
+  networks:
+     - EXTERNAL-API-NET
+     - EXTERNAL-VM-NET
+     - GUEST-NET
+     - MANAGEMENT-NET
+     <b>- OSD-NET</b></codeblock>
+    </section>
+    <section id="firewallrules"><title>Firewall_rules.yml</title>
+      <p>Modify the firewall rules in the
+          <codeph>~/helion/my_cloud/definition/data/firewall_rules.yml</codeph> file to allow OSD
+        nodes to be pingable via the OSD network, indicated by the bold portion below:</p>
+      <codeblock>    - name: PING
+  network-groups:
+     - MANAGEMENT
+     - GUEST
+     - EXTERNAL-API
+     <b>- OSD</b>
+  rules:
+  # open ICMP echo request (ping)
+  - type: allow
+    remote-ip-prefix:  0.0.0.0/0
+    # icmp type
+    port-range-min: 8
+    # icmp code
+    port-range-max: 0
+    protocol: icmp</codeblock>
+    </section>
+    <section id="readme"><title>Edit the README.html and README.md Files</title>
+      <p>You can edit the <codeph>~/helion/my_cloud/definition/README.html</codeph> and
+          <codeph>~/helion/my_cloud/definition/README.md</codeph> files to reflect the OSD network
+        group information if you wish. This change does not have any semantic implication and only
+        assists with the readability of your model.</p>
+    </section>
+  </body>
+</topic>

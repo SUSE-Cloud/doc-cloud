@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="three_controller_recovery">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Three Control Plane Node Disaster
+    Recovery</title>
+  <abstract><shortdesc outputclass="hdphidden">In this scenario, all control plane nodes are
+      destroyed which need to be rebuilt or replaced.</shortdesc></abstract>
+  <body>
+    <p>In this scenario, all control plane nodes are destroyed which need to be rebuilt or
+      replaced.</p>
+    <section>
+      <title>Restore from a Swift backup:</title>
+      <p>Restoring from a Swift backup is not possible because Swift is gone.</p>
+    </section>
+    <section>
+      <title>Restore from an SSH backup</title>
+      <p>
+        <ol id="ol_ws5_pyh_1v">
+          <li>Log in to the lifecycle manager.</li>
+          <li>Disable the default backup job(s) by editing the following
+              file:<codeblock>~/scratch/ansible/next/hos/ansible/roles/freezer-jobs/defaults/activate.yml</codeblock><p>Set
+              the value for <codeph>freezer_create_backup_jobs</codeph> to
+              <codeph>false</codeph>:<codeblock># If set to false, We wont create backups jobs.
+freezer_create_backup_jobs: false</codeblock></p></li>
+          <li>Deploy the control plane nodes, using the values for your control plane node
+              hostnames:<codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts site.yml --limit &lt;control_plane_hostname1>,&lt;control_plane_hostname2>,&lt;control_plane_hostname3> -e rebuild=True</codeblock><p>For example, if you were using the default values from the example model files your command would
+              look like this:<codeblock>ansible-playbook -i hosts/verb_hosts site.yml --limit helion-ccp-c1-m1-mgmt,helion-ccp-c1-m2-mgmt,helion-ccp-c1-m3-mgmt -e rebuild=True</codeblock>
+              <note>The <codeph>-e rebuild=True</codeph> is only used on a single control plane node
+                when there are other controllers available to pull config data from. This will cause
+                the Vertitca database to be reinitialized, which is the only choice if there is not
+                additional control nodes. </note>
+            </p>
+          </li>
+          <li>Restore the MySQL backup on the first controller node.<ol id="ol_cxr_3dv_qx">
+              <li>List out the Freezer
+                  jobs:<codeblock>cd ~/scratch/ansible/next/hos/ansible
+fzc job-list --all</codeblock><p>Example
+                  output, with the relevant backup job in
+                  bold:<codeblock>$ fzc job-list --all
++----------------------------------+-----------------------+------------------------------------------+-----------+--------+-------+--------+------------+
+|              job_id              |       client-id       |               description                | # actions | status | event | result | session_id |
++----------------------------------+-----------------------+------------------------------------------+-----------+--------+-------+--------+------------+
+| f96d59d7ded54c3c86da91474c04db21 |        deployer       |  HLM Default: deployer restore from SSH  |     7     |  stop  |       |        |            |
+| 452627a7fd864a0ba9b11bae349f1894 |        deployer       | HLM Default: deployer restore from Swift |     7     |  stop  |       |        |            |
+| 2293f1ab5022473784b49ea0292034a4 | helion-ccp-c1-m1-host |  HLM Default: mysql restore from Swift   |     1     |  stop  |       |        |            |
+| 6105b8d1273346f98a7bd87a666005fc | helion-ccp-c1-m2-host |  HLM Default: mysql restore from Swift   |     1     |  stop  |       |        |            |
+| cc77a6bd53cc45abbb9cb7120f0a6227 | helion-ccp-c1-m1-host |   HLM Default: swift restore from SSH    |     1     |  stop  |       |        |            |
+| c234674860694802b5a50c6eec1cd286 | helion-ccp-c1-m2-host |   HLM Default: mysql restore from SSH    |     1     |  stop  |       |        |            |
+<b>| 38b4d22ee93c464e91afe44e99d17f33 | helion-ccp-c1-m1-host |   HLM Default: mysql restore from SSH    |     1     |  stop  |       |        |            |</b>
+| 00dc0231e83a4ea58bd8c53455bd059b | helion-ccp-c1-m1-host |  HLM Default: swift restore from Swift   |     1     |  stop  |       |        |            |
++----------------------------------+-----------------------+------------------------------------------+-----------+--------+-------+--------+------------+</codeblock></p></li>
+              <li>Run the <codeph>mysql restore from SSH</codeph> job for your first controller
+                node, replacing the <codeph>job_id</codeph> with
+                your:<codeblock>freezer-scheduler job-start -j &lt;job_id></codeblock></li>
+            </ol></li>
+          <li>You can monitor the restore job by connecting to your first controller node via SSH
+            and running the following
+            commands:<codeblock>ssh &lt;first_controller_node>
+sudo su
+tail -n 100 /var/log/freezer-agent/freezer-agent.log</codeblock></li>
+          <li>Log back in to the lifecycle manager.</li>
+          <li>Stop
+            MySQL:<codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts percona-stop.yml</codeblock></li>
+          <li>Log back in to the first controller node and move the following
+            files:<codeblock>ssh &lt;first_controller_node>
+sudo su
+rm -rf /var/lib/mysql/*
+cp -pr /tmp/mysql_restore/* /var/lib/mysql/</codeblock></li>
+          <li>Log back in to the lifecycle manager and bootstrap
+            MySQL:<codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts percona-bootstrap.yml</codeblock></li>
+          <li>Verify the status of
+            MySQL:<codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts percona-status.yml</codeblock></li>
+          <li>Re-enable the default backup job(s) by editing the following
+              file:<codeblock>~/scratch/ansible/next/hos/ansible/roles/freezer-jobs/defaults/activate.yml</codeblock><p>Set
+              the value for <codeph>freezer_create_backup_jobs</codeph> to
+              <codeph>true</codeph>:<codeblock># If set to false, We wont create backups jobs.
+freezer_create_backup_jobs: true</codeblock></p></li>
+          <li>Run this playbook to deploy the backup
+            jobs:<codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts _freezer_manage_jobs.yml</codeblock></li>
+        </ol>
+      </p>
+    </section>
+  </body>
+</topic>

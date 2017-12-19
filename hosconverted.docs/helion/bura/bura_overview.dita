@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="bura_overview">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Backup and Restore</title>
+  <abstract><shortdesc outputclass="hdphidden">Information about how to back up and restore your
+      cloud.</shortdesc></abstract>
+  <body><!--not tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <p>Freezer is a Backup and Restore as a Service platform that helps you automate the backup and
+      restore process for your data. This backup and restore component (Freezer) executes backups
+      and restores as jobs, and executes these jobs independently and/or as managed sessions
+      (multiple jobs in multiple machines sharing a state).</p>
+    <p>There are a number of things you must do before installing your cloud so that you achieve the
+      backup plan you need.</p>
+    <p>First, you should consider <xref href="cloud_control_plane_backup.dita#topic_jsc_qps_qt"
+        >setting up a server that Freezer will back up to over SSH</xref> in case you lose cloud
+      servers that the Freezer backup and restore service uses by default.</p>
+    <p>Second, you can prevent the Freezer backup and restore service from being installed
+      completely, or designate which services should be backed up by default. <xref
+        href="disable_bura_before_deployment.dita#topic_i4l_xhn_tt">This topic has more
+        information</xref>.</p>
+    <p><keyword keyref="kw-hos-phrase"/> supports backup and restore of control plane services. It
+      comes with playbooks and procedures to recover the control plane from various disaster
+      scenarios.</p>
+    <p>The following features are supported:</p>
+    <ul id="ul_pg4_5s3_dt">
+      <li>Backup of your file system using a point-in-time snapshot.</li>
+      <li>Strong encryption: AES-256-CFB.</li>
+      <li>Backup of your MySQL database with LVM snapshot.</li>
+      <li>Restoring your data from a specific date automatically to your file system.</li>
+      <li>Low storage consumption: the backups are uploaded as a stream. </li>
+      <li>Flexible backup policy (both incremental and differential). </li>
+      <li>Data archived in GNU Tar format for file-based incremental. </li>
+      <li>Multiple compression algorithm support (zlib, bzip2, xz). </li>
+      <li>Removal old backup automatically according the provided parameters. </li>
+      <li>Multiple storage media support (Swift, local file system, SSH). </li>
+      <li>Management of multiple jobs (multiple backups on the same node).</li>
+      <li>Synchronization of backup and restore on multiple nodes.</li>
+      <li>Execution of scripts/commands before or after a job execution.</li>    
+    </ul>
+    <note type="important">Freezer backup to CEPH storage is currently not officially supported.</note>
+    
+    <section>
+      <title>Architecture</title>
+      <p>The backup and restore service/Freezer  uses GNU Tar under the hood to execute incremental
+        backup and restore. When a key is provided, it uses Open SSL to encrypt data
+        (AES-256-CFB).</p>
+      <p>The architecture consists of the following components:</p>
+      <table frame="all" rowsep="1" colsep="1" id="table_vkv_st3_dt">
+        <tgroup cols="2" align="left">
+          <colspec colname="c1" colnum="1" colwidth="123pt"/>
+          <colspec colname="c2" colnum="2" colwidth="372.75pt"/>
+          <thead>
+            <row>
+              <entry>Component</entry>
+              <entry>Description</entry>
+            </row>
+          </thead>
+          <tbody>
+
+            <row>
+              <entry>Freezer Scheduler</entry>
+              <entry>A client-side component running on the node from where the data backup is
+                executed. It consists of a daemon that retrieves the data from the freezer API and
+                executes jobs (that is, backups, restore, admin actions, info actions, and pre-
+                and/or post- job scripts) by running the Freezer Agent. The metrics and exit codes
+                returned by the Freezer Agent are captured and sent to the Freezer API. <p>The
+                  scheduler manages the execution and synchronization of multiple jobs executed on a
+                  single node or multiple nodes. The status of the execution of all the nodes is
+                  saved through the API. </p>The Freezer scheduler takes care of uploading jobs to
+                the API by reading job files on the file system. It also has its own configuration
+                file where job sessions or other settings such as the Freezer API polling interval
+                can be configured.</entry>
+            </row>
+            <row>
+              <entry>Freezer Agent </entry>
+              <entry>Multiprocessing Python software that runs on the client side where the data
+                backup is executed. It can be executed as a standalone or by the Freezer Scheduler.
+                The freezer-agent provides a flexible way to execute backup, restore, and perform
+                other actions on a running system. <p>To provide flexibility in terms of data
+                  integrity, speed, performance, resource usage, and so on, the Freezer Agent offers
+                  a wide range of options to execute optimized backup according the available
+                  resources, such as: </p>
+                <ul id="ul_o43_253_dt">
+                  <li>Segments size (the amount of memory used) </li>
+                  <li>Queues size (optimize backups where I/O, bandwidth, memory, or CPU is a
+                    constraint) </li>
+                  <li>I/O affinity and process priority (can be used with real time I/O and maximum
+                    user-level process priority) </li>
+                  <li>Bandwidth limitation</li>
+                  <li>Client-side Encryption (AES-256-CFB)</li>
+                  <li>Compression (multiple algorithms supported as zlib, bzip2, xz/lzma)</li>
+                  <li>Parallel upload to pluggable storage media (that is, upload backup to Swift
+                    and to a remote node by SSH, or upload to two or more independent Swift
+                    instances with different credentials, and so on) </li>
+                  <li>Execute file-based incremental (such as tar), block-based incremental (such as
+                    rsync algorithm), and differential-based backup and restore</li>
+                  <li>Multi platform: you can run it on hLinux, Windows, *BSD, and OSX </li>
+                  <li>Automatic removal of old backups</li>
+                </ul></entry>
+            </row>
+            <row>
+              <entry>Freezer API </entry>
+              <entry>Stores and provides metadata to the <!-- Freezer Web UI and to the--> Freezer
+                Scheduler. Also stores session information for multi node backup synchronization.
+                Workload data is not stored in the API . </entry>
+            </row>
+            <row>
+              <entry>DB Elasticsearch </entry>
+              <entry>API uses the backend to store and retrieve metrics metadata sessions
+                information job status, and so on.</entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </table>
+    </section>
+    <section id="diagram">
+      <title>Architecture of the Backup/Restore Service</title>
+      <p><image href="../../media/bura/bura_architecture.png"/></p>
+    </section>
+    <section>
+      <table frame="all" rowsep="1" colsep="1" id="table_igp_j1f_z5">
+
+        <tgroup cols="3">
+          <colspec colname="c1" colnum="1" colwidth="1*"/>
+          <colspec colname="c2" colnum="2" colwidth="3*"/>
+          <colspec colname="c3" colnum="3" colwidth="2*"/>
+          <thead>
+            <row>
+              <entry>Component</entry>
+              <entry>Description</entry>
+              <entry>Runs on</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>API</entry>
+              <entry>API service to add / fetch Freezer jobs</entry>
+              <entry>Controller nodes with ElasticSearch</entry>
+            </row>
+            <row>
+              <entry>Scheduler</entry>
+              <entry>Daemon that stores and retrieves backup/restore jobs and executes them</entry>
+              <entry>Nodes needing backup/restore (controllers, lifecycle manager)</entry>
+            </row>
+            <row>
+              <entry>Agent</entry>
+              <entry>The agent that backs up and restores to and from targets. Invoked from
+                scheduler or manually.</entry>
+              <entry>Nodes needing backup/restore (controllers, lifecycle manager)</entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </table>
+    </section>
+  </body>
+</topic>

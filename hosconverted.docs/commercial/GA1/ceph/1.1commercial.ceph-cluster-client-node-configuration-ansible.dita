@@ -1,0 +1,1607 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic
+  PUBLIC "-//OASIS//DTD DITA Topic//EN" "http://docs.oasis-open.org/dita/v1.1/OS/dtd/topic.dtd" ><topic xml:lang="en-us" id="topic64701">
+<title>HPE Helion <tm tmtype="reg">OpenStack</tm> 1.1 and 1.1.1: Configuring Ceph Cluster and Client Nodes using Ansible Playbooks</title>
+<titlealts>
+<searchtitle>HPE Helion Openstack 1.1: Configuring Ceph Cluster and Client Nodes using Ansible Playbooks</searchtitle>
+</titlealts>
+<prolog>
+<metadata>
+<othermeta name="layout" content="default"/>
+<othermeta name="product-version" content="HPE Helion Openstack"/>
+<othermeta name="product-version" content="HPE Helion Openstack 1.1"/>
+<othermeta name="role" content="Storage Engineer"/>
+<othermeta name="role" content="Storage Architect"/>
+<othermeta name="role" content="Storage Administrator"/>
+<othermeta name="role" content="Storage Engineer"/>
+<othermeta name="role" content="Service Developer"/>
+<othermeta name="role" content="Cloud Administrator"/>
+<othermeta name="role" content="Application Developer"/>
+<othermeta name="role" content="Paul F, Binamra S"/>
+<othermeta name="product-version1" content="HPE Helion Openstack"/>
+<othermeta name="product-version2" content="HPE Helion Openstack 1.1"/>
+</metadata>
+</prolog>
+<body>
+    <p><!--PUBLISHED--><!--./commercial/GA1/ceph/1.1commercial.ceph-cluster-client-node-configuration-ansible.md--><!--permalink: /helion/openstack/1.1/ceph-cluster-client-node-configuration-ansible/--></p>
+    <p>This section covers the following topics:</p>
+    <ol>
+      <li>
+        <xref type="section" href="#topic64701/installing-ceph-solution">Installing Ceph</xref>
+      </li>
+      <li>
+        <xref type="section" href="#topic64701/scaling-ceph-cluster">Scaling Ceph cluster</xref>
+        <ol>
+          <li>
+            <xref type="section" href="#topic64701/add-monitor">Add Monitor</xref>
+          </li>
+          <li>
+            <xref href="#topic64701/add-osd" format="dita">Add OSD</xref>
+          </li>
+        </ol>
+      </li>
+      <li>
+        <xref type="section" href="#topic64701/heartbeat-monitoring">Heartbeat Monitoring Tool
+          (Optional)</xref>
+      </li>
+      <li>
+        <xref type="section" href="#topic64701/cluster-validation">Helion OpenStack Ceph cluster
+          validation</xref>
+      </li>
+      <li>
+        <xref type="section" href="#topic64701/client-validation">Helion OpenStack Ceph Client
+          Validation</xref>
+        <ol>
+          <li>
+            <xref type="section" href="#topic64701/glance">Glance</xref>
+          </li>
+          <li>
+            <xref type="section" href="#topic64701/glance-clone-copy">Ceph Glance Clone Copy On
+              Write</xref>
+          </li>
+          <li>
+            <xref type="section" href="#topic64701/cinder">Cinder</xref>
+          </li>
+          <li>
+            <xref type="section" href="#topic64701/cinder-backup">Creating a Cinder Backup</xref>
+          </li>
+        </ol>
+      </li>
+      <li>
+        <xref type="section" href="#topic64701/volume-snapshot">Volume Snapshots</xref>
+      </li>
+      <li>
+        <xref type="section" href="#topic64701/gateway-validation">Ceph RADOS Gateway
+          Validation</xref>
+      </li>
+    </ol>
+    <section id="installing-ceph-solution">
+      <title>Installing the Ceph Solution</title>
+      <p>To install the Ceph solution:</p>
+      <ol>
+        <li>Copy and untar the <codeph>helion-ceph.tar</codeph> file on one of the provisioned nodes
+          identified as <codeph>ceph-admin</codeph> under
+            <codeph>/helion-ceph/ansible-playbooks</codeph>. If <codeph>/helion-ceph/</codeph> does
+          not exist, then create a directory named <codeph>/helion-ceph/</codeph>.<p>Unpacking the
+            tar file creates the <codeph>cephconfiguration</codeph> directory under
+              <codeph>/helion-ceph</codeph>.</p></li>
+        <li>Ensure the client setup scripts tar ball (also containing the Ceph Debian distribution
+          for installing on Helion nodes) has been copied under
+            <codeph>/helion-ceph/cephconfiguration/ansible-playbooks/roles/ceph-client/files</codeph>.<p>For
+            example:</p><codeblock><codeph>/helion-ceph/cephconfiguration/ansible-playbooks/roles/ceph-client/files/ceph_client_setup-0.80.7_h1.1.fix6_newdebs.tar
+</codeph></codeblock></li>
+        <li>Once the nodes are provisioned (for more information on nodes provisioning, refer <xref
+            href="../../../commercial/GA1/ceph/1.1commercial.ceph-automated-install.dita#topic10341/running-provision-tool"
+            type="section">Running the Provisioning Tool</xref>), create the following configuration
+          files under <codeph>/helion-ceph/cephconfiguration/ansible-playbooks/</codeph> on the
+            <codeph>ceph-admin</codeph> node<p>
+            <b>cephcluster.csv:</b>
+          </p><codeblock><codeph>&lt;ip-address&gt;, &lt;ceph-identifier&gt;, &lt;type&gt;, 
+&lt;user&gt;,&lt;osd-partition-type [osd nodes only]&gt;, &lt;osd-disk-path [osd nodes only]&gt;, &lt;journal-partition-type[osd nodes only]&gt;, &lt;journal-disk-path [osd nodes only]&gt;
+ip-address
+</codeph></codeblock><p>where:</p><p>
+            <b>node ip</b>: is the address used by configuration process to set up
+              <codeph>ceph-cluster</codeph>. This can either be a PXE, management or some other
+            network.</p><p>
+            <b>ceph-identifier</b>: is the unique name to identify an OSD, mon, admin or RADOS. This
+            will be used by the bootstrap script to generate ansible
+              metadata.</p><p><b>IMPORTANT</b>: The RADOS nodes must be given the identifier
+              <codeph>rados-1</codeph> and <codeph>rados-2</codeph>.</p><p>
+            <b>Type</b>: can be <codeph>mon-master</codeph>, <codeph>mon</codeph>,
+              <codeph>osd</codeph>, <codeph>admin</codeph>, <codeph>radosgw</codeph>,
+              <codeph>radosgw-master</codeph>, <codeph>controllers</codeph>,
+              <codeph>computes</codeph>
+          </p><p>
+            <b>IMPORTANT</b>: Ensure that <codeph>mon-master</codeph> is the first node to be
+            defined in <codeph>cephcluster.csv</codeph>. </p><p> Also, if there is only one RADOS
+            node, then the type must be <codeph>radosgw-master</codeph>. </p><p>
+            <b>user</b>: used to login to Ceph nodes for performing the configuration. In this case
+            it is <b>hlinux</b>. (<b>hlinux</b> refers to Linux for HPE Helion</p><p>
+            <b>osd-partition-type</b>: partition type to be used while formatting the disk for OSD
+            storage (This attribute exists only for OSD type node).</p><p>
+            <b>osd-disk-path</b>: disk to be used for OSD storage (This attribute exists only for
+            OSD type nodes) . This will be an entire physical disk to be used as a data disk. For
+            example: <codeph>/dev/sda</codeph> or it can be a partition on a large disk. For
+            example: <codeph>/dev/sda5</codeph>
+          </p><p>
+            <b>journal-partition-type</b>: partition type to be used while formatting the disk (SSD)
+            for journaling (This attribute exists only for OSD type nodes). For journaling make sure
+            the entire disk is specified. For example: <codeph>/dev/sde</codeph>. Do not use a
+            partition for journaling. For example: <codeph>/dev/sde1</codeph> is not allowed.</p><p>
+            <b>journal-disk-path</b>:disk to be used for journaling (This attribute exists only for
+            OSD type nodes).</p></li>
+        <li>Modify the <codeph>cephcluster.csv</codeph> file to add the seed VM's details. <p>For
+            example: </p><codeblock>192.168.124.4,seed0,seed</codeblock><p>The following is a
+            sample:</p><codeblock><codeph>192.168.51.90,mon-master-1,mon-master,hlinux
+192.168.51.100,mon2,mon,hlinux
+192.168.51.102,mon3,mon,hlinux
+192.168.51.98,admin-1,admin,hlinux
+192.168.51.93,rados-1,radosgw-master,hlinux
+192.168.51.94,rados-2,radosgw,hlinux
+192.168.51.95,ceph-osd-1,osd,hlinux,xfs,/dev/sdc,xfs,/dev/sdb
+192.168.51.95,ceph-osd-2,osd,hlinux,xfs,/dev/sdd,xfs,/dev/sdb
+192.168.51.95,ceph-osd-3,osd,hlinux,xfs,/dev/sde,xfs,/dev/sdb
+192.168.51.95,ceph-osd-4,osd,hlinux,xfs,/dev/sdf,xfs,/dev/sdb
+192.168.51.95,ceph-osd-5,osd,hlinux,xfs,/dev/sdg,xfs,/dev/sdb
+192.168.51.95,ceph-osd-6,osd,hlinux,xfs,/dev/sdh,xfs,/dev/sdb
+192.168.51.95,ceph-osd-7,osd,hlinux,xfs,/dev/sdi,xfs,/dev/sdb
+192.168.51.96,ceph-osd-8,osd,hlinux,xfs,/dev/sdc,xfs,/dev/sdb
+192.168.51.96,ceph-osd-9,osd,hlinux,xfs,/dev/sdd,xfs,/dev/sdb
+192.168.51.96,ceph-osd-10,osd,hlinux,xfs,/dev/sde,xfs,/dev/sdb
+192.168.51.96,ceph-osd-11,osd,hlinux,xfs,/dev/sdf,xfs,/dev/sdb
+192.168.51.96,ceph-osd-12,osd,hlinux,xfs,/dev/sdg,xfs,/dev/sdb
+192.168.51.96,ceph-osd-13,osd,hlinux,xfs,/dev/sdh,xfs,/dev/sdb
+192.168.51.96,ceph-osd-14,osd,hlinux,xfs,/dev/sdi,xfs,/dev/sdb
+192.168.51.97,ceph-osd-15,osd,hlinux,xfs,/dev/sdc,xfs,/dev/sdb
+192.168.51.97,ceph-osd-16,osd,hlinux,xfs,/dev/sdd,xfs,/dev/sdb
+192.168.51.97,ceph-osd-17,osd,hlinux,xfs,/dev/sde,xfs,/dev/sdb
+192.168.51.97,ceph-osd-18,osd,hlinux,xfs,/dev/sdf,xfs,/dev/sdb
+192.168.51.97,ceph-osd-19,osd,hlinux,xfs,/dev/sdg,xfs,/dev/sdb
+192.168.51.97,ceph-osd-20,osd,hlinux,xfs,/dev/sdh,xfs,/dev/sdb
+192.168.51.97,ceph-osd-21,osd,hlinux,xfs,/dev/sdi,xfs,/dev/sdb
+192.168.51.88,compute0,computes
+192.168.51.89,compute1,computes
+192.168.51.87,controller0,controllers
+192.168.51.86,controller1,controllers
+192.168.51.85,controller2,controllers
+192.168.124.4,seed0,seed
+</codeph></codeblock></li>
+        <li>Edit the <codeph>group_vars</codeph> as per your set up:<codeblock><codeph>/group_vars/all
+# 
+cephmon_user: root
+cephmon_group: root
+runrados: 0 # Set this to 0 if you do not have rados nodes, to 1 if you have the rados nodes.
+radosgwHA: 1 # Set this to 1 if you want to setup rados in HA mode where you need min two rados nodes. If you have only 1 node set this value to 0.
+secretuuid: 457eb676-33da-42ec-9a8c-9293d545c337 # This the UUID that will be used to setup the helion nodes. Change this prior to running the ceph-client and ceph-admin roles, if you wish to newly generated UUID. The same UUID will work too.
+clienttarname: ceph_client_setup-0.80.7_h1.1.fix6_newdebs.tar # Set this to the tar ball name that is being used for helion client setup. Make sure the tarball has been copied under roles/ceph-client/files folder
+rados_1_fqdn: # Set the actual fqdn of the rados 1 node here
+rados_2_fqdn: # Set the actual fqdn of the rados 2 node here 
+/group_vars/ceph-cluster
+---
+---
+# Variables here are applicable to the ceph-cluster host group
+osd_journal_size: 1024
+mon_master: c1mon1-overcloud-ceph-cluster
+fsid: 514bb61e-80e1-11e4-9461-000c2966c4ff
+fssize: 2048
+env: baremetal
+journal: 1
+dependencies:
+</codeph></codeblock><p>
+            <note> The <codeph>fsid</codeph> (File System ID) is a unique identifier for the
+              cluster. Execute <codeph>uuidgen</codeph> command to generate
+              <codeph>fsid</codeph>.</note>
+          </p><!-- this is not required as we have already generated a keypair 6. Generate the `cephadmin.pem` key from the Undercloud node by entering:
+step is in wrong order. here it wipes existing 
+
+    nova keypair-add cephadmin > cephadmin.pem --></li>
+        <li>Copy the <codeph>cephadmin.pem</codeph> key file to the Seed node.</li>
+        <li>Copy the public key of heat-admin to enable SSH from the <codeph>ceph-admin</codeph>
+          node to Helion nodes by entering:<p>a. Start from the KVM host after the helion and Ceph
+            nodes are up.</p><p>b. From the root shell on the KVM host, SSH to the seed node, by
+            entering:</p><codeblock><codeph>ssh root @&lt;IP of seed&gt;
+</codeph></codeblock><p>c.
+            Enter: <codeph>scp -i &lt;keypair&gt; /root/.ssh/id_rsa hlinux@&lt;IP of
+              ceph-admin&gt;:/home/hlinux/seed-id_rsa.private</codeph>
+          </p><p>d. Enter: <codeph>scp -i &lt;keypair&gt; /root/.ssh/id_rsa.pub hlinux@&lt;IP of
+              ceph-admin&gt;:/home/hlinux/seed-id_rsa.public</codeph>
+          </p><p>e. Copy the <codeph>seed-id_rsa.private</codeph> under the
+              <codeph>ansible-playbooks</codeph> folder on your admin node.</p><p>f. Copy the
+              <codeph>seed-id_rsa.public</codeph> under the <codeph>ansible-playbooks</codeph>
+            folder on your admin node.</p></li>
+        <li>If journaling is enabled, in <codeph>/group_vars/ceph-cluster</codeph>, run following
+          scripts from the admin node from <codeph>helion-ceph/ansible-playbooks/</codeph>
+          <codeblock><codeph>sudo ./createjournalpartitions &lt;cephadmin keypair&gt;
+</codeph></codeblock><p>This
+            script will create partitions on the journal drive, as specified
+              <codeph>cephcluster.csv</codeph> and appends the partition number and journal size to
+            each node in this
+            file.</p><codeblock><codeph>&lt;ipaddress&gt;, &lt;ceph-identifier&gt;, &lt;node-type&gt;,&lt;user&gt;,&lt;osd-partition-type&gt;, &lt;osd-disk-path&gt;, &lt;journal-partition-type&gt;, &lt;journal-disk-path&gt;&lt;partition no&gt;,
+</codeph></codeblock><p>The
+            following is sample output:</p><codeblock><codeph>192.168.51.90,mon-master-1,mon-master,hlinux
+192.168.51.100,mon2,mon,hlinux
+192.168.51.102,mon3,mon,hlinux
+192.168.51.98,admin-1,admin,hlinux
+192.168.51.93,rados-1,radosgw-master,hlinux
+192.168.51.94,rados-2,radosgw,hlinux
+192.168.51.95,ceph-osd-1,osd,hlinux,xfs,/dev/sdc,xfs,/dev/sdb5
+192.168.51.95,ceph-osd-2,osd,hlinux,xfs,/dev/sdd,xfs,/dev/sdb6
+192.168.51.95,ceph-osd-3,osd,hlinux,xfs,/dev/sde,xfs,/dev/sdb7
+192.168.51.95,ceph-osd-4,osd,hlinux,xfs,/dev/sdf,xfs,/dev/sdb8
+192.168.51.95,ceph-osd-5,osd,hlinux,xfs,/dev/sdg,xfs,/dev/sdb9
+192.168.51.95,ceph-osd-6,osd,hlinux,xfs,/dev/sdh,xfs,/dev/sdb10
+192.168.51.95,ceph-osd-7,osd,hlinux,xfs,/dev/sdi,xfs,/dev/sdb11
+192.168.51.96,ceph-osd-8,osd,hlinux,xfs,/dev/sdc,xfs,/dev/sdb5
+192.168.51.96,ceph-osd-9,osd,hlinux,xfs,/dev/sdd,xfs,/dev/sdb6
+192.168.51.96,ceph-osd-10,osd,hlinux,xfs,/dev/sde,xfs,/dev/sdb7
+192.168.51.96,ceph-osd-11,osd,hlinux,xfs,/dev/sdf,xfs,/dev/sdb8
+192.168.51.96,ceph-osd-12,osd,hlinux,xfs,/dev/sdg,xfs,/dev/sdb9
+192.168.51.96,ceph-osd-13,osd,hlinux,xfs,/dev/sdh,xfs,/dev/sdb10
+192.168.51.96,ceph-osd-14,osd,hlinux,xfs,/dev/sdi,xfs,/dev/sdb11
+192.168.51.97,ceph-osd-15,osd,hlinux,xfs,/dev/sdc,xfs,/dev/sdb5
+192.168.51.97,ceph-osd-16,osd,hlinux,xfs,/dev/sdd,xfs,/dev/sdb6
+192.168.51.97,ceph-osd-17,osd,hlinux,xfs,/dev/sde,xfs,/dev/sdb7
+192.168.51.97,ceph-osd-18,osd,hlinux,xfs,/dev/sdf,xfs,/dev/sdb8
+192.168.51.97,ceph-osd-19,osd,hlinux,xfs,/dev/sdg,xfs,/dev/sdb9
+192.168.51.97,ceph-osd-20,osd,hlinux,xfs,/dev/sdh,xfs,/dev/sdb10
+192.168.51.97,ceph-osd-21,osd,hlinux,xfs,/dev/sdi,xfs,/dev/sdb11
+192.168.51.88,compute0,computes
+192.168.51.89,compute1,computes
+192.168.51.87,controller0,controllers
+192.168.51.86,controller1,controllers
+192.168.51.85,controller2,controllers
+192.168.124.4,seed0,seed
+</codeph></codeblock><p>
+            <note>Before running this script, make sure that no partition numbers are associated
+              with &lt;journal-disk-path> in the <codeph>cephcluster.csv</codeph> file. This script
+              will append the partition numbers once it is executed successfully.</note>
+          </p></li>
+        <li>Execute the following
+            command.<codeblock><codeph>sudo ./bootstrap.sh &lt;cephadmin keypair&gt;
+</codeph></codeblock><p>This
+            script creates ansible metadata from the <codeph>cephcluster.csv</codeph> manifest file,
+            and configures the <codeph>/etc/hosts</codeph> file on Ceph nodes.</p><p>After the
+            bootstrap is run, verify that the <codeph>hosts</codeph> file and
+              <codeph>host_vars/*</codeph> files are generated.</p><p>The following is a sample host
+            file:</p><codeblock><codeph>[mon]
+mon-2 ansible_ssh_private_key_file=c1cephadmin.pem 
+mon-3 ansible_ssh_private_key_file=c1cephadmin.pem
+[osd]
+ceph-osd-1 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-2 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-3 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-4 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-5 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-6 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-7 ansible_ssh_private_key_file=c1cephadmin.pem
+
+ceph-osd-8 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-9 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-10 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-11 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-12 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-13 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-14 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-15 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-16 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-17 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-18 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-19 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-20 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-21 ansible_ssh_private_key_file=c1cephadmin.pem
+
+[ceph-cluster]
+mon-master-1 ansible_ssh_private_key_file=c1cephadmin.pem
+admin-1 ansible_ssh_private_key_file=c1cephadmin.pem
+rados-1 ansible_ssh_private_key_file=c1cephadmin.pem
+rados-2 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-1 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-2 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-3 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-4 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-5 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-6 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-7 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-8 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-9 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-10 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-11 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-12 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-13 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-14 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-15 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-16 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-17 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-18 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-19 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-20 ansible_ssh_private_key_file=c1cephadmin.pem
+ceph-osd-21 ansible_ssh_private_key_file=c1cephadmin.pem
+
+[mon-master]
+mon-master-1 ansible_ssh_private_key_file=c1cephadmin.pem
+
+[admin]
+admin-1 ansible_ssh_private_key_file=c1cephadmin.pem
+
+[radosgw]
+rados-1 ansible_ssh_private_key_file=c1cephadmin.pem
+rados-2 ansible_ssh_private_key_file=c1cephadmin.pem
+
+[computes]
+compute0 ansible_ssh_private_key_file=seed-id_rsa.private
+compute1 ansible_ssh_private_key_file=seed-id_rsa.private
+
+[helionnodes:children]
+computes
+controllers
+
+[controllers]
+controller0 ansible_ssh_private_key_file=seed-id_rsa.private
+controller1 ansible_ssh_private_key_file=seed-id_rsa.private
+controller2 ansible_ssh_private_key_file=seed-id_rsa.private
+
+[seed]
+seed0   ansible_ssh_private_key_file=seed-id_rsa.private
+</codeph></codeblock></li>
+      </ol>
+      <p>
+        <b>Running the Ansible playbook</b>
+      </p>
+      <p>Make sure that the following three keys are present or copied from their respective nodes
+        to the admin node under <codeph>ansible-playbook</codeph> folder:</p>
+      <ul>
+        <li>
+          <codeph>cephadmin.pem</codeph> key is copied (from Undercloud) to the
+            <codeph>ansible-playbooks</codeph> folder.</li>
+        <li>
+          <codeph>seed-id_rsa.private</codeph> key copied from the seed to the
+            <codeph>ansible-playbooks</codeph> folder.</li>
+        <li>
+          <codeph>seed-id_rsa.public</codeph> key is copied from the seed to the
+            <codeph>ansible-playbooks</codeph> folder.</li>
+      </ul>
+      <note> All three key ring permissions should be set to <b>sudo chmod 600 &lt;key&gt;</b>
+      </note>
+      <codeblock><codeph>4 -rw------- 1 hlinux hlinux 1676 Feb 24 07:46 cephadmin.pem 
+4 -rw------- 1 hlinux hlinux 1675 Feb 24 07:45 seed-id_rsa.private
+4 -rw------- 1 hlinux hlinux 393 Feb 24 07:45 seed-id_rsa.public</codeph></codeblock>
+    </section>
+    <section id="ceph-is-deployed-in-three-different-stages">
+      <title>Ceph is deployed in three different stages</title>
+      <p>You can deploy Ceph in three different stages:</p>
+      <ol>
+        <li>Set up Monitors and OSD nodes.</li>
+        <li>Integrate Ceph on Helion nodes</li>
+        <li>Set up RADOS Gateway nodes in the Ceph cluster</li>
+      </ol>
+      <p>To deploy Ceph in three different stages:</p>
+      <p>I. Set up Monitors and OSD nodes using the following command.</p>
+      <codeblock><codeph>ansible-playbook -i hosts osd_mon_setup.yml
+</codeph></codeblock>
+      <p>Following is the sample output.</p>
+      <codeblock><codeph>2015-02-24 08:13:44,462 p=15079 u=hlinux | PLAY RECAP
+********************************************************************
+2015-02-24 08:13:44,463 p=15079 u=hlinux | admin-1 : ok=2 changed=1 unreachable=0 failed=0
+2015-02-24 08:13:44,463 p=15079 u=hlinux | ceph-osd-1 : ok=20 changed=14 unreachable=0 failed=0
+2015-02-24 08:13:44,463 p=15079 u=hlinux | ceph-osd-10 : ok=20 changed=14 unreachable=0 failed=0
+2015-02-24 08:13:44,463 p=15079 u=hlinux | ceph-osd-11 : ok=20 changed=14 unreachable=0 failed=0
+2015-02-24 08:13:44,464 p=15079 u=hlinux | ceph-osd-12 : ok=20 changed=14 unreachable=0 failed=0
+2015-02-24 08:13:44,464 p=15079 u=hlinux | ceph-osd-13 : ok=20 changed=14 unreachable=0 failed=0
+2015-02-24 08:13:44,464 p=15079 u=hlinux | ceph-osd-14 : ok=20 changed=17 unreachable=0 failed=0
+2015-02-24 08:13:44,464 p=15079 u=hlinux | ceph-osd-15 : ok=20 changed=14 unreachable=0 failed=0
+2015-02-24 08:13:44,465 p=15079 u=hlinux | ceph-osd-16 : ok=20 changed=14 unreachable=0 failed=0
+2015-02-24 08:13:44,465 p=15079 u=hlinux | ceph-osd-17 : ok=20 changed=14 unreachable=0 failed=0
+2015-02-24 08:13:44,465 p=15079 u=hlinux | ceph-osd-18 : ok=20 changed=14 unreachable=0 failed=0
+2015-02-24 08:13:44,465 p=15079 u=hlinux | ceph-osd-19 : ok=20 changed=14 unreachable=0 failed=0
+2015-02-24 08:13:44,465 p=15079 u=hlinux | ceph-osd-2 : ok=20 changed=14 unreachable=0 failed=0
+2015-02-24 08:13:44,466 p=15079 u=hlinux | ceph-osd-20 : ok=20 changed=14 unreachable=0 failed=0
+2015-02-24 08:13:44,466 p=15079 u=hlinux | ceph-osd-21 : ok=20 changed=17 unreachable=0 failed=0
+2015-02-24 08:13:44,466 p=15079 u=hlinux | ceph-osd-3 : ok=20 changed=14 unreachable=0 failed=0
+2015-02-24 08:13:44,466 p=15079 u=hlinux | ceph-osd-4 : ok=20 changed=14 unreachable=0 failed=0
+2015-02-24 08:13:44,466 p=15079 u=hlinux | ceph-osd-5 : ok=20 changed=14 unreachable=0 failed=0
+2015-02-24 08:13:44,467 p=15079 u=hlinux | ceph-osd-6 : ok=20 changed=14 unreachable=0 failed=0
+2015-02-24 08:13:44,467 p=15079 u=hlinux | ceph-osd-7 : ok=20 changed=16 unreachable=0 failed=0
+2015-02-24 08:13:44,467 p=15079 u=hlinux | ceph-osd-8 : ok=20 changed=14 unreachable=0 failed=0
+2015-02-24 08:13:44,468 p=15079 u=hlinux | ceph-osd-9 : ok=20 changed=14 unreachable=0 failed=0
+2015-02-24 08:13:44,468 p=15079 u=hlinux | mon-master-1 : ok=24 changed=20 unreachable=0 failed=0
+2015-02-24 21:27:24,358 p=15079 u=hlinux | mon-1 : ok=2 changed=0 unreachable=0 failed=0
+2015-02-24 21:27:24,358 p=15079 u=hlinux | mon-2 : ok=2 changed=0 unreachable=0 failed=0
+2015-02-24 08:13:44,468 p=15079 u=hlinux | rados-1 : ok=2 changed=1 unreachable=0 failed=0
+2015-02-24 08:13:44,468 p=15079 u=hlinux | rados-2 : ok=2 changed=1 unreachable=0 failed=0
+</codeph></codeblock>
+      <p>II. Integrate Ceph on Helion nodes (Controller and Compute nodes) to support the Ceph
+        backend] by entering:</p>
+      <codeblock><codeph> ansible-playbook -i hosts client_setup.yml
+</codeph></codeblock>
+      <p>The following is sample output.</p>
+      <codeblock><codeph>....
+2015-02-24 21:27:24,351 p=18817 u=hlinux | PLAY RECAP
+******************************************************************** 
+2015-02-24 21:27:24,352 p=18817 u=hlinux | admin-1 : ok=16 changed=14 unreachable=0 failed=0
+2015-02-24 21:27:24,352 p=18817 u=hlinux | ceph-osd-1 : ok=2 changed=0 unreachable=0 failed=0
+2015-02-24 21:27:24,352 p=18817 u=hlinux | ceph-osd-10 : ok=2 changed=0 unreachable=0 failed=0
+2015-02-24 21:27:24,353 p=18817 u=hlinux | ceph-osd-11 : ok=2 changed=0 unreachable=0 failed=0
+2015-02-24 21:27:24,353 p=18817 u=hlinux | ceph-osd-12 : ok=2 changed=0 unreachable=0 failed=0
+2015-02-24 21:27:24,353 p=18817 u=hlinux | ceph-osd-13 : ok=2 changed=0 unreachable=0 failed=0
+2015-02-24 21:27:24,353 p=18817 u=hlinux | ceph-osd-14 : ok=2 changed=0 unreachable=0 failed=0
+2015-02-24 21:27:24,353 p=18817 u=hlinux | ceph-osd-15 : ok=2 changed=0 unreachable=0 failed=0
+2015-02-24 21:27:24,354 p=18817 u=hlinux | ceph-osd-16 : ok=2 changed=0 unreachable=0 failed=0
+2015-02-24 21:27:24,354 p=18817 u=hlinux | ceph-osd-17 : ok=2 changed=0 unreachable=0 failed=0
+2015-02-24 21:27:24,354 p=18817 u=hlinux | ceph-osd-18 : ok=2 changed=0 unreachable=0 failed=0
+2015-02-24 21:27:24,354 p=18817 u=hlinux | ceph-osd-19 : ok=2 changed=0 unreachable=0 failed=0
+2015-02-24 21:27:24,355 p=18817 u=hlinux | ceph-osd-2 : ok=2 changed=0 unreachable=0 failed=0
+2015-02-24 21:27:24,355 p=18817 u=hlinux | ceph-osd-20 : ok=2 changed=0 unreachable=0 failed=0
+2015-02-24 21:27:24,355 p=18817 u=hlinux | ceph-osd-21 : ok=2 changed=0 unreachable=0 failed=0
+2015-02-24 21:27:24,355 p=18817 u=hlinux | ceph-osd-3 : ok=2 changed=0 unreachable=0 failed=0
+2015-02-24 21:27:24,355 p=18817 u=hlinux | ceph-osd-4 : ok=2 changed=0 unreachable=0 failed=0
+2015-02-24 21:27:24,356 p=18817 u=hlinux | ceph-osd-5 : ok=2 changed=0 unreachable=0 failed=0
+2015-02-24 21:27:24,356 p=18817 u=hlinux | ceph-osd-6 : ok=2 changed=0 unreachable=0 failed=0
+2015-02-24 21:27:24,356 p=18817 u=hlinux | ceph-osd-7 : ok=2 changed=0 unreachable=0 failed=0
+2015-02-24 21:27:24,356 p=18817 u=hlinux | ceph-osd-8 : ok=2 changed=0 unreachable=0 failed=0
+2015-02-24 21:27:24,356 p=18817 u=hlinux | ceph-osd-9 : ok=2 changed=0 unreachable=0 failed=0 
+2015-02-24 21:27:24,357 p=18817 u=hlinux | compute0 : ok=27 changed=23 unreachable=0 failed=0 
+2015-02-24 21:27:24,357 p=18817 u=hlinux | compute1 : ok=27 changed=23 unreachable=0 failed=0 
+2015-02-24 21:27:24,357 p=18817 u=hlinux | controller0 : ok=13 changed=11 unreachable=0 failed=0 
+2015-02-24 21:27:24,357 p=18817 u=hlinux | controller1 : ok=13 changed=11 unreachable=0 failed=0 
+2015-02-24 21:27:24,357 p=18817 u=hlinux | controller2 : ok=13 changed=11 unreachable=0 failed=0
+2015-02-24 21:27:24,358 p=18817 u=hlinux | mon-master-1 : ok=2 changed=0 unreachable=0 failed=0
+2015-02-24 21:27:24,358 p=18817 u=hlinux | mon-1 : ok=2 changed=0 unreachable=0 failed=0
+2015-02-24 21:27:24,358 p=18817 u=hlinux | mon-2 : ok=2 changed=0 unreachable=0 failed=0
+</codeph></codeblock>
+    </section>
+    <p>You can choose to integrate CEPH with Cinder, Glance , and Nova. To integrate Ceph with these
+      OpenStack components, execute the following
+      command:<codeblock>ansible-playbook -i hosts client_setup.yml</codeblock></p>
+    <p>Execute the following command to integrate Ceph without Nova:</p>
+    <p>
+      <codeblock>ansible-playbook -i hosts client_setup.yml --skip-tags computes</codeblock>
+    </p>
+    <section><b>Integration of Ceph with HOS components</b><p>Perform the following steps to
+        integrate ceph with HOS components</p><ol id="ol_h12_vpp_xs">
+        <li>Login to Seed VM.<codeblock>ssh root@ &lt;seed IP address></codeblock></li>
+        <li>Source the environment variables file created during initial
+          installation.<codeblock><systemoutput># source tripleo/tripleo-incubator/scripts/hp_ced_load_config.sh tripleo/configs/&lt;environment variables file name></systemoutput></codeblock></li>
+        <li>Execute the following command with a specific options (refer table below) to integrate
+          various HOS components with Ceph using passthrough:<p>
+            <codeblock><codeph>python /root/tripleo/hp_ceph_passthrough/hp_ceph_load_config.py</codeph></codeblock>
+          </p><p>The following table provides a specific option to integrate various HPE Helion
+            OpenStack components with CEPH.</p><p>
+            <simpletable frame="all" relcolwidth="1.0* 1.0* 1.0* 1.0* 1.0*"
+              id="simpletable_r5t_n4p_xs">
+              <sthead>
+                <stentry>Ceph Integrated with HOS Components</stentry>
+                <stentry>Commands</stentry>
+                <stentry>Volumes</stentry>
+                <stentry>Images</stentry>
+                <stentry>Instances</stentry>
+              </sthead>
+              <strow>
+                <stentry>Cinder</stentry>
+                <stentry><codeph>python/root/tripleo/hp_ceph_passthrough/hp_ceph_load_config.py -s
+                    cinder</codeph></stentry>
+                <stentry>Supports all Cinder operations including multi-backend (VSA, 3PAR,
+                  CEPH)</stentry>
+                <stentry>All Glance operations use Default SWIFT store as backend</stentry>
+                <stentry>Instances are in default Nova pool.</stentry>
+              </strow>
+              <strow>
+                <stentry>Cinder and Glance</stentry>
+                <stentry><codeph>python/root/tripleo/hp_ceph_passthrough/hp_ceph_load_config.py -s
+                    cinder,glance</codeph></stentry>
+                <stentry>Supports all Cinder operations including multi-backend (VSA, 3PAR,
+                  CEPH)</stentry>
+                <stentry>All Glance operations use CEPH as backend</stentry>
+                <stentry>Instances are in default Nova pool.</stentry>
+              </strow>
+              <strow>
+                <stentry>Cinder, Glance, Nova</stentry>
+                <stentry><codeph>python
+                    /root/tripleo/hp_ceph_passthrough/hp_ceph_load_config.py</codeph></stentry>
+                <stentry>Only CEPH backend works</stentry>
+                <stentry>All Glance operations use CEPH as backend.</stentry>
+                <stentry>Instances are in CEPH pool.</stentry>
+              </strow>
+              <strow>
+                <stentry>Cinder, Nova</stentry>
+                <stentry><codeph>python /root/tripleo/hp_ceph_passthrough/hp_ceph_load_config.py -s
+                    cinder,nova</codeph></stentry>
+                <stentry>Only CEPH backend works</stentry>
+                <stentry>All Glance operations use Default SWIFT store as backend..</stentry>
+                <stentry>Instances are in CEPH pool.</stentry>
+              </strow>
+            </simpletable>
+          </p></li>
+        <li>Execute the following command to update the cloud:<codeblock><systemoutput>bash -x tripleo/tripleo-incubator/scripts/hp_ced_installer.sh --update-overcloud 2&gt;&amp;1 | tee update.log</systemoutput></codeblock><p>
+            <note>(<b>Mandatory</b>) Please execute step <b>3</b> and <b>4</b> before updating the
+              cloud or for any scale operation .</note>
+          </p></li>
+        <li>To move from one configuration to another choose the appropriate command for the new
+          configuration. <p><b>Example</b>:</p>To move from CEPH+Cinder to CEPH +Cinder and Glance
+          you must execute the following
+          command:<codeblock><codeph>python /root/tripleo/hp_ceph_passthrough/hp_ceph_load_config.py -s cinder,glance</codeph></codeblock></li>
+      </ol></section>
+    <section><b>Limitation</b><p>There are some known limitation when you switch from one
+        configuration to another. A few of them are listed below:</p><p>
+        <ol id="ol_fk1_qkq_xs">
+          <li>Cinder to Cinder+glance<ol id="ol_zdg_zkq_xs">
+              <li>Existing glance image (before running update cloud) cannot be used</li>
+              <li>Any instance created using the above glance image (before running update cloud)
+                cannot be used</li>
+            </ol></li>
+          <li>Cinder to Cinder+Glance+Nova:<ol id="ol_n1q_xlq_xs">
+              <li>Existing glance image (before running update cloud) cannot be used</li>
+              <li>Any instance created using the above glance image (before running update cloud)
+                cannot be used</li>
+              <li>Any instance created before update cloud cannot be used.</li>
+            </ol></li>
+          <li> Cinder to Cinder+Nova:<ol id="ol_i1x_zlq_xs">
+              <li>Any instance created before update cloud cannot be used</li>
+            </ol></li>
+          <li> Cinder+Glance to Cinder+Glance+Nova:<ol id="ol_kgr_1mq_xs">
+              <li>Any instance created before update cloud cannot be used</li>
+            </ol></li>
+        </ol>
+      </p></section>
+    <note>When integrating or removing CEPH as a backend for a given OpenStack service, all the
+      entities created with the earlier configuration becomes unusable. </note>
+    <p>III. Set up RADOS Gateway nodes in the Ceph cluster by entering:</p>
+    <codeblock><codeph>ansible-playbook -i hosts rados_setup.yml
+</codeph></codeblock>
+    <p>If any changes are made to <codeph>ceph.conf</codeph> file on any node manually, copy
+        <codeph>ceph.conf</codeph> file as <codeph>ceph_master.conf</codeph> from that node to the
+      Ceph admin node
+        <codeph>/helion-ceph/ansible-playbooks/roles/ceph-mon-master/files/ceph_master.conf</codeph>.</p>
+    <p>Run the following command to sync the <codeph>ceph.conf</codeph> file with all the Ceph
+      cluster and Helion client nodes.</p>
+    <codeblock><codeph>ansible-playbook -i hosts sync_all_nodes.yml
+</codeph></codeblock>
+    <section id="scaling-ceph-cluster">
+      <title>Scaling Ceph cluster</title>
+    </section>
+    <section id="add-monitor">
+      <title>Add monitor</title>
+      <ul>
+        <li>Provision the new node with the <codeph>ceph-cluster</codeph> image using the
+          node-provisioning tool (as mentioned above) from the seed host. You need to have three
+          monitor nodes. This example shows adding two additional monitor nodes.</li>
+      </ul>
+      <p>
+        <b>Sample Baremetal.csv</b>
+      </p>
+      <codeblock><codeph>f0:92:1c:05:47:21,helioncsel,m0ng00s3,192.168.51.104,150,163840,200,overcloud-ceph-cluster,c1mon4,002 
+f0:92:1c:05:35:58,helioncsel,m0ng00s3,192.168.51.106,163840,200,overcloud-ceph-cluster,c1mon5,002
+</codeph></codeblock>
+      <p>Once the node is up, from the admin node modify
+          <codeph>/helion-ceph/ansible-playbooks/cephcluster.csv</codeph> with the new
+          <codeph>mon</codeph> nodes.</p>
+      <codeblock><codeph>192.168.51.90,mon-master-1,mon-master,hlinux
+192.168.51.100,mon2,mon,hlinux
+192.168.51.102,mon3,mon,hlinux
+192.168.51.104,mon4,mon,hlinux
+192.168.51.106,mon5,mon,hlinux
+</codeph></codeblock>
+      <ul>
+        <li>Run <codeph>bootstrap.sh</codeph> from <codeph>ansible-playbook</codeph> folder as
+          mentioned above.</li>
+        <li>
+          <p>Run Ansible playbook to add the new monitors.</p>
+          <codeblock><codeph> ansible-playbook -i  hosts osd_mon_setup.yml
+</codeph></codeblock>
+        </li>
+        <li>
+          <p>Verify, if you are seeing all five monitors by entering:</p>
+          <codeblock><codeph>sudo ceph -w 
+</codeph></codeblock>
+        </li>
+        <li>For NTP-related warnings, check the following section on how to sync all the servers in
+          the Ceph cluster with the NTP server.</li>
+      </ul>
+    </section>
+    <section id="add-osd">
+      <title>Add OSD</title>
+      <p>To add an Object Storage Daemon (OSD):</p>
+      <ul>
+        <li>Provision the new </li>
+        <li>node with the <codeph>ceph-cluster</codeph> image using the node-provisioning tool from
+          the seed host as mentioned above.</li>
+      </ul>
+    </section>
+    <section id="sample-baremetalcsv">
+      <title>Sample Baremetal.csv</title>
+      <p>The following is a sample of a <codeph>baremetal.csv</codeph> file:</p>
+      <codeblock><codeph>f0:92:1c:05:56:98,helioncsel,m0ng00s3,10.1.67.123,178,163840,200,overcloud-ceph-cluster,c1osd4,002 
+f0:92:1c:05:33:12,helioncsel,m0ng00s3,10.1.67.123,179,163840,200,overcloud-ceph-cluster,c1osd5,002
+</codeph></codeblock>
+      <p>This example shows that two OSD nodes are added and under each node there are four
+        OSDs.</p>
+      <ul>
+        <li>
+          <p>Once the node is up, from the admin node modify
+              <codeph>/helion-ceph/ansible-playbooks/cephcluster.csv</codeph> with the new monitor
+            node.</p>
+          <codeblock><codeph>192.168.51.90,mon-master-1,mon-master,hlinux
+192.168.51.121,ceph-osd-22,osd,hlinux,xfs,/dev/sdc,xfs,/dev/sdb
+192.168.51.121,ceph-osd-23,osd,hlinux,xfs,/dev/sdd,xfs,/dev/sdb
+192.168.51.121,ceph-osd-24,osd,hlinux,xfs,/dev/sde,xfs,/dev/sdb
+192.168.51.121,ceph-osd-25,osd,hlinux,xfs,/dev/sdf,xfs,/dev/sdb
+192.168.51.125,ceph-osd-26,osd,hlinux,xfs,/dev/sdc,xfs,/dev/sdb
+192.168.51.125,ceph-osd-27,osd,hlinux,xfs,/dev/sdd,xfs,/dev/sdb
+192.168.51.125,ceph-osd-28,osd,hlinux,xfs,/dev/sde,xfs,/dev/sdb
+192.168.51.125,ceph-osd-29,osd,hlinux,xfs,/dev/sdf,xfs,/dev/sdb
+</codeph></codeblock>
+        </li>
+        <li>
+          <p>If you are enabling journaling, in <codeph>/group_vars/ceph-cluster</codeph> on the
+            admin node, run the following scripts in
+            <codeph>helion-ceph/ansible-playbooks/</codeph>:</p>
+          <codeblock><codeph>sudo ./createjournalpartitions &lt;cephadmin keypair&gt;
+192.168.51.90,mon-master-1,mon-master,hlinux
+192.168.51.121,ceph-osd-22,osd,hlinux,xfs,/dev/sdc,xfs,/dev/sdb5
+192.168.51.121,ceph-osd-23,osd,hlinux,xfs,/dev/sdd,xfs,/dev/sdb6
+192.168.51.121,ceph-osd-24,osd,hlinux,xfs,/dev/sde,xfs,/dev/sdb7
+192.168.51.121,ceph-osd-25,osd,hlinux,xfs,/dev/sdf,xfs,/dev/sdb8
+192.168.51.125,ceph-osd-26,osd,hlinux,xfs,/dev/sdc,xfs,/dev/sdb5
+192.168.51.125,ceph-osd-27,osd,hlinux,xfs,/dev/sdd,xfs,/dev/sdb6
+192.168.51.125,ceph-osd-28,osd,hlinux,xfs,/dev/sde,xfs,/dev/sdb7
+192.168.51.125,ceph-osd-29,osd,hlinux,xfs,/dev/sdf,xfs,/dev/sdb8
+</codeph></codeblock>
+        </li>
+        <li>
+          <p>Run <codeph>bootstrap.sh</codeph> from <codeph>ansible-playbook</codeph> folder as
+            mentioned above.</p>
+          <codeblock><codeph>sudo ./bootstrap.sh &lt;cephadmin keypair&gt;
+</codeph></codeblock>
+          <p>This script creates Ansible metadata from <codeph>cephcluster.csv</codeph> manifest
+            file, and configures <codeph>/etc/hosts</codeph> file on ceph nodes.</p>
+        </li>
+        <li>
+          <p>Run the Ansible playbook to add the new OSD nodes by entering:</p>
+          <codeblock><codeph> ansible-playbook -i hosts osd_mon_setup.yml --tags "add-osd"
+</codeph></codeblock>
+        </li>
+        <li>
+          <p>Verify that you are seeing newly added OSD nodes and daemons from the <codeph>sudo ceph
+              -w</codeph> command return.</p>
+        </li>
+      </ul>
+    </section>
+    <section id="heartbeat-monitoring">
+      <title>Heartbeat Monitoring Tool (Optional)</title>
+      <p>The Heartbeat tool is written in Python and it is an open ended tool so other 3rd party
+        service and status checks can be added or extended. This tool is run on the seed node from
+        the HPE Helion setup. This tool continuously queries for HPE Helion OpenStack services and
+        provides notifications to the pre-defined administrator when configuration file mismatches
+        are detected, or when any of the specified services in configuration file are down. The
+        configuration service automatically reapplies the known good configuration files when the
+        checksum does not match. It then restarts the associated services specified in the
+        configuration file and triggers the validation script to do a minimal check for that
+        service. Even if the configuration files are overwritten when the checksum does not match, a
+        backup of the existing file from the current folder (named
+          <codeph>[filename].timestamp</codeph>) is also saved in the backup folder. This allows the
+        admin to verify the changes at any time.</p>
+      <p>The Heartbeat tar files are:</p>
+      <codeblock><codeph>heartbeat-tool/Readme.md 
+heartbeat-tool/conf/heartbeat.conf 
+heartbeat-tool/conf/sample.conf heartbeat-tool/src/checks.py 
+heartbeat-tool/src/run.py 
+heartbeat-tool/src/sendemail.py
+
+heartbeat-tool/src/osclients.py 
+heartbeat-tool/src/nodeaccess.py
+</codeph></codeblock>
+      <p>These tarballs can be obtained from:</p>
+      <p>
+        <xref href="https://helion.hpwsportal.com/" scope="external" format="html"
+          >https://helion.hpwsportal.com/</xref>
+      </p>
+      <p>
+        <xref href="#topic64701"> Return to Top </xref>
+      </p>
+    </section>
+    <section id="cluster-validation">
+      <title>Helion OpenStack Ceph cluster validation</title>
+      <p>To validate the HPE Helion OpenStack Ceph cluster, perform the following:</p>
+      <ol>
+        <li>Verify Ceph default pools by
+            entering:<codeblock><codeph>ceph osd lspools
+</codeph></codeblock><p>For
+            example:<codeblock>0 data, 1 metadata, 2rbd</codeblock></p></li>
+        <li>Verify that the monitor is running by
+            entering:<codeblock><codeph>ceph -s
+</codeph></codeblock><p>For
+          example:</p><codeblock><codeph>root@ceph-mon1gw1:/var/lib/ceph/mon# ceph -s
+cluster e0f2ad6b-588f-432c-99c1-d81f0f71cb77
+health HEALTH_ERR 192 pgs stuck inactive; 192 pgs stuck unclean; no osds
+monmap e1: 1 mons at {ceph-mon1gw1=192.168.116.54:6789/0}, election epoch 2, quorum 0
+ceph-mon1gw1
+osdmap e1: 0 osds: 0 up, 0 in
+pgmap v2: 192 pgs, 3 pools, 0 bytes data, 0 objects
+    0 kB used, 0 kB / 0 kB avail
+    192 creating
+</codeph></codeblock></li>
+        <li>Ensure that the OSD Daemon is running by verifying the output from running <codeph>sudo
+            ceph -w</codeph>.</li>
+        <li>Ensure that Ceph health and status is OK by
+            entering:<codeblock><codeph>ceph health
+HEALTH_OK
+ceph status
+</codeph></codeblock><p>For
+            example:</p><codeblock><codeph>root@ceph-mon1:/home/ceph# ceph -s
+cluster 6a710689-5b19-4ba3-b2c5-c23ddd26dce9
+health HEALTH_OK
+monmap e1: 1 mons at {ceph-mon1=192.168.116.54:6789/0}, election epoch 1, quorum 0 ceph-mon1
+osdmap e336: 39 osds: 39 up, 39 in
+pgmap v106607: 11456 pgs, 17 pools, 7878 MB data, 1319 kobjects
+83315 MB used, 99199 GB / 99280 GB avail
+11456 active+clean
+</codeph></codeblock></li>
+        <li>Monitor and correct XFS fragmentation by
+            entering:<codeblock><codeph>xfs_db -c frag -r /dev/sdb1
+</codeph></codeblock><p>which
+            returns information such
+            as:</p><codeblock><codeph>Fragmentation on /dev/sdb1 - osd3
+actual 22722, ideal 22557, fragmentation factor 0.73%
+</codeph></codeblock><p>For
+            example, to check the fragmentation on OSDs,
+          enter:</p><codeblock><codeph>#!/bin/sh
+echo "Fragmentation on /dev/sdb1 - osd1"
+xfs_db -c frag -r /dev/sdb1
+echo "Fragmentation on /dev/sdc1 - osd1"
+xfs_db -c frag -r /dev/sdc1
+echo "Fragmentation on /dev/sdd1 - osd1"
+xfs_db -c frag -r /dev/sdd1
+echo "Fragmentation on /dev/sde1 - osd1"
+xfs_db -c frag -r /dev/sde1
+echo "Fragmentation on /dev/sdf1 - osd1"
+xfs_db -c frag -r /dev/sdf1
+echo "Fragmentation on /dev/sdg1 - osd1"
+xfs_db -c frag -r /dev/sdg1
+echo "Fragmentation on /dev/sdh1 - osd1"
+xfs_db -c frag -r /dev/sdh1
+echo "Fragmentation on /dev/sdi1 - osd1"
+</codeph></codeblock></li>
+        <li>Depending on workloads, you can edit the Ceph tuning
+          parameters:<codeblock><codeph>osd op threads = 8
+osd max backfills = 1
+osd recovery max active = 1
+filestore max sync interval = 100
+filestore min sync interval = 50
+filestore queue max ops = 2000
+filestore queue max bytes = 536870912
+filestore queue committing max ops = 2000
+filestore queue committing max bytes = 536870912
+</codeph></codeblock></li>
+      </ol>
+      <p>
+        <xref href="#topic64701"> Return to Top </xref>
+      </p>
+    </section>
+    <section id="client-validation">
+      <title>Helion OpenStack Ceph client validation</title>
+      <p>This section explains how to validate Glance.</p>
+    </section>
+    <section id="glance">
+      <title>Glance</title>
+      <ul>
+        <li>
+          <p>Create a sample Glance Raw image on any controller node as ;shown below. Use the Raw
+            data format with RBD for instant image snapshots and protection. For more details, refer
+            to <xref href="http://ceph.com/docs/master/rbd/qemu-rbd/?highlight=raw" scope="external"
+              format="html">http://ceph.com/docs/master/rbd/qemu-rbd/?highlight=raw</xref>
+          </p>
+        </li>
+        <li>
+          <p>Use a conversion tool like <codeph>qemu-img</codeph> to convert from one image format
+            to another. </p>
+          <p>For example:</p>
+          <codeblock><codeph>qemu-img convert -f {source-format} -O {output-format} {source-filename} {output-filename}
+qemu-img convert -f qcow2 -O raw cirros-0.3.2-x86_64-disk.img cirros-0.3.2-x86_64-disk.raw
+glance image-create --name RImg --is-public=true --disk-format=raw --container-format=bare --file cirros-0.3.2-x86_64-disk.raw
+</codeph></codeblock>
+        </li>
+      </ul>
+      <p>
+        <image href="../../../media/ceph-ansible-playbooks-glance1.png" placement="break"/>
+      </p>
+      <ul>
+        <li>
+          <p>Make sure that the uploaded Glance image is available in the Horizon UI and is
+            correctly stored in the appropriate pool in Ceph by entering;</p>
+          <codeblock><codeph>rbd ls -l &lt;glance pool name&gt;
+glance image-list
+</codeph></codeblock>
+        </li>
+      </ul>
+      <p>
+        <image href="../../../media/ceph-ansible-playbooks-glance-horizon.png" placement="break"/>
+      </p>
+      <ul>
+        <li>Enable logging in <codeph>glance-api.conf</codeph>. If you encounter a problem in any of
+          the above steps, restart Glance services and re-run the problem step. If the problem
+          persists, ather Glance debug logs in the <codeph>/var/log/glance</codeph> directory and
+          contact the HPE support team for help.</li>
+      </ul>
+    </section>
+    <section id="glance-clone-copy">
+      <title>Ceph Glance Clone Copy On Write</title>
+      <p>Note that Clone copy-on-write (COW) is achieved when an image is in RAW format. Use a
+        conversion tool like <codeph>qemu-img</codeph> to convert from one format to another.</p>
+      <ul>
+        <li>Create a Glance image using the <codeph>glance image-create</codeph> command.</li>
+      </ul>
+      <p>For example:</p>
+      <codeblock><codeph>qemu-img convert -f {source-format} -O {output-format} {source-filename} {output-filename}
+qemu-img convert -f qcow2 -O raw cirros-0.3.2-x86_64-disk.img cirros-0.3.2-x86_64-disk.raw
+glance image-create --name RImg --is-public=true --disk-format=raw --container-format=bare --file cirros-0.3.2-x86_64-disk.raw
+</codeph></codeblock>
+      <ul>
+        <li>
+          <p>Create a Cinder volume on any controller node from a Glance image created above by
+            entering:</p>
+          <codeblock><codeph>cinder create -image-id &lt;glance image id&gt; --display-name RVol 2
+</codeph></codeblock>
+          <p>
+            <image href="../../../media/ceph-ansible-playbooks-glance-clone1.png" placement="break"
+            />
+          </p>
+        </li>
+        <li>
+          <p>Make sure the Cinder volume created is available in the rbd pool by entering:</p>
+          <codeblock><codeph>rbd ls -l &lt;cinder pool name&gt;
+cinder list
+</codeph></codeblock>
+          <p>
+            <image href="../../../media/ceph-ansible-playbooks-glance-clone2.png" placement="break"
+            />
+          </p>
+        </li>
+        <li>
+          <p>Track clones to demonstrate copy-on-write feature by first listing snapshots of the
+            Glance image, and then listing the children of the snapshot by entering:</p>
+          <codeblock><codeph>rbd --pool &lt;glance pool name&gt; snap ls &lt;glance image id&gt;
+rbd --pool &lt;glance pool name&gt; children --image &lt;glance image id&gt; --snap &lt;snap name&gt;
+rbd children &lt;glance pool name&gt;/&lt;glance-image id&gt;@&lt;snap name&gt;
+</codeph></codeblock>
+          <p>
+            <image href="../../../media/ceph-ansible-playbooks-glance-clone3.png" placement="break"
+            />
+          </p>
+        </li>
+        <li>
+          <p>Enable logging in <codeph>glance-api.conf</codeph> and <codeph>cinder.conf</codeph> if
+            you encounter a problem in any of the above steps. Restart Glance and Cinder services
+            and re-run the problem step. If necessary, gather Glance debug logs in
+              <codeph>/var/log/glance</codeph> directory and Cinder debug logs in
+              <codeph>/var/log/upstart</codeph> directory and contact HPE support team for help.</p>
+        </li>
+      </ul>
+    </section>
+    <section id="cinder">
+      <title>Creating a Cinder volume</title>
+      <p>There are two ways to create a volume:</p>
+      <ul>
+        <li>Horizon overcloud dashboard </li>
+        <li>The Command Line Interface (CLI) </li>
+      </ul>
+    </section>
+    <section id="using-the-horizon-overcloud-dashboard">
+      <title>Using the Horizon Overcloud dashboard</title>
+      <p>To create a volume see <xref
+          href="http://docs.openstack.org/user-guide/content/dashboard_manage_volumes.html"
+          scope="external" format="html">OpenStack User Guide</xref>
+      </p>
+    </section>
+    <section id="using-the-cli">
+      <title>Using the CLI</title>
+      <p>To create a volume using the command-line interface (CLI), from the Overcloud controller
+        node running the Ceph client, run the following command:</p>
+      <codeblock><codeph>Cinder create -display-name &lt;name of the volume&gt; &lt;volume size&gt;
+</codeph></codeblock>
+      <p>For example:</p>
+      <codeblock><codeph># cinder create -- display-name vol2-RBD 1 
+</codeph></codeblock>
+      <p>
+        <b>Output</b>:</p>
+      <codeblock><codeph>       +---------------------+-----------------------------------------------------------------+
+        | Property            | Value                                                           |     
+        +---------------------+-----------------------------------------------------------------+
+        | attachments         | []                                                              |
+        | availability_zone   | nova                                                            |
+        | bootable            | false                                                           |
+        | created_at          |  2014-08-01T14:56:21.423821                                     |
+        | display_description |  None                                                           |
+        | display_name        | vol2-RBD                                                        |
+        | encrypted           | False                                                           |
+        | id                  |d6064822-d1c1-4e72-b496-ee807174ef96                             |
+        | metadata            | {}                                                              |
+        | size                | 1                                                               |                                   
+        | snapshot_id         | None                                                            |
+        | source_volid        | None                                                            |
+        | status              | creating                                                        |  
+        |volume_type          | None                                                            |
+        +--------------+------------------------------------------------------------------------+
+</codeph>
+</codeblock>
+    </section>
+    <section><b>Creating Cinder Volume Type</b><p>To create a volume type using the Overcloud
+        dashboard, do the following:<ol id="ol_myr_nzq_xs">
+          <li> Log into the Overcloud Horizon dashboard. The Overcloud dashboard displays with the
+            options in the left panel.</li>
+          <li>From the left panel, click the <b>Admin</b> tab and then click the <b>Volumes</b> tab
+            to display the Volumes page.<p><image
+                href="../../../media/create-ceph-volumetype%20-%201.png" id="image_hlg_qtw_xs"
+            /></p></li>
+          <li>Click <b>Create Volume Type</b> to display a dialog box. <p><image
+                href="../../../media/create-ceph-volumetype%20(2).png" id="image_hf2_sbr_xs"
+            /></p></li>
+          <li>Enter the name of the volume type.</li>
+          <li>Click<b> Create Volume Type</b>. The newly created volume displays in the Volumes
+            page. <image href="../../../media/create-ceph-volumetype.png" id="image_r5l_1sw_xs"
+            /></li>
+        </ol></p></section>
+    <section><b><b>Associate the volume type to a backend</b></b><p>To map a volume type to a
+        backend, do the following:</p><ol id="ol_hcb_vsv_zs">
+        <li> Login to the Overcloud Horizon dashboard. The Overcloud dashboard displays with the
+          options in the left panel.</li>
+        <li>From the left panel, click the <b>Admin</b> tab and then click the <b>Volumes</b> tab to
+          display the Volumes page.<p><image href="../../../media/create-ceph-volumetype.png"
+              id="image_sy1_hyv_zs"/></p></li>
+        <li>Click <b>View Extra Specs</b> displayed against the volume type which you want to
+          associate to the backend. <p><image
+              href="../../../media/create-ceph-volumetype%20-%20extra-specs.png"
+              id="image_yf3_ktv_zs"/></p> The <b>Create Volume Type Extra Specs</b> dialog box
+              displays.<p><image href="../../../media/volume-extra-specs-ceph.png"
+              id="image_xyk_nyv_zs"/></p></li>
+        <li>In the <b>Key</b> box, enter <i>volume_backend_name</i>. This is the name of the key
+          used to specify the storage backend when provisioning volumes of this volume type.</li>
+        <li>In the <b>Value</b> box, enter the name of the backend to which you want to associate
+          the volume type. For example:<i>helion-ceph-cinder</i>.</li>
+        <li>Click <b>Create</b> to create the extra volume type specs.<note>Once the volume type is
+            mapped to the backend, you can create volumes.</note></li>
+      </ol></section>
+    <section id="cinder-backup">
+      <title>Creating a Cinder backup</title>
+      <p>Once the Cinder service is restarted, you can create a backup of a Cinder volume. There are
+        two ways to create a backup:</p>
+      <ul>
+        <li>
+          <p>The Horizon Overcloud Dashboard</p>
+        </li>
+        <li>
+          <p>The Command Line Interface (CLI)</p>
+        </li>
+      </ul>
+      <note>For Cinder backup, the Cinder volume to be backed up must be in a detached state. The
+        volume should not be attached to any of the instances or Virtual Machines.</note>
+    </section>
+    <section id="using-the-horizon-overcloud-dashboard2">
+      <title>Using the Horizon overcloud dashboard</title>
+      <p>Create a volume backup see <xref
+          href="http://docs.openstack.org/user-guide/content/dashboard_manage_volumes.html"
+          scope="external" format="html">OpenStack User Guide</xref>
+      </p>
+    </section>
+    <section id="using-the-cli2">
+      <title>Using the CLI</title>
+      <ol>
+        <li>Login to the Overcloud using the <codeph>controllermanagement</codeph> command.</li>
+        <li>To create a cinder backup,
+            enter:<codeblock><codeph>cinder backup-create [--container &lt;container&gt;] --display-name &lt;display-name&gt;] [--display-description &lt;display-description&gt;] &lt;volume&gt;
+</codeph></codeblock><p>where:</p><p><codeph>volume</codeph>
+            is then name or ID of the volume to backup.</p><p><codeph>container
+              &lt;container&gt;</codeph> is the optional Backup container name. (Default=None)
+              </p><p><codeph>display-name &lt;display-name&gt;</codeph> is the optional backup name.
+            (Default=None)</p><p><codeph>display-description &lt;display-description&gt;</codeph> is
+            the optional backup description. (Default=None) </p><p>The following example shows how
+            to create a backup with the name of <b>deb7rawbackup</b> for an existing Cinder volume
+            with the ID <b>0a2c6c62-627f-42d3-9b66-e4ba56db0ba7</b>:</p><codeblock><codeph>cinder backup-create --display-name deb7rawbackup 0a2c6c62-627f-42d3-9b66-e4ba56db0ba7.
+
+cinder backup-create --display-name cindervol_backup ff8d13a5-3083-424b-a626-0b75cbe8cf66
+</codeph></codeblock><p>
+            <b>Output</b>:</p><codeblock><codeph>
++-----------+--------------------------------------+
+|  Property |                Value                 |
++-----------+--------------------------------------+
+|     id    | 60764712-c456-465a-828b-5f45d3a14ff5 |
+|    name   |           cindervol_backup           |
+| volume_id | ff8d13a5-3083-424b-a626-0b75cbe8cf66 |
++-----------+--------------------------------------+
+</codeph></codeblock></li>
+        <li>
+          <p>View a list of Cinder backups, enter:</p>
+          <codeblock><codeph>cinder backup-list
+</codeph></codeblock>
+          <p>
+            <b>Output</b>:</p>
+          <codeblock><codeph>   +--------------------------------------+--------------------------------------+-----------+-------------------+------+--------------+---------------------+
+    |                  ID                  |              Volume ID               |   Status  |        Name       | Size | Object Count |      Container      |
+    +--------------------------------------+--------------------------------------+-----------+-------------------+------+--------------+---------------------+
+    | 244aa3a1-b291-4cfe-9999-438f7611da2b | eb170c5e-d227-40ef-b515-b84b82c38eb0 | available |    Rvol6backup    |  15  |     None     | helion-ceph-backups |
+    | 32ea7668-9179-433c-8fe3-44b98cd9d85b | 8aefafcc-4171-4c11-b900-362fbda40015 | available | ubuntu1404-backup |  10  |     None     | helion-ceph-backups |
+    | 60764712-c456-465a-828b-5f45d3a14ff5 | ff8d13a5-3083-424b-a626-0b75cbe8cf66 |  creating |  cindervol_backup |  15  |     None     |         None        |
+    | beeccb71-81e7-4860-8d38-add05a2e610d | eb170c5e-d227-40ef-b515-b84b82c38eb0 | available |    Rvol6backup    |  15  |     None     | helion-ceph-backups |
+    +--------------------------------------+--------------------------------------+-----------+-------------------+------+--------------+---------------------+
+</codeph></codeblock>
+        </li>
+        <li>To view details of a selected volume, enter:<codeblock><codeph>cinder backup-show 60764712-c456-465a-828b-5f45d3a14ff5
+</codeph></codeblock><p>
+            <b>Output</b>:</p><codeblock><codeph>
++-------------------+--------------------------------------+
+|      Property     |                Value                 |
++-------------------+--------------------------------------+
+| availability_zone |                 None                 |
+|     container     |                 None                 |
+|     created_at    |      2014-10-01T18:14:50.000000      |
+|    description    |                 None                 |
+|    fail_reason    |                 None                 |
+|         id        | 60764712-c456-465a-828b-5f45d3a14ff5 |
+|        name       |           cindervol_backup           |
+|    object_count   |                 None                 |
+|        size       |                  15                  |
+|       status      |               creating               |
+|     volume_id     | ff8d13a5-3083-424b-a626-0b75cbe8cf66 |
++-------------------+--------------------------------------+
+</codeph></codeblock></li>
+        <li>Enter:<codeblock><codeph> rbd ls -l helion-ceph-backups
+</codeph>
+</codeblock><p>
+            <b>Output</b>:</p><codeblock><codeph>        NAME                                                                                                                     SIZE PARENT FMT PROT LOCK
+        volume-0a2c6c62-627f-42d3-9b66-e4ba56db0ba7.backup.base                                                                10240M          2
+        volume-0a2c6c62-627f-42d3-9b66-e4ba56db0ba7.backup.base@backup.02c6df2c-d03a-44ad-847a-ce03b580ee23.snap.1412106395.75 10240M          2
+        volume-0a2c6c62-627f-42d3-9b66-e4ba56db0ba7.backup.base@backup.c9c20a09-403e-4011-a3f8-2fea11a560ee.snap.1412042130.16 10240M          2
+        volume-3adf1c83-2efa-4a1e-bef6-cdaffd13b489.backup.base                                                                 3072M          2
+        volume-3adf1c83-2efa-4a1e-bef6-cdaffd13b489.backup.base@backup.cdd27130-1791-45f6-8b6e-cc284922b02e.snap.1412041965.31  3072M          2 
+</codeph></codeblock></li>
+        <li>To view cluster utilization, enter:<codeblock><codeph>    rados df
+</codeph></codeblock><p>
+            <b>Output</b>:</p><codeblock><codeph>    pool name       category                 KB      objects       clones     degraded      unfound           rd        rd KB           wr        wr KB
+    .rgw            -                       9411        51459            0            0           0       110460        85700       130906        51952
+    .rgw.buckets    -                      20004       188711            0            0           0      6466145      4329147      8000069      1563078
+    helion-ceph-backups -                   54343272        13300         2190            0           0        16295     40106569        38157     70071922
+</codeph></codeblock><p>
+            <note> You can delete a Cinder volume by executing: <codeph>cinder
+                backup-delete</codeph>.</note>
+          </p></li>
+        <li>Attach the Cinder volume to a Nova instance by
+          entering:<codeblock><codeph>nova volume-attach &lt;instance id&gt; &lt;volume ID&gt;
+</codeph></codeblock></li>
+        <li>Select the instance and provide the device name by
+          entering:<codeblock><codeph>nova volume-attach &lt;server&gt; &lt;volume&gt; &lt;device&gt;
+</codeph></codeblock></li>
+      </ol>
+    </section>
+    <section id="mounting-the-volume-and-copying-a-new-image">
+      <title>Mounting the volume and Copying a new image</title>
+      <p>To mount the volume and copy the new image file from the VM, perform these steps:</p>
+      <ol>
+        <li>Log in as root.</li>
+        <li>List the block devices by entering:<codeblock><codeph>lsblk
+</codeph></codeblock><p>
+            <b>Output</b>:</p><codeblock><codeph>NAME                     MAJ:MIN RM   SIZE RO TYPE MOUNTPOINT
+vda                      254:0    0    10G  0 disk
+aavda1                   254:1    0   243M  0 part /boot
+aavda2                   254:2    0     1K  0 part
+aavda5                   254:5    0   7.8G  0 part
+  aadebian-root (dm-0)   253:0    0   7.4G  0 lvm  /
+  aadebian-swap_1 (dm-1) 253:1    0   376M  0 lvm  [SWAP]
+vdb                      254:16   0    26G  0 disk
+vdc                      254:32   0    10G  0 disk
+vdd                      254:48   0    10G  0 disk
+vde                      254:64   0    10G  0 disk
+vdf                      254:80   0    10G  0 disk
+vdg                      254:96   0    10G  0 disk
+vdi                      254:128  0    15G  0 disk
+vdj                      254:144  0    15G  0 disk
+</codeph></codeblock></li>
+        <li>Mount <codeph>dev</codeph> to <codeph>vol</codeph> by entering:<codeblock><codeph>mount /dev/vdj /mnt/vol
+</codeph></codeblock><p>
+            <b>Output</b>:</p><codeblock><codeph>mount: mount point /mnt/vol does not exist
+</codeph></codeblock></li>
+        <li>Mount <codeph>dev</codeph> to <codeph>vol1</codeph> by
+          entering:<codeblock><codeph>mount /dev/vdj /mnt/vol1 
+</codeph></codeblock></li>
+        <li>Change the directory by
+          entering:<codeblock><codeph>cd /mnt/vol1
+</codeph></codeblock></li>
+        <li>List all the sub-directories by
+          entering:<codeblock><codeph>ls -ltr
+</codeph></codeblock></li>
+        <li>To view disk usage, enter:<codeblock><codeph>df -h
+</codeph></codeblock><p>
+            <b>Output</b>:</p><codeblock><codeph>Filesystem               Size  Used Avail Use% Mounted on
+rootfs                   7.3G  6.7G  248M  97% /
+udev                      10M     0   10M   0% /dev
+tmpfs                    397M  208K  397M   1% /run
+/dev/mapper/debian-root  7.3G  6.7G  248M  97% /
+tmpfs                    5.0M     0  5.0M   0% /run/lock
+tmpfs                    794M     0  794M   0% /run/shm
+/dev/vda1                228M   18M  199M   9% /boot
+/dev/vdj                  15G  847M   14G   6% /mnt/vol1
+</codeph></codeblock></li>
+        <li>To mount, enter:<codeblock><codeph>mount
+</codeph></codeblock><p>
+            <b>Output</b>:</p><codeblock><codeph>sysfs on /sys type sysfs (rw,nosuid,nodev,noexec,relatime)
+proc on /proc type proc (rw,nosuid,nodev,noexec,relatime)
+udev on /dev type devtmpfs (rw,relatime,size=10240k,nr_inodes=506385,mode=755)
+devpts on /dev/pts type devpts (rw,nosuid,noexec,relatime,gid=5,mode=620,ptmxmode=000)
+tmpfs on /run type tmpfs (rw,nosuid,noexec,relatime,size=406364k,mode=755)
+/dev/mapper/debian-root on / type ext4 (rw,relatime,errors=remount-ro,user_xattr,barrier=1,data=ordered)
+tmpfs on /run/lock type tmpfs (rw,nosuid,nodev,noexec,relatime,size=5120k)
+tmpfs on /run/shm type tmpfs (rw,nosuid,nodev,noexec,relatime,size=812720k)
+/dev/vda1 on /boot type ext2 (rw,relatime,errors=continue)
+/dev/vdj on /mnt/vol1 type ext4 (rw,relatime,user_xattr,barrier=1,data=ordered)
+</codeph></codeblock><p>Now
+            the Cinder volume has additional file system changes within the volume.</p></li>
+        <li>To list the additional file system changes, enter:<codeblock><codeph>ls-ltr
+</codeph></codeblock><p>
+            <b>Output</b>:</p><codeblock><codeph>total 6328752
+drwx------ 2 root root      16384 Oct  1 05:22 lost+found
+-rwxr-x--- 1 root root  702939136 Oct  1 05:23 CentOS_65.qcow2
+-rw-r--r-- 1 root root   10870593 Oct  1 05:24 initrd.img-3.2.0-4-amd64
+-rw-r--r-- 1 root root 5766807552 Oct  2 00:34 Debian_7.raw
+</codeph></codeblock></li>
+        <li>To view disk usage, enter:<codeblock><codeph>df -h
+</codeph></codeblock><p>
+            <b>Output</b>:</p><codeblock><codeph>Filesystem               Size  Used Avail Use% Mounted on
+rootfs                   7.3G  6.7G  248M  97% /
+udev                      10M     0   10M   0% /dev
+tmpfs                    397M  208K  397M   1% /run
+/dev/mapper/debian-root  7.3G  6.7G  248M  97% /
+tmpfs                    5.0M     0  5.0M   0% /run/lock
+tmpfs                    794M     0  794M   0% /run/shm
+/dev/vda1                228M   18M  199M   9% /boot
+/dev/vdj                  15G  6.2G  8.6G  42% /mnt/vol1
+</codeph></codeblock></li>
+        <li>To unmount the volume,
+          enter:<codeblock><codeph>umount /dev/vdj
+</codeph></codeblock></li>
+        <li>To mount the volume, enter:<codeblock><codeph>mount
+</codeph></codeblock><p>
+            <b>Output</b>:</p><codeblock><codeph>sysfs on /sys type sysfs (rw,nosuid,nodev,noexec,relatime)
+proc on /proc type proc (rw,nosuid,nodev,noexec,relatime)
+udev on /dev type devtmpfs (rw,relatime,size=10240k,nr_inodes=506385,mode=755)
+devpts on /dev/pts type devpts (rw,nosuid,noexec,relatime,gid=5,mode=620,ptmxmode=000)
+tmpfs on /run type tmpfs (rw,nosuid,noexec,relatime,size=406364k,mode=755)
+/dev/mapper/debian-root on / type ext4 (rw,relatime,errors=remount-ro,user_xattr,barrier=1,data=ordered)
+tmpfs on /run/lock type tmpfs (rw,nosuid,nodev,noexec,relatime,size=5120k)
+tmpfs on /run/shm type tmpfs (rw,nosuid,nodev,noexec,relatime,size=812720k)
+/dev/vda1 on /boot type ext2 (rw,relatime,errors=continue)
+</codeph></codeblock></li>
+      </ol>
+    </section>
+    <section id="restoring-data-from-a-cinder-backup">
+      <title>Restoring data from a Cinder backup</title>
+      <p>You can restore the backed up volume to a new volume or an existing volume.</p>
+      <p>In the following example, a new volume is created and the data is restored to it.</p>
+      <p>To create a new volume and to restore data backup perform the following steps.</p>
+      <ol>
+        <li>To create a volume, enter:<codeblock><codeph> cinder create --display-name restore_volume1 15 
+</codeph></codeblock><p>
+            <b>Output</b>:</p><codeblock><codeph>   +---------------------+--------------------------------------+
+    |       Property      |                Value                 |
+    +---------------------+--------------------------------------+
+    |     attachments     |                  []                  |
+    |  availability_zone  |                 nova                 |
+    |       bootable      |                false                 |
+    |      created_at     |      2014-10-01T21:48:42.727440      |
+    | display_description |                 None                 |
+    |     display_name    |           restore_volume1            |
+    |      encrypted      |                False                 |
+    |          id         | 1b4614f8-8069-4211-8a3e-797be5641964 |
+    |       metadata      |                  {}                  |
+    |         size        |                  15                  |
+    |     snapshot_id     |                 None                 |
+    |     source_volid    |                 None                 |
+    |        status       |               creating               |
+    |     volume_type     |                 None                 |
+    +---------------------+--------------------------------------+
+</codeph></codeblock></li>
+        <li>Execute the following command to the Cinder backup
+          restore:<codeblock><codeph>cinder backup-restore --volume-id restore_volume1 60764712-c456-465a-828b-5f45d3a14ff5
+</codeph></codeblock></li>
+        <li>View the Cinder backup by entering:<codeblock><codeph>cinder backup-list
+</codeph></codeblock><p>
+            <b>Output</b>:</p><codeblock><codeph>+--------------------------------------+--------------------------------------+-----------+-------------------+------+--------------+---------------------+
+|                  ID                  |              Volume ID               |   Status  |        Name       | Size | Object Count |      Container      |
++--------------------------------------+--------------------------------------+-----------+-------------------+------+--------------+---------------------+
+| 02c6df2c-d03a-44ad-847a-ce03b580ee23 | 0a2c6c62-627f-42d3-9b66-e4ba56db0ba7 | available |   deb7rawbackup   |  10  |     None     | helion-ceph-backups |
+| 244aa3a1-b291-4cfe-9999-438f7611da2b | eb170c5e-d227-40ef-b515-b84b82c38eb0 | available |    Rvol6backup    |  15  |     None     | helion-ceph-backups |
+| 32ea7668-9179-433c-8fe3-44b98cd9d85b | 8aefafcc-4171-4c11-b900-362fbda40015 | available | ubuntu1404-backup |  10  |     None     | helion-ceph-backups |
+| 60764712-c456-465a-828b-5f45d3a14ff5 | ff8d13a5-3083-424b-a626-0b75cbe8cf66 | restoring |  cindervol_backup |  15  |     None     | helion-ceph-backups |
+| beeccb71-81e7-4860-8d38-add05a2e610d | eb170c5e-d227-40ef-b515-b84b82c38eb0 | available |    Rvol6backup    |  15  |     None     | helion-ceph-backups |
+| c9c20a09-403e-4011-a3f8-2fea11a560ee | 0a2c6c62-627f-42d3-9b66-e4ba56db0ba7 | available |  RDebian7_backup  |  10  |     None     | helion-ceph-backups |
+| cdd27130-1791-45f6-8b6e-cc284922b02e | 3adf1c83-2efa-4a1e-bef6-cdaffd13b489 | available |      Rbackup1     |  3   |     None     | helion-ceph-backups |
++--------------------------------------+--------------------------------------+-----------+-------------------+------+--------------+---------------------+
+</codeph></codeblock></li>
+        <li>View the Cinder list by entering:<codeblock><codeph>cinder list
+</codeph></codeblock><p>
+            <b>Output</b>:</p><codeblock><codeph>+--------------------------------------+------------------+-----------------------+------+-------------+----------+--------------------------------------+
+|                  ID                  |      Status      |      Display Name     | Size | Volume Type | Bootable |             Attached to              |
++--------------------------------------+------------------+-----------------------+------+-------------+----------+--------------------------------------+
+| 0219d66e-d69d-4e28-bf4f-cb5f096696e3 |    available     |       Rsmallvol4      |  1   |     None    |  false   |                                      |
+| 0285ee63-4ebd-4cd1-915c-933c48503d00 |      in-use      |         Rvol1         |  10  |     None    |  false   | 54938de0-49dd-4b01-931e-dafcddc41518 |
+| 054bfa98-1d69-4cb8-b195-9b9481f5b8c7 |      in-use      |   Rwin2012Cowrawvol1  |  26  |     None    |   true   | 0bf98387-b0c9-4814-a2ef-f81c1ef1322e |
+| 1b4614f8-8069-4211-8a3e-797be5641964 | restoring-backup |    restore_volume1    |  15  |     None    |  false   |                                      |
++--------------------------------------+------------------+-----------------------+------+-------------+----------+--------------------------------------+
+</codeph></codeblock><p>Once
+            the backup is created, the volume name remains the same as the Cinder-backup
+          name.</p></li>
+        <li>Verify the volume name by entering:<codeblock><codeph>cinder list
+</codeph></codeblock><p>
+            <b>Output</b>:</p><codeblock><codeph>+--------------------------------------+-----------+-------------------------------------+------+-------------+----------+--------------------------------------+
+|                  ID                  |   Status  |             Display Name            | Size | Volume Type | Bootable |             Attached to              |
++--------------------------------------+-----------+-------------------------------------+------+-------------+----------+--------------------------------------+
+| 0219d66e-d69d-4e28-bf4f-cb5f096696e3 | available |              Rsmallvol4             |  1   |     None    |  false   |                                      |
+| 0285ee63-4ebd-4cd1-915c-933c48503d00 |   in-use  |                Rvol1                |  10  |     None    |  false   | 54938de0-49dd-4b01-931e-dafcddc41518 |
+| 1b4614f8-8069-4211-8a3e-797be5641964 | available |         cindervol_forbackup         |  15  |     None    |  false   |                                      |
++--------------------------------------+-----------+-------------------------------------+------+-------------+----------+--------------------------------------+
+</codeph></codeblock></li>
+      </ol>
+    </section>
+    <section id="verify-the-attachment-of-volume-to-a-vm">
+      <title>Verify the attachment of volume to a VM</title>
+      <p>Perform the following to verify the attachment of a volume to a VM and verify the
+        content.</p>
+      <ol>
+        <li>Change the directory by
+          entering:<codeblock><codeph>cd /mnt/vol1
+</codeph></codeblock></li>
+        <li>Verify the content by entering:<codeblock><codeph>ls -ls
+</codeph></codeblock></li>
+      </ol>
+      <p>
+        <b>Output</b>
+      </p>
+      <codeblock><codeph>total 697100
+686468 -rwxr-x--- 1 root root 702939136 Oct 1 05:23 CentOS_65.qcow2
+10616 -rw-r--r-- 1 root root 10870593 Oct 1 05:24 initrd.img-3.2.0-4-amd64
+16 drwx------ 2 root root 16384 Oct 1 05:22 lost+found
+</codeph></codeblock>
+      <p>
+        <xref href="#topic64701"> Return to Top </xref>
+      </p>
+    </section>
+    <section id="volume-snapshot">
+      <title>Volume snapshots</title>
+      <p>Volume snapshots are saved in a Cinder pool.</p>
+    </section>
+    <section id="creating-a-volume-snapshot-for-backup">
+      <title>Creating a volume snapshot for backup</title>
+      <p>You can create new and identical volumes by taking a snapshot of the volume.</p>
+      <p>There are two ways to create a snapshot backup:</p>
+      <ol>
+        <li>Horizon Overcloud dashboard </li>
+        <li>The Command Line Interface (CLI) </li>
+      </ol>
+      <p>
+        <b>Notes for taking snapshots</b>
+      </p>
+      <ul>
+        <li>The volume must be detached and must be in an <b>available</b> state to take a snapshot
+          of it. An error occurs if you try to snapshot a used volume.</li>
+        <li>To function properly, keep the original volume, whose snapshot was taken. If the
+          original volume is deleted then the snapshot becomes unusable.</li>
+      </ul>
+    </section>
+    <section id="using-the-horizon-overcloud-dashboard3">
+      <title>Using the Horizon Overcloud dashboard</title>
+      <p>To create a snapshot from volume, see <xref
+          href="http://docs.openstack.org/user-guide/content/dashboard_manage_volumes.html"
+          scope="external" format="html">OpenStack User Guide</xref>
+      </p>
+    </section>
+    <section id="using-the-cli3">
+      <title>Using the CLI</title>
+      <p>The following steps show how to create a snapshot using the CLI.</p>
+      <ol>
+        <li>To create a snapshot, enter:<codeblock><codeph>nova volume-snapshot-create --force [TRUE or FALSE] --display_name [DISPLAY_NAME] --display_description [DISPLAY_DESCRIPTION] [VOLUME_ID]
+</codeph></codeblock><p>
+            <note>This is a base command without the variable set.</note>
+          </p></li>
+        <li>To view the snapshot,
+          enter:<codeblock><codeph>nova volume-snapshot-list
+</codeph></codeblock></li>
+      </ol>
+      <p>
+        <b>Output</b>
+      </p>
+      <codeblock>+--------------------------------------+--------------------------------------+-----------+-------------------------------------+------+
+| ID | Volume ID | Status | Display Name | Size |
++--------------------------------------+--------------------------------------+-----------+-------------------------------------+------+
+| 1f9cae44-e3c9-4326-a1f9-68aeea34d672 | 0285ee63-4ebd-4cd1-915c-933c48503d00 | available | snapshot for Rinstgeneral_snapshot | 10 |
+| 2758b62c-8f2a-482c-bf2c-9183c8304227 | f628002a-6cc4-4e70-a98f-d575e36fca75 | available | snapshot for Rinstgeneral_snapshot | 10 |
+| 32267733-bf04-4180-a1ea-bc133726bb7b | 525bd6a2-05cc-4bba-9a6a-f8e8a3f6ce68 | available | snapshot for Rinstgeneral_snapshot | 10 |
+| 4b1e37f6-04f6-41c4-a80c-34ce8d8c743a | 386ed069-71c4-428b-9ecc-f21d572d74b2 | available | snapshot for Rdeb8cowinst7_snapshot | 10 |
++--------------------------------------+--------------------------------------+-----------+-------------------------------------+------+</codeblock>
+    </section>
+    <section id="working-with-nova">
+      <title>Working with Nova</title>
+      <p>There are two ways to list the Nova instance:</p>
+      <ul>
+        <li>
+          <p>The Horizon Overcloud Dashboard</p>
+        </li>
+        <li>
+          <p>The Command Line Interface (CLI)</p>
+        </li>
+      </ul>
+      <note>For Cinder backups, the Cinder volume to be backed up must be in a detached state. The
+        volume should not be attached to any of the instances or Virtual Machines.</note>
+    </section>
+    <section id="using-the-horizon-overcloud-dashboard4">
+      <title>Using the Horizon Overcloud dashboard</title>
+      <ol>
+        <li>Log into the Overcloud Horizon.</li>
+        <li>From the left panel, click the <b>Projects</b> tab and then <b>Instances</b> to view the
+          list of instances.</li>
+        <li>Click on the <b>Instance Name</b> to view the instance console log. </li>
+      </ol>
+    </section>
+    <section id="using-the-command-line-interface">
+      <title>Using the Command Line Interface</title>
+      <codeblock><codeph>&lt;img src="/media/ceph-ansible-nova1.png"/)&gt;
+</codeph></codeblock>
+      <p>From the CLI, perform the following:</p>
+      <ol>
+        <li>List all of the Nova instances<codeblock><codeph>nova list
+</codeph></codeblock><p>
+            <image href="../../../media/ceph-ansible-nova-list.png" placement="break"/>
+          </p></li>
+        <li>Verify instance status by entering:<codeblock><codeph>sudo ceph -w
+</codeph></codeblock><p>
+            <image href="../../../media/ceph-ansible-nova-list1.png" placement="break"/>
+          </p></li>
+      </ol>
+    </section>
+    <section id="attaching-the-cinder-volume-to-the-nova-instance">
+      <title>Attaching the Cinder volume to the Nova instance</title>
+      <p>There are two ways to attach a Cinder volume to a Nova instance.</p>
+      <ul>
+        <li>The Horizon overcloud dashboard</li>
+        <li>The Command Line Interface (CLI)</li>
+      </ul>
+    </section>
+    <section id="attaching-a-cinder-volume-from-horizon-overcloud-dashboard">
+      <title>Attaching a Cinder volume from Horizon Overcloud dashboard</title>
+      <p>To attach a Cinder volume to a Nova instance perform the following steps:</p>
+      <ol>
+        <li>In the Horizon Dashboard, click the <b>Project</b> Tab. </li>
+        <li>Click <b>Compute</b> and then <b>Volume</b> to open the Volume page.</li>
+        <li>Click the <b>More Action</b> tab, and select <b>Edit Attachments</b>. </li>
+        <li>Click the <b>Attach to Instance</b> drop-down list and select the instance. </li>
+        <li>In the <b>Device Name</b> box, enter the name of the selected instance.</li>
+        <li>Click <b>Attach Volume</b> to attach the Cinder volume to the Nova instance. To undo
+          these changes, click <b>Cancel</b>.</li>
+      </ol>
+    </section>
+    <section id="attaching-a-cinder-volume-using-the-command-line-interface-cli">
+      <title>Attaching a Cinder volume using the Command Line Interface (CLI)</title>
+      <p>To attach a Cinder volume to a Nova instance using the CLI:</p>
+      <ol>
+        <li>Execute the following command to attach the volume to a Nova
+          instance<codeblock><codeph>nova volume-attach &lt;instance id&gt; &lt;volume ID&gt;
+</codeph></codeblock></li>
+        <li>To view all the volumes,
+          enter:<codeblock><codeph># cinder list
+</codeph></codeblock></li>
+        <li>To view the Nova instance,
+          enter:<codeblock><codeph>nova list 
+</codeph></codeblock></li>
+        <li>To view the details of the attached volume,
+            enter:<codeblock><codeph># cinder show  &lt;volume ID&gt;
+</codeph></codeblock><p>For
+            example:</p><codeblock><codeph>cinder show 580d3e95-970f-4a9c-92ea-284799dcbc82
+</codeph></codeblock><p>
+            <b>Output</b>:</p><codeblock><codeph>+--------------------------------------+---------------------------------------------------------------------------------------------------------------------------------+
+| Property                             | Value                                                                                                                           |
++--------------------------------------+---------------------------------------------------------------------------------------------------------------------------------+
+| attachments                          | [{u'device': u'/dev/vde', u'server_id': u'd6c98de0-b65e-4e43-bd5e-04c81ad26cd1', u'id': u'580d3e95-970f-4a9c-92ea-284799dcbc82',                                            u'host_name': None, u'volume_id': u'580d3e95-970f-4a9c-92ea-284799dcbc82'}]                                                     |
+| availability_zone                    | nova                                                                                                                            |
+| bootable                             | false                                                                                                                           |
+| created_at                           | 2014-08-13T03:38:27.000000                                                                                                      |
+| display_description                  | None                                                                                                                            |
+| display_name                         | volume2_RBD                                                                                                                     |
+| encrypetd                            | False                                                                                                                           |
+|  id                                  | 580d3e95-970f-4a9c-92ea-284799dcbc82                                                                                            |
+| metadata                             | {u'readonly': u'False', u'attached_mode': u'rw'}                                                                                |
+| os-vol-host-attr:host                | overcloud-controller1-thg43e77ptei                                                                                              |
+| os-vol-mig-status-attr:migstat       | None                                                                                                                            |
+| os-vol-mig-status-attr:name_id       | None                                                                                                                            | 
+| os-vol-tenant-attr:tenant_id         | 98ae295c1958428a890cf6441d70db08                                                                                                | 
+| size                                 | 2                                                                                                                               |  
+| snapshot_id                          | None                                                                                                                            |
+| source_volid                         | None                                                                                                                            |
+| status                               | in-use                                                                                                                          | 
+| volume_type                          | None                                                                                                                            |  
++--------------------------------------+---------------------------------------------------------------------------------------------------------------------------------+
+</codeph></codeblock></li>
+        <li>To view the details of the Nova instance,
+            enter:<codeblock><codeph>nova show &lt; nova instance ID&gt; 
+</codeph></codeblock><p>For
+            example:</p><codeblock><codeph># nova show d6c98de0-b65e-4e43-bd5e-04c81ad26cd1
+</codeph></codeblock><p>
+            <b>Output</b>:</p><codeblock><codeph>+--------------------------------------+--------------------------------------------------------------------------------+
+| Property                             | Value                                                                                                                           
++--------------------------------------+--------------------------------------------------------------------------------+
+| OS-EXT-AZ:availability_zone          | nova                                                                           |                                                
+| OS-EXT-SRV-ATTR:host                 | overcloud-novacompute0-k3kakatgtgb2                                            |                                                
+| OS-EXT-SRV-ATTR:hypervisor_hostname  | overcloud-novacompute0-k3kakatgtgb2.novalocal                                  |                                                
+| OS-EXT-SRV-ATTR:instance_name        | instance-00000087                                                              |                                                
+| OS-EXT-STS:power_state               | 1                                                                              |                                                   
+| OS-EXT-STS:task_state                | -                                                                              |                                                
+| OS-EXT-STS:vm_state                  | active                                                                         |                                                
+| accessIPv4                           |                                                                                |                                           
+| accessIPv6                           |                                                                                |
+| config_drive                         |                                                                                |
+| created                              | 2014-08-12T23:43:50Z                                                           |
+| default-net network                  | 10.0.0.43, 192.168.100.108                                                     |
+| flavor                               | m1.tiny (1)                                                                    |
+| hostId                               | cf6bb4eb58517b0e06246628e3d0559267a2594c06ea44100e2fae1e                       |
+| id                                   | d6c98de0-b65e-4e43-bd5e-04c81ad26cd1                                           |
+| image                                | debian-wheezy-server-amd64-disk (39565ba5-bfe7-4ee7-be2b-abab70eeb989)         |
+| key_name                             | default                                                                        |
+| metadata                             | {}                                                                             |
+| name                                 | vm1                                                                            |
+| progress                             | 0                                                                              |
+| security_groups                      | default                                                                        |
+| status                               | ACTIVE                                                                         |
+| tenant_id                            | 98ae295c1958428a890cf6441d70db08                                               |
+| updated                              | 2014-08-12T23:44:23Z                                                           |
+| user_id                              | 835261faa1454b56bfab6cd07edfd433                                               |   
++--------------------------------------+--------------------------------------------------------------------------------+
+</codeph></codeblock></li>
+      </ol>
+      <p>
+        <xref href="#topic64701"> Return to Top </xref>
+      </p>
+    </section>
+    <section id="gateway-validation">
+      <title>Ceph RADOS gateway validation</title>
+      <p>To validate the RADOS gateway, make a GET request to the gateway server using the FQDN or
+        IP address of the gateway server.</p>
+      <codeblock><codeph>For example:
+
+    curl -k (https://gateway.ex.com)
+</codeph></codeblock>
+      <ul>
+        <li>
+          <p>GET Response</p>
+          <codeblock><codeph> &lt;?xml version="1.0" encoding="UTF-8"?&gt;&lt;ListAllMyBucketsResult
+ xmlns="http://s3.amazonaws.com/doc/2006-03-01/"&gt;&lt;Owner&gt;&lt;ID&gt;anonymous&lt;/ID&gt;&lt;DisplayName&gt;&lt;/DisplayName&gt;&lt;/Owner&gt;&lt;Buckets&gt;&lt;/Buckets&gt;&lt;/ListAllMyBucketsResult&gt;
+</codeph></codeblock>
+          <p>This response indicates that gateway instance is working as expected.</p>
+        </li>
+        <li>
+          <p>If there is an error, ensure <codeph>radosgw</codeph> is executed in debug mode and
+            watch out for errors.</p>
+        </li>
+        <li>If there is a permission issue on
+            <codeph>/var/run/ceph/ceph-client.radosgw.gateway.asok</codeph>, change file permission
+          accordingly.</li>
+        <li>If there is error with Apache2 or FastCGI, look for debug logs in the
+            <codeph>/var/log/apache2/error.log</codeph>. Changing permissions accordingly on
+            <codeph>/var/www directory</codeph> or <codeph>/var/www/s3gw.fcgi</codeph> file should
+          fix the problem.</li>
+      </ul>
+    </section>
+    <section id="creating-users">
+      <title>Creating Users</title>
+      <p>To create users, execute the following:</p>
+      <codeblock><codeph>radosgw-admin user create --subuser=s3User:swiftUser --display-name="First User" --key-type=swift --access=full
+
+&lt;img src="/media/ceph-ansible-create-user1.png"/)&gt;
+</codeph></codeblock>
+      <ul>
+        <li>
+          <p>Make sure that user <codeph>s3User</codeph> and subuser
+              <codeph>s3User:swiftUser</codeph> are stored in respective
+            <codeph>.users.uid</codeph>and <codeph>.users.swift pool</codeph>.</p>
+          <p>
+            <image href="../../../media/ceph-ansible-create-user2.png" placement="break"/>
+          </p>
+        </li>
+        <li>
+          <p>S3 users and swifts users need to have access and secret keys to enable end users to
+            interact with the gateway instance. To create the access and secret key for s3User,
+            enter:</p>
+          <codeblock><codeph>radosgw-admin key create --uid=s3User --key-type=s3 --gen-access-key --gen-secret
+</codeph></codeblock>
+          <p>
+            <image href="../../../media/ceph-ansible-create-user3.png" placement="break"/>
+          </p>
+        </li>
+        <li>
+          <p>Makesure that keys generated are free of JSON escape () characters,</p>
+        </li>
+        <li>
+          <p>If the User or Application will write more than 1k Containers, then you must modify the
+              <codeph>max_buckets</codeph> variable. Also, right-sizing of Placement Groups per Pool
+            may be required. Make sure that <codeph>max_buckets</codeph> is set to unlimited size by
+            setting it to 0. This is important in order to write unlimited containers into the
+              <codeph>.rgw.buckets</codeph> default pool during workload testing.</p>
+          <codeblock><codeph>radosgw-admin user modify --uid=s3User --max-buckets=0
+</codeph></codeblock>
+        </li>
+      </ul>
+    </section>
+    <section id="working-with-the-swift-client">
+      <title>Working with the Swift client</title>
+      <ul>
+        <li>
+          <p>The gateway instance and Swift users can be verified on gateway node or Ceph client
+            using Swift Client by making Swift v1.0 requests</p>
+        </li>
+        <li>
+          <p>Create <codeph>creds.py</codeph> with the following file contents</p>
+          <codeblock><codeph>#Auth url pointing to gateway node
+export ST_AUTH=http://gateway.ex.com/auth/v1.0
+#Swift user
+export ST_USER=s3User:swiftUser
+#Swift user - secret key
+export ST_KEY= abd
+</codeph></codeblock>
+        </li>
+        <li>
+          <p>Source swift credentials by entering:</p>
+          <codeblock><codeph>source creds.py
+</codeph></codeblock>
+        </li>
+        <li>
+          <p>List the container by entering:</p>
+          <codeblock><codeph>swift --insecure -V 1.0 -A http://gateway.ex.com/auth/v1.0 -U s3User:swiftUser -K abc list 
+</codeph></codeblock>
+          <p>OR</p>
+          <codeblock><codeph>swift list
+</codeph></codeblock>
+          <p>
+            <image href="../../../media/ceph-ansible-swift-list.png" placement="break"/>
+          </p>
+        </li>
+        <li>
+          <p>Display container information by entering:</p>
+          <codeblock><codeph>swift stat &lt;container&gt;
+</codeph></codeblock>
+          <p>
+            <image href="../../../media/ceph-ansible-swift-stat.png" placement="break"/>
+          </p>
+        </li>
+        <li>
+          <p>Upload image into the container by entering:</p>
+          <codeblock><codeph>swift upload &lt;container&gt; &lt;image to upload&gt;
+</codeph></codeblock>
+          <p>
+            <image href="../../../media/ceph-ansible-swift-upload.png" placement="break"/>
+          </p>
+        </li>
+        <li>
+          <p>Verify the upload using stat by entering:</p>
+          <codeblock><codeph>swift stat &lt;container&gt;
+</codeph></codeblock>
+          <p>
+            <image href="../../../media/ceph-ansible-swift-stat-verify.png" placement="break"/>
+          </p>
+        </li>
+        <li>
+          <p>Verify that the uploaded image is residing in the RGW pool by entering:</p>
+          <codeblock><codeph>rados -p .rgw.buckets ls
+</codeph></codeblock>
+          <p>
+            <image href="../../../media/ceph-ansible-rgw.png" placement="break"/>
+          </p>
+        </li>
+      </ul>
+    </section>
+    <section id="next-steps">
+      <title>Next Steps</title>
+      <p>
+        <xref href="../../../commercial/GA1/ceph/1.1commenrcial.ceph-monitoring.dita">Ceph
+          Monitoring</xref>
+      </p>
+      <p>
+        <xref href="#topic64701"> Return to Top </xref>
+      </p>
+      <!-- ===================== horizontal rule ===================== -->
+    </section>
+  </body>
+</topic>

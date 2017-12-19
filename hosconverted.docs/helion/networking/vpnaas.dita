@@ -1,0 +1,219 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: ready for edit (Carter)-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="UsingVPNaaS">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Using VPN as a Service (VPNaaS)</title>
+  <body>
+    <!--not tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <p><b><keyword keyref="kw-hos-phrase"/> VPNaaS Configuration</b></p>
+    <p>This document describes the configuration process and requirements for the <keyword
+        keyref="kw-hos-phrase"/> Virtual Private Network (VPN) as a Service module.</p>
+    <p>
+      <ul id="LBaaSlist">
+        <li><xref href="vpnaas.dita#UsingVPNaaS/Prerequisites">Prerequisites</xref></li>
+        <li><xref href="vpnaas.dita#UsingVPNaaS/Considerations">Considerations</xref></li>
+        <li><xref href="vpnaas.dita#UsingVPNaaS/Configuration">Configuration</xref></li>
+        <!--<li><xref href="vpnaas.dita#UsingVPNaaS/Troubleshooting">Troubleshooting</xref></li>-->
+        <li><xref href="vpnaas.dita#UsingVPNaaS/MoreInfo">More Information</xref></li>
+      </ul>
+    </p>
+    <section id="Prerequisites">
+      <title>Prerequisites</title>
+      <ol>
+        <li><keyword keyref="kw-hos"/> must be installed. </li>
+        <li>Before setting up VPNaaS, you will need to have created an external network and a subnet
+          with access to the internet. Information on how to create the external network and subnet
+          can be found in the <xref href="vpnaas.dita#UsingVPNaaS/MoreInfo"> More Information</xref>
+          section of this document.</li>
+        <li>You should assume 172.16.0.0/16 as the ext-net CIDR in this document.</li>
+      </ol>
+    </section>
+
+    <section id="Considerations">
+      <title>Considerations</title>
+      <p>Using the Neutron plugin-based VPNaaS causes additional processes to be run on the Network
+        Service Nodes. One of these processes, the ipsec charon process from StrongSwan, runs as
+        root and listens on an external network. A vulnerability in that process can lead to remote
+        root compromise of the Network Service Nodes. If this is a concern customers should consider
+        using a VPN solution other than the Neutron plugin-based VPNaaS and/or deploying additional
+        protection mechanisms. </p>
+    </section>
+
+    <section id="Configuration">
+      <title>Configuration</title>
+      <sectiondiv>
+        <b>Setup Networks</b>
+        <p>You can setup VPN as a Service (VPNaaS) by first creating networks, subnets and routers
+          using the <codeph>neutron</codeph> command line. The VPNaaS module enables the ability to
+          extend access between private networks across two different <keyword keyref="kw-hos"/>
+          clouds or between a <keyword keyref="kw-hos"/> cloud and a non-cloud network. VPNaaS is
+          based on the open source software application called StrongSwan. StrongSwan (more
+          information available at<xref href="http://www.strongswan.org/" format="html"
+            scope="external">http://www.openswan.org</xref>) is an IPsec implementation and provides
+          basic VPN gateway functionality.</p>
+        <note>You can execute the included commands from any shell with access to the service APIs.
+          In the included examples, the commands are executed from the lifecycle manager, however
+          you could execute the commands from the controller node or any other shell with
+          aforementioned service API access. </note>
+        <note>The use of floating IP's is not possible with the current version of VPNaaS when DVR
+          is enabled. Ensure that no floating IP is associated to instances that will be using
+          VPNaaS when using a DVR router. Floating IP associated to instances are ok when using CVR
+          router.</note>
+        <ol>
+          <li>From the lifecycle manager, create first private network, subnet and router assuming
+            that <i>ext-net</i> is created by
+            admin.<codeblock>neutron net-create privateA
+neutron subnet-create --name subA privateA 10.1.0.0/24 --gateway 10.1.0.1
+neutron router-create router1
+neutron router-interface-add router1 subA
+neutron router-gateway-set router1 ext-net</codeblock></li>
+          <li>Create second private network, subnet and router.
+            <codeblock>neutron net-create privateB
+neutron subnet-create --name subB privateB 10.2.0.0/24 --gateway 10.2.0.1
+neutron router-create router2
+neutron router-interface-add router2 subB
+neutron router-gateway-set router2 ext-net</codeblock></li>
+        </ol>
+      </sectiondiv>
+      <sectiondiv id="StartVirtualMachines">
+        <b>Start Virtual Machines</b>
+        <ol>
+          <li>From the lifecycle manager run the following to start the virtual machines. Begin with
+            adding secgroup rules for SSH and ICMP.
+            <codeblock>neutron security-group-rule-create default --protocol icmp
+neutron security-group-rule-create default --protocol tcp --port-range-min 22 --port-range-max 22</codeblock></li>
+          <li>Start the virtual machine in the privateA subnet. Using <i>nova images-list</i>, use
+            the image id to boot image instead of the image name. After executing this step, it is
+            recommended that you wait approximately 10 seconds to allow the virtual machine to
+            become active.
+            <codeblock>NETA=$(neutron net-list | awk '/privateA/ {print $2}')
+nova boot --flavor 1 --image &lt;id&gt; --nic net-id=$NETA vm1</codeblock></li>
+          <li>Start the virtual machine in the privateB subnet. <codeblock>NETB=$(neutron net-list | awk '/privateB/ {print $2}')
+nova boot --flavor 1 --image &lt;id&gt; --nic net-id=$NETB vm2</codeblock>
+            </li>
+          <li>Verify private IP's are allocated to the respective vms. Take note of IP's for later
+            use. <codeblock>nova show vm1
+nova show vm2</codeblock></li>
+        </ol>
+      </sectiondiv>
+      <sectiondiv>
+        <b>Create VPN</b>
+        <ol>
+          <li>You can set up the VPN by executing the below commands from the lifecycle manager or
+            any shell with access to the service APIs. Begin with creating the policies with
+              <codeph>vpn-ikepolicy-create</codeph> and <codeph>vpn-ipsecpolicy-create </codeph>.
+            <codeblock>neutron vpn-ikepolicy-create ikepolicy
+neutron vpn-ipsecpolicy-create ipsecpolicy</codeblock></li>
+          <li>Create the VPN service at router1.
+            <codeblock>neutron vpn-service-create --name myvpnA --description "My vpn service" router1 subA</codeblock></li>
+          <li>Wait at least 5 seconds and then run <codeph>ipsec-site-connection-create</codeph> to
+            create a ipsec-site connection. Note that <codeph>--peer-address</codeph> is the assign
+            ext-net IP from router2 and <codeph>--peer-cidr</codeph> is subB cidr.
+            <codeblock>neutron ipsec-site-connection-create --name vpnconnection1 --vpnservice-id myvpnA \
+--ikepolicy-id ikepolicy --ipsecpolicy-id ipsecpolicy --peer-address 172.16.0.3 \
+--peer-id 172.16.0.3 --peer-cidr 10.2.0.0/24 --psk secret</codeblock></li>
+          <li>Create the VPN service at router2.
+            <codeblock>neutron vpn-service-create --name myvpnB --description "My vpn serviceB" router2 subB </codeblock></li>
+          <li>Wait at least 5 seconds and then run <codeph>ipsec-site-connection-create</codeph> to
+            create a ipsec-site connection. Note that <codeph>--peer-address</codeph> is the
+            assigned ext-net IP from router1 and <codeph>--peer-cidr</codeph> is subA cidr.
+            <codeblock>neutron ipsec-site-connection-create --name vpnconnection2 --vpnservice-id myvpnB \
+--ikepolicy-id ikepolicy --ipsecpolicy-id ipsecpolicy --peer-address 172.16.0.2 \
+--peer-id 172.16.0.2 --peer-cidr 10.1.0.0/24 --psk secret</codeblock></li>
+          <li>On the lifecycle manager, run the <codeph>ipsec-site-connection-list</codeph> command
+            to see the active connections. Be sure to check that the vpn_services are ACTIVE. You
+            can check this by running <codeph>vpn-service-list</codeph> and then checking
+            ipsec-site-connections status. You should expect that the time for both vpn-services and
+            ipsec-site-connections to become ACTIVE could take as long as 1 to 3 minutes.
+            <codeblock>neutron ipsec-site-connection-list
++--------------------------------------+----------------+--------------+---------------+------------+-----------+--------+
+| id                                   | name           | peer_address | peer_cidrs    | route_mode | auth_mode | status |
++--------------------------------------+----------------+--------------+---------------+------------+-----------+--------+
+| 1e8763e3-fc6a-444c-a00e-426a4e5b737c | vpnconnection2 | 172.16.0.2   | "10.1.0.0/24" | static     | psk       | ACTIVE |
+| 4a97118e-6d1d-4d8c-b449-b63b41e1eb23 | vpnconnection1 | 172.16.0.3   | "10.2.0.0/24" | static     | psk       | ACTIVE |
++--------------------------------------+----------------+--------------+---------------+------------+-----------+--------+</codeblock></li>
+        </ol>
+      </sectiondiv>
+      <sectiondiv>
+        <b>Verify VPN</b>
+        <p>In the case of non-admin users, you can verify the VPN connection by pinging the virtual
+          machines.</p>
+        <ol>
+          <li>Check the VPN connections. <note>vm1-ip and vm2-ip denotes private IP's for vm1 and
+              vm2 respectively. The private IP's are obtained from step 4 under <xref
+                href="vpnaas.dita#UsingVPNaaS/StartVirtualMachines">Start Virtual Machines</xref>
+              section. If you are unable to SSH to the private network due to a lack of direct
+              access, the VM console can be accessed through Horizon.</note>
+            <codeblock>ssh cirros@vm1-ip
+password: &lt;password&gt;
+            
+# ping the private IP address of vm2
+ping ###.###.###.###</codeblock></li>
+          <li>In another terminal.
+            <codeblock>ssh cirros@vm2-ip
+password: &lt;password&gt;
+              
+# ping the private IP address of vm1
+ping ###.###.###.###</codeblock></li>
+          <li>You should see ping responses from both virtual machines.</li>
+        </ol>
+        <p>As the admin user, you should check to make sure that a route exists between the router
+          gateways. Once the gateways have been checked, packet encryption can be verified by using
+          traffic analyzer (tcpdump) by tapping on the respective namespace (qrouter-* in case of
+          non-DVR and snat-* in case of DVR) and tapping the right interface (qg-***). </p>
+        <note>When using DVR namespaces, all the occurrences of qrouter-xxxxxx in the following
+          commands should be replaced with respective snat-xxxxxx.</note>
+        <ol>
+          <li>Check the if the route exists between two router gateways. You can get the right
+            qrouter namespace id by executing <i>sudo ip netns</i>. Once you have the qrouter
+            namespace id, you can get the interface by executing <i>sudo ip netns qrouter-xxxxxxxx
+              ip addr</i> and from the result the interface can be
+            found.<codeblock>sudo ip netns
+sudo ip netns exec qrouter-&lt;router1 UUID&gt; ping &lt;router2 gateway&gt;
+sudo ip netns exec qrouter-&lt;router2 UUID&gt; ping &lt;router1 gateway&gt;</codeblock></li>
+          <li>Initiate a tcpdump on the interface.
+            <codeblock>sudo ip netns exec qrouter-xxxxxxxx tcpdump -i qg-xxxxxx</codeblock></li>
+          <li>Check the VPN connection.
+            <codeblock>ssh cirros@vm1-ip
+password: &lt;password&gt;
+              
+# ping the private IP address of vm2
+ping ###.###.###.###</codeblock></li>
+          <li>Repeat for other namespace and right tap interface.
+            <codeblock>sudo ip netns exec qrouter-xxxxxxxx tcpdump -i qg-xxxxxx</codeblock></li>
+          <li>In another terminal.
+            <codeblock>ssh cirros@vm2-ip
+password: &lt;password&gt;
+              
+# ping the private IP address of vm1
+ping ###.###.###.###</codeblock></li>
+          <li>You will find encrypted packets containing ‘ESP’ in the tcpdump trace.</li>
+        </ol>
+      </sectiondiv>
+    </section>
+
+    <!-- Preserving the section in case we need to add Troubleshooting back in. 
+    <section id="Troubleshooting">
+      <title>Troubleshooting</title>
+      <p>You can use the following information here for assistance with troubleshooting the VPNaaS service. </p>
+
+    </section>
+    -->
+
+    <section id="MoreInfo">
+      <title>More Information</title>
+      <p>VPNaaS currently only supports Pre-shared Keys (PSK) security between VPN gateways. A
+        different VPN gateway solution should be considered if stronger, certificate-based security
+        is required.</p>
+      <p>For more information on the neutron command-line interface (CLI) and VPN as a Service
+        (VPNaaS), see the OpenStack networking command-line client reference: <xref
+          href="http://docs.openstack.org/cli-reference/content/neutronclient_commands.html"
+          scope="external" format="html"/></p>
+      <p>For information on how to create an external network and subnet, see the OpenStack manual:
+          <xref href="http://docs.openstack.org/user-guide/dashboard_create_networks.html"
+          scope="external" format="html"/>
+      </p>
+    </section>
+  </body>
+</topic>

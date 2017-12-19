@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="topic_srg_d5h_rt">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Removing an ESXi Host from a Cluster</title>
+  <body>
+    <!--not tested-->
+    <!--Needs Work; fnf edit on 10/27; link to image is broken-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <p>This topic describes how to remove an existing ESXi host from a cluster and cleanup of
+      services for OVSvAPP VM.</p>
+    <p>
+      <note>Before performing this procedure, wait until VCenter migrates all the tenant VMs to
+        other active hosts in that same cluster.</note>
+    </p>
+    <p id="pre"><b>Prerequisite</b></p>
+    <p>Write down the Hostname and ESXi configuration IP addresses of OVSvAPP VMs of that ESX
+      cluster before deleting the VMs. These IP address and Hostname will be used to cleanup Monasca
+      alarm definitions.</p>
+    <p><ol id="ol_ilq_k5h_rt">
+        <li>Login to vSphere client.</li>
+        <li>Select the ovsvapp node running on the ESXi host and click <b>Summary</b> tab as shown
+          in the following example.<p><image href="../../media/esx/esx_hostname.png"
+              id="image_i1t_cr2_xx"/></p></li>
+      </ol>
+      <b>Procedure</b><ol>
+        <li>Right-click and put the host in the maintenance mode. This will automatically migrate
+          all the tenant VMs except OVSvApp. <p><image href="../../media/esx/eon_maintenance.png"
+              id="image_qyh_rsw_st"/></p></li>
+        <li>Cancel the maintenance mode
+            task.<p><!-- TODO Missing Image <image
+              href="../../media/esx/eon_cancel_maintenance%20mode.png" id="image_lpd_qfx_st"
+          />--></p></li>
+        <li>Right-click the <b>ovsvapp VM (IP Address)</b> node, select <b>Power</b>, and then click
+            <b>Power Off</b>. <p><image href="../../media/esx/eon_poweroff_ovsvapp.png"
+              id="image_nb3_gsw_st"/></p></li>
+        <li>Right-click the node and then click <b>Delete from Disk</b>.<p><image
+              href="../../media/esx/eon_delete_ovsvapp.png" id="image_eq4_3sw_st"/></p></li>
+        <li>R<?oxy_custom_start type="oxy_content_highlight" color="140,255,140"?>ight-click the
+            <b>Host</b>, and then click <b>Enter Maintenance Mode</b>.<?oxy_custom_end?></li>
+        <li>Disconnect the VM. Right-click the VM, and then click <b>Disconnect</b>.<p><image
+              href="../../media/esx/eon_disconnect_maintenance.png" id="image_zx3_j2n_rt"/></p></li>
+      </ol>
+    </p>
+    <p>The ESXi node is removed from the vCenter.</p>
+    <section>
+      <title>Cleanup Neutron Agent for OVSvAPP Service</title>
+      <p>After removing ESXi node from a vCenter, perform the following procedure to cleanup neutron
+        agents for ovsvapp-agent service.</p>
+      <p>
+        <ol id="ol_tsg_dlc_xx">
+          <li>Login to lifecycle manager.</li>
+          <li>Source the credentials.<codeblock>source service.osrc</codeblock></li>
+          <li>Execute the following
+              command.<codeblock>neutron agent-list | grep &lt;OVSvapp hostname></codeblock><p>For
+              example:</p><codeblock>neutron agent-list | grep MCP-VCP-cpesx-esx-ovsvapp0001-mgmt
+| 92ca8ada-d89b-43f9-b941-3e0cd2b51e49 | OVSvApp Agent      | MCP-VCP-cpesx-esx-ovsvapp0001-mgmt |                   | :-)   | True           | ovsvapp-agent             | </codeblock></li>
+          <li>Delete the OVSvAPP
+              agent.<codeblock>neutron agent-delete &lt;Agent -ID></codeblock><p>For
+              example:<codeblock>neutron agent-delete 92ca8ada-d89b-43f9-b941-3e0cd2b51e49</codeblock></p></li>
+        </ol>
+      </p>
+    </section>
+    <p>If you have more than one host, perform the preceding procedure for all the hosts.</p>
+    <section>
+      <title>Cleanup Monasca Agent for OVSvAPP Service</title>
+      <p>Perform the following procedure to cleanup Monasca agents for ovsvapp-agent service.<ol
+          id="ol_zjn_jnc_xx">
+          <li>If Monasca-API is installed on different node, copy the <codeph>service.orsc</codeph>
+            from lifecycle manager to Monasca API
+            server.<codeblock>scp service.orsc $USER@helion-cp1-mtrmon-m1-mgmt:</codeblock></li>
+          <li>SSH to Monasca API server. You must SSH to each Monasca API server for cleanup. <p>For
+              example:<codeblock>ssh helion-cp1-mtrmon-m1-mgmt</codeblock></p></li>
+          <li>Edit <codeph>/etc/monasca/agent/conf.d/host_alive.yaml</codeph> file to remove the
+            reference to the OVSvAPP you removed. This requires <systemoutput>sudo</systemoutput>
+              access.<codeblock>sudo vi /etc/monasca/agent/conf.d/host_alive.yaml</codeblock><p>A
+              sample of
+              <codeph>host_alive.yaml</codeph>:<codeblock>- alive_test: ping
+  built_by: HostAlive
+  host_name: MCP-VCP-cpesx-esx-ovsvapp0001-mgmt 
+  name: MCP-VCP-cpesx-esx-ovsvapp0001-mgmt ping
+  target_hostname: MCP-VCP-cpesx-esx-ovsvapp0001-mgmt </codeblock></p><p>where
+              &lt;host_name and target_hostname> is mentioned at the DNS name field at the vSphere
+              client. (Refer <xref href="#topic_srg_d5h_rt/pre" format="dita"
+              >prerequisite</xref>).</p></li>
+          <li>After removing the reference on each of the Monasca API servers, restart the
+            monasca-agent on each of those servers by executing the following
+            command.<codeblock>sudo service monasca-agent restart</codeblock></li>
+          <li>With the OVSvAPP references removed and the monasca-agent restarted, you can delete
+            the corresponding alarm to complete the cleanup process. We recommend using the Monasca
+            CLI which is installed on each of your Monasca API servers by default.
+            <!--Source the credentials (<codeph>service.orsc</codeph>) from the lifecycle manager and -->Execute
+            the following command from the Monasca API server (for example:
+                <codeph><codeph>helion-cp1-mtrmon-mX-mgmt</codeph></codeph>).<codeblock>monasca alarm-list --metric-name host_alive_status --metric-dimensions hostname=&lt;ovsvapp deleted></codeblock><p>For
+              example: You can execute the following command to get the alarm ID, if the OVSvAPP
+              appears as a preceding example.</p><p>
+              <codeblock>monasca alarm-list --metric-name host_alive_status --metric-dimensions hostname=MCP-VCP-cpesx-esx-ovsvapp0001-mgmt
++--------------------------------------+--------------------------------------+-----------------------+-------------------+-------------------------------------------+----------+-------+-----------------+------+--------------------------+--------------------------+--------------------------+
+| id                                   | alarm_definition_id                  | alarm_definition_name | metric_name       | metric_dimensions                         | severity | state | lifecycle_state | link | state_updated_timestamp  | updated_timestamp        | created_timestamp        |
++--------------------------------------+--------------------------------------+-----------------------+-------------------+-------------------------------------------+----------+-------+-----------------+------+--------------------------+--------------------------+--------------------------+
+| cfc6bfa4-2485-4319-b1e5-0107886f4270 | cca96c53-a927-4b0a-9bf3-cb21d28216f3 | Host Status           | host_alive_status | service: system                           | HIGH     | OK    | None            | None | 2016-10-27T06:33:04.256Z | 2016-10-27T06:33:04.256Z | 2016-10-23T13:41:57.258Z |
+|                                      |                                      |                       |                   | cloud_name: entry-scale-kvm-esx-vsa-mml   |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | test_type: ping                           |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | hostname: helion-cp1-esx-ovsvapp0001-mgmt |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | control_plane: control-plane-1            |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | cluster: mtrmon                           |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | observer_host: helion-cp1-mtrmon-m1-mgmt  |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       | host_alive_status | service: system                           |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | cloud_name: entry-scale-kvm-esx-vsa-mml   |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | test_type: ping                           |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | hostname: helion-cp1-esx-ovsvapp0001-mgmt |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | control_plane: control-plane-1            |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | cluster: mtrmon                           |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | observer_host: helion-cp1-mtrmon-m3-mgmt  |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       | host_alive_status | service: system                           |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | cloud_name: entry-scale-kvm-esx-vsa-mml   |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | test_type: ping                           |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | hostname: helion-cp1-esx-ovsvapp0001-mgmt |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | control_plane: control-plane-1            |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | cluster: mtrmon                           |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | observer_host: helion-cp1-mtrmon-m2-mgmt  |          |       |                 |      |                          |                          |                          |
++--------------------------------------+--------------------------------------+-----------------------+-------------------+-------------------------------------------+----------+-------+-----------------+------+--------------------------+--------------------------+--------------------------+</codeblock>
+            </p></li>
+          <li>Delete the Monasca
+              alaram.<codeblock>monasca alarm-delete &lt;alarm ID></codeblock><p>For
+              example:<codeblock>monasca alarm-delete cfc6bfa4-2485-4319-b1e5-0107886f4270Successfully deleted alarm </codeblock></p><p>After
+              deleting the alarms and updating the monasca-agent configuration, those alarms will be
+              removed from the Opsconsole UI. You can login to Opconsole and view the
+            status.</p></li>
+        </ol></p>
+    </section>
+    <section>
+      <title>Cleanup the entries of OVSvAPP VM from /etc/host </title>
+      <p>Perform the following procedure to cleanup the entries of OVSvAPP VM from
+          <codeph>/etc/host</codeph>.<ol id="ol_j3r_znd_xx">
+          <li>Login to lifecycle manager.</li>
+          <li>Edit <codeph>/etc/host</codeph>.<codeblock>vi /etc/host</codeblock><p>For example:
+                <codeph>MCP-VCP-cpesx-esx-ovsvapp0001-mgmt</codeph> VM is present in the
+                <codeph>/etc/host</codeph>.
+              <codeblock>192.168.86.17    MCP-VCP-cpesx-esx-ovsvapp0001-mgmt</codeblock></p></li>
+          <li>Delete the OVSvAPP entries from <codeph>/etc/host</codeph>.</li>
+        </ol></p>
+    </section>
+    <section>
+      <title><b>Remove the OVSVAPP VM from the servers.yml and pass_through.yml files and run the
+          Configuration Processor</b></title>
+      <p>Complete these steps from the lifecycle manager to remove the OVSvAPP VM:<ol
+          id="ol_m5j_y4d_xx">
+          <li>Log in to the lifecycle manager</li>
+          <li>Edit <codeph>servers.yml</codeph> file to remove references to the OVSvAPP VM(s) you
+            want to remove:
+              <codeblock>~/helion/my_cloud/definition/data/servers.yml</codeblock><p>For
+              example:<codeblock>- ip-addr:192.168.86.17   
+  server-group: AZ1    role:
+  OVSVAPP-ROLE    id:
+  6afaa903398c8fc6425e4d066edf4da1a0f04388</codeblock></p></li>
+          <li>Edit <codeph>~/helion/my_cloud/definition/data/pass_through.yml</codeph> file to
+            remove the OVSvAPP VM references using the server-id above section to find the
+            references.
+            <codeblock>- data:
+  vmware:
+  vcenter_cluster: Clust1
+  cluster_dvs_mapping: 'DC1/host/Clust1:TRUNK-DVS-Clust1'
+  esx_hostname: MCP-VCP-cpesx-esx-ovsvapp0001-mgmt
+  vcenter_id: 0997E2ED9-5E4F-49EA-97E6-E2706345BAB2
+id: 6afaa903398c8fc6425e4d066edf4da1a0f04388
+</codeblock></li>
+          <li>Commit the changes to git:
+            <codeblock>git commit -a -m "Remove ESXi host &lt;name>"</codeblock></li>
+          <li>Run the configuration processor. You may want to use the
+              <codeph>remove_deleted_servers</codeph> and <codeph>free_unused_addresses</codeph>
+            switches to free up the resources when running the configuration processor. See <xref
+              keyref="persisteddata">Persisted Data</xref> for more
+            details.<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml -e remove_deleted_servers="y" -e free_unused_addresses="y"</codeblock></li>
+          <li>Update your deployment directory:
+            <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+        </ol></p>
+    </section>
+    <section>
+      <title>Remove Distributed Resource Scheduler (DRS) Rules</title>
+      <p>Perform the following procedure to remove DRS rules, which is added by OVSvAPP installer to
+        ensure that  OVSvAPP does not get migrated to other hosts.<ol id="ol_dsz_2xd_xx">
+          <li>Login to vCenter.</li>
+          <li>Right click on cluster and select <b>Edit settings</b>.<p><image
+                href="../../media/esx/drs-rule1.png" id="image_bp5_zm2_xx"/></p><p>A cluster
+              settings page appear.</p></li>
+          <li>Click <b>DRS Groups Manager</b> on the left hand side of the pop-up box. Select the
+            group which is created for deleted OVSvAPP and click Remove. <p><image
+                href="../../media/esx/drs-group2.png" id="image_x1j_bn2_xx"/></p></li>
+          <li>Click <b>Rules</b> on the left hand side of the pop-up box and select the checkbox for
+            deleted OVSvAPP and click <b>Remove</b>.<p><image href="../../media/esx/rules3.png"
+                id="image_z5y_cn2_xx"/></p></li>
+          <li>Click <b>OK</b>.</li>
+        </ol></p>
+    </section>
+  </body>
+</topic>

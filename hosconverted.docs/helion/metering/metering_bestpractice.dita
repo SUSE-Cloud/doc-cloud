@@ -1,0 +1,301 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic
+  PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic xml:lang="en-us" id="Ceilo_optimize">
+    <title><ph conkeyref="HOS-conrefs/product-title"/>Optimizing the Ceilometer Metering
+        Service</title>
+    <body>
+        <p conkeyref="HOS-conrefs/applies-to"/>
+        <p>You can improve API and database responsiveness by configuring metering to store only the
+            data you are require. This topic provides strategies for getting the most out of
+            metering while not overloading your resources.</p>
+        
+        <p><b>Optimize Meters and Notifications</b></p>
+        <ul>
+            <li><xref type="section" href="#Ceilo_optimize/changing_meter_list">Change the List of Meters</xref></li>
+            <li><xref type="section" href="#Ceilo_optimize/ceilometer_nova">Enable Nova Notifications</xref></li>
+            <li>Strategies for <xref href="metering_notifications.dita">Ceilometer Metering Service Notifications</xref></li>
+        </ul>
+        
+        <p><b>Optimize APIs</b></p>
+        <ul>
+            <li><xref type="section" href="#Ceilo_optimize/webserverapi">Improve Reporting API Responsiveness</xref></li>
+            <li><xref href="metering_apis.dita#topic_icq_hvc_5t/pipeline">Enable Post Samples API</xref></li>
+            <li><xref href="metering_apis.dita#topic_icq_hvc_5t/sampleAPI">Configure Paramters for Ceilometer Query-Sample API</xref></li>
+            <li><xref href="metering_apis.dita#topic_icq_hvc_5t/statAPI">Provide Parameters for the Ceilometer Statistics API</xref></li>
+            <li><xref href="metering_apis.dita#topic_icq_hvc_5t/disabled">Enable Alarm API and Post Meters API</xref></li>
+        </ul>
+        
+        <p><b>Additional Optimization</b></p>
+        <ul>
+            <li><xref type="section" href="#Ceilo_optimize/update_polling_strategy">Update the Polling Strategy and Swift Considerations</xref></li>
+            <li><xref href="metering_failover_ha.dita">Enable Failover Support (HA)</xref></li>
+            <li><xref href="metering_rbac.dita">Configure Role-Based Access Control</xref></li>
+        </ul>
+        
+        <lines/>
+        <section id="changing_meter_list">
+            <title>Change the List of Meters</title>
+            <p>The list of meters can be easily reduced or increased by editing the pipeline.yaml
+                file and restarting the polling agent. </p> 
+            
+            <p>Sample compute-only pipeline.yaml file with the daily poll interval:</p>
+            <codeblock>---
+sources:
+    - name: meter_source
+      interval: 86400
+      meters:
+          - "instance"
+          - "memory"
+          - "vcpus"
+          - "compute.instance.create.end"
+          - "compute.instance.delete.end"
+          - "compute.instance.update"
+          - "compute.instance.exists"
+      sinks:
+          - meter_sink
+sinks:
+    - name: meter_sink
+      transformers:
+      publishers:
+          - notifier://</codeblock>
+            <note> This change will cause all non-default meters to stop receiving
+                notifications</note>
+        </section>
+        <section id="ceilometer_nova">
+            <title>Enable Nova Notifications</title>
+            <p>You can configure Nova to send notifications by enabling the setting in the configuration file. When enabled, Nova will send information to Ceilometer related to its usage and VM status. You must restart Nova for these changes to take effect. </p>
+                
+               <p> The Openstack notification daemon, also known as a polling agent, monitors the
+                message bus for data being provided by other OpenStack components such as Nova. The
+                notification daemon loads one or more listener plugins, using the
+                    <codeph>ceilometer.notification</codeph> namespace. Each plugin can listen to
+                any topic, but by default it will listen to the <codeph>notifications.info</codeph>
+                topic. The listeners grab messages off the defined topics and redistribute them to
+                the appropriate plugins (endpoints) to be processed into Events and Samples. After
+                the Nova service is restarted, you should verify that the notification daemons are
+                receiving traffic.</p>
+            
+            <p>For a more in-depth look at how information is sent over <i>openstack.common.rpc</i>,
+                refer to the <xref
+                    href="http://docs.openstack.org/developer/ceilometer/measurements.html"
+                    scope="external" format="html">OpenStack Ceilometer documentation</xref>.</p>
+            
+            <p>Nova can be configured to send following data to Ceilometer:</p>
+            <table pgwide="1"> <tgroup cols="5">
+                    <colspec colname="col1" colsep="1" rowsep="1" colwidth="2*"/>
+                    <colspec colname="col2" colsep="1" rowsep="1" colwidth="1*"/>
+                    <colspec colname="col3" colsep="1" rowsep="1" colwidth="1.26*"/>
+                    <colspec colname="col4" colsep="1" rowsep="1" colwidth="1.54*"/>
+                    <colspec colname="col5" colsep="1" rowsep="1" colwidth="4.19*"/>
+                    <tbody>
+                        <row>
+                            <entry>
+                                <b>Name</b>
+                            </entry>
+                            <entry>
+                                <b>Unit</b>
+                            </entry>
+                            <entry>
+                                <b>Type</b>
+                            </entry>
+                            <entry>
+                                <b>Resource</b>
+                            </entry>
+                            <entry>
+                                <b>Note</b>
+                            </entry>
+                        </row>
+                        <row>
+                            <entry>instance</entry>
+                            <entry>g</entry>
+                            <entry>instance</entry>
+                            <entry> inst ID</entry>
+                            <entry>Existence of instance</entry>
+                        </row>
+                        <row>
+                            <entry>instance: <varname>type</varname>
+                            </entry>
+                            <entry>g</entry>
+                            <entry>instance</entry>
+                            <entry> inst ID</entry>
+                            <entry>Existence of instance of <varname>type</varname> (Where
+                                    <varname>type</varname> is a valid OpenStack type.) </entry>
+                        </row>
+                        <row>
+                            <entry>memory</entry>
+                            <entry>g</entry>
+                            <entry>MB</entry>
+                            <entry> inst ID</entry>
+                            <entry>Amount of allocated RAM. Measured in MB.</entry>
+                        </row>
+                        <row>
+                            <entry>vcpus</entry>
+                            <entry>g</entry>
+                            <entry>vcpu</entry>
+                            <entry> inst ID</entry>
+                            <entry>Number of VCPUs</entry>
+                        </row>
+                        <row>
+                            <entry>disk.root.size</entry>
+                            <entry>g</entry>
+                            <entry>GB</entry>
+                            <entry> inst ID</entry>
+                            <entry>Size of root disk. Measured in GB.</entry>
+                        </row>
+                        <row>
+                            <entry>disk.ephemeral.size</entry>
+                            <entry>g</entry>
+                            <entry>GB</entry>
+                            <entry> inst ID</entry>
+                            <entry>Size of ephemeral disk. Measured in GB.</entry>
+                        </row>
+                    </tbody>
+                </tgroup>
+            </table>
+        
+            <p>To enable Nova to publish notifications:</p>
+            <ol>
+                <li>In a text editor, open the following file:
+                    <codeblock>nova.conf</codeblock></li>
+            <li>Compare the example of a working configuration file with the necessary changes to
+                    your configuration file. If there is anything missing in your file, add it, and
+                    then save the file.
+                        <codeblock>notification_driver=messaging
+notification_topics=notifications
+notify_on_state_change=vm_and_task_state
+instance_usage_audit=True
+instance_usage_audit_period=hour</codeblock><note
+                        type="important">The <codeph>instance_usage_audit_period</codeph> interval
+                        can be set to check the instance's status every hour, once a day, once a
+                        week or once a month. Every time the audit period elapses, Nova sends a
+                        notification to Ceilometer to record whether or not the instance is alive
+                        and running. Metering this statistic is critical if billing depends on
+                        usage.</note></li>
+           <li>To restart Nova service, run:
+                        <codeblock>sudo service openstack-nova-api restart
+sudo service openstack-nova-cert restart
+sudo service openstack-nova-consoleauth restart
+sudo service openstack-nova-scheduler restart
+sudo service openstack-nova-conductor restart
+sudo service openstack-nova-novncproxy restart    </codeblock><note
+                        type="important">Different platforms may use their own unique command to
+                        restart nova-compute services. If the above command does not work, please
+                        refer to the documentation for your specific platform.</note></li>
+                <li>To verify successful launch of each process, list the service components:
+                    <codeblock>nova service-list
+                        #Sample Output:
++----+------------------+------------+----------+---------+-------+----------------------------+-----------------+
+| Id | Binary           | Host       | Zone     | Status  | State | Updated_at                 | Disabled Reason |
++----+------------------+------------+----------+---------+-------+----------------------------+-----------------+
+| 1  | nova-conductor   | controller | internal | enabled | up    | 2014-09-16T23:54:02.000000 | -               |
+| 2  | nova-consoleauth | controller | internal | enabled | up    | 2014-09-16T23:54:04.000000 | -               |
+| 3  | nova-scheduler   | controller | internal | enabled | up    | 2014-09-16T23:54:07.000000 | -               |
+| 4  | nova-cert        | controller | internal | enabled | up    | 2014-09-16T23:54:00.000000 | -               |
+| 5  | nova-compute     | compute1   | nova     | enabled | up    | 2014-09-16T23:54:06.000000 | -               |
++----+------------------+------------+----------+---------+-------+----------------------------+-----------------+
+            </codeblock>
+                </li>
+            </ol>
+        
+        </section>
+        <lines>
+        </lines>
+        
+        
+        <section id="webserverapi"><title>Improve Reporting API Responsiveness</title><p>Reporting
+                APIs are the main access to the metering data stored in Ceilometer. These APIs are
+                accessed by Horizon to provide basic usage data and information.</p><p><keyword
+                    keyref="kw-hos"/> uses Apache2 Web Server to provide the API access. This topic
+                provides some strategies to help you optimize the front-end and back-end databases.
+                </p><p>To improve the responsiveness you can increase the number of threads and
+                processes in the ceilometer configuration file. The Ceilometer API runs as an WSGI
+                processes. Each process can have a certain amount of threads managing the filters
+                and applications, which can comprise the processing pipeline. </p><p><b>To configure
+                    Apache2 to use increase the number of threads</b>, use the steps in <xref
+                    href="metering_reconfig.dita#reconfig_metering/apache">Configure Apache2 for the
+                    Ceilometer API</xref></p><p>
+                <note type="warning">The resource usage panel could take some time to load
+                    depending on the number of metrics selected.</note>
+            </p><image href="../../media/metering/metering_get_usage.jpg" height="700"
+                id="metering_get_usage"/></section>
+        
+       
+        <lines>
+        </lines>
+        <section id="update_polling_strategy">
+            <title>Update the Polling Strategy and Swift Considerations</title>
+            <p>Polling can put an excessive amount of strain on the system due to the amount of data
+                the system may have to process. Polling also has a severe impact on queries since
+                the database can have very large amount of data to scan before responding to the
+                query. This process usually consumes a large amount of CPU and memory to complete
+                the requests. Clients can also experience long waits for queries to come back and,
+                in extreme cases, even timeout.</p>
+               <p> There are 3 polling meters in Swift:</p>
+            <ul>
+                <li> storage.objects</li>
+                <li>storage.objects.size</li>
+                <li>storage.objects.containers</li>
+            </ul>
+            <p>Sample section of the pipeline.yaml configuration file with Swift polling on an hourly interval:</p>
+            <codeblock>---
+sources:
+    - name: swift_source
+      interval: 3600
+      sources:
+            meters:
+          - "storage.objects"
+          - "storage.objects.size"
+          - "storage.objects.containers"
+sinks:
+    - name: meter_sink
+      transformers:
+      publishers:
+          - notifier://</codeblock>
+            <p>Every time the polling interval occurs, at least 3 messages per
+                existing object/container in Swift are collected. The following table illustrates the
+                amount of data produced hourly in different scenarios:</p>
+            <table>
+                <tgroup cols="4">
+                    <tbody>
+                        <row>
+                            <entry>Swift Containers</entry>
+                            <entry>Swift Objects per container</entry>
+                            <entry>Samples per Hour</entry>
+                            <entry>Samples stored per 24 hours</entry>
+                        </row>
+                        <row>
+                            <entry>10</entry>
+                            <entry>10</entry>
+                            <entry>500</entry>
+                            <entry>12000</entry>
+                        </row>
+                        <row>
+                            <entry>10</entry>
+                            <entry>100</entry>
+                            <entry>5000</entry>
+                            <entry>120000</entry>
+                        </row>
+                        <row>
+                            <entry>100</entry>
+                            <entry>100</entry>
+                            <entry>50000</entry>
+                            <entry>1200000</entry>
+                        </row>
+                        <row>
+                            <entry>100</entry>
+                            <entry>1000</entry>
+                            <entry>500000</entry>
+                            <entry>12000000</entry>
+                        </row>
+                    </tbody>
+                </tgroup>
+            </table>
+            <p>Looking at the data we can see that even a very small Swift storage with 10 containers and 100 files will
+                store 120K samples in 24 hours, bringing it to a total of 3.6 million samples.</p>
+            <note>The file size of each file does not have any impact on the number of samples
+                collected. In fact the smaller the number of containers or files, the smaller the sample size.
+                In the scenario where there a large number of small files and containers, the sample size is also large and the performance is at its worst.</note>
+        </section>
+    </body>
+</topic>

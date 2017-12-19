@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="remove_monitor_node">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Removing a Ceph Monitor Node</title>
+  <abstract><shortdesc outputclass="hdphidden">Steps for removing Ceph monitor nodes.</shortdesc>The
+    process to remove Ceph monitor nodes, depends on how they have been deployed - either on the
+    controller node or on a separate/dedicated resource node.</abstract>
+  <body>
+    <!--not tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    
+    <section id="notes"><title>Notes</title>
+      <p>It is recommended to maintain an odd number of Ceph monitors because the Paxos protocol is
+        being used by Ceph monitors to form a consensus. Although clusters can be deployed with a
+        single monitor, we strongly recommend to deploy three monitors on independent nodes for
+        production usage to avoid a single point of failure of the monitor service.</p>
+      <p>For this reason, it is recommended to maintain at least three and an odd number of Ceph
+        monitors.</p>
+    </section>
+    
+    <section id="remove_ceph_monitor">
+      <title>To Remove Monitor Nodes from the Controller Node</title>
+      <p>Permanent removal of a monitor is not supported when the monitor service is installed on
+        the controller node. However, to temporarily bring down the service on the controller node
+        (for maintenance purposes), perform the following steps:</p>
+      <ol>
+        <li>Log in to the lifecycle manager.</li>
+        <li>Stop the monitor service running on the specific host by running the following commands: <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts ceph-stop.yml --limit &lt;mon-node-to-remove></codeblock>
+          <p>The hostname of the node can be found in the list generated from the output of the
+            following command:</p>
+          <codeblock>grep hostname ~/helion/my_cloud/info/server_info.yml</codeblock></li>
+        <li>Remove the monitor service from the cluster:<codeblock>ceph mon remove &lt;ceph-mon-host&gt;</codeblock>
+          <note>You can determine the value for <codeph>&lt;ceph-mon-host&gt;</codeph> by using the
+            <codeph>ceph -s</codeph> command.</note></li>
+      </ol>
+    </section>
+    <section id="remove-monitor-separate">
+      <title>Remove Monitor Nodes from a Separate/Dedicated Node</title>
+      <p>Perform the following steps to remove a monitor node from a separate/dedicated node.</p>
+      <ol>
+        <li>Login to the monitor node to be removed.</li>
+        <li>Stop the monitor service running on the specific host by running the following commands
+          :<codeblock>service ceph-mon@&lt;ceph-mon-host> stop</codeblock></li>
+        <li>Remove the monitor
+          service:<codeblock>ceph mon remove &lt;ceph-mon-host></codeblock></li>
+        <li>Login to the lifecycle manager.</li>
+        <li>Edit the <codeph>servers.yml</codeph> file and remove the host section from the
+          file.<codeblock>vim  ~/helion/my_cloud/definition/data/servers.yml</codeblock></li>
+        <li>Commit your configuration to the <xref href="../../../installation/using_git.dita">local
+            git repo</xref>, as follows:
+          <codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -m "My config or other commit message"</codeblock></li>
+        <li>Run the configuration processor:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+        <li>Update your deployment directory:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+        <li>Remove the Monitor node from
+            Cobbler:<codeblock>sudo cobbler system remove --name &lt;node-name></codeblock><p>For
+            example: If you want to remove the <b>mon1</b> (monitor node), execute the following
+            command:<codeblock>sudo cobbler system remove --name mon1</codeblock></p></li>
+      </ol>
+    </section>
+    <section id="monitoring"><title>Removing the Node from Monitoring</title>
+      <p>Once you have removed the Ceph Monitor node, the alarms against them will trigger so there
+        are additional steps to take to resolve this issue.</p>
+      <p>You will want to SSH to each of the Monasca API servers and edit the
+        <codeph>/etc/monasca/agent/conf.d/host_alive.yaml</codeph> file to remove references to
+        the Ceph Monitor node you removed. This will require <codeph>sudo</codeph> access.</p>
+      <p>Once you have removed the references on each of your Monasca API servers you then need to
+        restart the monasca-agent on each of those servers with this command:</p>
+      <codeblock>sudo service monasca-agent restart</codeblock>
+      <p>With the Ceph Monitor node references removed and the monasca-agent restarted, you can then
+        delete the corresponding alarm to finish this process. To do so we recommend using the
+        Monasca CLI which should be installed on each of your Monasca API servers by default:</p>
+      <codeblock>monasca alarm-list --metric-name host_alive_status --metric-dimensions hostname=&#60;ceph monitor node deleted></codeblock>
+      <p>You can then delete the alarm with this command:</p>
+      <codeblock>monasca alarm-delete &#60;alarm ID></codeblock>
+    </section>
+  </body>
+</topic>

@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="add_monitor_node">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Adding a Ceph Monitor Node</title>
+  <abstract><shortdesc outputclass="hdphidden">During your initial installation and deployment, if
+      you defined a dedicated cluster for the Ceph monitor component then these steps can be used to
+      add additional Ceph monitor nodes.</shortdesc>
+    <p>During your initial installation and deployment, if you defined separate hosts for the Ceph
+      monitor component then these steps can be used to add additional Ceph monitor nodes.</p>
+    <p>If you did not define separate Ceph monitor nodes in your deployment then these steps will
+      not work for you. For details on how to define a dedicated Ceph monitor cluster, see <xref
+        href="../../blockstorage/ceph/deploy_monitor_standalone_node.dita"/>.</p>
+    <p>The steps involved are:</p></abstract>
+  <body>
+    <p conkeyref="HOS-conrefs/applies-to"/>
+
+    <section id="prereqs"><title>Prerequisites</title>
+      <p>You should have one or more baremetal servers that meet the minimum hardware requirements
+        for a Ceph monitor node which are documented in the <xref href="../../../planning/hw_support_matrix.dita"
+          >Hardware Support Matrix</xref>.</p>
+    </section>
+    <section id="notes"><title>Notes</title>
+      <p>It is recommended to maintain an odd number of Ceph monitors because the Paxos protocol is
+        being used by Ceph monitors to form a consensus. Although clusters can be deployed with a
+        single monitor, we strongly recommend to deploy three monitors on independent nodes for
+        production usage to avoid a single point of failure of the monitor service.</p>
+      <p>For this reason, it is recommended to increase the number of monitors two at a time if a
+        valid need for more than three exists.</p>
+    </section>
+    <section id="steps"><title>Adding a Ceph Monitor Node</title>
+      <p>These steps will show you how to add the new Ceph monitor node to your
+          <codeph>servers.yml</codeph> file and then run the playbooks that update your cloud
+        configuration. You will run these playbooks from the lifecycle manager.</p>
+      <ol>
+        <li>Log in to your lifecycle manager.</li>
+        <li>Checkout the <codeph>site</codeph> branch of your local git so you can begin to make the
+          necessary edits:
+          <codeblock>cd ~/helion/my_cloud/definition/data
+git checkout site</codeblock></li>
+        <li>In the same directory, edit your <codeph>servers.yml</codeph> file to add the details
+          for your new Ceph monitor nodes. Copy and paste the section for an existing server having
+          the <codeph>MON-ROLE</codeph> role and edit the values to match the new server being
+            added.<p>Here is an example:</p>
+          <codeblock>
+- id: ceph-mon4
+  ip-addr: 10.13.111.141
+  server-group: RACK1
+  role: CEP-MON-ROLE
+  nic-mapping: MY-4PORT-SERVER
+  mac-addr: "f0:92:1c:05:69:10"
+  ilo-ip: 10.12.8.217
+  ilo-password: password
+  ilo-user: admin</codeblock>
+          <note type="important">You will need to verify that the <codeph>ip-addr</codeph> value you
+            choose for this node does not conflict with any other IP address in your cloud
+            environment. You can confirm this by checking the
+              <codeph>~/helion/my_cloud/info/address_info.yml</codeph> file on your lifecycle
+            manager.</note></li>
+        <li>In your <codeph>control_plane.yml</codeph> file you will need to check the values for
+            <codeph>member-count</codeph>, <codeph>min-count</codeph>, and
+            <codeph>max-count</codeph>. If you specified them, ensure that they match up with your
+          new total node count. So for example, if you had previously specified
+            <codeph>member-count: 3</codeph> and are adding a fourth Ceph monitor node, you will
+          need to change that value to <codeph>member-count: 4</codeph>.</li>
+        <li>Commit the changes to git:
+          <codeblock>git commit -a -m "Add new Ceph monitor node &lt;name>"</codeblock></li>
+        <li>Run the configuration processor:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+        <li>Update your deployment directory:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+        <li>Add the new node into Cobbler:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost cobbler-deploy.yml</codeblock></li>
+        <li>Then you can image the node: <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost bm-reimage.yml -e nodelist=&#60;node name></codeblock>
+          <note>If you don't know the <codeph>&#60;node name></codeph> already, you can get it by
+            using <codeph>sudo cobbler system list</codeph></note>
+          <p>Before proceeding, you may want to take a look at
+              <b>~/helion/my_cloud/info/server_info.yml</b> to see if the assignment of the node you
+            have added is what you expect. It may not be, as nodes will not be numbered
+            consecutively if any have previously been removed. This is to prevent loss of data; the
+            config processor retains data about removed nodes and keeps their ID numbers from being
+            reallocated. See the Persisted Server Allocations section in <xref
+              keyref="persisteddata/persistedserverallocations"><keyword keyref="kw-hos-phrase"/>
+              Input Model</xref> for information on how this works.</p></li>
+        <li>Run the following series of playbooks complete the deployment of your additional Ceph
+          monitor node(s) to your Ceph cluster: <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts site.yml --tags "generate_hosts_file"
+ansible-playbook -i hosts/verb_hosts site.yml --limit &#60;hostname></codeblock>
+          <p>The hostname of the newly added node can be found in the list generated from the output
+            of the following command:</p>
+          <codeblock>grep hostname ~/helion/my_cloud/info/server_info.yml</codeblock></li>
+      </ol>
+    </section>
+    <section id="verify"><title>Verifying the New Ceph Monitor Node</title>
+      <p>From the lifecycle manager, run the following command:</p>
+      <codeblock>ceph --cluster ceph -f json quorum_status</codeblock>
+      <p>If the Ceph cluster name is different than the default (i.e. <b>ceph</b>), you need to
+        modify the above command accordingly.</p>
+      <p>The newly added Ceph monitor's hostname appears in the <codeph>quorum_names</codeph>
+        section of the output of above command.</p>
+    </section>
+    <section id="monitoring"><title>Adding a New Ceph Monitor Node to Monitoring</title>
+      <p>If you want to add a new Ceph monitor node to the monitoring service checks, there is an
+        additional playbook that must be run to ensure this happens:</p>
+      <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts monasca-deploy.yml --tags active_ping_checks</codeblock>
+    </section>
+  </body>
+</topic>

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="onetwo_controller_recovery">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>One or Two Controller Node Disaster
+    Recovery</title>
+  <abstract><shortdesc outputclass="hdphidden"/></abstract>
+  <body>
+    <p>This scenario makes the following assumptions:</p>
+    <ul>
+      <li>Your lifecycle manager is still intact and working.</li>
+      <li>One or two of your controller nodes went down, but not the entire cluster.</li>
+      <li>The node needs to be rebuilt from scratch, not simply rebooted.</li>
+    </ul>
+    <section>
+      <title>Steps to recovering one or two controller nodes</title>
+      <ol>
+        <li>Ensure that your node has power and all of the hardware is functioning.</li>
+        <li>Log in to the lifecycle manager.</li>
+        <li>Verify that all of the information in your
+            <codeph>~/helion/my_cloud/definition/data/servers.yml</codeph> file is correct for your
+          controller node. You may need to replace the existing information if you had to either
+          replacement your entire controller node or just pieces of it.</li>
+        <li>If you made changes to your <codeph>servers.yml</codeph> file then commit those changes
+          to your local git:
+          <codeblock>git add -A
+git commit -a -m "editing controller information"</codeblock></li>
+        <li>Run the configuration processor:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+        <li>Update your deployment directory:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+        <li>Ensure that Cobbler has the correct system information: <ol>
+            <li>If you replaced your controller node with a completely new machine, you need to
+              verify that Cobbler has the correct list of controller nodes:
+              <codeblock>sudo cobbler system list</codeblock></li>
+            <li>Remove any controller nodes from Cobbler that no longer exist:
+              <codeblock>sudo cobbler system remove --name=&lt;node></codeblock></li>
+            <li>Add the new node into Cobbler:
+              <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost cobbler-deploy.yml</codeblock></li>
+          </ol></li>
+        <li>Then you can image the node:
+            <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost bm-reimage.yml -e nodelist=&#60;node_name></codeblock><note>If
+            you don't know the <codeph>&#60;node name></codeph> already, you can get it by using
+              <codeph>sudo cobbler system list</codeph></note><p>Before proceeding, you may want to
+            take a look at <b>info/server_info.yml</b> to see if the assignment of the node you have
+            added is what you expect. It may not be, as nodes will not be numbered consecutively if
+            any have previously been removed. This is to prevent loss of data; the config processor
+            retains data about removed nodes and keeps their ID numbers from being reallocated. See
+            the Persisted Server Allocations section in <xref
+              keyref="persisteddata/persistedserverallocations">Input Model</xref> for information
+            on how this works.</p></li>
+        <li>[OPTIONAL] - Run the <codeph>wipe_disks.yml</codeph> playbook to ensure all of your
+          partitions on your nodes are completely wiped prior to continuing with the installation:
+          <codeblock>cd ~/scratch/ansible/next/hos/ansible/
+ansible-playbook -i hosts/verb_hosts wipe_disks.yml --limit &#60;controller_node_hostname></codeblock></li>
+        <li>Complete the rebuilding of your controller node with the two playbooks
+          below:<codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts osconfig-run.yml -e rebuild=True --limit=&lt;controller_node_hostname>
+ansible-playbook -i hosts/verb_hosts hlm-deploy.yml -e rebuild=True --limit=&lt;controller_node_hostname></codeblock></li>
+      </ol>
+    </section>
+  </body>
+</topic>

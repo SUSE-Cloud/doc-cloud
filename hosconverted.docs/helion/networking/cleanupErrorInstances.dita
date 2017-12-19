@@ -1,0 +1,207 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="deleteStuckLoadbalancer">
+
+  <title><keyword keyref="kw-hos-tm"/>
+    <keyword keyref="kw-hos-phrase"/>: Deleting Load Balancer Instances Stuck in Pending_delete or Error State</title> 
+  <body>
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <section>In HPE Helion OpeStack 4.0 you may find that you are unable to delete load balancers
+      that are not in the ACTIVE state. If you have load balancers that cannot be deleted but are in
+      the ERROR or Pending_delete state, follow these directions when you want to delete
+      them.</section>
+    <section>To clean up your bad instances, you can either run the following MySQL commands
+      manually, or run the attached script shown later.</section>
+    <section><title>Manually deleting load balancers</title>In order to clean up stuck or error
+      instances, follow the steps below to remove the amphora instance and the port associated to
+      the particular load balancer. Under these circumstances, the port will be locked so following
+      tables needs to be cleaned up. <ol id="ol_yvf_24m_lw">
+        <li>Connect to ovs_neutron database: <codeblock>mysql> use ovs_neutron</codeblock>
+        </li>
+        <li>Fetch the list of load balancer IDs:
+          <codeblock> mysql> select * from lbaas_loadbalancer_statistics;</codeblock> Here are some
+          results:<codeblock>+--------------------------------------+----------+-----------+--------------------+-------------------+
+| loadbalancer_id                      | bytes_in | bytes_out | active_connections | total_connections |
++--------------------------------------+----------+-----------+--------------------+-------------------+
+| df3855a9-ec4b-466e-9700-b16c10ff955a |        0 |         0 |                  0 |                 0 |
++--------------------------------------+----------+-----------+--------------------+-------------------+
+1 row in set (0.00 sec)</codeblock></li>
+        <li>Select all from lbaas_loadbalancers
+          table:<codeblock>mysql> select * from lbaas_loadbalancers;</codeblock>Here is the sample
+          output:<codeblock>+----------------------------------+--------------------------------------+------+-------------+--------------------------------------+--------------------------------------+-------------+----------------+---------------------+------------------+
+| tenant_id                        | id                                   | name | description | vip_port_id                          | vip_subnet_id                        | vip_address | admin_state_up | provisioning_status | operating_status |
++----------------------------------+--------------------------------------+------+-------------+--------------------------------------+--------------------------------------+-------------+----------------+---------------------+------------------+
+| 924fdf5354474c24b10e791af8a821d3 | df3855a9-ec4b-466e-9700-b16c10ff955a | lb1  |             | 96f99f79-065b-4d38-9a24-114be4dc07ff | 5e23991d-e571-4828-b96c-af8a6066ed60 | 10.99.99.35 |              1 | ERROR               | OFFLINE          |
++----------------------------------+--------------------------------------+------+-------------+--------------------------------------+--------------------------------------+-------------+----------------+---------------------+------------------+
+1 row in set (0.00 sec)</codeblock></li>
+        <li>Delete the load balancer data. For example, for the identified instance id of
+          df3855a9-ec4b-466e-9700-b16c10ff955a:
+          <codeblock>mysql> delete from lbaas_loadbalancer_statistics where loadbalancer_id=' df3855a9-ec4b-466e-9700-b16c10ff955a’;</codeblock>
+        </li>
+        <li>Delete the load balancer instance, for example, for the identified instance id of
+          df3855a9-ec4b-466e-9700-b16c10ff955a:
+          <codeblock>mysql> delete from lbaas_loadbalancers where id=' df3855a9-ec4b-466e-9700-b16c10ff955a’;</codeblock>
+        </li>
+        <li>Now the instance references needs to be removed from Octavia table. Connect to the
+          Octavia table. <codeblock> mysql> use octavia</codeblock>
+        </li>
+        <li>Next, find all the entries in
+          amphora:<codeblock>mysql> select * from amphora;</codeblock> Here is the
+          output:<codeblock>+--------------------------------------+--------------------------------------+-----------+--------------------------------------+---------------+-------------+-------------+--------------------------------------+--------------------------------------+------+
+| id                                   | compute_id                           | status    | load_balancer_id                     | lb_network_ip | vrrp_ip     | ha_ip       | vrrp_port_id                         | ha_port_id                           | role |
++--------------------------------------+--------------------------------------+-----------+--------------------------------------+---------------+-------------+-------------+--------------------------------------+--------------------------------------+------+
+| e8a777de-ab78-4b4e-bc35-6777b3fa7c88 | 
+| 88c9f8d6-bdc4-4c2f-bf07-d1265a348b19 | ALLOCATED | 
+| df3855a9-ec4b-466e-9700-b16c10ff955a | 10.245.56.94  | 10.99.99.36 | 
+| 10.99.99.35 | d4bb13bc-186d-4fd8-b58c-301c8a441870 | 
+| 96f99f79-065b-4d38-9a24-114be4dc07ff | NULL |
++--------------------------------------+--------------------------------------+-----------+--------------------------------------+---------------+-------------+-------------+--------------------------------------+--------------------------------------+------+
+1 row in set (0.00 sec)</codeblock>
+        </li>
+        <li>Select all from the load_balancer table to see the IDs:
+          <codeblock>mysql> select * from load_balancer;</codeblock>You should see results similar
+          to
+          these:<codeblock>+-----------+--------------------------------------+------+-------------+---------------------+------------------+---------+----------+
+| tenant_id | id                                   | name | description | provisioning_status | operating_status | enabled | topology |
++-----------+--------------------------------------+------+-------------+---------------------+------------------+---------+----------+
+| NULL      | 027dffd3-909f-4651-82da-26bc32b118f7 | lb2  |             | PENDING_CREATE      | OFFLINE          |       1 | NULL     |
+| NULL      | 14bc96b6-caa1-42ea-9041-2b0ed9e70995 | lb1  |             | PENDING_CREATE      | OFFLINE          |       1 | NULL     |
+| NULL      | 5aa94f04-f744-4b1e-8e69-abe96baf041e | lb4  |             | PENDING_CREATE      | OFFLINE          |       1 | NULL     |
+| NULL      | b4fc659b-8c76-4a43-be0a-972de3f9569d | lb3  |             | PENDING_CREATE      | OFFLINE          |       1 | NULL     |
+| NULL      | bd13bdb1-2483-45c1-99a9-e36afdf57a51 | lb6  |             | PENDING_CREATE      | OFFLINE          |       1 | NULL     |
+| NULL      | df3855a9-ec4b-466e-9700-b16c10ff955a | lb1  |             | PENDING_CREATE      | OFFLINE          |       1 | NULL     |
+| NULL      | ffb635ce-60d2-4788-9d08-4011255494ab | lb5  |             | PENDING_CREATE      | OFFLINE          |       1 | NULL     |
++-----------+--------------------------------------+------+-------------+---------------------+------------------+---------+----------+
+7 rows in set (0.00 sec)</codeblock></li>
+        <li>Select all from vip table:<codeblock>mysql> select * from vip;</codeblock>Sample
+          output:<codeblock>+--------------------------------------+-------------+--------------------------------------+--------------------------------------+
+| load_balancer_id                     | ip_address  | port_id                              | subnet_id                            |
++--------------------------------------+-------------+--------------------------------------+--------------------------------------+
+| df3855a9-ec4b-466e-9700-b16c10ff955a | 10.99.99.35 | 
+| 96f99f79-065b-4d38-9a24-114be4dc07ff | 
+| 5e23991d-e571-4828-b96c-af8a6066ed60 |
++--------------------------------------+-------------+--------------------------------------+--------------------------------------+
+1 row in set (0.00 sec)</codeblock></li>
+        <li>Delete the instance from the amphora table by
+          id:<codeblock>mysql> delete from amphora where load_balancer_id=' df3855a9-ec4b-466e-9700-b16c10ff955a’;</codeblock></li>
+        <li>Delete the corresponding virtual IP
+          record:<codeblock>mysql> delete from vip where load_balancer_id=' df3855a9-ec4b-466e-9700-b16c10ff955a’;</codeblock></li>
+        <li>Delete the load
+          balancer:<codeblock> mysql> delete from load_balancer where id=' df3855a9-ec4b-466e-9700-b16c10ff955a’;</codeblock></li>
+      </ol></section>
+    <section>
+      <title>Alternate option: run a Shell script to delete the instances</title>
+    </section>
+    <!--  LINKTODO Fix up link to script -->
+    <section><p>The <!--<xref href="delete_lbaas.zip" format="html" type="external"> attached -->Shell
+      script<!--</xref>, also -->illustrated below, can be used to clean up (delete) pending_delete or
+        Error instances from the database. Here you must provide the host machine i.e. the MySQL
+        server IP address, credentials and list of instances to be removed.</p><p>If the instances
+        list is not provided, then all the instances with pending_delete or error will be deleted
+        from the database. This script performs the same operation as described in the manual steps
+        above. </p><p>To start the script, run the following and follow the
+        prompts:<codeblock>./delete_lbaas.sh </codeblock></p>This script requires four inputs <ol>
+        <li>hostname </li>
+        <li>mysql_username </li>
+        <li>mysql_password. (These first three are required for the connection to the database.) </li>
+        <li>loadbalanacer_id (space separated in case of multiple entries). Leave this blank only if
+          you want all the load balancers present in ‘PENDING_DELETE’ or ‘ERROR’ state to be deleted
+          and do not want to identify them by their IDs.</li>
+      </ol>
+      <codeblock outputclass="nomaxheight">    #Get the input from user for credentials and id of the loadbalancer to be deleted
+    read -p "Enter Hostname (blank if not present):" host      
+    read -p "Enter mysql_username (blank if not present):" username
+    read -p "Enter mysql_password (blank if not present):" password
+    read -p "Enter loadbalanacer_id (space separated in case of multiple entries)(blank if not present):" id
+    
+    #Create command to connect to mysql
+    command="mysql"
+    
+    if [ "$host" != "" ]; then
+    command="$command -h $host"
+    fi
+    
+    if [ "$username" != "" ]; then
+    command="$command -u$username"
+    fi
+    
+    if [ "$password" != "" ]; then
+    command="$command -p$password"
+    fi
+    
+    if [ "$id" != "" ]; then
+    lb_ids="id $id"
+    else
+    lb_ids=`$command -e "use neutron; select id from lbaas_loadbalancers where provisioning_status in ('PENDING_DELETE', 'ERROR');"`
+    fi
+    
+    #Execute the delete query for mysql tables
+    lb_ids_array=(`echo $lb_ids | sed 's/ /\n/g'`)
+    size=${#lb_ids_array[@]}
+    for((i=1;i&lt;$size;i++))
+    do
+        echo ${lb_ids_array[$i]}
+        `$command -e "use ovs_neutron; delete from lbaas_loadbalancer_statistics where loadbalancer_id='${lb_ids_array[$i]}'; delete from lbaas_loadbalancers where id='${lb_ids_array[$i]}';"`
+        `$command -e "use octavia; delete from amphora where load_balancer_id='${lb_ids_array[$i]}'; delete from vip where load_balancer_id='${lb_ids_array[$i]}'; delete from load_balancer where id='${lb_ids_array[$i]}';"`
+        echo "Cleanup process completed"
+    done
+  </codeblock>
+    </section>
+    <section><title> Deleting active load balancers</title> Active load balancers can be deleted
+      using the Neutron CLI: <codeblock>$ neutron lbaas-loadbalancer-delete --help
+  usage: neutron lbaas-loadbalancer-delete [-h] [--request-format
+  {json}]
+  LOADBALANCER</codeblock>
+      <p><b>LBaaS v2 deleting a given load balancer</b></p>
+      <table frame="all" rowsep="1" colsep="1" id="table_kzf_nqb_tw">
+        <tgroup cols="2">
+          <colspec colname="c1" colnum="1" colwidth="1.0*"/>
+          <colspec colname="c2" colnum="2" colwidth="1.0*"/>
+          <thead>
+            <row>
+              <entry>Positional arguments</entry>
+              <entry>Optional arguments</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>LOADBALANCER ID or name of load balancer to delete</entry>
+              <entry>
+                <p>-h, --help show this help message and exit</p>
+              </entry>
+            </row>
+            <row>
+              <entry/>
+              <entry>--request-format {json} (Note: Only JSON request format is supported)</entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </table>Unused or leftover ports can be deleted using the CLI: <codeblock>$ neutron port-delete --help
+  usage: neutron port-delete [-h] [--request-format
+  {json}] PORT</codeblock>
+      <p><b>Deleting a given port.</b></p>
+      <table frame="all" rowsep="1" colsep="1" id="table_hvm_hqb_tw">
+        <tgroup cols="2">
+          <colspec colname="c1" colnum="1" colwidth="1.0*"/>
+          <colspec colname="c2" colnum="2" colwidth="1.0*"/>
+          <thead>
+            <row>
+              <entry>Positional arguments</entry>
+              <entry>Optional arguments</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>PORT ID or name of port to delete</entry>
+              <entry>-h, --help show this help message and exit</entry>
+            </row>
+            <row>
+              <entry/>
+              <entry>--request-format {json} (Note: Only JSON request format is supported)</entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </table>
+    </section>
+  </body>
+</topic>

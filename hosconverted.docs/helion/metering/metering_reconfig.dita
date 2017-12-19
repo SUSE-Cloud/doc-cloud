@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="reconfig_metering">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Configure the Ceilometer Metering
+    Service</title>
+  <body><!--not tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <section id="deploy">
+      <p><keyword keyref="kw-hos-phrase"/> automatically deploys Ceilometer to use the Monasca database. Ceilometer is deployed on the same control plane nodes along with other OpenStack
+        services such as Keystone, Nova, Neutron, Glance, and Swift.</p>
+   <p>You can configure the Metering Service in the following ways:</p>   
+      <ul>
+        <li><xref type="section" href="#reconfig_metering/upgrade">Run the Upgrade Playbook</xref></li>
+        <li><xref type="section" href="#reconfig_metering/apache">Configure Apache2 for the Ceilometer API</xref></li>
+        <li><xref type="section" href="#reconfig_metering/metering_services">Enable Services for Messaging Notifications</xref></li>
+        <li><xref type="section" href="#reconfig_metering/Ceilo_StopStart">Restart the Polling Agent</xref></li>
+        <li><xref type="section" href="#reconfig_metering/ceilo_replace_cntrler">Replace a Logging, Monitoring, and Metering Controller"></xref></li>
+        <li><xref type="section" href="#reconfig_metering/ceilo_monitoring">Configure Monitoring</xref></li>
+      </ul>
+ </section>
+    <lines>
+      
+    </lines>
+    <section id="upgrade">
+      <title>Run the Upgrade Playbook</title> 
+      <p>Follow Standard Service upgrade mechanism available in the lifecycle manager distribution.
+        For Ceilometer, the playbook included with <keyword keyref="kw-hos"/> is
+          <b>ceilometer-upgrade.yml</b>
+      </p>
+    </section>
+    <lines>
+      
+    </lines>
+
+      <lines></lines>
+
+    <section id="apache">
+      <title>Configure Apache2 for the Ceilometer API</title> 
+      <p>Reporting APIs provide access
+        to the metering data stored in Ceilometer. These APIs are accessed by Horizon to provide
+        basic usage data and information.<keyword keyref="kw-hos"/> uses Apache2 Web Server to
+        provide the API access. </p><note type="attention">To improve API responsiveness you can
+          increase the number of threads and processes in the Ceilometer configuration file. The
+          Ceilometer API runs as an WSGI processes. Each process can have a certain amount of threads
+          managing the filters and applications, which can comprise the processing pipeline.
+        </note>
+      <p>To configure Apache:</p>
+      <ol>
+        <li>Edit the Ceilometer configuration files.</li>
+        <li>Reload and verify Apache2.</li>
+      </ol>
+
+      <p><b>Edit the Ceilometer Configuration Files</b></p>
+      <p>To create a working file for Ceilometer with the correct settings:</p>
+      <ol>
+        <li>To add the configuration file to the correct folder, copy the following file:
+          <codeblock>ceilometer.conf</codeblock> to the following directory:
+          <codeblock>/etc/apache2/sites-available</codeblock></li>
+        <li>To verify the settings, in a text editor, open the
+          <codeph>ceilometer.conf</codeph> file.</li>
+        <li>The ceilometer.conf file should have the following data. If it does not exist,
+          add it to the file. <codeblock>Listen &lt;ipaddress>:8777 
+&lt;VirtualHost *:8777>
+    WSGIDaemonProcess ceilometer user=ceilometer group=ceilometer processes=4 threads=5 home=/opt/stack/venvs/openstack python-path=/opt/stack/venvs/openstack/lib/python2.7/site-packages
+    WSGIScriptAlias / /opt/stack/venvs/openstack/lib/python2.7/site-packages/ceilometer/api/app.wsgi
+    SetEnv APACHE_RUN_USER ceilometer
+    SetEnv APACHE_RUN_GROUP ceilometer
+    WSGIProcessGroup ceilometer
+    ErrorLog /var/log/apache2/ceilometer_error.log
+    LogLevel info
+    CustomLog /var/log/apache2/ceilometer_access.log combined
+    &lt;Directory />
+        Require all granted
+    &lt;/Directory>
+&lt;/VirtualHost></codeblock><note>
+  <p>The WSGIDaemon Recommended Settings are to use four processes running in
+    parallel:</p>
+  <codeblock>processes=4</codeblock>
+  <p>Five threads for each process is also recommended: </p>
+  <codeblock>threads=5</codeblock>
+</note></li>
+        <li>To add a softlink for the ceilometer.conf, run:
+          <codeblock>ln -s /etc/apache2/sites-available/ceilometer.conf /etc/apache2/sites-enabled</codeblock></li>
+      </ol>
+      <lines/>
+      <p><b>Reload and Verify Apache2</b></p>
+      <p>For the changes to take effect, the Apache2 service needs to be reloaded. This
+        ensures that all the configuration changes are saved and the service has applied
+        them. The system administrator can change the configuration of processes and threads
+        and experiment if alternative settings are necessary. </p>
+      <p>Once the Apache2 service has been reloaded you can verify that the Ceilometer APIs
+        are running and able to receive incoming traffic. The Ceilometer APIs are listening
+        on port 8777.</p>
+      <p>To reload and verify the Apache2 service:</p>
+      <ol>
+        <li>To reload Apache2, run: <codeblock>sudo service apache2 reload</codeblock></li>
+        <li>To verify the service is running, run:
+          <codeblock>ps -ef | grep apache
+    #Sample output showing Apache2 with Ceilometer Running Instances:
+    ceilome+ 31430 31427 10 16:29 ? 00:02:40 /usr/sbin/apache2 -k start
+    ceilome+ 31431 31427 10 16:29 ? 00:02:41 /usr/sbin/apache2 -k start
+    ceilome+ 31432 31427 10 16:29 ? 00:02:42 /usr/sbin/apache2 -k start
+    ceilome+ 31433 31427 10 16:29 ? 00:02:43 /usr/sbin/apache2 -k start</codeblock><note
+      type="attention">In a working environment, the list of entries in the output
+      should match the number of processes in the configuration file. In the
+      example configuration file, the recommended number of 4 is used, and the
+      number of Running Instances is also 4.</note></li>
+      </ol>
+      <p>You can also verify that Apache2 is accepting incoming traffic using the following
+        procedure:</p>
+      <ol>
+        <li>To verify traffic on port 8777, run:
+          <codeblock>netstat -tulpn | grep 8777</codeblock></li>
+        <li>Verify your output is similar to the following example:
+          <codeblock>tcp6 0 0 :::8777 :::* LISTEN 8959/apache2</codeblock></li>
+      </ol>
+      <note type="attention">If Ceilometer fails to deploy: <ul>
+        <li>check the proxy setting</li>
+        <li>unset the https_proxy, for example:
+          <codeblock>unset http_proxy HTTP_PROXY HTTPS_PROXY</codeblock></li>
+      </ul></note>
+    </section>
+<lines>
+</lines>
+    <section id="metering_services">
+      <title>Enable Services for Messaging Notifications</title>
+      <p>After installation of Helion OpenStack, the following services are enabled by default to send notifications:</p>
+<ul>
+<li>Nova</li>
+  <li>Cinder </li>
+    <li>Glance </li>
+      <li>Neutron</li>
+        <li>Swift</li>
+</ul>
+<p>The list of meters for these services are specified in the Notification Agent or Polling Agent's
+        pipeline configuration file. </p>
+      <p>For steps on how to edit the pipeline configuration files, see: <xref href="metering_notifications.dita#notifications/list">Editing the List of Meters</xref></p>
+    </section>
+<lines>
+  
+</lines>
+    <section id="Ceilo_StopStart">
+      <title>Restart the Polling Agent</title>
+      <p>The Polling Agent is responsible for coordinating the polling activity. It parses the
+          <b>pipeline.yml</b> configuration file and identifies all the sources where data is
+        collected. The sources are then evaluated and are translated to resources that a dedicated
+        pollster can retrieve. The Polling Agent follows this process:</p>
+      <ol>
+        <li>At each identified interval, the <b>pipeline.yml</b> configuration file is parsed.</li>
+        <li>The resource list is composed. </li> 
+        <li>The pollster collects the data.</li>
+        <li>The pollster sends data to the queue.</li>
+      </ol>
+      
+      <p>Metering processes should normally be operating at all times. This need is addressed by the Upstart event engine which is designed to run on any Linux system. Upstart creates events, handles the consequences of those events, and starts and stops processes as required. Upstart will continually attempt to restart stopped processes even if the process was stopped manually. To stop or start the Polling Agent and avoid the conflict with Upstart, using the following steps.</p>
+      <p><b>To restart the Polling Agent:</b></p>
+      <ol>
+        <li>To determine whether the process is running, run:
+          <codeblock>sudo service ceilometer-agent-central status 
+#SAMPLE OUTPUT: ceilometer-agent-central start/running, process 27989</codeblock></li>
+        <li>To stop the process, run:
+          <codeblock>sudo service ceilometer-agent-central stop</codeblock></li>
+        <li>To start the process, run:
+          <codeblock>sudo service ceilometer-agent-central start</codeblock></li>
+      </ol>
+    </section>
+<lines>
+  
+</lines>
+    <section id="ceilo_replace_cntrler">
+      <title>Replace a Logging, Monitoring, and Metering Controller</title>
+      
+      <p>In a medium-scale environment, if a metering controller has to be replaced or rebuilt, use the following steps:</p>
+      <ol>
+        <li><xref href="../operations/maintenance/controller/replace_controller.dita">Replacing a Controller Node</xref>.</li>
+        <li>If the Ceilometer nodes are not on the shared control plane, to implement the changes and replace the controller, you must reconfigure Ceilometer. To do this, run the ceilometer-reconfigure.yml ansible playbook <b>without</b> the limit option  </li>
+      </ol>
+    </section>
+<lines>
+  
+</lines>
+    <section id="ceilo_monitoring">
+  <title>Configure Monitoring</title>
+  <p>The Monasca HTTP Process monitors the Ceilometer API service. Ceilometer's notification and polling agents are also monitored. If these agents are down, Monasca monitoring alarms are triggered. You can use the notification alarms to debug the issue and restart the notifications agent. However, for Central-Agent (polling) and Collector the alarms need to be deleted. These two processes are not started after an upgrade so when the monitoring process checks the alarms for these components, they will be in UNDETERMINED state. Helion does not monitor these processes anymore so the best option to resolve this issue is to manually delete alarms that are no longer used but are installed.</p>
+  
+  <p>To resolve notification alarms, first check the <b>ceilometer-agent-notification</b> logs for errors in the <b>/var/log/ceilometer</b> directory. You can also use the Operations Console to access Kibana and check the logs. This will help you understand and debug the error.</p>
+    
+  <p>To restart the service, run the <b>ceilometer-start.yml</b>. This playbook starts the ceilometer processes that has stopped and only restarts during install, upgrade or reconfigure which is what is needed in this case. Restarting the process that has stopped will resolve this alarm because this Monasca alarm means that ceilometer-agent-notification is no longer running on certain nodes.</p>
+  
+  <p>You can access Ceilometer data through Monasca. Ceilometer publishes samples to Monasca with credentials of the following accounts:</p>
+  <ul>
+    <li><b>ceilometer</b> user</li>
+    <li><b>services</b></li>
+  </ul>
+    
+  <p>Data collected by Ceilometer can also be retrieved by the Monasca REST API. Make sure you use the following guidelines when requesting data from the Monasca REST API:</p>
+  <ul>
+<li>Verify you have the monasca-admin role. This role is configured in the monasca-api configuration file.</li>
+    <li>Specify the <codeph>tenant id</codeph> of the <b>services</b> project.</li> 
+  </ul>  
+
+  <p>For more details, read the <xref href="https://github.com/openstack/monasca-api/blob/master/docs/monasca-api-spec.md" scope="external" format="html">Monasca API Specification</xref>.</p>
+    
+<p>To run Monasca commands at the command line, you must be have the <b>admin</b> role. This allows you to use the Ceilometer account credentials to replace the default admin account credentials defined in the <b>service.osrc</b> file. When you use the Ceilometer account credentials, Monasca commands will only return data collected by Ceilometer. At this time, Monasca command line interface (CLI) does not support the data retrieval of other tenants or projects.</p>
+</section>
+
+  </body>
+</topic>

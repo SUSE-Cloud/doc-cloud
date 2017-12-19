@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="deploy_kubernetes_app">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Deploying a Kubernetes Application</title>
+  <body>
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    
+    <note type="important"><keyword keyref="kw-hos"/> monitors Magnum processes and examines Magnum
+      logs, however Kubernetes, which runs on VMs, is not monitored.</note>
+
+    <section id="deploying_kubernetes">
+      <title>Deploying a Kubernetes Application</title>
+      <p>You can deploy a Kubernetes applicaton by using this example. In this example, an Nginx
+        application is running on a Kubernetes master VM on port 300080.</p>
+      <p>
+        <ol>
+          <li>Install kubectl onto your <keyword keyref="kw-hos"/> lifecycle manager.
+            <codeblock>$ https_proxy=http://proxy.yourcompany.net:8080 curl -LO https://storage.googleapis.com/kubernetes-release/release/v1.2.0/bin/linux/amd64/kubectl
+$ chmod +x ./kubectl
+$ sudo mv ./kubectl /usr/local/bin/kubectl</codeblock>
+          </li>
+          <li>You will need to generate the cluster configuration using <codeph>magnum
+              cluster-config</codeph>. If <b>--tls-disabled</b> CLI option was not specified during
+            cluster template creation, authentication in the cluster will be turned on. In this
+            case, <codeph>magnum cluster-config</codeph> command will generate client authentication
+            certificate (cert.pem) and key (key.pem). Copy and paste <codeph>magnum cluster-config</codeph> 
+            output to your command line input to finalize configuration 
+            (i.e. export KUBECONFIG environment variable).
+            <codeblock>$ mkdir my_cluster
+$ cd my_cluster
+/my_cluster $ ls
+/my_cluster $ magnum cluster-config my-cluster
+export KUBECONFIG=./config
+/my_cluster $ ls
+ca.pem cert.pem config key.pem
+/my_cluster $ export KUBECONFIG=./config
+/my_cluster $ kubectl version
+Client Version: version.Info{Major:"1", Minor:"2", GitVersion:"v1.2.0", GitCommit:"5cb86ee022267586db386f62781338b0483733b3", GitTreeState:"clean"}
+Server Version: version.Info{Major:"1", Minor:"2", GitVersion:"v1.2.0", GitCommit:"cffae0523cfa80ddf917aba69f08508b91f603d5", GitTreeState:"clean"}</codeblock>
+          </li>
+          <li>Create a simple Nginx replication controller, exposed as a service of type NodePort.
+            <codeblock>$ cat >nginx.yml &lt;&lt;-EOF
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: nginx-controller
+spec:
+  replicas: 1
+  selector:
+    app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+        - name: nginx
+          image: nginx
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+spec:
+  type: NodePort
+  ports:
+  - port: 80
+    nodePort: 30080
+  selector:
+    app: nginx
+EOF
+ 
+$ kubectl create -f nginx.yml</codeblock>
+          </li>
+          <li>Check pod status until it turns from <b>Pending</b> to <b>Running</b>.
+            <codeblock>$ kubectl get pods 
+NAME                      READY    STATUS     RESTARTS    AGE
+nginx-controller-5cmev    1/1      Running    0           2m</codeblock>
+          </li>
+          <li>Ensure that the Nginx welcome page is displayed at port 30080 using the kubemaster
+            floating IP.
+            <codeblock>$ http_proxy= curl http://172.31.0.6:30080 
+&lt;!DOCTYPE html>
+&lt;html>
+&lt;head>
+&lt;title>Welcome to nginx!&lt;/title></codeblock>
+          </li>
+          <li>If LBaaS v2 is enabled in <keyword keyref="kw-hos"/> environment, and your cluster was
+            created with more than one kubemaster, a new load balancer can be created to perform
+            request rotation between several masters. Please refer to <xref keyref="configure_lbaas"
+            />for more information on LBaaS v2 support.</li>
+        </ol>
+      </p>
+  
+    </section>
+  </body>
+</topic>

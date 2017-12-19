@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic
+  PUBLIC "-//OASIS//DTD DITA Topic//EN" "http://docs.oasis-open.org/dita/v1.1/OS/dtd/topic.dtd" ><topic xml:lang="en-us" id="topic5065cssd">
+<title>HPE Helion <tm tmtype="reg">OpenStack</tm> 1.1: Remove Scale-out Object Storage Node</title>
+<prolog>
+<metadata>
+<othermeta name="layout" content="default"/>
+<othermeta name="product-version" content="HPE Helion Openstack"/>
+<othermeta name="product-version" content="HPE Helion Openstack 1.0"/>
+<othermeta name="product-version" content="HPE Helion Openstack 1.0.1"/>
+<othermeta name="product-version" content="HPE Helion Openstack 1.1"/>
+<othermeta name="role" content="Storage Administrator"/>
+<othermeta name="role" content="Storage Architect"/>
+<othermeta name="role" content="Keshava HPE Binamra S"/>
+<othermeta name="product-version1" content="HPE Helion Openstack"/>
+<othermeta name="product-version2" content="HPE Helion Openstack 1.0"/>
+<othermeta name="product-version3" content="HPE Helion Openstack 1.0.1"/>
+<othermeta name="product-version4" content="HPE Helion Openstack 1.1"/>
+</metadata>
+</prolog>
+<body>
+<p>
+<!--PUBLISHED-->
+ <!--./commercial/GA1/1.1commerical.services-swift-deployment-shrink-remove-scale-out-object-storage-node.md-->
+ <!--permalink: /helion/openstack/1.1/services/swift/deployment/remove-scale-out-object-node/--></p>
+<p>
+
+</p>
+<p>It is recommended that you gradually reduce the weight in the ring when removing disks from the Swift cluster to avoid poor performance.</p>
+<p>Object nodes can only be removed once all disks have been removed from the node.</p>
+<ol>
+<li>
+<xref type="section" href="#topic5065cssd/prer">Prerequisites</xref>
+</li>
+<li>
+<xref type="section" href="#topic5065cssd/removing-disk">Removing disks from ring</xref>
+</li>
+<li>
+<xref type="section" href="#topic5065cssd/remove-scale-out-object-node">Removing scale-out object node</xref>
+</li>
+<li>
+<xref type="section" href="#topic5065cssd/node-removal">Verify the node removal</xref>
+</li>
+</ol>
+<section id="prer"> <title>Prerequisite</title>
+<ul>
+<li>HPE Helion OpenStack cloud is successfully deployed.<p><i>(Starter Object Storage (Swift) nodes
+              are functional by default as they are part of cloud deployment)</i>
+          </p></li>
+<li>Scale-out object-ring:1 is deployed.</li>
+<li>All of the rings generated <b>must</b> be preserved, preferably at more than one location. Swift needs these rings to be consistent across all nodes.</li>
+<li>Take a backup of the rings before any operation.</li>
+</ul>
+</section>
+<section id="removing-disk"> <title>Removing disks from ring</title>
+<p>Perform the following steps to remove the disks from ring:</p>
+<ol>
+<li>Log in to undercloud from
+          seed.<codeblock><codeph>ssh heat-admin@&lt;undercloud IP address&gt; 
+sudo -i
+</codeph></codeblock></li>
+<li>Change the directory to ring
+          builder.<codeblock><codeph>cd /root/ring-building
+</codeph></codeblock></li>
+<li>List the file in the directory.<codeblock><codeph>ls
+</codeph></codeblock><p>The file with the
+            name <codeph>object-1.builder</codeph> will be listed in the list.</p></li>
+<li>List the disks in the current <codeph>object-1.builder</codeph>
+          file.<codeblock><codeph>ringos view-ring -f /root/ring-building/object-1.builder 
+</codeph></codeblock></li>
+<li>Identify the nodes that need to be removed from the list.<p>
+            <b>Recommendation</b>:</p><p>Remove drives gradually using a weighted approach to avoid
+            degraded performance of Swift cluster. The weight will gradually decrease by 25% until
+            it becomes 0%. The initial weight is 75.</p></li>
+<li>Set the weight of the disks on the
+          node.<codeblock><codeph>ringos set-weight -f object-1.builder -s d&lt;device&gt; -w &lt;weight&gt;
+</codeph></codeblock></li>
+<li>Re-balance the ring.<codeblock><codeph>ringos rebalance-ring -f /root/ring-building/object-1.builder
+</codeph></codeblock><p>
+            <note> You must wait for the time specified by <codeph>min_part_hours</codeph> before
+              another re-balance succeeds.</note>
+          </p></li>
+<li>List all the Swift
+          nodes.<codeblock><codeph>ringos list-swift-nodes -t all
+</codeph></codeblock></li>
+<li>Copy the <codeph>object-1.ring.gz</codeph> file to all
+          nodes.<codeblock><codeph>ringos copy-ring -s /root/ring-building/object-1.ring.gz -n &lt;Swift nodes IP address&gt;
+</codeph></codeblock></li>
+<li>Repeat steps from <b>6 - 9</b> and decrease the weight each time until the weight becomes 0 for
+          each disk.[Set the weight to 50, then 25, and then 0 (w= 50, 25, 0).]</li>
+<li>Once weight has been set to 0, remove the disk from the
+            ring.<codeblock><codeph>ringos remove-disk-from-ring -f object-1.builder -s &lt;Object Node IP address&gt;
+</codeph></codeblock><p>Repeat
+            this step for each disk of the specific node.</p></li>
+<li>Re-balance the ring.<codeblock><codeph>ringos rebalance-ring -f /root/ring-building/object-1.builder
+</codeph></codeblock><p>
+            <note> You must wait for the time specified by <codeph>min_part_hours</codeph> before
+              another re-balance succeeds.</note>
+          </p></li>
+<li>List all the Swift
+          nodes.<codeblock><codeph># ringos list-swift-nodes -t all
+</codeph></codeblock></li>
+<li>Copy the <codeph>object-1.ring.gz</codeph> file to all
+          nodes.<codeblock><codeph># ringos copy-ring -s /root/ring-building/object-1.ring.gz -n &lt;Swift nodes IP address&gt;
+</codeph></codeblock></li>
+</ol>
+</section>
+<section id="remove-scale-out-object-node"> <title>Removing scale-out object node</title>
+<p>Once the disks are removed from the ring, remove the scale-out object node by removing the corresponding stack.</p>
+<p>To remove a node:</p>
+<ol>
+<li>SSH to the undercloud
+          VM:<codeblock><codeph>ssh root@&lt;undercloud IP Address&gt;
+</codeph></codeblock></li>
+<li>If using trickle (default):<ol>
+            <li>Identify the MAC address of the node to be deleted.</li>
+            <li>Identify the ironic <b>Node
+              UUID</b>.<codeblock><codeph>ironic port-list --detail
+</codeph></codeblock></li>
+            <li>Identify the nova instance <b>Instance UUID</b> associated with the ironic Node UUID
+              and, from that, identify the heat stack associated with the nova
+              instance.<codeblock><codeph>ironic node-list
+</codeph></codeblock></li>
+          </ol><p>The following sample displays the name of the
+            instance.</p><codeblock><codeph>ov--soswiftstorage0-SwiftScaleoutObject0-2rn5k2qj3ynj
+</codeph></codeblock><p>The
+            stack name displayed in the above sample
+          is:</p><codeblock><codeph>ov--soswiftstorage0
+</codeph></codeblock></li>
+<li>Delete the
+          stack.<codeblock><codeph>heat stack-delete &lt;stackname&gt;
+</codeph></codeblock></li>
+<li>Execute the following command.<codeblock><codeph>heat stack-list 
+</codeph></codeblock></li>
+<li>Execute the following command to delete a
+          node.<codeblock><codeph>ironic node-delete &lt;ironic_nodeid&gt;
+</codeph></codeblock></li>
+<li>Mark the node as <b>deleted</b> in <codeph>baremetal.csv</codeph>. Change the <b>role</b> from
+            <codeph>overcloudsoswiftstorage</codeph> to
+            <codeph>overcloudsoswiftstorage:deleted</codeph>.<p>For
+            example:</p><codeblock><codeph>9C:B6:54:AD:55:A8,administrator,gone2far,10.1.192.50,12,73728,70,overcloudsoswiftstorage,IPMI
+</codeph></codeblock><p>To
+            delete the node change the role of overcloudsoswiftstorage in the
+              <codeph>baremetal.csv</codeph> file as follows:</p><codeblock><codeph>9C:B6:54:AD:55:A8,administrator,gone2far,10.1.192.50,12,73728,70,overcloudsoswiftstorage:deleted,IPMI
+</codeph></codeblock><p>
+            <note> Do not delete the line.</note>
+          </p></li>
+<li>Run the installer
+          script.<codeblock><codeph>bash -x tripleo/tripleo-incubator/scripts/hp_ced_installer.sh --update-overcloud 2&gt;&amp;1 | tee update.log
+</codeph></codeblock></li>
+</ol>
+<p>When you update the cloud the node will be skipped in all the operations.</p>
+</section>
+<section id="node-removal"> <title>Verify the node removal</title>
+<ol>
+<li>Use the nova list command to view a list of
+            nodes.<codeblock><codeph># nova list
+</codeph></codeblock><p>The removed node will not
+            be available.</p></li>
+<li>On seed VM, update the <codeph>kvm-custom-ips.json</codeph> file to reflect number of scale-out
+          object nodes
+          remaining.<codeblock><codeph>"so_swift_storage_scale": 2, 
+</codeph></codeblock></li>
+</ol>
+<p>
+        <note> If you receive warnings from Icinga after node removal, see <xref
+            href="../../commercial/GA1/1.1commercial.troubleshooting.overcloud.dita">Troubleshooting
+            Node Removal</xref>
+        </note>
+      </p>
+<p>
+  <xref href="#topic5065cssd"> Return to Top </xref>
+</p>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+</body>
+</topic>

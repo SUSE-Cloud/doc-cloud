@@ -1,0 +1,274 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic
+  PUBLIC "-//OASIS//DTD DITA Topic//EN" "http://docs.oasis-open.org/dita/v1.1/OS/dtd/topic.dtd" ><topic xml:lang="en-us" id="topic4649">
+<title>HPE Helion <tm tmtype="reg">OpenStack</tm> 1.0: Add (Scale-Out) and Remove (Scale-In) Nodes on KVM Hypervisors</title>
+<prolog>
+<metadata>
+<othermeta name="layout" content="default"/>
+<othermeta name="product-version" content="HPE Helion Openstack 1.1"/>
+<othermeta name="role" content="Storage Administrator"/>
+<othermeta name="role" content="Storage Architect"/>
+<othermeta name="role" content="Binamra S,"/>
+<othermeta name="product-version1" content="HPE Helion Openstack 1.1"/>
+</metadata>
+</prolog>
+<body>
+<p>
+<!--PUBLISHED-->
+ <!--./commercial/GA1/1.0commercial.install-add-nodes.md-->
+ <!--permalink: /helion/openstack/install/add/nodes/--></p>
+<p>
+
+</p>
+<p>
+                        <!--By default, HPE Helion Openstack cloud deploys a two node (termed as start-up swift nodes) Swift cluster as part of its deployment.--></p>
+<p>This document describes the steps to add (Scale Out) or remove (Scale In) nodes (KVM Compute Nodes) to an already-installed overcloud on a KVM hypervisor.</p>
+<ul>
+<li>
+<xref type="section" href="#topic4649/pre">Prerequisites</xref>
+</li>
+<li>
+<xref type="section" href="#topic4649/add">Add compute nodes</xref>
+</li>
+<li>
+<xref type="section" href="#topic4649/remove">Remove nodes</xref>
+</li>
+</ul>
+<section id="pre"> <title>Prerequisites</title>
+<p>Before you begin, ensure the following:</p>
+<ul>
+<li>The seed VM, undercloud and overcloud are installed using the HPE Helion OpenStack installer.</li>
+</ul>
+</section>
+<section id="add"> <title>Add compute nodes</title>
+<p>New compute nodes can be added to an already-installed overcloud. You can add nodes in any of the following scenarios:</p>
+<ul>
+<li>
+<xref type="section" href="#topic4649/pre-allocated">Configure compute nodes to pre-allocated empty baremetal nodes</xref>
+</li>
+<li>
+<xref type="section" href="#topic4649/non-allocated">Enroll a new baremetal and then add nodes</xref>
+</li>
+</ul>
+</section>
+<section id="pre-allocated"> <title>Configure compute nodes to pre-allocated empty baremetal nodes</title>
+<p>You can enroll (add) nodes that that are present in baremetal.csv but have not been used, perform the following steps:</p>
+<ol>
+<li>
+<p>SSH to the seed VM as <codeph>root</codeph>:</p>
+
+<codeblock>
+<codeph>ssh &lt;IP Address&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Edit the scale counts in JSON environment variables file (<codeph>kvm-custom-ips.json</codeph>) that was used during the initial installation to define the appropriate scale number:</p>
+
+<codeblock>
+<codeph>"compute_scale":&lt;number of compute nodes&gt;,
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Source the environment variables file that you updated:</p>
+
+<codeblock>
+<codeph>source tripleo/tripleo-incubator/scripts/hp_ced_load_config.sh tripleo/configs/kvm-custom-ips.json
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Run the installer script:</p>
+
+<codeblock>
+<codeph>bash -x tripleo/tripleo-incubator/scripts/hp_ced_installer.sh --update-overcloud 2&gt;&amp;1 | tee update.log
+</codeph>
+</codeblock>
+</li>
+</ol>
+</section>
+<section id="non-allocated"> <title>Enroll a new baremetal node and then configure compute nodes</title>
+<p>To add new compute nodes that were not present during the initial installation process, first enroll the baremetal node and then configure the new node.</p>
+<ol>
+<li>
+<p>SSH to undercloud VM as the heat-admin user from the seed VM:</p>
+
+<codeblock>
+<codeph>ssh heat-admin@&lt;IP Address&gt;
+sudo -i
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Source the <codeph>stackrc</codeph> configuration file created during the installation process:</p>
+
+<codeblock>
+<codeph>source stackrc
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Register the new baremetal server in the Ironic database. Replace the CPU, memory, local disk size, IPMI address, and IPMI password values with your baremetal settings:</p>
+
+<codeblock>
+<codeph>ironic node-create -d pxe_ipmitool -p cpus=&lt;value&gt; -p memory_mb=&lt;value&gt; -p local_gb=&lt;value&gt; -p cpu_arch=&lt;value&gt; -i ipmi_address=&lt;IP Address&gt; -i ipmi_username=&lt;username&gt; -i ipmi_password=&lt;password&gt;
+</codeph>
+</codeblock>
+
+<p>The following example for reference:</p>
+
+<codeblock>
+<codeph>ironic node-create -d pxe_ipmitool -p cpus=12 -p memory_mb=98304 -p local_gb=1800 -p cpu_arch=amd64 -i ipmi_address=10.12.22.70 -i ipmi_username=admin -i ipmi_password=password
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Create the Ironic port for the Ironic node created in the previous step:</p>
+
+<codeblock>
+<codeph>ironic port-create --address $MAC_ADDR --node_uuid $NODE_UUID
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>List the baremetal nodes. This command also lists the newly added nodes:</p>
+
+<codeblock>
+<codeph>ironic node-list
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Log out from undercloud to go back to the seed VM:</p>
+
+<codeblock>
+<codeph>ssh root@&lt;IP Address&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Make the respective Baremetal entry in <codeph>/root/baremetal.csv</codeph>.<!--If the `/root/overcloud-config.json` is not present, copy the overcloud template config file to `/root/overcloud-config.json`: 
+        cp /root/tripleo/tripleo-incubator/scripts/ee-config.json /root/overcloud-config.json--></p>
+</li>
+<li>
+<p>Edit the <codeph>kvm-custom-ips.json</codeph> file as follows to define the appropriate scale number:</p>
+
+<codeblock>
+<codeph>"compute_scale":&lt;number of compute nodes&gt;,
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Source the environment variables file that  you updated:</p>
+
+<codeblock>
+<codeph>source tripleo/tripleo-incubator/scripts/hp_ced_load_config.sh tripleo/configs/kvm-custom-ips.json 
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Run the installer script:</p>
+
+<codeblock>
+<codeph>bash -x tripleo/tripleo-incubator/scripts/hp_ced_installer.sh --update-overcloud 2&gt;&amp;1 | tee update.log
+</codeph>
+</codeblock>
+</li>
+</ol>
+</section>
+<section id="remove"> <title>Remove nodes</title>
+<p>To remove a node:</p>
+<ol>
+<li>
+<p>SSH to the undercloud VM:</p>
+
+<codeblock>
+<codeph>ssh root@&lt;IP Address&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Verify the ID of the node you want to delete:</p>
+
+<codeblock>
+<codeph>nova list
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Obtain the Ironic node UUID:</p>
+
+<codeblock>
+<codeph>ironic node-list | grep &lt;node ID from the previous step&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Obtain the MAC address:</p>
+
+<codeblock>
+<codeph>ironic node-port-list &lt;Ironic Node UUID&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Obtain the heat stack to be deleted for the particular node:</p>
+
+<codeblock>
+<codeph>heat stack-list
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Delete the particular stack:</p>
+
+<codeblock>
+<codeph>heat stack-delete &lt;Stack to be Deleted&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>If the deleted node is in a failed state and needs to be removed from Ironic, use the following command with the UUID from the previous step:</p>
+
+<codeblock>
+<codeph>ironic node-delete &lt;UUID&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>SSH to <codeph>Controller0</codeph> and disable the compute node:</p>
+
+<codeblock>
+<codeph>nova-manage service disable --service=nova-compute --host=&lt;hostName of Compute Node&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>SSH to seed VM:</p>
+
+<codeblock>
+<codeph>ssh &lt;IP Addresss&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Remove the entry with the MAC Address that you retrieved in step 4 from from the <codeph>/root/baremetal.csv</codeph> file:</p>
+</li>
+</ol>
+<!--11. Reduce the `OVERCLOUD_COMPUTESCALE` in `/root/kvm-custom-ips.json` (environment variables file) on the seed VM, so that next time a node is added, the installer does not try to add the deleted node:
+
+        export OVERCLOUD_COMPUTESCALE=<number>
+
+12. Source the environment variables file that  you updated:  
+
+        source /root/kvm-custom-ips.json
+
+13. Run the installer script:
+
+        bash -x tripleo/tripleo-incubator/scripts/hp_ced_installer.sh -??-update-overcloud 2>&1 | tee update.log-->
+<!-- ===================== horizontal rule ===================== -->
+</section>
+</body>
+</topic>

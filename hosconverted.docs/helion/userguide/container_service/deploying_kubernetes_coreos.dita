@@ -1,0 +1,222 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="deploying_kubernetes_coreos">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Deploying a Kubernetes Cluster on CoreOS</title>
+  <body>
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <section id="prereqs">
+      <title>Prerequisites</title>
+      <p>These steps assume the following have been completed:</p>
+      <ul>
+        <li>The Magnum service has been installed. For more information see: <xref
+            keyref="install_magnum"/></li>
+        <li>Creating the Magnum cluster requires the CoreOS image for OpenStack. You can download
+          compressed image file <b>coreos_production_openstack_image.img.bz2</b> from <xref
+            href="http://stable.release.core-os.net/amd64-usr/current/" format="html"
+            scope="external">http://stable.release.core-os.net/amd64-usr/current/</xref>
+        </li>
+      </ul>
+    </section>
+    
+    
+    <section id="create_cluster">
+      <title>Creating the Cluster</title>
+      <p>The following example is created using Kubernetes Container Orchestration Engine (COE)
+        running on CoreOS guest OS on <keyword keyref="kw-hos"/> VMs.</p>
+      <p>
+        <ol>
+          <li>Login to the lifecycle manager.</li>
+          <li>Source openstack admin credentials. <codeblock>$ source service.osrc</codeblock>
+          </li>
+          <li>If you haven't already, download CoreOS image, prepared for Openstack Newton release.
+              <note>The https_proxy is only needed if your environment requires a proxy.</note>
+            <codeblock>$ export https_proxy=http://proxy.yourcompany.net:8080 
+$ wget https://stable.release.core-os.net/amd64-usr/current/coreos_production_openstack_image.img.bz2
+$ bunzip2 coreos_production_openstack_image.img.bz2</codeblock>
+          </li>
+          <li>Create a Glance image.
+            <codeblock>
+$ glance image-create --name coreos-magnum --visibility public --disk-format raw --os-distro coreos --container-format bare --file coreos_production_openstack_image.img --progress
+[=============================>] 100%
++------------------+--------------------------------------+
+| Property         | Value                                |
++------------------+--------------------------------------+
+| checksum         | 4110469bb15af72ec0cf78c2da4268fa     |
+| container_format | bare                                 |
+| created_at       | 2017-04-25T18:10:52Z                 |
+| disk_format      | raw                                  |
+| id               | c25fc719-2171-437f-9542-fcb8a534fbd1 |
+| min_disk         | 0                                    |
+| min_ram          | 0                                    |
+| name             | coreos-magnum                        |
+| os_distro        | coreos                               |
+| owner            | 2f5b83ab49d54aaea4b39f5082301d09     |
+| protected        | False                                |
+| size             | 806551552                            |
+| status           | active                               |
+| tags             | []                                   |
+| updated_at       | 2017-04-25T18:11:07Z                 |
+| virtual_size     | None                                 |
+| visibility       | public                               |
++------------------+--------------------------------------+</codeblock>
+          </li>
+          <li>Create a Nova keypair.
+            <codeblock>$ test -f ~/.ssh/id_rsa.pub || ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa
+$ nova keypair-add --pub-key ~/.ssh/id_rsa.pub testkey</codeblock>
+          </li>
+          <li>Create a Magnum cluster template. <codeblock>$ magnum cluster-template-create --name my-coreos-template \
+                                 --image-id c25fc719-2171-437f-9542-fcb8a534fbd1 \
+                                 --keypair-id testkey \
+                                 --external-network-id ext-net \
+                                 --dns-nameserver 8.8.8.8 \
+                                 --flavor-id m1.small \
+                                 --docker-volume-size 5 \
+                                 --network-driver flannel \
+                                 --coe kubernetes \
+                                 --http-proxy http://proxy.yourcompany.net:8080/ \
+                                 --https-proxy http://proxy.yourcompany.net:8080/</codeblock>
+            <note>
+              <ol>
+                <li>Use the <b>image_id</b> from <codeph>glance image-create</codeph> command output
+                  in the previous step.</li>
+                <li>Use your organization's DNS server. If the <keyword keyref="kw-hos"/> public
+                  endpoint is configured with the hostname, this server should provide resolution
+                  for this hostname.</li>
+                <li>The proxy is only needed if public internet (e.g. https://discovery.etcd.io/,
+                  https://gcr.io/, etc) is not accessible without proxy</li>
+              </ol>
+            </note>
+          </li>
+          <li>Create cluster. The command below will create a minimalistic cluster consisting of a
+            single Kubernetes Master (kubemaster) and single Kubernetes Node (worker, kubeminion).
+            <codeblock>$ magnum cluster-create --name my-coreos-cluster --cluster-template my-coreos-template --node-count 1 --master-count 1</codeblock>
+          </li>
+          <li>Almost immediately after issuing <codeph>cluster-create</codeph> command, cluster
+            status should turn to <b>CREATE_IN_PROGRESS</b> and stack_id assigned.
+            <codeblock>$ magnum cluster-show my-coreos-cluster                                                                                             
++---------------------+------------------------------------------------------------+
+| Property            | Value                                                      |
++---------------------+------------------------------------------------------------+
+| status              | CREATE_IN_PROGRESS                                         |
+| cluster_template_id | c48fa7c0-8dd9-4da4-b599-9e62dc942ca5                       |
+| uuid                | 6b85e013-f7c3-4fd3-81ea-4ea34201fd45                       |
+| stack_id            | c93f873a-d563-4721-9bd9-3bae2340750a                       |
+| status_reason       | -                                                          |
+| created_at          | 2017-04-25T22:38:43+00:00                                  |
+| name                | my-coreos-cluster                                          |
+| updated_at          | -                                                          |
+| discovery_url       | https://discovery.etcd.io/6e4c0e5ff5e5b9872173d06880886a0c |
+| api_address         | -                                                          |
+| coe_version         | -                                                          |
+| master_addresses    | []                                                         |
+| create_timeout      | 60                                                         |
+| node_addresses      | []                                                         |
+| master_count        | 1                                                          |
+| container_version   | -                                                          |
+| node_count          | 1                                                          |
++---------------------+------------------------------------------------------------+</codeblock>
+          </li>
+          <li> You can monitor cluster creation progress by listing the resources of the Heat stack.
+            Use the <codeph>stack_id</codeph> value from the <codeph>magnum cluster-status</codeph>
+            output above in the following command:
+            <codeblock>$ heat resource-list -n2 c93f873a-d563-4721-9bd9-3bae2340750a
+WARNING (shell) "heat resource-list" is deprecated, please use "openstack stack resource list" instead
++--------------------------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------------
+----------------------------------------------------------------+--------------------+----------------------+-------------------------------------------------------------------------+
+| resource_name                  | physical_resource_id                                                                | resource_type                                                     
+                                                                | resource_status    | updated_time         | stack_name                                                              |
++--------------------------------+-------------------------------------------------------------------------------------+-------------------------------------------------------------------
+----------------------------------------------------------------+--------------------+----------------------+-------------------------------------------------------------------------+
+| api_address_switch             |                                                                                     | Magnum::ApiGatewaySwitcher                                        
+                                                                | INIT_COMPLETE      | 2017-04-25T22:38:42Z | my-coreos-cluster-mscybll54eoj                                          |
+| api_listener                   | 1dc1c599-b552-4f03-94e9-936fbb889741                                                | Magnum::Optional::Neutron::LBaaS::Listener                        
+                                                                | CREATE_COMPLETE    | 2017-04-25T22:38:42Z | my-coreos-cluster-mscybll54eoj                                          |
+| api_loadbalancer               | bf1d8c64-a75f-4eec-8f2f-373d49aee581                                                | Magnum::Optional::Neutron::LBaaS::LoadBalancer                    
+                                                                | CREATE_COMPLETE    | 2017-04-25T22:38:42Z | my-coreos-cluster-mscybll54eoj                                          |
+. . .
+</codeblock>
+          </li>
+          <li>The cluster is complete when all resources show <b>CREATE_COMPLETE</b>.</li>
+          <li>Install kubectl onto your <keyword keyref="kw-hos"/> lifecycle manager.
+            <codeblock>$ export https_proxy=http://proxy.yourcompany.net:8080 
+$ wget https://storage.googleapis.com/kubernetes-release/release/v1.2.0/bin/linux/amd64/kubectl
+$ chmod +x ./kubectl
+$ sudo mv ./kubectl /usr/local/bin/kubectl</codeblock>
+          </li>
+          <li>You will need to generate the cluster configuration using <codeph>magnum
+              cluster-config</codeph>. If <b>--tls-disabled</b> CLI option was not specified during
+            cluster template creation, authentication in the cluster will be turned on. In this
+            case, <codeph>magnum cluster-config</codeph> command will generate client authentication
+            certificate (cert.pem) and key (key.pem). Copy and paste <codeph>magnum
+              cluster-config</codeph> output to your command line input to finalize configuration
+            (i.e. export KUBECONFIG environment variable).
+            <codeblock>$ mkdir my_cluster
+$ cd my_cluster
+/my_cluster $ ls
+/my_cluster $ magnum cluster-config my-cluster
+export KUBECONFIG=./config
+/my_cluster $ ls
+ca.pem cert.pem config key.pem
+/my_cluster $ export KUBECONFIG=./config
+/my_cluster $ kubectl version
+Client Version: version.Info{Major:"1", Minor:"2", GitVersion:"v1.2.0", GitCommit:"5cb86ee022267586db386f62781338b0483733b3", GitTreeState:"clean"}
+Server Version: version.Info{Major:"1", Minor:"2", GitVersion:"v1.2.0", GitCommit:"cffae0523cfa80ddf917aba69f08508b91f603d5", GitTreeState:"clean"}</codeblock>
+          </li>
+          <li>Create a simple Nginx replication controller, exposed as a service of type NodePort.
+            <codeblock>$ cat >nginx.yml &lt;&lt;-EOF
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: nginx-controller
+spec:
+  replicas: 1
+  selector:
+    app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+        - name: nginx
+          image: nginx
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+spec:
+  type: NodePort
+  ports:
+  - port: 80
+    nodePort: 30080
+  selector:
+    app: nginx
+EOF
+ 
+$ kubectl create -f nginx.yml</codeblock>
+          </li>
+          <li>Check pod status until it turns from <b>Pending</b> to <b>Running</b>.
+            <codeblock>$ kubectl get pods 
+NAME                      READY    STATUS     RESTARTS    AGE
+nginx-controller-5cmev    1/1      Running    0           2m</codeblock>
+          </li>
+          <li>Ensure that the Nginx welcome page is displayed at port 30080 using the kubemaster
+            floating IP.
+            <codeblock>$ http_proxy= curl http://172.31.0.6:30080 
+&lt;!DOCTYPE html>
+&lt;html>
+&lt;head>
+&lt;title>Welcome to nginx!&lt;/title></codeblock>
+          </li>
+          <li>If LBaaS v2 is enabled in <keyword keyref="kw-hos"/> environment, and your cluster was
+            created with more than one kubemaster, a new load balancer can be created to perform
+            request rotation between several masters. Please refer to <xref keyref="configure_lbaas"
+            />for more information on LBaaS v2 support.</li>
+        </ol>
+      </p>
+    </section>
+  </body>
+</topic>

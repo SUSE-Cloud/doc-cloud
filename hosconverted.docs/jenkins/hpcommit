@@ -1,0 +1,305 @@
+#!/bin/bash -li
+#Author: greg.larsen@hp.comi   22 Sept 2014
+
+SOURCEVERSION=`sed -n '6p' <   ~/git/documentation/teamscripts/hpcommit | sed 's/THISVERSION=//'`
+#The THISVERSION line, below must remain line 6.
+THISVERSION=1
+
+if [[ $THISVERSION < $SOURCEVERSION ]]
+	then
+	echo "This script has been updated.  Please copy the new version from ~/git/documentation/teamscripts to C:\RailsInstaller\Git\bin\ (or wherever you installed git on your Windows PC)."
+	exit;
+fi
+
+ 
+while [[ $1 = -* ]]; do
+    arg=$1; shift  # shift the found arg away.
+
+    case $arg in
+        -v | --version)
+            echo "Version $THISVERSION"
+			exit
+            ;;
+        -h | --help)
+            echo "Usage: hpcommit [FILES]
+To use this script, copy it from ~/git/documentation/teamscripts to C:\RailsInstaller\Git\bin\ (or wherever you installed git on your Windows PC).
+
+This script helps hpcloud writers to correctly push their new and changed markdown files to the origin branch on git.hpcloud.net.  The script checks to ensure that the user is connected to the hpcloud.net VPN, is running the script in the documentation repository and from the documentation branch. 
+			
+The script process the FILES that the user indicates.  Wildcards may be used. If no files are provided by the user, the script processes all changed MD files in the current directory.
+
+The user is asked to provide a commit message, and must indicate if the files are draft files, or if they are ready to be published on docs.hpcloud.com. The user is then presented with a summary of the changes to be made.  If the user indicates that the change summary is corerct, the script modifies (or adds) the appropriate publication comment, then add, commits and pushes the files to net.hpcoud.com.
+
+To use this script, copy it from ~/git/documentation/teamscripts to C:\RailsInstaller\Git\bin\ (or wherever you installed git on your Windows PC).
+			
+-v, --version
+-h, --help"
+			exit
+            ;;
+    esac
+done
+clear
+CONNECTION=`ipconfig | grep hpcloud.net | grep "DNS Suffix"`
+if [[ $CONNECTION == "" ]]
+
+then
+echo "ERROR!"
+echo "You are not connected to the hpcloud network. You must connect to the"
+echo "hpcloud VPN using Pulse before you can push files to the origin "
+echo "repository.  Connect first and then rerun this script."
+echo ""
+echo "Exiting. No changes were made." 
+exit;
+fi
+
+USER=`git config user.name | awk '{print $1}'`
+BRANCH=`git branch | grep "\*" | sed 's/\* //'`
+REPO=`git rev-parse --show-toplevel | sed 's|.*/||'`
+
+if [[  "${REPO}" != "documentation"  ]]  ##Test for the correct repo
+then
+		clear
+		echo " "
+		echo "ERROR!"
+		echo ""
+		echo "This script must be run from within a copy of the documentation"
+		echo "repository. It can't be used to commit files to other repos."
+		echo ""
+		echo "Exiting. No changes were made." 
+		exit 1
+fi
+ 
+ 
+if [[  "${BRANCH}" != "development"  ]] ##Test for the correct branch
+	then
+		clear
+		echo " "
+		echo "ERROR!"
+		echo ""
+		echo "You are not in the development branch. We do all our writing in the "
+		echo "development branch, but you are currently in the >> $BRANCH << branch.  "
+		
+		if [[  "${BRANCH}" == "master"  ]]
+			then
+			echo "If you commit files in the master branch, they will be visible on"
+			echo "docs.hpcloud.com the next time that the website is published. "
+			echo "Even if this is what you want, it's not the correct process."
+			fi
+		echo " "
+		echo "If you have been doing work in the development branch and are just"
+        echo "accidentally in the $BRANCH branch, then use 'git checkout development'" 
+		echo "to switch to the development branch and then run this script again"
+		echo "If you have been doing work in the $BRANCH branch, then you need"
+		echo "to move that work to the development branch.  If you don't know how,"
+		echo "go to a writer who is experienced with git and ask for help."
+		echo ""
+		echo "Exiting. No changes were made." 
+		exit 1
+fi
+
+
+
+echo " " 
+
+
+if [[ -z "$@" ]]
+then
+echo "You did not specify any files. Continuing with all modified *.md files in this folder that have not been added."
+echo ""
+FILELIST=`git add --dry-run *.md | grep .md | sed 's/add //' | sed "s/'//g" | sed 's|.*/||' | sed ':a;N;$!ba;s/\n/ /g'`  
+else
+ 
+FILELIST=`echo "$@"`
+ 
+for a in `echo "$FILELIST" |  tr ' ' '\n'`
+	do
+	MDFILE=`echo $a | grep -v .md$ `
+	if [[ $MDFILE != "" ]]
+	then
+		echo "ERROR!"
+		echo "At least one of files you specified for committing is not"
+		echo "a markdown file. This script can only be used for markdown files."
+		echo "If you need to commit non-markdown files such as graphics or"
+		echo "yml files, do so using the commands:"
+		echo ""
+		echo "git add <filename>"
+		echo "git commit -m \"commit message\" <filename>"
+		echo "git push"
+		echo ""
+		echo "Exiting. No changes were made." 
+		exit
+	fi
+done
+
+fi
+
+
+if [[ -z "$FILELIST" ]]
+then
+	echo ""
+	echo Exiting.  No files found to commit.
+	exit
+fi
+
+echo "This script is preparing to process the following files:"
+ 
+echo ""
+echo "$FILELIST" |  tr ' ' '\n'
+echo ""
+while true; do
+echo "Are these the files you want to push to origin? (y/n)"
+echo "(You can back out later if you change your mind.)"
+    read -p "" yn
+    case $yn in
+        [Yy]* )   echo ""; break;;
+        [Nn]* ) echo ""; echo "Exiting. No changes were made." ; exit;;
+        * ) echo "Please answer (y)es or (n)o.";;
+    esac
+done
+
+ 
+ 
+TEST=`echo "$FILELIST" |  tr ' ' '\n' | wc -l | tr -d ' '`
+ 
+if [[ "$TEST" != "1" ]]
+then
+	while true; do
+	echo "Do you want to give these files the same comment"
+	echo "when you commit them? (y/n)"
+		read -p "" yn
+		case $yn in
+			[Yy]* )  echo " " ; break;;
+			[Nn]* ) echo " " ;  echo "This script can only commit files that have the same comment.  Rerun the script on a single file or a group of files.  Wildcards can be used."; echo "" ; echo "Exiting. No changes were made.";  exit;;
+			* ) echo "Please answer (y)es or (n)o.";;
+		esac
+	done
+fi
+ 
+
+
+while true; do
+echo "Enter the commit comment and press [ENTER]:"
+echo "(You can back out later if you change your mind.)"
+    read -p " " MESSAGE
+     if [[ -z "${MESSAGE}" ]]; then
+          echo "The commit comment may not be empty.  Enter a short comment"
+          echo "that describes what you changed in the files you are committing."
+     else
+          echo " "
+          break
+     fi
+done
+
+
+
+while true; do
+echo "Are these draft files that should only be visible on the QA server,"
+echo "or do you want to publish them publicly on docs.hpcloud.com? (d/p)"
+    read -p "" dp
+    case $dp in
+        [Dd]* ) clear; echo " " ; WRONG="<!--PUBLISHED-->" ; SHOULDBE="<!--UNDER REVISION-->"; break;;
+        [Pp]* ) clear; echo " "   ; WRONG="<!--UNDER REVISION-->" ; SHOULDBE="<!--PUBLISHED-->"; break;;
+        * ) echo "Please answer (d)raft or (p)ublish.";;
+    esac
+done
+
+
+ 
+echo ""
+echo "$FILELIST" |  tr ' ' '\n'
+
+echo ""
+echo "Summary:  For the files listed above, set the publish comment"
+echo "to $SHOULDBE (adding, if it is missing),"
+echo "then commit with the following message:"
+echo ""
+echo "$MESSAGE"
+echo ""
+echo "and push to the origin repository."
+echo ""
+
+while true; do
+    read -p "Is this what you want to do? (y/n)" yn
+    case $yn in
+        [Yy]* )  echo " " ; break;;
+        [Nn]* ) echo " " ;   exit;;
+        * ) echo "Please answer (y)es or (n)o.";;
+    esac
+done
+
+ 
+
+for i in `echo "$FILELIST"`
+do
+ 
+s=`grep "$SHOULDBE" $i`
+w=`grep "$WRONG" $i`
+	
+	if [ "$s" != "" ] 
+		then
+			echo $i already has a $SHOULDBE comment, no change.
+		else 
+			if [ "$w" != "" ]  
+				then 
+					echo $i has a $WRONG comment, changing to $SHOULDBE.
+					sed -i "s/$WRONG/$SHOULDBE/" $i
+				else 
+				HEADERCHECK=`head $i | grep "\-\-\-"`
+				if [ "$HEADERCHECK" == "" ] 
+				then
+					clear
+					echo "ERROR!"
+					echo "The file $i appears to be missing the header.  Please add it"
+					echo "and retun this script. Markdown files must have a header that"
+					echo "looks something like this:"
+					echo ""
+					echo "---"
+					echo "layout: default"
+					echo "title: \"HP Helion OpenStack&#174; FAQ\""
+					echo "permalink: /helion/openstack/faq/"
+					echo "product: commercial"
+					echo ""
+					echo "---"
+					echo ""
+					echo "The opening and closing '---' lines are required."
+					echo ""
+					echo "Exiting. No files were added, committed or pushed." 
+					exit
+				fi
+				
+				echo $i has no comment.  Adding $SHOULDBE.
+				line=`grep -n product: $i | sed 's/:.*//'`
+				line=$((line+2))
+				echo $line
+				sed -i "$linei$SHOULDBE" $i
+			fi
+	fi	
+done
+ 
+ 
+echo "" 
+echo "Pulling latest from the origin repository..."
+
+git pull 
+ 
+for i in `echo "$FILELIST"`
+	do
+	echo ""
+	echo "====Adding File====="
+	git add $i
+	echo ""
+	echo "====Committing File====="
+	git commit -m \""$MESSAGE"\" $i
+
+done
+echo ""
+echo "====Pushing Files====="
+
+echo push
+exit 0		
+		
+ 
+
+
+  
+  

@@ -1,0 +1,528 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="upgradeto50">
+  <title>Upgrade to <keyword keyref="kw-hos-phrase-50"/></title>
+  <body>
+    <!--<p conkeyref="HOS-conrefs/applies-to"/>-->
+    <section id="about">
+      <title>Performing the Upgrade from <keyword keyref="kw-hos-phrase-40"/> to <keyword
+          keyref="kw-hos-phrase-50"/></title>
+      <note type="warning">The process for upgrading from <keyword keyref="kw-hos-phrase-40"/> to
+          <keyword keyref="kw-hos-phrase-50"/> requires a reboot. It also requires that you <b>do
+          not make any configuration changes before the upgrade</b>. Config changes must only be
+        made after the upgrade process is complete. </note>
+      <p>When upgrading from <keyword keyref="kw-hos-phrase-40"/> to <keyword
+          keyref="kw-hos-phrase-50"/> you will use the same configuration files in your
+          <codeph>~/helion/my_cloud/definition</codeph> directory as you used when originally
+        installing the software.</p>
+      <p>The configuration you specified will remain unchanged through the upgrade process;
+          <b>however</b>, if you made any configuration changes by passing parameters to any Ansible
+        playbooks using the <codeph>-e</codeph> option, you should find the affected files and make
+        the required changes directly in the files in <codeph>~/helion/my_cloud</codeph> and commit
+        them to the git repository so that those changes are tracked and applied during the upgrade
+        process. Otherwise they will not be applied after the upgrade.</p>
+      <p> After the upgrade process has completed, the Cinder Volume and Backup services will by
+        default run on the first node in the Cinder Volume host group. To migrate these services to
+        a different node follow the instructions in <xref
+          href="../operations/blockstorage/managing_cinder_volumebackup_services.dita">Managing
+          Cinder Volume and Backup Services</xref>. </p>
+      <p>You may also install <keyword keyref="kw-hos-phrase-50"/> as a full install. Those
+        instructions are found in the installation guide. See <xref
+          href="../installation/installation_overview.dita">Installation Overview</xref> for
+        details. If you choose to do a fresh install it is important that you completely wipe your
+        disks prior to doing the installation, otherwise errors may occur.</p>
+    </section>
+
+
+
+    <section id="prereqs"><title>Prerequisites</title>
+      <p>These steps assume you have an installed and working <keyword keyref="kw-hos-phrase-40"/>
+        cloud.</p>
+    </section>
+
+    <section id="mainSteps"><title>Upgrade Overview</title>
+      <p>To perform the upgrade, the workflow will look something like this:</p>
+      <ol>
+        <li>Run the upgrade to apply updates to all nodes in the cloud (including the node hosting
+          the lifecycle manager itself), as per instructions below.</li>
+        <li>Reboot all of the nodes in your cloud in order to take in the new kernel changes
+          introduced in <keyword keyref="kw-hos-phrase-50"/>. Instructions on rebooting your cloud
+          nodes are provided below.</li>
+      </ol>
+    </section>
+
+
+    <section id="upgradesteps"><title>Upgrade Instructions</title>
+      <ol>
+        <li>Get status of all your services, if desired <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-status.yml</codeblock>
+          <p>If status comes back bad for any service, run the service reconfigure playbook, with
+            naming convention <codeph>&lt;service>-reconfigure.yml</codeph>, for that service, then
+            run the status playbook for that service and see if the issue is resolved.</p>
+          <p>The status playbooks have this naming convention:</p>
+          <codeblock>&lt;service>-status.yml</codeblock>
+          <p>A full list is included at the end of this document.</p></li>
+
+        <li>Sign in and download the <keyword keyref="kw-hos-phrase-50"/> product and signature
+          files at the links below: <ol>
+            <li><xref href="http://www.hpe.com/software/entitlements" format="html" scope="external"
+                >Software Entitlement Portal</xref></li>
+            <!-- <li><xref
+                href="https://helion.hpwsportal.com/catalog.html#/Category/%7B%22categoryId%22%3A10389%7D/Show"
+                format="html" scope="external">HPE Helion OpenStack Files</xref>
+            </li>
+            <li><xref
+                href="https://helion.hpwsportal.com/catalog.html#/Category/%7B%22categoryId%22%3A10507%7D/Show"
+                format="html" scope="external">HPE Helion OpenStack Signature Files</xref></li>-->
+          </ol></li>
+        <li>You can verify the download was complete via the signature verification process outlined
+            <xref
+            href="https://h20392.www2.hpe.com/portal/swdepot/displayProductInfo.do?productNumber=HPLinuxCodeSigning"
+            scope="external" format="html">here</xref>.</li>
+
+        <li>To begin the upgrade process, log in to the lifecycle manager as the user you created
+          during the <keyword keyref="kw-hos-phrase-40"/> deployment, and mount the install media at
+            <codeph>/media/cdrom</codeph>; for example:
+          <codeblock>sudo mount HelionOpenStack-5.0.iso /media/cdrom</codeblock></li>
+
+
+<!-- NEED THE NAME OF THE TAR FILE USED TO INSTALL HOS 5.0 -->
+
+
+        <li>Unpack the following tarball: 
+          <codeblock>cd ~
+tar faxv /media/cdrom/hos/hos-5.0.0-20161014T020249Z.tar</codeblock></li>
+
+        <li>Run the included initialization script to update the deployer: <codeblock>~/hos-5.0.0/hos-init.bash</codeblock>
+          <note type="important">If you encounter a code merge error, please see 
+            <xref keyref="upgrade_git_merge"/>. After
+            git merge conflicts have been resolved, please repeat step #6 to re-run
+            hos-init.bash</note>
+        </li>
+        <!--
+        <li>If you have made any changes to your configuration files, ensure that you commit them to
+          your local git and if any merge conflicts are reported, you must resolve them before
+          proceeding (See the article on how to <xref keyref="upgrade_git_merge">Resolve any Merge
+            Conflicts</xref>):
+          <codeblock>cd ~/helion
+git add –A
+git commit –m "My changes"</codeblock>
+        </li>-->
+
+        <!--<li>Note, if you want to install the Rados Gateway service, you must do so AFTER the upgrade
+          completes. At that point you can follow the instructions in <xref
+            href="../operations/maintenance/ceph/add_ceph_rados_node.dita#add_monitor_node"/></li>-->
+
+        <li id="config">Run the configuration processor:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+        <li>Update your deployment
+            directory:<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock><p><!--Removed step to comment out eon-upgrade.yml, per DOCS-2938--></p></li>
+
+
+
+        <li>Run the upgrade playbook (required for all models/deployments): <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-upgrade.yml</codeblock>
+        </li>
+        
+        <!--<li><b>ESX - additional step:</b> Once the upgrade is complete, skip to the <xref
+            href="upgrade21to30.dita#upgradeto30/esx">Further ESX Model Upgrade Instructions</xref>
+          section.</li>-->
+      </ol>
+    </section>
+
+
+    <!--<section id="bnx2x" conkeyref="knownissues30/bnx2x"/>-->
+
+    <section id="rebooting_general"><title>Rebooting Your Nodes</title>
+      <p>To complete the upgrade and for Linux for HPE Helion updates to take effect, you must
+        reboot all your nodes. The instructions for rebooting controller, compute, and storage nodes
+        are found below. Note that you should follow the order prescribed for each type of
+        deployment, for example, Swift, VSA, or Ceph.</p>
+      <p>Expand the sections below for those instructions.</p>
+    </section>
+    <section id="expandCollapse">
+      <sectiondiv outputclass="expandall">Expand All</sectiondiv>
+      <sectiondiv outputclass="collapseall">Collapse All</sectiondiv>
+    </section>
+    <section id="generalOrder">
+      <title outputclass="headerH">Recommended Node Reboot Order</title>
+      <sectiondiv outputclass="insideSection"><p>To ensure that rebooted nodes reintegrate into the
+          cluster, the key is having enough time between controller reboots. </p> The recommended
+        way to achieve this is as follows: <ol>
+          <li>Reboot controller nodes one-by-one with a suitable interval in between. If you
+            alternate between controllers and compute nodes you will gain more time between the
+            controller reboots. </li>
+          <li>Reboot of compute nodes (if present in your cloud).</li>
+          <li>Reboot of Swift nodes (if present in your cloud).</li>
+          <li>Reboot of VSA nodes (if present in your cloud)</li>
+          <li>Reboot of Ceph nodes (if present in your cloud).</li>
+          <li>Reboot of ESX nodes (if present in your cloud).</li>
+        </ol>
+      </sectiondiv></section>
+    <section id="rebootControllers"><title outputclass="headerH">Rebooting Controller Nodes</title>
+      <sectiondiv outputclass="insideSection">
+        <p><b>Migrate Singleton Services First</b></p>
+        <p>The first consideration before rebooting any controller nodes is that there are a few
+          services that run as singletons (non-HA), thus they will be unavailable while the
+          controller they run on is down. Typically this is a very small window, but if you want to
+          retain the service during the reboot of that server you should take special action to
+          maintain service, such as migrating the service.</p>
+        <p>For these steps, if your singleton services are running on controller1 and you move them
+          to controller2, then ensure you move them back to controller1 before proceeding to reboot
+          controller2.</p>
+        <p><b>For the <codeph>cinder-volume</codeph> singleton service:</b></p>
+        <p>Execute the following command on each controller node to determine which node is hosting
+          the cinder-volume singleton. It should be running on only one node: </p>
+        <codeblock>ps auxww | grep cinder-volume | grep -v grep</codeblock>
+        <p>Run the <codeph>cinder-migrate-volume.yml</codeph> playbook - details about the Cinder
+          volume and backup migration instructions can be found in <xref
+            href="../operations/blockstorage/managing_cinder_volumebackup_services.dita#topic_l1p_vpy_jt"
+            >Managing Cinder Volume and Backup Services</xref>.</p>
+        <p><b>For the <codeph>nova-consoleauth</codeph> singleton service:</b></p>
+        <p>The <codeph>nova-consoleauth</codeph> component runs by default on the first controller
+          node, that is, the host with <codeph>consoleauth_host_index=0</codeph>. To move it to
+          another controller node before rebooting controller 0, run the ansible playbook
+            <codeph>nova-start.yml</codeph> and pass it the index of the next controller node. For
+          example, to move it to controller 2 (index of 1), run:
+          <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts nova-start.yml --extra-vars "consoleauth_host_index=1"</codeblock></p>
+        <p><b>Reboot the Controllers</b></p> In order to reboot the controller nodes, you must first
+        retrieve a list of nodes in your cloud running control plane services. <codeblock>for i in $(grep -w cluster-prefix ~/helion/my_cloud/definition/data/control_plane.yml | awk '{print $2}'); do grep $i ~/scratch/ansible/next/hos/ansible/hosts/verb_hosts | grep ansible_ssh_host | awk '{print $1}'; done</codeblock>
+        <p>Then perform the following steps from your lifecycle manager for each of your controller
+          nodes:</p>
+        <ol>
+          <li>If any singleton services are active on this node, they will be unavailable while the
+            node is down. If you want to retain the service during the reboot, you should take
+            special action to maintain the service, such as migrating the service as appropriate as
+            noted above.</li>
+          <li>Stop all services on the controller node that you are rebooting first:
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-stop.yml --limit &lt;controller node></codeblock></li>
+          <li>Reboot the controller node, e.g. run the following command on the controller itself: <codeblock>sudo reboot</codeblock>
+            <p>Note that the current node being rebooted could be hosting the lifecycle manager.</p>
+          </li>
+          <li>Wait for the controller node to become ssh-able and allow an additional minimum of
+            five minutes for the controller node to settle. Start all services on the controller
+            node:
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-start.yml --limit &lt;controller node></codeblock>
+          </li>
+          <li>Verify that the status of all services on that is OK on the controller node:
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-status.yml --limit &lt;controller node></codeblock>
+          </li>
+          <li>When above start operation has completed successfully, you may proceed to the next
+            controller node. Ensure that you migrate your singleton services off the node
+            first.</li>
+        </ol>
+        <note>It is important that you not begin the reboot procedure for a new controller node
+          until the reboot of the previous controller node has been completed successfully (i.e. the
+          hlm-status playbook has completed without error). </note>
+        <note>If your system includes VSA nodes, rebooting a controller node will not re-start CMC
+          as it is Java application. You will need to restart it.</note>
+      </sectiondiv>
+    </section>
+
+    <section id="rebootCompute"><title outputclass="headerH">Rebooting Compute Nodes</title>
+      <sectiondiv outputclass="insideSection">
+        <p>To reboot a compute node the following operations will need to be performed:</p>
+        <ul>
+
+          <li>Disable provisioning of the node to take the node offline to prevent further instances
+            being scheduled to the node during the reboot. </li>
+          <li>Identify instances that exist on the compute node, and then either: <ul>
+              <li>Live migrate the instances off the node before actioning the reboot. OR </li>
+              <li>Stop the instances</li>
+            </ul>
+          </li>
+          <li>Reboot the node </li>
+          <li>Restart the Nova services </li>
+          <li>Restart any instances stopped above</li>
+        </ul>
+        <ol>
+          <li>Disable provisioning:
+            <codeblock>nova service-disable --reason "&lt;describe reason>" &lt;node name> nova-compute</codeblock>If
+            the node has existing instances running on it these instances will need to be migrated
+            or stopped prior to re-booting the node.</li>
+          <li> Live migrate existing instances. Identify the instances on the compute node. Note:
+            The following command must be run with nova admin
+            credentials.<codeblock>nova list --host &lt;hostname&gt; --all-tenants</codeblock></li>
+          <li>Migrate or Stop the instances on the compute node. <p>If your instance is booted from
+              a volume and has any number of Cinder volume attached, use the <codeph>nova
+                live-migration</codeph>
+            command:</p><codeblock>nova live-migration &lt;instance uuid&gt; [&lt;target compute host&gt;]</codeblock>
+            If your instance has local (ephemeral) disk(s) only, you can use the --block-migrate
+            option:<codeblock>nova live-migration --block-migrate &lt;instance uuid&gt; [&lt;target compute host&gt;]</codeblock>Note:
+            The [&lt;target compute host&gt;] option is optional. If you do not specify a target
+            host then the nova scheduler will choose a node for you.<p>If your instances have a mix
+              of ephemeral and block storage then live migration will not work and you can use the
+                <codeph>nova stop</codeph> command:</p><p>Stop the instances on the node by running
+              the following command for each of the
+              instances:</p><codeblock>nova stop &lt;instance-uuid&gt;</codeblock><p>For more
+              details about live migration, see <xref
+                href="../operations/maintenance/live_migration.dita"/>.</p></li>
+          <li>Stop all services on the Compute node:
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-stop.yml --limit &lt;compute node></codeblock>
+          </li>
+          <li>SSH to your Compute nodes and reboot them: <codeblock>sudo reboot</codeblock>
+            <p>The operating system cleanly shuts down services and then automatically reboots. If
+              you want to be very thorough, run your backup jobs just before you reboot.</p>
+          </li>
+          <li>Run the hlm-start.yml playbook from the lifecycle manager. If needed, use the
+            bm-power-up.yml playbook to restart the node. Specify just the node(s) you want to start
+            in the 'nodelist' parameter arguments, i.e.
+            nodelist=&lt;node1&gt;[,&lt;node2&gt;][,&lt;node3&gt;].<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost bm-power-up.yml -e nodelist=&lt;compute node></codeblock>
+          </li>
+          <li>Execute the <b>hlm-start.yml </b>playbook. Specifying the node(s) you want to start in
+            the 'limit' parameter arguments. This parameter accepts wildcard arguments and also
+            '@&lt;filename>' to process all hosts listed in the file.
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-start.yml --limit &lt;compute node></codeblock>
+          </li>
+          <li>Re-enable provisioning on the node:
+            <codeblock>nova service-enable &lt;node-name> nova-compute</codeblock></li>
+          <li> Restart any instances you
+            stopped.<codeblock>nova start &lt;instance-uuid></codeblock>
+          </li>
+        </ol>
+      </sectiondiv>
+    </section>
+
+    <section id="rebootSwift"><title outputclass="headerH">Rebooting Swift Nodes</title>
+      <sectiondiv outputclass="insideSection"><p>If your Swift services are on controller node,
+          please follow the controller node reboot instructions above.</p>
+        <p id="firstp">For a dedicated Swift PAC cluster or Swift Object resource node: </p>For each
+        Swift host <ol>
+          <li>Stop all services on the Swift node:
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-stop.yml --limit &lt;swift node></codeblock>
+          </li>
+          <li>Reboot the Swift node by running the following command on the Swift node itself:
+            <codeblock>sudo reboot</codeblock>
+          </li>
+          <li>Wait for the node to become ssh-able and then start all services on the Swift node:
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-start.yml --limit &lt;swift node> </codeblock>
+          </li>
+        </ol>
+      </sectiondiv>
+    </section>
+    <section id="vsa"><title outputclass="headerH">Rebooting VSA Nodes</title><sectiondiv
+        outputclass="insideSection">
+        <p>If your cloud is deployed with VSA, then the reboot sequence will be as follows:</p>
+        <ol>
+          <li>Identify all VSA nodes of a given cluster </li>
+          <li>Pick one of the VSA nodes of the cluster and reboot it manually</li>
+          <li>Check VSA VM's status :
+            <codeblock>ansible-playbook -i hosts/verb_hosts vsa-status.yml --limit &lt;vsa_node name></codeblock></li>
+          <li>Wait for VSA to come up, Check cluster status using CMC ( status should be
+            "normal")</li>
+          <li>Run the following command from your first controller node which will open the HP
+            StoreVirtual Centralized Management Console (CMC) GUI <codeblock>/opt/HP/StoreVirtual/UI/jre/bin/java -jar /opt/HP/StoreVirtual/UI/UI.jar </codeblock>
+            <p>If you are unable to access the CMC utility, you should verify the port you access it
+              with this command:</p>
+            <codeblock>netstat -anp | grep vnc</codeblock>
+            <p>If that does not resolve the issue, you may need to restart the VNC server with this
+              command:</p>
+            <codeblock>vnc4server</codeblock></li>
+          <li>To view the cluster status , go to: management group -&gt; click on the respective
+            cluster -&gt; check for status</li>
+          <li>Repeat steps 2-4 for the other remaining nodes of the same VSA cluster. </li>
+          <li>Go to step 1 and repeat all steps for the other clusters.</li>
+        </ol>
+      </sectiondiv>
+    </section>
+
+    <section id="reboot_ceph"><title outputclass="headerH">Rebooting Ceph</title>
+      <sectiondiv outputclass="insideSection">
+        <!--Note that Ceph has two components: <ul>
+          <li>monitor nodes</li>
+          <li>OSD nodes</li>
+        </ul> If a monitor is deployed on controller node, then the rebooting sequence of the
+        controller takes precedence over monitor nodes. You should reboot the group of nodes in
+        specified order. For a given group (say controller or compute or VSA or ceph OSD etc),
+        reboot should be done one-by-one, in series. For example, if there are three OSD nodes say
+        OSD1, OSD2, OSD3 then you should reboot OSD1 and then OSD2 and so on.<ol>
+          <li>Controller node (reboot of this will take care of the monitor as well) </li>
+          <li>Compute node </li>
+          <li>Standalone storage or dedicated storage, including: <ul>
+
+              <li>VSA</li>
+              <li>Ceph OSD</li>
+              <li>Ceph monitor (if deployed on stand alone node). If monitor is deployed on
+                controller node then rebooting sequence of controller takes precedence over monitor
+                nodes.</li>
+            </ul>
+          </li>
+        </ol>More commonly, the monitor is deployed as a standalone; i.e., as separate set of
+        resource nodes. In this case the reboot sequence will be: <ol>
+          <li>Controller node </li>
+          <li>Compute node </li>
+          <li>Ceph monitor node </li>
+          <li>Ceph OSD nodes </li>
+        </ol> -->
+        <p>There are two categories of ceph nodes:</p>
+        <ul>
+          <li>monitor nodes</li>
+          <li>OSD nodes</li>
+        </ul>
+        <p>Ceph nodes should be rebooted in their position in the overall sequence described in the
+          reboot order section above.</p>
+        <p>You should reboot both categories of ceph nodes in the order: monitor nodes, then OSD
+          nodes. All ceph nodes should reboot one-by-one, in series. </p> If a monitor is deployed
+        on controller node, then the rebooting sequence of the controller caters for the monitor
+        nodes, so you need to additionally reboot only the OSD nodes. <p>If the monitor is deployed
+          as a standalone; i.e., as separate set of resource nodes, you should reboot the monitor
+          nodes before rebooting the OSD nodes.</p> For example, if there are three monitor nodes
+        and three OSD nodes say, MON1, MON2 and MON3, with OSD1, OSD2, OSD3, then you should reboot
+        MON1, then MON2 and then MON3 followed by OSD1, then OSD2 and so on In both cases, please
+        ensure that you are serializing the reboot of a given family (monitor or OSD or controller);
+        that is, don't reboot them all at the same time. This will ensure that each service is up
+        and running and there is no impact on the client side. To reboot Ceph nodes, follow the
+        sequence below to safely reboot the entire Ceph cluster: <ol>
+          <li>Reboot a Ceph monitor node in the cluster. </li>
+          <li>Once the monitor node comes up, wait for a minute and then execute the following
+            command:
+            <codeblock>ansible-playbook -i hosts/verb_hosts ceph-status.yml --limit &lt;monitor-hostname></codeblock>
+          </li>
+          <li>If the above playbook executes successfully, repeat from step 1 to reboot the next
+            Ceph monitor node in the cluster. </li>
+          <li>Once all the monitor nodes have been rebooted, execute
+            <codeblock>ceph quorum_status </codeblock>on a monitor node and ensure that all the
+            monitors have joined the quorum by observing that in the output, the "quorum_names"
+            section lists all the monitors in the Ceph cluster. </li>
+          <li>Login to the OSD node to be rebooted and execute the following command to avoid the
+            cluster rebalancing itself: <codeblock>ceph osd set noout</codeblock>
+          </li>
+          <li>Stop all the OSD services on the current node by executing below command:
+            <codeblock>sudo systemctl stop  ceph-osd@*</codeblock>
+          </li>
+          <li>Now reboot the OSD node. </li>
+          <li>Once the OSD node is up, log in and execute the following command and observe that a
+            line similar to "osd.0 192.17.11.7:6801/3824 boot" appears for all the OSDs on the node:
+            <codeblock>ceph -w</codeblock> To quit, this command press Ctrl + C </li>
+          <li>Verify that all the OSDs on this node are 'up' by executing following command (and
+            observing that all the OSDs under the current host are reported as 'up')
+            <codeblock>ceph osd tree</codeblock> If any of the OSDs are reported as 'down', please
+            check the logs for the corresponding OSD (in the
+              <codeph>/var/log/ceph/&lt;cluster-name>-osd.&lt;osd_number>.log</codeph> file) for
+            resolving the issue. </li>
+          <li>Now execute the following command from the re-booted OSD node, to unset the cluster
+            from noout : <codeblock>ceph osd unset noout</codeblock>
+          </li>
+          <li>Execute the following playbook from the lifecycle manager node to check the status of
+            the OSDs that have just come up:
+            <codeblock>ansible-playbook -i hosts/verb_hosts ceph-status.yml --limit &lt;OSD-hostname></codeblock>
+          </li>
+          <li>If the above playbook does not report any errors, repeat from step 5 for another Ceph
+            OSD node in the cluster. </li>
+          <li>Once the entire cluster is rebooted, execute this command
+            <codeblock>ceph health detail</codeblock> to ensure that you see HEALTH_OK. </li>
+        </ol>
+      </sectiondiv>
+    </section>
+    <section><title outputclass="headerH">Rebooting OVSvApp</title>
+      <sectiondiv outputclass="insideSection">
+        <p>After upgrade, execute the following commands to restart the OVSvApp VM.</p>
+        <ol id="ol_ibp_zh3_px">
+          <li>Stop all services on the OVSvApp
+            node.<codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-stop.yml --limit &lt;ovsvapp nodes></codeblock></li>
+          <li>SSH to your OVSvApp nodes and reboot them.<codeblock>sudo reboot</codeblock></li>
+          <li>Execute the <codeph>hlm-start.yml</codeph> playbook. Specify the node(s) you want to
+            start in the 'limit' parameter arguments.
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-start.yml --limit &lt;ovsvapp nodes></codeblock></li>
+        </ol>
+      </sectiondiv></section>
+
+    <section id="checkVersion"><title outputclass="headerH">Checking Version Updates</title>
+      <sectiondiv outputclass="insideSection">
+        <p>To check the Linux for HPE Helion version run from the lifecycle manager node to any
+          other node via its IP address:</p>
+        <codeblock>ssh &lt;IP_address> uname -a</codeblock> The output should be:
+        <codeblock>Linux helion-cp1-c1-m2-mgmt 4.4.7-1-amd64-hpelinux #hpelinux1 SMP Thu Apr 14 13:21:49 UTC 2016 x86_64 GNU/Linux</codeblock>
+        To check to see if a node has been successfully updated on a control plane node, run from
+        the lifecycle manager node to any other node via its IP address: :
+        <codeblock>ssh &lt;IP_address> cat /etc/HP_Helion_version | grep Helion</codeblock> The
+        output should look like this:
+        <codeblock>HPE Helion OpenStack hos-3.0.0 (build 01-1017)</codeblock>
+      </sectiondiv>
+    </section>
+
+
+
+    <section id="esx"><title outputclass="headerH">Further ESX Model Upgrade Instructions</title>
+      <sectiondiv outputclass="insideSection">
+        <p>Once you have completed the initial upgrade instructions, you must follow these
+          additional steps for ESX deployments:</p>
+        <p>Check exsiting ESX Compute:</p>
+        <ol>
+          <li>Verify existing ESX computes can be seen by EON and are activated.
+            <codeblock>eon resource-list
+-----------------------------------------------------------------------------------------------------------------------------------------+
+ID	Name	Moid	Resource Manager ID	IP Address	Port	Type	State
+-----------------------------------------------------------------------------------------------------------------------------------------+
+fdf19467-e7a1-496f-81e5-bcb07bc6e564	Compute-02	domain-c9949	70be00c8-691b-43af-b757-e67e4b11425c	UNSET	UNSET	esxcluster	activated
+-----------------------------------------------------------------------------------------------------------------------------------------+</codeblock>
+          </li>
+        </ol>
+        <p>Activate New ESX Compute Cluster</p>
+        <ol>
+          <li>After upgrade, download the new <codeph>activationtemplate.json</codeph> file for a
+            new cluster
+            activation.<codeblock>eon get-activation-template [--filename &lt;ACTIVATION_JSON_NAME&gt;] --type &lt;RESOURCE_TYPE&gt;</codeblock></li>
+          <li>Fill the appropriate details in the <codeph>activationtemplate.json</codeph>
+            file.</li>
+          <li>Activate the new cluster on an already-activated Data center (DC) or a new Data center
+            can be performed with the following command:<p>
+              <codeblock>eon resource-activate &lt;RESOURCE_ID> --config-json &lt;activate-template></codeblock>
+            </p><p><b>Example:</b>
+            </p><p>
+              <codeblock>eon resource-activate 9ab2196d-37d2-4006-a2c7-08946b5194ea --config-json activate-template.json</codeblock>
+            </p><p><!--Added resorce-activate step, per DOCS-2938--></p></li>
+        </ol>
+      </sectiondiv>
+    </section>
+
+    <section id="magnum_upgrade">
+      <title outputclass="headerH">Adding Magnum After Upgrade</title>
+      <sectiondiv outputclass="insideSection">
+        <p>Adding Magnum after the upgrade of <keyword keyref="kw-hos-phrase-40"/> to <keyword
+            keyref="kw-hos-phrase-50"/> can be found in the document, <xref
+            keyref="install_magnum/install_magnum_existing"/>.</p>
+      </sectiondiv>
+    </section>
+        
+
+    <section id="getStatus">
+      <title outputclass="headerH">Get List of Status Playbooks</title>
+      <sectiondiv outputclass="insideSection">
+        <p>Running the following command will yield a list of status playbooks:</p>
+        <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ls *status*</codeblock> Here is the list:
+        <codeblock>stack@helion-control-plane-cluster1-m1-mgmt:~/scratch/ansible/next/hos/ansible$ ls *status*
+barbican-status.yml       heat-status.yml              monasca-status.yml
+bind-status.yml           hlm-pre-upgrade-status.yml   neutron-status.yml
+bm-power-status.yml       hlm-status.yml               nova-status.yml
+ceilometer-status.yml     hlm-ux-services-status.yml   octavia-status.yml
+_ceph_cluster_status.yml  horizon-status.yml           ops-console-status.yml
+ceph-status.yml           hos-extra-status.yml         percona-status.yml
+cinder-status.yml         ironic-status.yml            powerdns-status.yml
+cmc-status.yml            keystone-status.yml          rabbitmq-status.yml
+designate-status.yml      kronos-api-status.yml        sherpa-status.yml
+eon-status.yml            logging-producer-status.yml  swift-status.yml
+FND-AP2-status.yml        logging-server-status.yml    vsa-status.yml
+FND-CLU-status.yml        logging-status.yml           zookeeper-status.yml
+freezer-status.yml        memcached-status.yml
+glance-status.yml         monasca-agent-status.yml
+</codeblock>
+      </sectiondiv>
+    </section>
+    <p outputclass="hostarget"/>
+  </body>
+</topic>

@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="topic_a2q_bjw_hx">
+    <title>Deploying VSA with Virtual Control Plane </title>
+    <abstract>
+        <shortdesc outputclass="hdphidden"><keyword keyref="kw-hos-tm"/>
+            <keyword keyref="kw-hos-version"/> supports deployment of control plane elements on the
+            virtual machines which can be co-located on the one baremetal machine or spread across
+            the three baremetal machines. </shortdesc>
+    </abstract>
+    <body>
+        <!--not tested-->
+        <p conkeyref="HOS-conrefs/applies-to"/>
+        <p><keyword keyref="kw-hos-tm"/>
+            <keyword keyref="kw-hos-version"/> supports deployment of control plane elements on the
+            virtual machines which can be co-located on the one baremetal machine or spread across
+            the three baremetal machines. The baremetal machine in this context are termed as VM
+            factory host(s). VSA can be deployed on the VM factory host. </p>
+        <p>The following section illustrates the change in the input model for X1 and S1 model ONLY.
+            The change in the input model for M1 model is similar except that VSA is deployed as the
+            resource nodes. For other aspects of cluster management like upgrade, adding new set of
+            disks, stopping and starting services and so on, you can follow the similar approach
+            that is used for the deployment of ceph cluster using <keyword keyref="kw-hos-tm"/>.</p>
+        <p>The HPE StoreVirtual Centralized Management Console (CMC) GUI is an interface where you
+            can configure VSA. The following choices are available for deploying CMC with virtual
+            control plane:<ol id="ol_srh_rbn_mx">
+                <li>Deploy CMC on single VM factor host. You can access CMC by connecting to VM
+                    factory host.</li>
+                <li>Deploy CMC on single Controller. You can access CMC by connectiong to controller
+                    node.</li>
+            </ol></p>
+        <section>Steps to deploy VSA on a VM factory host<ol id="ol_uqm_dcn_mx">
+                <li>Log in to the lifecycle manager.</li>
+                <li>Go to <codeph>~/helion/my_cloud/definition/</codeph>.<note>Assumptions is that
+                        you have already copied cloud model representing contorl element depeloyment
+                        on VM factory host(s).</note></li>
+                <li>Edit your contorl plane (typically referenced in control_plane.yml) to add VSA
+                    components to vmfactory nodes. For
+                    example:<codeblock>  - name: vmfactory	
+          resource-prefix: vmf	
+          server-role: HLM-HYPERVISOR-ROLE	
+          min-count:
+          allocation-policy: strict	
+          service-components: 	
+            - ntp-server	
+            - vsa
+            - lifecycle-manager	
+            - tempest	
+            - openstack-client</codeblock></li>
+                <li>Edit your contorl plane (typically referenced in control_plane.yml) to add CMC
+                    component:    For CMC to be deployed on VMfactory node, add <b>cmc</b> in
+                    vmfactory service-components. For
+                        example:<codeblock> - name: vmfactory	
+          resource-prefix: vmf	
+          server-role: HLM-HYPERVISOR-ROLE	
+          min-count:
+          allocation-policy: strict	
+          service-components: 	
+            - ntp-server	
+            - vsa
+	    - cmc-service
+            - lifecycle-manager	
+            - tempest	
+            - openstack-client</codeblock><p>For
+                        CMC be deployed on Controller node, add <b>cmc</b> in controller
+                        service-components. For
+                        example:<codeblock> - name: cluster1
+          cluster-prefix: c1
+          server-role: CONTROLLER-ROLE
+          member-count: 1
+          allocation-policy: strict
+          service-components:
+            - ntp-server
+            - cmc-service</codeblock></p></li>
+                <li>Edit disks_vmfactory.yml file of VM factory hosts to define disks for VSA. For
+                    e.g. the below disk model illustrates usage of <codeph>/dev/sdd</codeph> for
+                    adaptive optimization, <codeph>/dev/sde</codeph> and <codeph>/dev/sdf</codeph>
+                    as  data
+                    disks.<codeblock> ---	
+   product: 	
+     version: 2	
+     
+   disk-models: 	
+     - name: HLM-HYPERVISOR-DISKS	
+       volume-groups: 	
+			- name: hlm-vg	
+        physical-volumes: 	
+         - /dev/sda_root	
+        logical-volumes: 	
+        # The policy is not to consume 100% of the space of each volume group.
+        # 5% should be left free for snapshots and to allow for some flexibility. 	
+          - name: root	
+            size: 35%
+            fstype: ext4	
+            mount: /	
+          - name: log	
+            size: 50%	
+            mount: /var/log	
+            fstype: ext4	
+            mkfs-opts: -O large_file	
+          - name: crash	
+            size: 10%	
+            mount: /var/crash	
+            fstype: ext4	
+            mkfs-opts: -O large_file	
+      - name: vg-images	
+        # this VG is dedicated to libvirt images to keep VM IOPS off the OS disk 	45
+        physical-volumes: 	
+          - /dev/sdb	
+          - /dev/sdc	
+        logical-volumes: 	
+          - name: images	
+            size: 95%	
+            mount: /var/lib/libvirt/images	
+            fstype: ext4	
+            mkfs-opts: -O large_file	
+            
+    device-groups:
+      - name: vsa-data
+        consumer:
+          name: vsa
+          usage: data
+        devices:
+          - name: /dev/sde
+          - name: /dev/sdf
+      - name: vsa-cache
+        consumer:
+          name: vsa
+          usage: adaptive-optimization
+        devices:
+          - name: /dev/sdd</codeblock></li>
+                <li>Commit your configuration to the local git
+                    repo<codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -m "My config or other commit message"</codeblock></li>
+                <li>After setting up the configuration files, continue with the installation
+                    procedures mentioned at  <xref
+                        href="../installing_kvm.dita#install_kvm/config_processor"/>. </li>
+            </ol></section>
+    </body>
+</topic>
+
+

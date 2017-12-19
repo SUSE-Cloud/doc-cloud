@@ -1,0 +1,236 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="ironic_oneview">
+    <title><ph conkeyref="HOS-conrefs/product-title"/>Ironic and OneView</title>
+    <body>
+        <!--not tested-->
+        <p conkeyref="HOS-conrefs/applies-to"/>
+      
+        <section>
+          <title>Enabling IRONIC Oneview driver in <keyword keyref="kw-hos"/></title>
+          
+          <p>Edit the file <codeph>~/helion/my_cloud/definition/data/ironic/ironicconfig.yml</codeph> and set the value
+          
+<codeblock>
+     enable_oneview: true
+</codeblock>  
+            This will enable the OneView driver for Ironic in <keyword keyref="kw-hos"/>.
+          </p>
+        </section>
+      
+      <section>
+        <title>Adding OneView Appliance Credentials</title>
+        
+<codeblock>
+manage_url: https://&lt;Onview appliance URL>
+
+oneview_username: "&lt;Appliance username>"
+
+oneview_encrypted_password: "&lt;Encrypted password>"
+
+oneview_allow_insecure_connections: &lt;true/false>
+
+tls_cacert_file: &lt;CA certificate for connection>
+</codeblock>        
+        
+      </section>
+      
+      <section>
+        <title>Encrypting the OneView Password</title>
+        
+        <p>Encryption can be applied using <codeph>hosencrypt.py</codeph> or using <codeph>openssl</codeph>.
+          On the lifecyclemanager node,  export the key used for encryption as environment variable:
+          
+<codeblock>
+export HOS_USER_PASSWORD_ENCRYPT_KEY="&lt;key for encryption>"
+</codeblock>          
+          
+          And then execute the following commands:
+          
+<codeblock>
+cd ~/helion/hos/ansible  
+python hosencrypt.py  
+</codeblock>          
+          
+          Enter password to be encrypted when prompted. The script uses the key that was exported in the 
+          <codeph>HOS_USER_PASSWORD_ENCRYPT_KEY</codeph> to do the encryption.
+        
+        
+        </p>
+        
+        <p>For more informations, see the documentation for <xref keyref="encrypted_storage">Encrypted Storage</xref>.</p>
+        
+      </section>
+
+
+      <section>
+        <title>Decrypting the OneView Password</title>
+        
+        <p>Before running the <codeph>site.yml</codeph> playbook, export the key used for encryption as environment variable:
+          
+<codeblock>
+export HOS_USER_PASSWORD_ENCRYPT_KEY="&lt;key for encryption>"
+</codeblock>          
+        
+        The decryption  of the password is then automatically handled in ironic-ansible playbooks.
+        </p>
+        
+        
+      </section>
+      
+      
+      <section>
+        <title>Registering Baremetal Node for OneView Driver</title>  
+        
+<codeblock>
+ironic node-create -d agent_pxe_oneview
+</codeblock>        
+        
+        <p>Update node driver-info:
+        
+<codeblock>
+ ironic node-update $NODE_UUID add driver_info/server_hardware_uri=$SH_URI
+</codeblock>        
+        </p>
+      </section>
+      
+      
+      <section>
+        <title>Updating Node Properties</title>
+        
+<codeblock>
+ironic node-update $NODE_UUID add \
+  properties/capabilities=server_hardware_type_uri:$SHT_URI,enclosure_group_uri:$EG_URI,server_profile_template_uri=$SPT_URI
+</codeblock>      
+        
+        
+        
+      </section>
+      
+      <section>
+        <title>Creating Port for Driver</title>
+        
+        
+<codeblock>
+ironic port-create -n $NODE_UUID -a $MAC_ADDRESS
+</codeblock>        
+      </section>
+      
+      
+     <section>
+        <title>Creating a Node</title>
+       
+       <p>Create Node:</p>
+
+
+<codeblock>
+ironic node-create -n ovbay7 -d agent_pxe_oneview
+</codeblock>
+              
+              
+    <p>Update driver info:</p>      
+       
+<codeblock>
+ironic node-update $ID add driver_info/server_hardware_uri="/rest/server-hardware/30373237-3132-4753-4835-32325652464B" driver_info/deploy_kernel="$KERNELDISK" driver_info/deploy_ramdisk="$RAMDISK"
+</codeblock>       
+              
+      <p>Update node properties:</p>       
+       
+<codeblock>
+ironic node-update $ID add properties/local_gb=10
+ironic node-update $ID add properties/cpus=24 properties/memory_mb=262144 properties/cpu_arch=x86_64
+</codeblock>  
+       
+<codeblock>
+ironic node-update $ID add properties/capabilities=server_hardware_type_uri:'/rest/server-hardware-types/B3141E03-2F96-4A55-9B77-86CB484FF69E',enclosure_group_uri:'/rest/enclosure-groups/80efe99d-8f2d-4942-8add-9691bc8b79fa',server_profile_template_uri:'/rest/server-profile-templates/faafc3c0-6c81-47ca-a407-f67d11262da5'
+</codeblock>
+       
+       
+              
+     </section>
+      
+      
+      <section>
+        <title>Getting Data using REST API</title>
+        
+        <p>GET login session auth id:</p>
+      
+      
+<codeblock>
+curl -k https://&lt;oneview_manger_url>rest/login-sessions -H "content-type:application/json" -X POST -d '{"userName":"&lt;username>", "password":"&lt;password>"}'
+</codeblock>      
+      
+      
+      <p>GET complete node details in json format:</p>
+        
+<codeblock>
+curl -k "https://&lt;manager_url>//rest/server-hardware/30373237-3132-4753-4835-32325652464B" -H "content-type:application/json" -H "Auth:&lt;auth_session_id>"| python -m json.tool
+</codeblock>        
+      
+      
+      </section>
+      
+        
+     <section>
+       <title>Ironic Oneview CLI</title>
+       
+       <p><codeph>ironic-oneview-cli</codeph> is already installed in <codeph>ironicclient</codeph> venv with a symbolic link to it. To generate an 
+       <codeph>rc</codeph> file for the OneView CLI, follow these steps:
+         
+         <ol>
+           <li>Run the following commands:
+<codeblock>
+source ~/service.osrc
+glance image-list
+</codeblock>             
+            
+           </li>
+           <li>
+             Note the <codeph>deploy-kernel</codeph> and <codeph>deploy-ramdisk</codeph> UUID and then run 
+             the following command to generate the <codeph>rc</codeph> file:
+             
+<codeblock>
+ironic-oneview genrc
+</codeblock>             
+             
+             <p>You will be prompted to enter:
+             <ul>
+               <li>OneView Manager URL</li>
+               <li>Username</li>
+               <li>deploy-kernel</li>
+               <li>deploy-ramdisk</li>
+               <li>allow_insecure_connection</li>
+               <li>cacert file</li>
+             </ul>
+             </p>
+             
+             <p>The <codeph>ironic-onefview.rc</codeph> file will be generated in the current directory, by default. It is possible to specify a different loaction. </p>
+             
+           </li>
+           
+           <li>Source the generated file:
+<codeblock>
+source ironic-onefview.rc
+</codeblock>           
+             <note type="note">You will be prompted to enter the password fo f the OneView appliance.</note>
+             
+           </li>
+           
+           
+         </ol>
+         
+       </p>
+       
+       <p>You can now use the CLI for node and flavor creation as follows:
+<codeblock>
+ironic-oneview node-create
+ironic-oneview flavor-create
+</codeblock>       
+       </p>
+       
+     </section>
+      
+
+  </body>
+</topic>

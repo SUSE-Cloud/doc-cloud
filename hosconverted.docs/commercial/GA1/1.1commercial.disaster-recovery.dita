@@ -1,0 +1,640 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic
+  PUBLIC "-//OASIS//DTD DITA Topic//EN" "http://docs.oasis-open.org/dita/v1.1/OS/dtd/topic.dtd" ><topic xml:lang="en-us" id="topic22433">
+<title>HPE Helion <tm tmtype="reg">OpenStack</tm> 1.1: Disaster Recovery</title>
+<prolog>
+<metadata>
+<othermeta name="layout" content="default"/>
+<othermeta name="product-version" content="HPE Helion Openstack"/>
+<othermeta name="product-version" content="HPE Helion Openstack 1.1"/>
+<othermeta name="role" content="Systems Administrator"/>
+<othermeta name="role" content="Cloud Architect"/>
+<othermeta name="role" content="Storage Administrator"/>
+<othermeta name="role" content="Network Administrator"/>
+<othermeta name="role" content="Service Developer"/>
+<othermeta name="role" content="Cloud Administrator"/>
+<othermeta name="role" content="Application Developer"/>
+<othermeta name="role" content="Network Engineer"/>
+<othermeta name="role" content="Paul F"/>
+<othermeta name="product-version1" content="HPE Helion Openstack"/>
+<othermeta name="product-version2" content="HPE Helion Openstack 1.1"/>
+</metadata>
+</prolog>
+<body>
+<p>
+<!--PUBLISHED-->
+ <!--./commercial/GA1/1.1commercial.disaster-recovery.md-->
+ <!--permalink: /helion/openstack/1.1/disaster/recovery/--></p>
+<p>Disaster Recovery (DR) and Business Continuity Planning (BCP) plans are standard requirements for information security management systems (ISMSs) and compliance activities. These plans must be documented and periodically tested to make sure they work. For OpenStack deployments, key areas include the management security domain, and any identified single points of failure (SPOFs).</p>
+<section id="recovering-from-a-cloud-os-failure"> <title>Recovering from a Cloud (OS) Failure</title>
+<p>This section discusses recovering a cloud deployment after a disaster.
+The procedures in this section explain how to recover your cloud after a disaster.</p>
+</section>
+<section id="a-disaster-recovery-scenario"> <title>A disaster recovery scenario</title>
+<p>This section presents an example of a cloud deployment disaster and the recovery steps taken to restore the cloud.</p>
+<p>A disaster typically affects several components of your architecture (for example, a disk crash, a network loss, a loss of power). In this example, the following components are configured:</p>
+<ol>
+<li>
+<p>A cloud controller <codeph>(nova-api</codeph>, <codeph>nova-objectstore</codeph>, <codeph>nova-network</codeph>)</p>
+</li>
+<li>
+<p>A compute node (<codeph>nova-compute</codeph>)</p>
+</li>
+<li>
+<p>A Storage Area Network (SAN) used by OpenStack Block Storage (<codeph>cinder-volumes</codeph>)</p>
+</li>
+</ol>
+<p>The worst case disaster scenario for a cloud is a loss of power, in which case all components, disks, network, are affected. Before a power loss:</p>
+<ul>
+<li>
+<p>From the SAN to the cloud controller, we have an active iSCSI session (used for the <codeph>cinder-volumes</codeph> LVM's VG).</p>
+</li>
+<li>
+<p>From the cloud controller to the compute node, we also have active iSCSI sessions (managed by <codeph>cinder-volume</codeph>).</p>
+</li>
+<li>
+<p>For every volume, an iSCSI session is made (so 14 EBS volumes equals 14 sessions).</p>
+</li>
+<li>
+<p>From the cloud controller to the compute node we also have iptables/ebtables rules, which allow access from the cloud controller to the running instance.</p>
+</li>
+<li>
+<p>And from the cloud controller to the compute node, the current state of the "running" instances and their volume attachments (mount point, volume ID, volume status, and so on) which are saved into database.</p>
+</li>
+</ul>
+<p>After the power loss occurs and all hardware components restart with power restoration:</p>
+<ul>
+<li>
+<p>The iSCSI session from the SAN to the cloud, no longer exists.</p>
+</li>
+<li>
+<p>The iSCSI sessions from the cloud controller to the compute node, no longer exist.</p>
+</li>
+<li>
+<p>The iptables and ebtables are recreated from the cloud controller to the compute node, since at boot, nova-network reapplies configurations.</p>
+</li>
+<li>
+<p>Instances from the cloud controller are in a shutdown state (because they are no longer running).</p>
+</li>
+<li>
+<p>Data in the database was not updated at all since Compute could not have anticipated the crash.</p>
+</li>
+</ul>
+      <note>Instances won't be lost, because no <codeph>destroy</codeph> or
+          <codeph>terminate</codeph> command was invoked, so the files for the instances remain on
+        the compute node.</note>
+<p>To recover from this disaster, perform these tasks in the following order:</p>
+</section>
+<section id="to-perform-disaster-recovery"> <title>To perform disaster recovery</title>
+<ol>
+<li>
+<p>Get the instance-to-volume relationship</p>
+
+<p>You must determine the current relationship from a volume to its instance, because you will re-create the attachment.</p>
+
+<p>You can find this relationship by running <codeph>nova volume-list</codeph>. Note that the <b>nova</b> client includes the ability to get volume information from OpenStack Block Storage (Cinder).</p>
+</li>
+<li>
+<p>Update the database</p>
+
+<p>Update the database to clean the stalled state. Use these queries to clean up the database for each volume:</p>
+
+<codeblock>
+<codeph>mysql&gt; use cinder;
+mysql&gt; update volumes set mountpoint=NULL;
+mysql&gt; update volumes set status="available" where status &lt;&gt;"error_deleting";
+mysql&gt; update volumes set attach_status="detached";
+mysql&gt; update volumes set instance_id=0;
+</codeph>
+</codeblock>
+
+<p>You can then run <codeph>nova volume-list</codeph> commands to list all volumes.</p>
+</li>
+<li>
+<p>Restart instances</p>
+
+<p>Restart the instances using the <codeph>nova reboot INSTANCE</codeph> command.</p>
+
+<p>At this stage, depending on your image, some instances completely reboot and become reachable, while others stop on the "plymouth" stage.</p>
+</li>
+<li>
+<p>DO NOT reboot a second time</p>
+
+<p>Do not reboot instances that are stopped at this point. The instance state depends on whether you added an <codeph>/etc/fstab</codeph> entry for a specific volume. Images built with the cloud-init package remain in a pending state, while others skip the missing volume and start. The idea of that stage is only to ask Compute to reboot every instance, so the stored state is preserved. For more information about <codeph>cloud-ini</codeph>t, see <xref href="https://help.ubuntu.com/community/CloudInit" scope="external" format="html" >help.ubuntu.com/community/CloudInit</xref>.</p>
+</li>
+<li>
+<p>Reattach volumes</p>
+
+<p>After restart and Compute has restored the correct status, you can reattach the volumes to their respective instances using the <codeph>nova volume-attach</codeph> command. The following snippet uses a file of listed volumes to reattach them:</p>
+
+<codeblock>
+<codeph>#!/bin/bash
+while read line; do
+volume=`echo $line | $CUT -f 1 -d " "`
+instance=`echo $line | $CUT -f 2 -d " "`
+mount_point=`echo $line | $CUT -f 3 -d " "`
+echo "ATTACHING VOLUME FOR INSTANCE - $instance"
+nova volume-attach $instance $volume $mount_point
+sleep 2
+done &lt; $volumes_tmp_file
+</codeph>
+</codeblock>
+
+<p>At this stage, instances that were pending on the boot sequence (plymouth) automatically continue their boot, and restart normally, while the ones that booted see the volume.</p>
+</li>
+<li>
+<p>SSH into instances</p>
+
+<p>If some services depend on the volume, or if a volume has an entry into fstab, simply restart the instance. This restart needs to be made from the instance itself, not through <b>nova</b>.</p>
+
+<p>SSH into the instance and perform a reboot:</p>
+
+<codeblock>
+<codeph># shutdown -r now
+</codeph>
+</codeblock>
+</li>
+</ol>
+<p>By completing this procedure, you can successfully recover your cloud.</p>
+</section>
+<section id="tips"> <title>Tips</title>
+<p>Follow these guidelines:</p>
+<ul>
+<li>
+<p>Use the <codeph>errors=remount</codeph> parameter in the <codeph>fstab</codeph> file, which prevents data corruption.
+The system locks any write to the disk if it detects an I/O error. This configuration option should be added into the <codeph>cinder-volume</codeph> server (the one which performs the iSCSI connection to the SAN), but also into the instances' <codeph>fstab</codeph> file.</p>
+</li>
+<li>
+<p>Do not add the entry for the SAN's disks to the <codeph>cinder-volume fstab</codeph> file.
+Some systems hang on this step, which means you could lose access to your cloud-controller. To re-run the session manually, before performing the mount, enter:</p>
+
+<codeblock>
+<codeph># iscsiadm -m discovery -t st -p $SAN_IP $ iscsiadm -m node --target-name $IQN -p $SAN_IP -l
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>For your instances, if you have the whole <codeph>/home/</codeph> directory on the disk, leave a user's directory with the user's bash files and the <codeph>authorized_keys</codeph> file (instead of emptying the <codeph>/home</codeph> directory and mapping the disk on it).</p>
+</li>
+</ul>
+<p>This enables you to connect to the instance, even without the volume attached, if you allow only connections through public keys.</p>
+</section>
+<section id="script-the-drp"> <title>Script the DRP</title>
+<p>You can download a bash script (available from HPE customer support) which:</p>
+<ol>
+<li>
+<p>Creates an array for instances and their attached volumes.</p>
+</li>
+<li>
+<p>Updates the MySQL database.</p>
+</li>
+<li>
+<p>Restarts all instances using <codeph>euca2ools</codeph>.</p>
+</li>
+<li>
+<p>Make the volume attachment.</p>
+</li>
+<li>
+<p>Performs an SSH connection into every instance using Compute credentials.</p>
+</li>
+</ol>
+<p>The <b>test mode</b> allows you to perform this whole sequence for only one instance.</p>
+<p>To reproduce the power loss, connect to the compute node which runs that same instance and close the iSCSI session. Do not detach the volume using the <codeph>nova volume-detach</codeph> command. Instead, manually close the iSCSI session. The following example command uses an iSCSI session with the number 15:</p>
+<codeblock>
+  <codeph>    # iscsiadm -m session -u -r 15
+</codeph>
+</codeblock>
+<p>
+<b>Important</b>: Use the <codeph>?r</codeph> flag. Otherwise, you close ALL sessions.
+For additional Disaster Recovery Plan (DRP) information, see <xref href="http://en.wikipedia.org/wiki/Disaster_Recovery_Plan" scope="external" format="html" >http://en.wikipedia.org/wiki/Disaster_Recovery_Plan.</xref>
+</p>
+</section>
+<section id="recover-failed-compute-nodes"> <title>Recover failed compute nodes</title>
+<p>If a cloud compute node fails (due to a hardware malfunction for example), you can evacuate instances to make them available again. You can optionally include the target host on the <codeph>evacuate</codeph> command. If you omit the host, the scheduler determines the target host.</p>
+<p>To preserve user data on the server disk, you must configure shared storage on the target host. Also, you must validate that the current VM host is down; otherwise, the evacuation fails with an error.</p>
+<ol>
+<li>
+<p>To list hosts and find a different host for the evacuated instance, run:</p>
+
+<codeblock>
+<codeph>$ nova host-list
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Evacuate the instance. You can pass the instance password to the command by using the<codeph>--password &lt;pwd&gt;</codeph> option. If you do not specify a password, one is generated and printed after the command finishes successfully. The following command evacuates a server without shared storage from a host that is down, to the specified host_b:</p>
+
+<codeblock>
+<codeph>$ nova evacuate evacuated_server_name host_b
+</codeph>
+</codeblock>
+
+<p>The instance is booted from a new disk, but preserves its configuration including its ID, name, uid, IP address, and so on. The command returns a password:</p>
+
+<codeblock>
+<codeph>+-----------+--------------+
+| Property  |    Value     |
++-----------+--------------+
+| adminPass | kRAJpErnT4xZ |
++-----------+--------------+
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>To preserve the user disk data on the evacuated server, deploy OpenStack Compute with a shared file system. To configure your system, see <xref href="http://docs.openstack.org/admin-guide-cloud/content/section_configuring-compute-migrations.html" scope="external" format="html" >Configure migrations</xref>. In the following example, the password remains unchanged:</p>
+
+<codeblock>
+<codeph>$ nova evacuate evacuated_server_name host_b --on-shared-storage    
+</codeph>
+</codeblock>
+</li>
+</ol>
+</section>
+<section id="manual-recovery"> <title>Manual recovery</title>
+<p>Use the following procedure for all hypervisors, except a KVM/libvirt compute node.
+Review host information</p>
+<ol>
+<li>
+<p>Identify the VMs on the affected hosts, using tools such as a combination of <codeph>nova list</codeph> and <codeph>nova show</codeph> or <codeph>euca-describe-instances</codeph>. For example, the following output displays information about instance <codeph>i-000015b9</codeph> that is running on node <codeph>np-rcc54</codeph>:</p>
+
+<codeblock>
+<codeph>$ euca-describe-instances
+i-000015b9 at3-ui02 running nectarkey (376, np-rcc54) 0 m1.xxlarge 2012-06-19T00:48:11.000Z 115.146.93.60
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Review the status of the host by querying the Compute database. Important information is highlighted below. The following example converts an EC2 API instance ID into an OpenStack ID. If you used the nova commands, you can substitute the ID directly. You can find the credentials for your database in <codeph>/etc/nova.conf</codeph>.</p>
+
+<codeblock>
+<codeph>mysql&gt; SELECT * FROM instances WHERE id = CONV('15b9', 16, 10) \G;
+*************************** 1. row ***************************
+              created_at: 2012-06-19 00:48:11
+              updated_at: 2012-07-03 00:35:11
+              deleted_at: NULL
+...
+                      id: 5561
+...
+             power_state: 5
+                vm_state: shutoff
+...
+                hostname: at3-ui02
+                    host: np-rcc54
+...
+                    uuid: 3f57699a-e773-4650-a443-b4b37eed5a06
+...
+              task_state: NULL
+</codeph>
+</codeblock>
+
+<p>...</p>
+</li>
+</ol>
+</section>
+<section id="recover-the-vm"> <title>Recover the VM</title>
+<ol>
+<li>
+<p>After you have determined the status of the VM on the failed host, decide to which compute host the affected VM should be moved. For example, run the following database command to move the VM to <codeph>np-rcc46</codeph>:</p>
+
+<codeblock>
+<codeph>mysql&gt; UPDATE instances SET host = 'np-rcc46' WHERE uuid = '3f57699a-e773-4650-a443-b4b37eed5a06';
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>If you are using a hypervisor that relies on libvirt (such as KVM), it is a good idea to update the <codeph>libvirt.xml</codeph> file (found in <codeph>/var/lib/nova/instances/[instance ID]</codeph>). <!--A BR tag was used here in the original source.-->The important changes to make are:</p>
+
+<ul>
+<li>
+<p>Change the <codeph>DHCPSERVER</codeph> value to the host IP address of the compute host that is now the VM's new home.</p>
+</li>
+<li>
+<p>Update the VNC IP, if it isn't already updated, to: <codeph>0.0.0.0</codeph>.</p>
+</li>
+</ul>
+</li>
+<li>
+<p>Reboot the VM using:</p>
+
+<codeblock>
+<codeph>$ nova reboot --hard 3f57699a-e773-4650-a443-b4b37eed5a06
+</codeph>
+</codeblock>
+</li>
+</ol>
+<p>The above database update and <codeph>nova reboot</codeph> command are typically all that are required to recover a VM from a failed host. However, if further problems occur, consider looking at recreating the network filter configuration using <codeph>virsh</codeph>, restarting the Compute services or updating the <codeph>vm_state</codeph> and <codeph>power_state</codeph> in the Compute database.</p>
+</section>
+<section id="recover-from-a-uidgid-mismatch"> <title>Recover from, a UID/GID mismatch</title>
+<p>When running OpenStack Compute, using a shared file system or an automated configuration tool, you could encounter a situation where some files on your compute node are using the wrong UID or GID.</p>
+<p>This causes a number of errors, such as being unable to do live migration or start virtual machines.</p>
+<p>The following procedure runs on <codeph>nova-compute</codeph> hosts, based on the KVM hypervisor, and should restore the situation:</p>
+<p>
+<b>To recover from a UID/GID mismatch</b>:</p>
+<ol>
+<li>
+<p>Make sure you do not use numbers that are already used for some other user/group.</p>
+</li>
+<li>
+<p>Set the nova uid in <codeph>/etc/passwd</codeph> to the same number in all hosts (for example, 112).</p>
+</li>
+<li>
+<p>Set the <codeph>libvirt-qemu uid</codeph> in <codeph>/etc/passwd</codeph> to the same number in all hosts (for example, 119).</p>
+</li>
+<li>
+<p>Set the nova group in <codeph>/etc/group</codeph> file to the same number in all hosts (for example, 120).</p>
+</li>
+<li>
+<p>Set the <codeph>libvirtd</codeph> group in <codeph>/etc/group</codeph> file to the same number in all hosts (for example, 119).</p>
+</li>
+<li>
+<p>Stop the services on the compute node.</p>
+</li>
+<li>
+<p>Change all the files owned by user nova or by group nova. For example:</p>
+
+<codeblock>
+<codeph># find / -uid 108 -exec chown nova {} \; # note the 108 here is the old nova uid before the change
+# find / -gid 120 -exec chgrp nova {} \;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Repeat the steps for the <codeph>libvirt-qemu</codeph> owned files, if those need to change.</p>
+</li>
+<li>
+<p>Restart the services.</p>
+</li>
+<li>
+<p>Now you can run the find command to verify that all files are using the correct identifiers.</p>
+</li>
+</ol>
+</section>
+<section id="activepassive"> <title>Active/Passive</title>
+<p>In an active/passive configuration, systems are set up to bring additional resources online to replace those that have failed. For example, OpenStack would write to the main database while maintaining a disaster recovery database that can be brought online in the event that the main database fails.</p>
+<p>Typically, an active/passive installation for a stateless service would maintain a redundant instance that can be brought online when required. Requests may be handled using a virtual IP address to facilitate return to service with minimal reconfiguration required.</p>
+<p>A typical active/passive installation for a stateful service maintains a replacement resource that can be brought online when required. A separate application (such as Pacemaker or Corosync) monitors these services, bringing the backup online as necessary.</p>
+</section>
+<section id="recovering-overcloud-clusters"> <title>Recovering overcloud clusters</title>
+<p>The following procedures for recovering overcloud clusters address these concerns:</p>
+<ul>
+<li>
+<p>RabbitMQ loss of quorum handling.</p>
+</li>
+<li>
+<p>How to gracefully take nodes out of a MySQL cluster.</p>
+</li>
+<li>
+<p>How to gracefully take nodes out of RabbitMQ cluster.</p>
+</li>
+<li>
+<p>Power outage, what to do to bring all solutions back.</p>
+</li>
+<li>
+<p>How to re-create all the network/bridges when the KVM host is rebooted.</p>
+</li>
+<li>
+<p>How to find if the database in the overcloud is corrupted or not</p>
+</li>
+</ul>
+<p>The following procedures explain how to shut down specific servers for maintenance:</p>
+</section>
+<section id="kvm-host"> <title>KVM Host</title>
+</section>
+<section id="shutdown"> <title>Shutdown</title>
+<p>First shut down the seed then manually access the OS and shut down the host.</p>
+</section>
+<section id="power-on"> <title>Power On</title>
+<p>Normally power on the KVM Host and then re-create the bridge/routers. For the steps supported in this release, please contact customer support.</p>
+</section>
+<section id="considerations"> <title>Considerations</title>
+<p>During the time the Seed VM will also be shut down, the undercloud servers will not have access to the pxe-boot server. Do not shut down/reboot any of the servers during this period. Users will not be able to SSH to the undercloud and overcloud servers. This will not affect the overcloud usage.</p>
+</section>
+<section id="seed"> <title>Seed</title>
+</section>
+<section id="shutdown2"> <title>Shutdown</title>
+<p>Normally shut down the Seed VM and after that the KVM Host, to execute any necessary maintenance in the server.</p>
+</section>
+<section id="power-on1"> <title>Power On</title>
+<p>Normally power on the KVM Host and after that the Seed VM.</p>
+</section>
+<section id="considerations2"> <title>Considerations</title>
+<p>During the time the Seed VM will also be shut down, the undercloud servers will not have access to the pxe-boot server. Do not shut down/reboot any of the servers during this period. Users will not be able to SSH to the undercloud and overcloud servers. This will not affect the overcloud usage.</p>
+</section>
+<section id="undercloud"> <title>UnderCloud</title>
+</section>
+<section id="shutdown3"> <title>Shutdown</title>
+<p>Normally shut down the server, using the <codeph>nova stop</codeph> option in seed or manually access the OS and shut down the machine.</p>
+</section>
+<section id="power-on2"> <title>Power On</title>
+<p>Normally power on the server using <codeph>nova start</codeph> option in the seed or manually start the server using iLO.</p>
+</section>
+<section id="considerations3"> <title>Considerations</title>
+<p>During the time that the Seed VM is shut down, the overcloud servers will not have access to the pxe-boot server. Do not shut down/reboot any of the servers during this period. This will not affect the overcloud usage.</p>
+</section>
+<section id="overcloud-controllers"> <title>Overcloud Controllers</title>
+</section>
+<section id="shutdown4"> <title>Shutdown</title>
+<p>Normally shut down the server, using the <codeph>nova stop</codeph> option in the seed/undercloud or manually access the OS and shut down the machine.</p>
+</section>
+<section id="power-on3"> <title>Power On</title>
+<p>Normally power on the server using <codeph>nova start</codeph> option in the seed/undercloud or manually start the server using iLO.</p>
+</section>
+<section id="considerations4"> <title>Considerations</title>
+<p>HPE recommends that you do not shut down more than one controller at the same time or the High Availability functionality will not work. If only one server is shut down, the solution should not have any downtime. When the management controller is shut down, access to the VSA will be temporarily disabled, so the user can follow the steps to start cinder-volume in one of the other controller during the downtime period.</p>
+</section>
+<section id="overcloud-compute-nodes"> <title>Overcloud Compute Nodes</title>
+</section>
+<section id="shutdown5"> <title>Shutdown</title>
+<p>Normally shut down the server, using the <codeph>nova stop</codeph> option in seed/undercloud or manually access the OS and shut down the machine.</p>
+</section>
+<section id="power-on4"> <title>Power On</title>
+<p>Normally power on the server using <codeph>nova start</codeph> option in the seed/undercloud or manually start the server using iLO. After power on process ends, the VM`s hosted in the node will be automatically started.</p>
+<p>Considerations</p>
+<p>To reduce the down time of the instances located in the compute node HPE suggests migrating the instances to another server before shutting down the node. Is possible to shut down N compute nodes at the same without problem, just remember that capacity will be reduced.</p>
+</section>
+<section id="overcloud-swift"> <title>Overcloud Swift</title>
+</section>
+<section id="shutdown6"> <title>Shutdown</title>
+<p>Normally shut down the server, using the <codeph>nova stop</codeph> option in seed/undercloud or manually access the OS and shut down the machine.</p>
+</section>
+<section id="power-on6"> <title>Power On</title>
+<p>Normally power on the server using <codeph>nova start</codeph> option in the seed/undercloud or manually start the server using iLO.</p>
+</section>
+<section id="considerations5"> <title>Considerations</title>
+<p>HPE recommends that you do not shut down both Swift servers at the same time or the High Availability functionality will not work. If only one server is shut down, the solution should not have any downtime.</p>
+</section>
+<section id="overcloud-vsa"> <title>Overcloud VSA</title>
+</section>
+<section id="shutdown7"> <title>Shutdown</title>
+<p>Normally shut down the server, using the <codeph>nova stop</codeph> option in seed/undercloud or manually access the OS and shut down the machine.</p>
+</section>
+<section id="power-on5"> <title>Power On</title>
+<p>Normally power on the server using <codeph>nova start</codeph> option in the seed/undercloud or manually start the server using iLO.</p>
+</section>
+<section id="considerations6"> <title>Considerations</title>
+<p>HPE recommends that you do not shut down both VSA servers at the same time or the High Availability functionality, depending on your configuration, may not work. In the case of only one VSA server, if the server is shut down, the solution will not have the ability to create/manage/access the volumes created during the downtime.</p>
+<ol>
+<li>
+<p>Recovering from a power outage:</p>
+
+<p>In the case the data center has lost power, when power is restored, the administrator needs to start servers in a specific order and execute specific manual commands to bring back the overcloud controller cluster.</p>
+
+<ul>
+<li>
+<p>Start the KVM Host.</p>
+
+<ul>
+<li>Re-create the bridge configuration.</li>
+</ul>
+</li>
+<li>
+<p>SSH to the KVM Host and start the Seed VM (<codeph>virsh</codeph> start seed).</p>
+
+<ul>
+<li>Wait the VM boot up.</li>
+</ul>
+</li>
+<li>
+<p>Start Undercloud Node (using nova start in Seed VM).</p>
+
+<ul>
+<li>Wait the server start up and stabilize.</li>
+</ul>
+</li>
+<li>
+<p>Start all overcloud controllers.</p>
+
+<ul>
+<li>Wait for the server to start up and stabilize.</li>
+</ul>
+</li>
+<li>
+<p>Execute the command <codeph>cat /mnt/state/var/lib/mysql/grastate.dat</codeph> in all controllers to find which one has the most updated database (seqno).</p>
+</li>
+</ul>
+<p>For example:</p>
+
+<codeblock>
+<codeph>cat /mnt/state/var/lib/mysql/grastate.dat
+# GALERA saved state
+version: 2.1
+uuid: 98414b8c-661a-11e4-945b-5f36f0cd94d6
+seqno: 959325
+</codeph>
+</codeblock>
+
+<ul>
+<li>
+<p>In the controller with the highest seqno, execute the command</p>
+
+<codeblock>
+<codeph>/etc/init.d/mysql bootstrap-pxc
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Connect to the other controllers and normally start MySQL</p>
+
+<codeblock>
+<codeph>/etc/init.d/mysql start
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>When all nodes joined the cluster execute in all the overcloud nodes, one each time to restart all the services and finish the startup</p>
+
+<codeblock>
+<codeph>os-refresh-config Start Swift0 and 1 Nodes
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Wait for the  server to start up and stabilize.</p>
+</li>
+<li>Start the VSA nodes.
+
+<ul>
+<li>Wait for the server to start up and stabilize.</li>
+</ul>
+</li>
+<li>After everything else is running, start the Compute nodes.
+
+<ul>
+<li>Wait for the server to start up and stabilize. The instances should start automatically.</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>
+<p>Graceful shut down and starting the complete solution:</p>
+</li>
+</ol>
+<p>In the case of a graceful shutdown of the entire environment, the administrator needs to follow these steps, in this specific order:</p>
+<ol>
+<li>
+<p>Shutdown sequence</p>
+
+<p>a. Stop the overcloud instances/compute node(s) using the <codeph>nova stop</codeph> option in seed or manually access the OS and shut down the machine.</p>
+
+<p>b.  Stop the overcloud VSA node(s) nodes using the <codeph>nova stop</codeph> option in seed or manually access  the OS and shut down the machine.</p>
+
+<p>c. Stop the overcloud Swift nodes using the <codeph>nova stop</codeph> option in seed or manually access the OS and shut down the machine.</p>
+
+<p>d. Stop the overcloud Management controller node using the <codeph>nova stop</codeph> option in seed or manually access the OS and shut down the machine.</p>
+
+<p>e. Stop the overcloud Controller 1 node using the <codeph>nova stop</codeph> option in seed or manually access the OS and shut down the machine.</p>
+
+<p>f. Stop the overcloud Controller 0 node using the <codeph>nova stop</codeph> option in seed or manually access the OS and shut down the machine.</p>
+
+<p>g. Stop the Undercloud node using the <codeph>nova stop</codeph> option in seed or manually access the OS and shut down the machine.</p>
+
+<p>h. Stop the Seed VM using <codeph>virsh shutdown</codeph> or manually access the OS and shut down the machine.</p>
+
+<p>i. Stop the KVM Host manually access the OS and shut down the machine</p>
+
+<p>
+<b>Important</b>
+</p>
+
+<p>The order that the overcloud controllers are stopped is really important, because based on that we will know the most updated database.</p>
+</li>
+<li>
+<p>Start sequence</p>
+
+<p>a. Start the KVM Host</p>
+
+<ul>
+<li>Re-create the bridge configuration.</li>
+</ul>
+<p>b.  Start the Seed VM using <codeph>virsh start</codeph>.</p>
+
+<p>c.  Start the undercloud node using <codeph>nova start</codeph> from the Seed VM.</p>
+
+<p>d. Start the overcloud Controller 0 node using <codeph>nova start</codeph> from the Seed VM or undercloud node.</p>
+
+<p>e. When the node starts, manually start MySQL with the bootstrap options (<codeph>/etc/init.d/mysql bootstrap-pxc</codeph>)</p>
+
+<p>f. Start the overcloud Controller 1 node using <codeph>nova start</codeph> from the Seed VM or undercloud node.</p>
+
+<p>g. Start the overcloud Management node using <codeph>nova start</codeph> from the Seed VM or undercloud node.</p>
+
+<p>h. Start the overcloud Swift nodes using <codeph>nova start</codeph> from the Seed VM or undercloud node.</p>
+
+<p>i. Start the VSA node(s) using <codeph>nova start</codeph> from the Seed VM or undercloud node.</p>
+
+<p>j. Start the overcloud Compute Node(s) using <codeph>nova start</codeph> from the Seed VM or undercloud node.</p>
+</li>
+</ol>
+</section>
+<section id="recovering-from-failed-controllers"> <title>Recovering from failed controllers</title>
+<p>In the event that you need to recover a controller, or inadvertently delete a controller, refer to the following link for recovery details.</p>
+<p>
+  <xref href="1.1commerical.services-remove-replace-failed-overcloud-nodes.dita#topic18311/controller1" type="section">See removing failed controller1.</xref>
+</p>
+<p>
+  <xref href="#topic22433"> Return to Top </xref>
+</p>
+</section>
+</body>
+</topic>

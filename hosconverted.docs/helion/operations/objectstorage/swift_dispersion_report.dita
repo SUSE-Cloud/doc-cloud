@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="swift_healthcheck">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Running the Swift Dispersion Report</title>
+  <body>
+    <!--not tested-->
+    <section id="about">
+      <p>Swift contains a tool called <codeph>swift-dispersion-report</codeph> that can be used to
+        determine whether your containers and objects have three replicas like they are supposed to.
+        This tool works by populating a percentage of partitions in the system with containers and
+        objects (using <codeph>swift-dispersion-populate</codeph>) and then running the report to
+        see if all the replicas of these containers and objects are in the correct place. For a more
+        detailed explanation of this tool in Openstack Swift, please see <xref
+          href="http://docs.openstack.org/developer/swift/admin_guide.html#cluster-health"
+          format="html" scope="external">OpenStack Swift - Administrator's Guide</xref>.</p>
+    </section>
+    <section><title>Configuring the Swift dispersion populate</title>
+      <p>Once a Swift system has been fully deployed in <keyword keyref="kw-hos-phrase"/>, you can
+        setup the swift-dispersion-report using the default parameters found in
+          <codeph>~/helion/hos/ansible/roles/swift-dispersion/templates/dispersion.conf.j2</codeph>.
+        This populates 1% of the partitions on the system and if you are happy with this figure,
+        please proceed to step 2 below. Otherwise, follow step 1 to edit the configuration file.</p>
+      <ol>
+        <li>If you wish to change the dispersion coverage percentage then edit the value of
+            <codeph>dispersion_coverage</codeph> in the
+            <codeph>~/helion/hos/ansible/roles/swift-dispersion/templates/dispersion.conf.j2</codeph>
+          file to the value you wish to use. In the example below we have altered the file to create
+          5% dispersion:
+          <codeblock>...
+[dispersion]
+auth_url = {{ keystone_identity_uri }}/v3
+auth_user = {{ swift_dispersion_tenant }}:{{ swift_dispersion_user }}
+auth_key = {{ swift_dispersion_password  }}
+endpoint_type = {{ endpoint_type }}
+auth_version = {{ disp_auth_version }}
+# Set this to the percentage coverage. We recommend a value
+# of 1%. You can increase this to get more coverage. However, if you
+# decrease the value, the dispersion containers and objects are
+# not deleted.
+<b>dispersion_coverage = 5.0</b></codeblock></li>
+        <li>Commit your configuration to the <xref href="../../installation/using_git.dita">local
+            git repo</xref>, as follows:
+          <codeblock>git add -A
+git commit -m "My config or other commit message"</codeblock></li>
+        <li>Run the configuration processor:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+        <li>Update your deployment directory:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+        <li>Reconfigure the Swift servers:
+          <codeblock>cd ~/scratch/ansible/next/hos/ansible 
+ansible-playbook -i hosts/verb_hosts swift-reconfigure.yml</codeblock></li>
+        <li>Run this playbook to populate your Swift system for the health check:
+          <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts swift-dispersion-populate.yml</codeblock></li>
+      </ol>
+    </section>
+
+    <section><title>Running the Swift dispersion report</title>
+      <p>Check the status of the Swift system by running the Swift dispersion report with this
+        playbook:</p>
+      <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts swift-dispersion-report.yml</codeblock>
+      <p>The output of the report will look similar to this:</p>
+      <codeblock>TASK: [swift-dispersion | report | Display dispersion report results] *********
+ok: [padawan-ccp-c1-m1-mgmt] => {
+    "var": {
+        "dispersion_report_result.stdout_lines": [
+            "Using storage policy: General ",
+            "",
+            "\u001b[KQueried 40 containers for dispersion reporting, 0s, 0 retries",
+            "100.00% of container copies found (120 of 120)",
+            "Sample represents 0.98% of the container partition space",
+            "",
+            "\u001b[KQueried 40 objects for dispersion reporting, 0s, 0 retries",
+            "There were 40 partitions missing 0 copies.",
+            "100.00% of object copies found (120 of 120)",
+            "Sample represents 0.98% of the object partition space"
+        ]
+    }
+}
+...</codeblock>
+      <p>In addition to being able to run the report above, there will be a cron-job running every 2
+        hours on the first proxy node of your system that will run
+          <codeph>dispersion-report</codeph> and save the results to the following file:</p>
+      <codeblock>/var/cache/swift/dispersion-report</codeblock>
+      <p>When interpreting the results you get from this report, we recommend using <xref
+          href="http://docs.openstack.org/developer/swift/admin_guide.html#cluster-health"
+          format="html" scope="external">Swift Administrator's Guide - Cluster Health</xref></p>
+    </section>
+  </body>
+</topic>

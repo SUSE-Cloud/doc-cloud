@@ -1,0 +1,289 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="api_verification">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>API Verification</title>
+  <abstract><shortdesc outputclass="hdphidden">We provide a tool and some steps to help you verify
+      that your cloud deployed correctly.</shortdesc></abstract>
+  <body>
+
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <section id="about">
+      <p><keyword keyref="kw-hos-phrase"/> provides a tool, Tempest, that you can use to verify that
+        your cloud deployment completed successfully:</p>
+      <ul>
+        <li><xref href="#api_verification/prereqs">Prerequisites</xref></li>
+        <li><xref href="#api_verification/tempest">Tempest Integration Tests</xref>
+          <ul>
+            <li>
+              <xref href="#api_verification/running">Running the Tests</xref>
+            </li>
+            <li>
+              <xref href="#api_verification/results">Viewing Test Results</xref>
+            </li>
+            <li>
+              <xref href="#api_verification/custom">Customizing the Test Run</xref>
+            </li>
+          </ul>
+        </li>
+        <li><xref href="verify_block_storage.dita#verify_block_storage/volume_verify">Verifying Your
+            Block Storage Backend</xref></li>
+        <li><xref href="verify_block_storage.dita#verify_block_storage/swift_verify">Validate Your
+            Object Storage (Swift) Setup</xref></li>
+      </ul>
+    </section>
+
+    <section id="prereqs"><title>Prerequisites</title>
+      <p>The verification tests rely on you having an external network setup and a cloud image in
+        your image (Glance) repository. Run the following playbook to configure your cloud: </p>
+      <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-cloud-configure.yml</codeblock>
+      <note type="note">In <keyword keyref="kw-hos-phrase"/>, the EXT_NET_CIDR setting for the
+        external network is now specified in the input model - see <xref
+          keyref="configobj_neutron_external_networks"
+          >neutron-external-networks</xref>.</note>
+    </section>
+
+    <section id="tempest"><title>Tempest Integration Tests</title>
+      <p>Tempest is a set of integration tests for OpenStack API validation, scenarios, and other
+        specific tests to be run against a live OpenStack cluster. 
+      
+      In <keyword keyref="kw-hos-phrase"/>,  Tempest has been modelled as a service and this gives you the ability to 
+            locate Tempest anywhere in the cloud. It is recommended that you install Tempest on your lifecycle manager node
+          - that is where it resides by default in a new installation.
+      </p>
+      
+      
+      
+      <p>A version of the upstream <xref href="http://docs.openstack.org/developer/tempest/"
+          scope="external" format="html">Tempest</xref> integration tests is pre-deployed on the
+          <keyword keyref="kw-hos"/> lifecycle manager node. For details on what Tempest is testing,
+        you can check the contents of this file on your lifecycle
+        manager:<codeblock>/opt/stack/tempest/run_filters/ci.txt</codeblock></p>
+      <p>You can use these embedded tests to verify if the deployed cloud is functional.</p>
+      <p>For more information on running Tempest tests, see <xref
+          href="https://git.openstack.org/cgit/openstack/tempest/tree/README.rst" scope="external"
+          format="html">Tempest - The OpenStack Integration Test Suite</xref>. <note
+          type="important">Running these tests requires access to the deployed cloud's identity
+          admin credentials</note></p>
+      <p>Tempest creates and deletes test accounts and test resources for test purposes.</p>
+      <p>In certain cases Tempest might fail to clean-up some of test resources after a test is
+        complete, for example in case of failed tests.</p>
+    </section>
+    <section id="running"><title>Running the Tests</title>
+      <p>To run the default set of Tempest tests:</p>
+      <ol>
+        <li>Log in to the lifecycle manager.</li>
+        <li>Ensure you can access your cloud:
+          <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts cloud-client-setup.yml
+source /etc/environment</codeblock>
+        </li>
+        <li>Run the tests:
+          <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts tempest-run.yml</codeblock>
+        </li>
+      </ol>
+      <p>Optionally, you can <xref type="section" href="#api_verification/custom">customize Tempest
+          to run specific tests</xref>.</p>
+    </section>
+    
+    <section id="results"><title>Viewing Test Results</title>
+      <p>Tempest is deployed under <codeph>/opt/stack/tempest</codeph>. Test results are written in
+        a log file in the following directory:</p>
+      <codeblock>/opt/stack/tempest/logs</codeblock>
+      
+      <p>A detailed log file is written to:
+        <codeblock>/opt/stack/tempest/tempest.log</codeblock></p>
+      
+      <p>The results are also stored in the <codeph>testrepository</codeph> database.</p>
+      <p>To access the results after the run:</p>
+      <ol>
+        <li>
+          <p>Log in to the lifecycle manager.</p>
+        </li>
+        <li>
+          <p>Change to the <codeph>tempest</codeph> directory and list the test results:</p>
+          <codeblock>cd /opt/stack/tempest
+./venv/bin/testr last</codeblock>
+        </li>
+      </ol>
+      <note type="important">If you encounter an error saying "local variable 'run_subunit_content'
+        referenced before assignment", you may need to log in as the <codeph>tempest</codeph> user
+        to run this command. This is due to a known issue as reported <xref
+          href="https://bugs.launchpad.net/testrepository/+bug/1348970" scope="external"
+          format="html">here</xref>.</note>
+      <p>See <xref href="https://testrepository.readthedocs.org/en/latest/" scope="external"
+          format="html">Test Repository Users Manual</xref> for more details on how to manage the
+        test result repository.</p>
+    </section>
+    
+    
+    
+    <section id="custom"><title>Customizing the Test Run</title>
+      <p>There are several ways available to customize which tests will be executed.</p>
+      <p><ul>
+          <!--   <li>s
+            <xref type="section" href="#tempest/service">Run Tests for a Specific Service</xref>
+          </li> -->
+          <li>
+            <xref type="section" href="#api_verification/services">Run Tests for Specific Services
+              and Exclude Specific Features</xref>
+          </li>
+          <li>
+            <xref type="section" href="#api_verification/list">Run Tests Matching a Series of White
+              and Blacklists</xref>
+          </li>
+        </ul>
+      </p>
+    </section>
+    <!--   <section id="service">
+      <title>Run Tests for a Specific Service</title>
+      <p>You can run tests against a specific service, such as Compute, Networking, or Identity.</p>
+      <ol>
+        <li>
+          <p>Login to the seed VM.</p>
+        </li>
+        <li>
+          <p>SSH into the undercloud node:</p>
+          <codeblock>
+            <codeph>ssh heat-admin@${UNDERCLOUD_IP}
+              sudo -i
+            </codeph>
+          </codeblock>
+        </li>
+        <li>
+          <p>Use the following command to specify that tests run on the a specific service.</p>
+          <codeblock>
+            <codeph>OS_TESTPATH=./tempest/{service} run-tempest
+            </codeph>
+          </codeblock>
+          <p>Where <codeph>{service}</codeph> is the name of the service, such as
+              <codeph>api</codeph>, <codeph>compute</codeph>, <codeph>identity</codeph>, or
+              <codeph>network</codeph>.</p>
+          <p>For example, execute the following command to run the Tempest test against the Nova
+            (Compute service) API:</p>
+          <codeblock>
+            <codeph>OS_TESTPATH=./tempest/api/compute run-tempest
+            </codeph>
+          </codeblock>
+        </li>
+      </ol>
+    </section>-->
+    <section id="services"><title>Run Tests for Specific Services and Exclude Specific
+        Features</title>
+      <p>Tempest allows you to test specific services and features using the
+          <codeph>tempest.conf</codeph> configuration file.</p>
+      <p>A working configuration file with inline documentation is deployed under
+          <codeph>/opt/stack/tempest/etc/</codeph>.</p>
+      <p>To use this, follow these steps:</p>
+      <ol>
+        <li>Log in to the lifecycle manager.</li>
+        <li>Edit the <codeph>/opt/stack/tempest/configs/tempest_region1.conf</codeph> file.</li>
+        <li>To test specific service, edit the <codeph>[service_available]</codeph> section and
+          clear the comment character <codeph>#</codeph> and set a line to <codeph>true</codeph> to
+          test that service or <codeph>false</codeph> to not test that service.
+          <codeblock>cinder = true
+neutron = false</codeblock>
+        </li>
+        <li>To test specific features, edit any of the <codeph>*_feature_enabled</codeph> sections
+            to enable or disable tests on specific features of a service.
+          <codeblock>[volume-feature-enabled]
+[compute-feature-enabled]
+[identity-feature-enabled]
+[image-feature-enabled]
+[network-feature-enabled]
+[object-storage-feature-enabled]</codeblock>
+
+          <codeblock>#Is the v2 identity API enabled (boolean value)
+api_v2 = true
+#Is the v3 identity API enabled (boolean value)
+api_v3 = false</codeblock>
+        </li>
+        <li>Then run tests normally</li>
+      </ol>
+    </section>
+    <section id="list"><title>Run Tests Matching a Series of White and Blacklists</title>
+      <p>You can run tests against specific scenarios by editing or creating a run filter file.</p>
+      <p>Run filter files are deployed under <codeph>/opt/stack/tempest/run_filters</codeph>.</p>
+      <p>Use run filters to whitelist or blacklist specific tests or groups of tests:</p>
+      <ul>
+        <li>lines starting with # or empty are ignored</li>
+        <li>lines starting with <codeph>+</codeph> are whitelisted</li>
+        <li>lines starting with <codeph>-</codeph> are blacklisted</li>
+        <li>lines not matching any of the above conditions are blacklisted</li>
+      </ul>
+      <p>If whitelist is empty, all available tests are fed to blacklist. If blacklist is empty, all
+        tests from whitelist are returned.</p>
+      <p>Whitelist is applied first. The blacklist is executed against the set of tests returned by
+        the whitelist.</p>
+      <p>To run whitelist and blacklist tests:</p>
+      <ol>
+        <li>Log in to the lifecycle manager. </li>
+        <li>Make sure you can access the cloud:
+          <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts cloud-client-setup.yml
+source /etc/environment</codeblock>
+        </li>
+        <li>Run the tests:
+          <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts tempest-run.yml  -e run_filter &lt;run_filter_name></codeblock></li>
+      </ol>
+      <p>Note that the run_filter_name is the name of the run_filter file except for the extension.
+        For instance, to run using the filter from the file /opt/stack/tempest/run_filters/ci.txt,
+        use the following:</p>
+      <codeblock>ansible-playbook -i hosts/verb_hosts tempest-run.yml -e run_filter=ci</codeblock>
+      <p>Documentation on the format of white and black-lists is available at:
+        <codeblock>/opt/stack/tempest/tests2skip.py</codeblock></p>
+      <p>Example:</p>
+      <p>The following entries run API tests, exclude tests that are less relevant for deployment
+        validation, such as negative, admin, cli and thirdparty (EC2) tests:</p>
+      <codeblock>+tempest\.api\.*
+*[Aa]dmin.*
+*[Nn]egative.*
+- tempest\.cli.*
+- tempest\.thirdparty\.*</codeblock>
+    </section>
+    <!--
+    <section id="issues">
+      <title>Known issues</title>
+      <p>The following failing tests can be excluded from the test run by adding the following to
+        the <codeph>tests2skip.txt file</codeph>:</p>
+    </section>
+    <section id="exclude">
+      <title>Exclude tests for features that are not available and test not compatible</title>
+      <codeblock>
+        <codeph>tempest\.api\.compute\.certificates\.*
+          tempest\.api\.compute\.servers.test_disk_config\.*
+          tempest\.api\.network\.test_fwaas_extensions\.*
+          tempest\.api\.network\.test_vpnaas_extensions\.*
+          tempest\.api\.network\.test_load_balancer\.*
+          tempest\.api\.image\.v1\.test_image\.CreateRegisterImagesTest\.test_register_http_image
+          tempest\.api\.image\.v1\.test_images\.CreateRegisterImagesTest\.test_register_remote_image
+          tempest.api\.network\.test_metering_extensions\.MeteringTestJSON
+          tempest\.api\.network\.test_metering_extensions\.MeteringIpV6TestJSON
+          tempest\.api\.compute\.test_live_block_migration.LiveBlockMigrationTestJSON\.test_live_block_migration
+          tempest\.api\.compute\.floating_ips\.test_list_floating_ips\.FloatingIPDetailsTestJSON\.test_list_floating_ip_pools
+        </codeph>
+      </codeblock>
+    </section>
+    <section id="fail">
+      <title>Known failures</title>
+      <p>The following tests will result in failure using the installed Tempest library. These known
+        failures can be fixed by installing the <codeph>tempest-lib&gt;=0.2.0</codeph> OpenStack
+        Functional Testing Library.</p>
+      <p>See <xref href="https://pypi.python.org/pypi/tempest-lib/0.2.0" scope="external"
+          format="html">tempest-lib 0.2.0</xref> for information on downloading the library.</p>
+      <codeblock>
+        <codeph>tempest\.api\.object_storage\.test_container_staticweb\.StaticWebTest\.test_web_index      
+          tempest\.api\.object_storage\.test_container_staticweb\.StaticWebTest\.test_web_listing_css
+          tempest\.api\.object_storage\.test_container_services\.ContainerTest\.test_update_container_metadata_with_delete_metadata
+          tempest\.api\.object_storage\.test_container_services\.ContainerTest\.test_update_container_metadata_with_delete_metadata_key
+          tempest\.api\.object_storage\.test_object_slo\.ObjectSloTest\.test_upload_manifest
+          tempest\.api\.object_storage\.test_container_sync_middleware\.ContainerSyncMiddlewareTest\.test_container_synchronization
+        </codeph>
+      </codeblock>
+    </section>
+    -->
+  </body>
+</topic>

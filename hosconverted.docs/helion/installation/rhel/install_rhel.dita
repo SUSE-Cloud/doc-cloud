@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="install_rhel">
+    <title><ph conkeyref="HOS-conrefs/product-title"/>Using the Lifecycle Manager to Deploy RHEL
+        Compute Nodes</title>
+    <body>
+        <!--not tested-->
+        <p conkeyref="HOS-conrefs/applies-to"/>
+        <p>The method used for deploying RHEL compute nodes using Cobbler on the lifecycle manager
+            will depend on whether your RHEL nodes are using legacy BIOS or UEFI. We provide steps
+            for both.</p>
+
+        <section>
+            <title>Deploying legacy BIOS RHEL compute nodes</title>
+            <p>The installation process for RHEL nodes is almost identical to that of HPE Linux
+                nodes as described in the topic for <xref keyref="install_entryscale_kvm"
+                    >Installation for Helion Entry-scale KVM Cloud"</xref>. The key differences are: <ul>
+                    <li>The standard RHEL 7.2 iso must be placed in the <codeph>stack</codeph> home
+                        directory on the deployer node before you begin the installation procedure.
+                        The file must be named <codeph>rhel7.iso</codeph>. </li>
+                    <li> You must identify the node(s) on which you want to install RHEL, by adding
+                        the key/value pair <codeph>distro-id: rhel72-x86_64</codeph> to server
+                        details in <codeph>servers.yml</codeph>. You will also need to update
+                            <codeph>net_interfaces.yml</codeph>, <codeph>server_roles.yml</codeph>,
+                            <codeph>disk_compute.yml</codeph> and
+                        <codeph>control_plane.yml</codeph>. For more information on configuration of
+                        the Input Model for RHEL, see <xref keyref="rhel_compute_model"> RHEL
+                            Compute Model</xref>. </li>
+                </ul></p>
+        </section>
+
+        <section>
+            <title>Deploying UEFI RHEL compute nodes</title>
+            <sectiondiv id="rhel_uefi_overview">
+                <p><keyword keyref="kw-hos-phrase-30"/> required a manual procedure if you wanted to
+                    use the lifecycle manager to install RHEL 7.2 on UEFI nodes as described in the
+                    article <xref
+                        href="https://docs.hpcloud.com/hos-3.x/#helion/installation/rhel/install_rhel_compute.html"
+                        scope="external" format="html">here</xref>. This procedure has been
+                    automated in the <keyword keyref="kw-hos-phrase"/> lifecycle manager in
+                        <codeph>prepare-rhel-loader.yml</codeph> and
+                        <codeph>prepare-rhel-grub2.yml</codeph> playbooks.. </p>
+            </sectiondiv>
+            <p>Before you attempt to use the lifecycle manager to install RHEL on UEFI nodes, you
+                should install any Linux for HPE Helion nodes or any RHEL on legacy BIOS nodes
+                first.</p>
+            <p> Execute the following steps to re-image one or more nodes after you have run the
+                    <codeph>ready-deployment.yml</codeph> playbook: <ol>
+                    <li>Prior to beginning these steps, the following must be true:<ul
+                            id="ul_eqk_vng_zx">
+                            <li>All of your nodes using Linux for HPE Helion (controller, VSA, etc
+                                nodes) must already be installed, either manually for via
+                                Cobbler.</li>
+                            <li>Your input model should be configured for your RHEL nodes, per the
+                                instructions at <xref keyref="rhel_compute_model"> RHEL Compute
+                                    Model</xref>.</li>
+                            <li>You should have run the configuration processor and the
+                                    <codeph>ready-deployment.yml</codeph> playbook.</li>
+                        </ul></li>
+                    <li>Run the following playbook, which will extract the
+                            <codeph>grubx64.efi</codeph> file which will be needed when imaging your
+                        RHEL UEFI
+                        nodes.<codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook prepare-rhel-loader.yml</codeblock></li>
+                    <li>Run the following playbook, ensuring that you specify only your UEFI RHEL
+                        nodes using the nodelist. This playbook will reconfigure Cobbler for the
+                        nodes
+                        listed.<codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook prepare-rhel-grub2.yml -e nodelist=node1[,node2,node3]</codeblock></li>
+                    <li>Re-image the node(s), ensuring that you only specify your UEFI RHEL nodes
+                        using the
+                        nodelist.<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost bm-reimage.yml -e nodelist=node1[,node2,node3]</codeblock></li>
+                    <li>Make backups of the <codeph>grub.cfg-*</codeph> and
+                            <codeph>grubx64.efi</codeph> files in <codeph>/srv/tftp/grub/</codeph>
+                        as they will be overwritten when running the cobbler-deploy playbook on the
+                        next step. You will need these files if you need to reimage the nodes in the
+                        future.</li>
+                    <li>Run the <codeph>cobbler-deploy</codeph> playbook, which will reset Cobbler
+                        back to the default
+                        values:<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost cobbler-deploy.yml</codeblock></li>
+                </ol>
+            </p>
+ 
+            <p><b>UEFI Secure Boot</b></p>
+            <p>Secure Boot is a method used to restrict binaries execution for
+                booting the system. With this option enabled, system BIOS will only allow boot
+                loaders with trusted cryptographic signatures to be executed, thus enable
+                preventing malware from hiding embedded code in the boot chain. Each boot loader
+                launched during the boot process is digitally signed and that signature is
+                validated against a set of trusted certificates embedded in the UEFI BIOS.
+                Secure Boot is completely implemented in the BIOS and does not require special
+                hardware.</p>
+            <p>Thus Secure Boot is: </p>
+            <ol>
+                <li>Intended to prevent boot-sector malware or kernel code injection.</li>
+                <li>Hardware-based code signing.</li>
+                <li>Extension of the UEFI BIOS architecture.</li>
+                <li>Optional with the ability to enable or disable it through the BIOS.</li>
+            </ol>
+            <p>In Boot Options of RBSU, <codeph>Boot Mode</codeph> needs to be set to
+                <codeph>UEFI Mode</codeph> and <codeph>UEFI Optimized Boot</codeph> should
+                be <codeph>Enabled</codeph>. </p>
+            <p> Secure Boot is enabled at
+                <codeblock>System Configuration > BIOS/Platform Configuration (RBSU) > Server Security > Secure Boot Configuration > Secure Boot Enforcement
+                </codeblock>
+            </p>
+            
+            
+            
+            
+        </section>
+
+    </body>
+</topic>

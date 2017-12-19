@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+  <!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="troubleshootingHeat">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Heat Troubleshooting</title>
+  <abstract><shortdesc outputclass="hdphidden">Troubleshooting scenarios with resolutions for the
+      Heat service.</shortdesc>This page describes troubleshooting scenarios for Heat.</abstract>
+  <body>
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <section>
+      <title>RPC timeout on Heat stack creation</title>
+      <p>If you exerience a remote procedure call (RPC) timeout failure when attempting heat
+        stack-create, you can work around the issue by increasing the timeout value and purging
+        records of deleted stacks from the database. To do so, follow the steps below. An example of
+        the error is:</p>
+      <codeblock>MessagingTimeout: resources.XXX-LCP-Pair01.resources[0]: Timed out waiting for a reply to message ID e861c4e0d9d74f2ea77d3ec1984c5cb6</codeblock>
+      <ol>
+        <li>Increase the timeout value. <codeblock>cd ~/helion/my_cloud/config/heat</codeblock>
+        </li>
+        <li>Make changes to heat config files. In heat.conf.j2 add this timeout
+          value:<codeblock>rpc_response_timeout=300</codeblock> Commit your
+          changes<codeblock>git commit -a -m "some message"</codeblock></li>
+        <li>Move to ansible directory and run the following
+          playbooks:<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+        <li>Change to the scratch directory and run heat-reconfigure:
+          <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts heat-reconfigure.yml</codeblock></li>
+        <li>Purge records of deleted stacks from the database. First delete all stacks that are in
+          failed state. Then execute the following
+          <codeblock>sudo /opt/stack/venv/heat-20151116T000451Z/bin/python2 
+/opt/stack/service/heat-engine/venv/bin/heat-manage 
+--config-file /opt/stack/service/heat-engine-20151116T000451Z/etc/heat/heat.conf 
+--config-file /opt/stack/service/heat-engine-20151116T000451Z/etc/heat/engine.conf purge_deleted 0</codeblock></li>
+      </ol>
+    </section>
+    <section>
+      <title>General Heat stack creation errors</title>
+      <p>In Heat, in general when a timeout occurs it means that the underlying resource service
+        such as Nova, Neutron, or Cinder, fails to complete the required action. No matter what
+        error this underlying service reports, Heat simply reports it back. So in the case of
+        time-out in Heat stack create, you should look at the logs of the underlying services, most
+        importantly the Nova service, to understand the reason for the timeout.</p>
+    </section>
+   
+   <section id="heat_stack_create_failure">
+     <title>Multiple Heat stack create failure</title>
+     <p>The Monasca AlarmDefinition resource, <codeph>OS::Monasca::AlarmDefinition</codeph> used for
+        Heat autoscaling, consists of an optional property <b>name</b> for defining the alarm name. In
+        case this optional property being specified in the Heat template, this name must be unique
+        in the same project of the system. Otherwise, multiple heat stack create using this heat
+        template will fail with the following conflict:
+        <codeblock>| cpu_alarm_low  | 5fe0151b-5c6a-4a54-bd64-67405336a740 | HTTPConflict: resources.cpu_alarm_low: An alarm definition already exists for project / tenant: 835d6aeeb36249b88903b25ed3d2e55a named: CPU utilization less than 15 percent  | CREATE_FAILED  | 2016-07-29T10:28:47 |</codeblock>
+      </p>
+      <p>This is due to the fact that the Monasca registers the alarm definition name using this
+        name property when it's defined in the Heat template. This name must be unique.
+      </p>
+     <p>To avoid this problem, if you want to define an alarm name using this property in the 
+       template, you must be sure this name is unique within a project in the system. Otherwise, 
+       you can leave this optional property undefined in your template. In this case, the system 
+       will create an unique alarm name automatically during heat stack create.</p>
+   </section>
+  </body>
+</topic>

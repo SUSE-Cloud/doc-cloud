@@ -1,0 +1,241 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="topic_lfq_3wf_rt">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Removing a Cluster from the Compute Resource
+    Pool</title>
+  <body>
+    <!--not tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <section id="preq"><b>Prerequisites</b>
+      <p>Write down the Hostname and ESXi configuration IP addresses of OVSvAPP VMs of that ESX
+        cluster before deleting the VMs. These IP address and Hostname will be used to cleanup
+        Monasca alarm definitions.</p> Perform the following steps:<ol id="ol_j5m_txk_xx">
+        <li>Login to vSphere client.</li>
+        <li>Select the ovsvapp node running on each ESXi host and click <b>Summary</b> tab as shown
+          in the following example. <p><image href="../../media/esx/esx_hostname.png"
+              id="image_i1t_cr2_xx"/></p><p>Similarly you can retrieve the compute-proxy node
+            information.</p><p><image href="../../media/esx/esx_cluster2.png" id="image_wgh_f1f_xx"
+            /></p></li>
+      </ol></section>
+   
+    <section><title>Removing an existing cluster from the compute resource pool</title>
+    <p>Perform the following steps to remove an existing cluster from the compute resource pool.<ol
+        id="ol_dq1_pwf_rt">
+        <li>Run the following command to check for the instances launched in that
+              cluster:<codeblock># nova list --host &lt;hostname>
++--------------------------------------+---------+--------+------------+-------------+------------------+
+| ID                                   | Name    | Status | Task State | Power State | Networks         |
++--------------------------------------+---------+--------+------------+-------------+------------------+
+| 80e54965-758b-425e-901b-9ea756576331 | HLM-VM1 | ACTIVE | -          | Running     | private=10.0.0.2 |
++--------------------------------------+---------+--------+------------+-------------+------------------+</codeblock><p>where:<ul
+              id="ul_zr4_tqh_rt">
+              <li>
+                <p><b>hostname</b>: Specifies hostname of the compute proxy present in that cluster.
+                  <!--<b>Is of the form &lt;*esx-comp000#-mgmt> (how to get hostname??)</b>--></p>
+              </li>
+            </ul></p></li>
+        <li>Delete all instances spawned in that
+              cluster:<codeblock># nova delete &lt;server> [&lt;server ...>]</codeblock><p>where:<ul
+              id="ul_ckw_crh_rt">
+              <li><b>server</b>: Specifies the name or ID of server (s)</li>
+            </ul></p><p>OR</p><p>Migrate all instances spawned in that
+            cluster.<codeblock># nova migrate &lt;server></codeblock></p></li>
+        <li>Run the following playbooks for stop the Compute (Nova) and Networking (Neutron)
+            services:<codeblock>ansible-playbook -i hosts/verb_hosts nova-stop --limit &lt;hostname>;
+ansible-playbook -i hosts/verb_hosts neutron-stop --limit &lt;hostname>;</codeblock><p>where:
+              <ul id="ul_hll_qrh_rt">
+              <li>
+                <p><b>hostname</b>: Specifies hostname of the compute proxy present in that
+                  cluster.</p>
+              </li>
+            </ul></p></li>
+        <li>Deactivate the ESX Cluster
+            <codeblock>eon resource-deactivate &lt;RESOURCE_ID></codeblock><p>This command deletes
+            the ESX compute proxy, OVSvApp VMs in the cluster, and triggers the ansible
+            playbooks.</p><p><b>Sample
+            Output</b><codeblock>eon resource-deactivate 9ab2196d-37d2-4006-a2c7-08946b5194ea
++-----------------+--------------------------------------+
+| Property        | Value                                |
++-----------------+--------------------------------------+
+| id              | 9ab2196d-37d2-4006-a2c7-08946b5194ea |
+| ip_address      | UNSET                                |
+| name            | compute                              |
+| password        | UNSET                                |
+| port            | UNSET                                |
+| resource_mgr_id | 9FDCFA66-6677-42A1-83FF-16DC32448021 |
+| state           | cleanup-initiated                    |
+| type            | esxcluster                           |
+| username        | UNSET                                |
++-----------------+--------------------------------------+ </codeblock></p><p>Once
+            the deactivation is successful, the state of the cluster is set to
+              <codeph>imported</codeph>.<codeblock>eon resource-list
++--------------------------------------+-----------+-------------+--------------------------------------+------------+-------+------------+------------+
+| ID                                   | Name      | Moid        | Resource Manager ID                  | IP Address | Port  | Type       | State      |
++--------------------------------------+-----------+-------------+--------------------------------------+------------+-------+------------+------------+
+| 9ab2196d-37d2-4006-a2c7-08946b5194ea | compute   | domain-c104 | 9FDCFA66-6677-42A1-83FF-16DC32448021 | UNSET      | UNSET | esxcluster | imported   |
++--------------------------------------+-----------+-------------+--------------------------------------+------------+-------+------------+------------+</codeblock></p></li>
+      </ol></p>
+    </section>
+    <section>
+      <title>Cleanup Monasca Agent for OVSvAPP Service</title>
+      <p>Perform the following procedure to cleanup Monasca agents for ovsvapp-agent service.<ol
+          id="ol_zjn_jnc_xx">
+          <li>If Monasca-API is installed on different node, copy the <codeph>service.orsc</codeph>
+            from lifecycle manager to Monasca API
+            server.<codeblock>scp service.orsc $USER@helion-cp1-mtrmon-m1-mgmt:</codeblock></li>
+          <li>SSH to Monasca API server. You must SSH to each Monasca API server for cleanup. <p>For
+              example:<codeblock>ssh helion-cp1-mtrmon-m1-mgmt</codeblock></p></li>
+          <li>Edit <codeph>/etc/monasca/agent/conf.d/host_alive.yaml</codeph> file to remove the
+            reference to the OVSvAPP you removed. This requires <systemoutput>sudo</systemoutput>
+              access.<codeblock>sudo vi /etc/monasca/agent/conf.d/host_alive.yaml</codeblock><p>A
+              sample of
+              <codeph>host_alive.yaml</codeph>:<codeblock>- alive_test: ping
+  built_by: HostAlive
+  host_name: esx-cp1-esx-ovsvapp0001-mgmt
+  name: esx-cp1-esx-ovsvapp0001-mgmt ping
+  target_hostname: esx-cp1-esx-ovsvapp0001-mgmt </codeblock></p><p>where
+              &lt;host_name and target_hostname> is mentioned at the DNS name field at the vSphere
+              client. (Refer <xref href="#topic_lfq_3wf_rt/preq" format="dita"
+              >prerequisite</xref>).</p></li>
+          <li>After removing the reference on each of the Monasca API servers, restart the
+            monasca-agent on each of those servers by executing the following
+            command.<codeblock>sudo service monasca-agent restart</codeblock></li>
+          <li>With the OVSvAPP references removed and the monasca-agent restarted, you can delete
+            the corresponding alarm to complete the cleanup process. We recommend using the Monasca
+            CLI which is installed on each of your Monasca API servers by default.
+            <!--Source the credentials (<codeph>service.orsc</codeph>) from the lifecycle manager and -->Execute
+            the following command from the Monasca API server (for example:
+              <codeph>helion-cp1-mtrmon-mX-mgmt</codeph>).<codeblock>monasca alarm-list --metric-name host_alive_status --metric-dimensions hostname=&lt;ovsvapp deleted></codeblock><p>For
+              example: You can execute the following command to get the alarm ID, if the OVSvAPP
+              appears as a preceding example.</p><p>
+              <codeblock>monasca alarm-list --metric-name host_alive_status --metric-dimensions hostname=MCP-VCP-cpesx-esx-ovsvapp0001-mgmt
++--------------------------------------+--------------------------------------+-----------------------+-------------------+-------------------------------------------+----------+-------+-----------------+------+--------------------------+--------------------------+--------------------------+
+| id                                   | alarm_definition_id                  | alarm_definition_name | metric_name       | metric_dimensions                         | severity | state | lifecycle_state | link | state_updated_timestamp  | updated_timestamp        | created_timestamp        |
++--------------------------------------+--------------------------------------+-----------------------+-------------------+-------------------------------------------+----------+-------+-----------------+------+--------------------------+--------------------------+--------------------------+
+| cfc6bfa4-2485-4319-b1e5-0107886f4270 | cca96c53-a927-4b0a-9bf3-cb21d28216f3 | Host Status           | host_alive_status | service: system                           | HIGH     | OK    | None            | None | 2016-10-27T06:33:04.256Z | 2016-10-27T06:33:04.256Z | 2016-10-23T13:41:57.258Z |
+|                                      |                                      |                       |                   | cloud_name: entry-scale-kvm-esx-vsa-mml   |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | test_type: ping                           |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | hostname: helion-cp1-esx-ovsvapp0001-mgmt |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | control_plane: control-plane-1            |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | cluster: mtrmon                           |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | observer_host: helion-cp1-mtrmon-m1-mgmt  |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       | host_alive_status | service: system                           |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | cloud_name: entry-scale-kvm-esx-vsa-mml   |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | test_type: ping                           |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | hostname: helion-cp1-esx-ovsvapp0001-mgmt |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | control_plane: control-plane-1            |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | cluster: mtrmon                           |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | observer_host: helion-cp1-mtrmon-m3-mgmt  |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       | host_alive_status | service: system                           |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | cloud_name: entry-scale-kvm-esx-vsa-mml   |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | test_type: ping                           |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | hostname: helion-cp1-esx-ovsvapp0001-mgmt |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | control_plane: control-plane-1            |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | cluster: mtrmon                           |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                       |                   | observer_host: helion-cp1-mtrmon-m2-mgmt  |          |       |                 |      |                          |                          |                          |
++--------------------------------------+--------------------------------------+-----------------------+-------------------+-------------------------------------------+----------+-------+-----------------+------+--------------------------+--------------------------+--------------------------+</codeblock>
+            </p></li>
+          <li>Delete the Monasca
+              alaram.<codeblock>monasca alarm-delete &lt;alarm ID></codeblock><p>For
+              example:<codeblock>monasca alarm-delete cfc6bfa4-2485-4319-b1e5-0107886f4270Successfully deleted alarm </codeblock></p><p>After
+              deleting the alarms and updating the monasca-agent configuration, those alarms will be
+              removed from the Opsconsole UI. You can login to Opconsole and view the
+            status.</p></li>
+        </ol></p>
+    </section>
+    <section>
+      <title>Remove the Compute proxy from Monitoring</title>
+      <p>Once you have removed the Compute proxy, the alarms against them will still trigger.
+        Therefore to resolve this, you must perform the following steps.<ol id="ol_c54_3fk_xx">
+          <li>SSH to Monasca API server. You must SSH to each Monasca API server for cleanup. <p>For
+              example:<codeblock>ssh helion-cp1-mtrmon-m1-mgmt</codeblock></p></li>
+          <li>Edit <codeph>/etc/monasca/agent/conf.d/host_alive.yaml</codeph> file to remove the
+            reference to the Compute proxy you removed. This requires
+              <systemoutput>sudo</systemoutput>
+              access.<codeblock>sudo vi /etc/monasca/agent/conf.d/host_alive.yaml</codeblock><p>A sample of <codeph>host_alive.yaml</codeph>
+              file.<codeblock>- alive_test: ping
+  built_by: HostAlive
+  host_name: MCP-VCP-cpesx-esx-comp0001-mgmt
+  name: MCP-VCP-cpesx-esx-comp0001-mgmt ping</codeblock></p></li>
+          <li>Once you have removed the references on each of your Monasca API servers, execute the
+            following command to restart the monasca-agent on each of those
+            servers.<codeblock>sudo service monasca-agent restart</codeblock></li>
+          <li>With the Compute proxy references removed and the monasca-agent restarted, delete the
+            corresponding alarm to complete this process. complete the cleanup process. We recommend
+            using the Monasca CLI which is installed on each of your Monasca API servers by default.
+              <codeblock>monasca alarm-list --metric-dimensions hostname= &lt;compute node deleted></codeblock><p>For
+              example: You can execute the following command to get the alarm ID, if the Compute
+              proxy appears as a preceding example.</p><p>
+              <codeblock>monasca alarm-list --metric-dimensions hostname=helion-cp1-comp0001-mgmt</codeblock>
+            </p></li>
+          <li>Delete the Monasca alarm<codeblock>monasca alarm-delete &lt;alarm ID></codeblock></li>
+        </ol></p>
+    </section>
+    <section>
+      <title><b>Cleaning the monasca alarms related to ESX proxy and vCenter cluster</b></title>
+      <p>Perform the following procedure:<ol id="ol_e2x_zbk_xx">
+          <li id="one">Using the ESX proxy hostname, execute the following command to list all
+            alarms.
+              <codeblock>monasca alarm-list --metric-dimensions hostname=&lt;compute node deleted&gt;</codeblock><p>where
+              &lt;compute node deleted> - hostname is taken from the vSphere client (refer <xref
+                href="#topic_lfq_3wf_rt/preq" format="dita">prerequisite</xref>).<note>Ensure to
+                make a note of all the alarm IDs that is displayed after executing the preceding
+                command.</note></p><p>For example, the compute proxy hostname is
+                <codeph>MCP-VCP-cpesx-esx-comp0001-mgmt</codeph>.<codeblock>monasca alarm-list --metric-dimensions hostname=MCP-VCP-cpesx-esx-comp0001-mgmt
+stack@R28N6340-701-cp1-c1-m1-mgmt:~$ monasca alarm-list --metric-dimensions hostname=R28N6340-701-cp1-esx-comp0001-mgmt
++--------------------------------------+--------------------------------------+------------------------+------------------------+--------------------------------------------------+----------+-------+-----------------+------+--------------------------+--------------------------+--------------------------+
+| id                                   | alarm_definition_id                  | alarm_definition_name  | metric_name            | metric_dimensions                                | severity | state | lifecycle_state | link | state_updated_timestamp  | updated_timestamp        | created_timestamp        |
++--------------------------------------+--------------------------------------+------------------------+------------------------+--------------------------------------------------+----------+-------+-----------------+------+--------------------------+--------------------------+--------------------------+
+| 02342bcb-da81-40db-a262-09539523c482 | 3e302297-0a36-4f0e-a1bd-03402b937a4e | HTTP Status            | http_status            | service: compute                                 | HIGH     | OK    | None            | None | 2016-11-11T06:58:11.717Z | 2016-11-11T06:58:11.717Z | 2016-11-10T08:55:45.136Z |
+|                                      |                                      |                        |                        | cloud_name: entry-scale-esx-kvm-vsa              |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                        |                        | url: https://10.244.209.9:8774                   |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                        |                        | hostname: R28N6340-701-cp1-esx-comp0001-mgmt     |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                        |                        | component: nova-api                              |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                        |                        | control_plane: control-plane-1                   |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                        |                        | cluster: esx-compute                             |          |       |                 |      |                          |                          |                          |
+| 04cb36ce-0c7c-4b4c-9ebc-c4011e2f6c0a | 15c593de-fa54-4803-bd71-afab95b980a4 | Disk Usage             | disk.space_used_perc   | mount_point: /proc/sys/fs/binfmt_misc            | HIGH     | OK    | None            | None | 2016-11-10T08:52:52.886Z | 2016-11-10T08:52:52.886Z | 2016-11-10T08:51:29.197Z |
+|                                      |                                      |                        |                        | service: system                                  |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                        |                        | cloud_name: entry-scale-esx-kvm-vsa              |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                        |                        | hostname: R28N6340-701-cp1-esx-comp0001-mgmt     |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                        |                        | control_plane: control-plane-1                   |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                        |                        | cluster: esx-compute                             |          |       |                 |      |                          |                          |                          |
+|                                      |                                      |                        |                        | device: systemd-1                                |          |       |                 |      |                          |                          |                          |
++--------------------------------------+--------------------------------------+------------------------+------------------------+--------------------------------------------------+----------+-------+-----------------+------+--------------------------+--------------------------+--------------------------+</codeblock></p></li>
+          <li>Delete the alarm using the alarm
+              IDs.<codeblock>monasca alarm-delete &lt;alarm ID></codeblock><p>This step has to be
+              performed for all alarm IDs listed from the preceding step (<xref
+                href="#topic_lfq_3wf_rt/one" format="dita">1</xref>).</p><p>For
+              Example:<codeblock>monasca alarm-delete 1cc219b1-ce4d-476b-80c2-0cafa53e1a12</codeblock></p></li>
+        </ol></p>
+    </section>
+    <section>
+      <title>[Optional]  Force Deactivate (if there is any irreversible error during
+        deactivation)</title>
+      <p>Cleans-up the OVSvApp and Compute Proxy VM's and updates
+        database.<codeblock>eon resource-deactivate --force true &lt;RESOURCE_ID></codeblock></p>
+      <p>
+        <note type="important">If there is any error while cleaning the OVSvApp and Compute Proxy
+          VM's, the exceptions are ignored and cluster are set to the imported state. If the cluster
+          is not moved back to the imported state, the cluster cannot be activated again. In this
+          case, you need to manually clean-up the VM's.<p>Executing force deactivation of resource
+            command does not clean-up the input model. You must perform the following steps to
+            clean-up the input model:<ol id="ol_gv4_2kd_xw">
+              <li>Login to the lifecycle manager.</li>
+              <li>Remove the entries manually from
+                  <codeph>~/helion/my_cloud/definition/data/servers.yml</codeph> and
+                  <codeph>~/helion/my_cloud/definition/data/passthrough.yml</codeph> files.</li>
+              <li>Commit your
+                changes<codeblock>cd /home/stack/helion/hos/ansible
+git add -A
+git commit -m "commit message>"</codeblock></li>
+              <li>Run the configuration processor
+                <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml -e remove_deleted_servers="y" -e free_unused_addresses="y"</codeblock></li>
+              <li>Run ready
+                deployment<codeblock>ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+            </ol></p></note>
+      </p>
+    </section>
+  </body>
+</topic>

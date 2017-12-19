@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="TLS_MySQL">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Enabling TLS for MySQL Traffic</title>
+  <body>
+    <!--not tested-->
+
+    <!--https://wiki.hpcloud.net/display/core/MySQL+TLS-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <p>Since <keyword keyref="kw-hos-phrase-40"/> MySQL traffic can be encrypted using TLS. For
+      completely new <keyword keyref="kw-hos-phrase"/> deployments using the supplied input model
+      example files, you will have to uncomment the commented entries for
+        <codeph>tls-component-endpoints:</codeph>. For upgrades from a previous version, you will
+      have to add the entries to your input model files if you have not already done so. This topic
+      explains how to do both.</p>
+
+    <section id="client"><title>Enabling TLS on the database server for client access</title>
+      <ol id="start">
+        <li>Edit <codeph>network_groups.yml</codeph> to either add mysql under
+          tls-component-endpoints in your existing file from a previous version, or uncomment it if
+          installing from scratch. <codeblock>tls-component-endpoints: 
+  - mysql</codeblock></li>
+        <li id="deployReconfig">After making the necessary changes, commit the changed file to git
+          and run the config-processor-run and reconfigure Ansible
+          playbooks:<codeblock>cd ~/helion                                                                      
+git add -A                                                                       
+git commit -m "My changed config"                                                        
+cd ~/helion/hos/ansible/                                                                        
+ansible-playbook -i hosts/localhost config-processor-run.yml -e encrypt="&lt;encryption key>" -e rekey=""                                                                               
+ansible-playbook -i hosts/localhost ready-deployment.yml                         
+cd ~/scratch/ansible/next/hos/ansible   </codeblock></li>
+        <li> Next, either run site.yml if you're installing a new system:
+          <codeblock>ansible-playbook -i hosts/verb_hosts site.yml</codeblock></li>
+        <li>or hlm-reconfigure if you are reconfiguring an existing one:
+          <codeblock>ansible-playbook -i hosts/verb_hosts hlm-reconfigure.yml</codeblock>
+        </li>
+      </ol>
+    </section>
+    <section><title>MySQL replication over TLS</title><p>MySQL replication over TLS is disabled.
+        This is true even if you followed the instruction to turn on Mysql TLS in the previous
+        section. Those steps turn on the service interactions to the database. </p><b>Turning on
+        MySQL replication over TLS</b><p><note>Using TLS connections for MySQL replication will
+          incur a performance cost.</note>You should have already enabled TLS for MySQL client
+        interactions in the previous section. If not please read section <xref
+          href="#TLS_MySQL/client" format="dita">Enabling TLS on the DB Server for client
+          access</xref>.</p><p>TLS for MySQL replication is not turned on by default. Therefore, you
+        will need to follow a manual process. Again, the steps are different for new systems and
+        upgrades. </p>
+      <p id="replicationNew"><b>Enabling TLS for MySQL replication on a new deployment</b></p>
+      <ol>
+        <li> Log into the lifecycle manager node and before running the config processor edit the
+            <codeph>~/helion/my_cloud/config/percona/defaults.yml</codeph> file.</li>
+        <li>Search for mysql_gcomms_bind_tls. You should find this section:
+          <codeblock># TLS disabled for cluster                                                       
+#mysql_gcomms_bind_tls: "{{ host.bind['FND_MDB'].mysql_gcomms.tls }}"            
+mysql_gcomms_bind_tls: False</codeblock>
+        </li>
+        <li>Uncomment the appropriate line so the file looks like this:
+          <codeblock># TLS disabled for cluster                                                       
+mysql_gcomms_bind_tls: "{{ host.bind['FND_MDB'].mysql_gcomms.tls }}"            
+mysql_gcomms_bind_tls: False</codeblock>
+        </li>
+        <li>Follow the steps to deploy or reconfigure your cloud (<xref
+            href="#TLS_MySQL/deployReconfig" format="dita">Step 2 under Enabling TLS on the DB
+            Server for client access</xref>).</li>
+      </ol>
+      <b>Enabling TLS for MySQL replication on an existing system</b>
+      <p>If your cluster is already up, perform these steps to enable MySQL replication over
+        TLS:</p>
+      <ol>
+        <li> Edit the following two files:
+            <codeph>~/helion/my_cloud/config/percona/defaults.yml</codeph> and
+            <codeph>~/scratch/ansible/next/hos/ansible/roles/FND-MDB/defaults/main.yml</codeph>.
+          Note that hese files are identical. The first is a master file and the second is a scratch
+          version that's used for the current deployment. Make the same changes as explained in the
+          section above (<xref href="#TLS_MySQL/replicationNew" format="dita">Enabling TLS for MySQL
+            replication on a new deployment</xref>). </li>
+        <li>Then run the following
+          command:<codeblock>ansible-playbook -i hosts/verb_hosts tls-percona-reconfigure.yml</codeblock>After
+          this your MySQL should come up and replicate over TLS. You need to follow this section
+          again if you ever want to switch TLS off for MySQL replication. You also must repeat these
+          steps if any lifecycle operation changes the mysql_gcomms_bind_tls option. </li>
+      </ol>
+    </section>
+    <section><title>Testing whether a service is using TLS</title>Almost all services that have a
+      database are able to communicate over TLS. You can test whether a service, in this example the
+      Identity service (Keystone), is communicating with MySQL over TLS by executing the following steps:<ol>
+        <li>Log into the lifecycle manager as root and run the mysql
+          command.<codeblock>root@&lt;server>:~# mysql</codeblock> Type 'help;' or '\h' for help.
+          Type '\c' to clear the current input statement. </li>
+        <li>Run:<codeblock>mysql> select * from information_schema.user_statistics where user='keystone'\G</codeblock></li>
+        <li>Note the results. TOTAL_SSL_CONNECTIONS should not be
+          zero:<codeblock>*************************** 1. row ***************************
+                  USER: keystone
+     TOTAL_CONNECTIONS: 316
+CONCURRENT_CONNECTIONS: 0
+        CONNECTED_TIME: 905790
+             BUSY_TIME: 205
+              CPU_TIME: 141
+        BYTES_RECEIVED: 197137617
+            BYTES_SENT: 801964
+  BINLOG_BYTES_WRITTEN: 0
+          ROWS_FETCHED: 972421
+          ROWS_UPDATED: 6893
+       TABLE_ROWS_READ: 1025866
+       SELECT_COMMANDS: 660209
+       UPDATE_COMMANDS: 3039
+        OTHER_COMMANDS: 299746
+   COMMIT_TRANSACTIONS: 0
+ ROLLBACK_TRANSACTIONS: 295200
+    DENIED_CONNECTIONS: 0
+      LOST_CONNECTIONS: 83
+         ACCESS_DENIED: 0
+         EMPTY_QUERIES: 71778
+ TOTAL_SSL_CONNECTIONS: 298
+1 row in set (0.00 sec)
+ 
+mysql></codeblock></li>
+      </ol>
+    </section>
+  </body>
+</topic>

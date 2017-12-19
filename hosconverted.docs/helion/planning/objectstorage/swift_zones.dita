@@ -1,0 +1,219 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="designing_swift_zones">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Designing Swift Zones</title>
+  <body>
+    <!--not tested-->
+    <section id="overview">
+      <title>Swift Zones Overview</title>
+      <p>The concept of Swift zones allows you to control the placement of replicas on different
+        groups of servers. When constructing rings and allocating replicas to specific disk drives,
+        Swift will, where possible, allocate replicas using the following hierarchy so that the
+        greatest amount of resiliency is achieved by avoiding single points of failure:</p>
+      <ul>
+        <li>Swift will place each replica on a different disk drive within the same server.</li>
+        <li>Swift will place each replica on a different server.</li>
+        <li>Swift will place each replica in a different Swift zone.</li>
+      </ul>
+      <p>If you have three servers and a replica count of three, it is easy for Swift to place each
+        replica on a different server. If you only have two servers though, Swift will place two
+        replicas on one server (different drives on the server) and one copy on the other
+        server.</p>
+      <p>With only three servers there is no need to use the Swift zone concept. However, if you
+        have more servers than your replica count, the Swift zone concept can be used to control the
+        degree of resiliency. The following table shows how data is placed and explains what happens
+        under various failure scenarios. In all cases, a replica count of three is assumed and that
+        there are a total of six servers.</p>
+      <table frame="all" rowsep="1" colsep="1" id="table_orp_vh1_cv">
+        <tgroup cols="4">
+          <colspec colname="c1" colnum="1"/>
+          <colspec colname="c2" colnum="2"/>
+          <colspec colname="c3" colnum="3"/>
+          <colspec colname="c4" colnum="4"/>
+          <thead>
+            <row>
+              <entry>Number of Swift Zones</entry>
+              <entry>Replica Placement</entry>
+              <entry>Failure Scenarios</entry>
+              <entry>Details</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry morerows="2">One (all servers in the same zone)</entry>
+              <entry morerows="2">Replicas are placed on different servers. For any given object,
+                you have no control over which servers the replicas are placed on.</entry>
+              <entry>One server fails</entry>
+              <entry>You are guaranteed that there are two other replicas.</entry>
+            </row>
+            <row>
+              <entry>Two servers fail</entry>
+              <entry>You are guaranteed that there is one remaining replica.</entry>
+            </row>
+            <row>
+              <entry>Three servers fail</entry>
+              <entry>1/3 of the objects cannot be accessed. 2/3 of the objects have three
+                replicas.</entry>
+            </row>
+            <row>
+              <entry>Two (three servers in each Swift zone)</entry>
+              <entry>Half the objects have two replicas in Swift zone 1 with one replica in Swift
+                zone 2. The other objects are reversed, with one replica in Swift zone 1 and two
+                replicas in Swift zone 2.</entry>
+              <entry>One Swift zone fails</entry>
+              <entry>You are guaranteed to have at least one replica. Half the objects have two
+                remaining replicas and the other half have a single replica.</entry>
+            </row>
+            <row>
+              <entry morerows="1">Three (two servers in each Swift zone)</entry>
+              <entry morerows="1">Each zone contains a replica. For any given object, there is a
+                replica in each Swift zone.</entry>
+              <entry>One Swift zone fails</entry>
+              <entry>You are guaranteed to have two replicas of every object.</entry>
+            </row>
+            <row>
+              <entry>Two Swift zones fail</entry>
+              <entry>You are guaranteed to have one replica of every object.</entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </table>
+    </section>
+
+    <section id="intro">
+      <p>The following sections show examples of how to specify the Swift zones in your input
+        model.</p>
+    </section>
+
+    <section id="expandCollapse">     <sectiondiv outputclass="expandall">Expand All
+        Sections</sectiondiv>     <sectiondiv outputclass="collapseall">Collapse All
+        Sections</sectiondiv>   </section>
+
+    <section id="server_groups"><title outputclass="headerH">Using Server Groups to Specify Swift
+        Zones</title>
+      <sectiondiv outputclass="insideSection">
+        <p>Swift zones are specified in the ring specifications using the server group concept. To
+          define a Swift zone, you specify:</p>
+        <ul>
+          <li>An id - this is the Swift zone number</li>
+          <li>A list of associated server groups</li>
+        </ul>
+        <p>Server groups are defined in your input model. The example input models typically define
+          a number of server groups. You can use these pre-defined server groups or create your
+          own.</p>
+        <p>For example, the following three models use the example server groups
+            <codeph>CLOUD</codeph>, <codeph>AZ1</codeph>, <codeph>AZ2</codeph> and
+            <codeph>AZ3</codeph>. Each of these examples achieves the same effect – creating a
+          single Swift zone.</p>
+        <p>
+          <simpletable frame="all" relcolwidth="1.0* 1.0* 1.0*" id="simpletable_edm_bcc_cv">
+            <strow>
+              <stentry>
+                <codeblock>ring-specifications:
+  - region: region1
+    swift-zones:
+      - id: 1
+        server-groups:
+          - CLOUD
+    rings:
+      …</codeblock>
+              </stentry>
+              <stentry>
+                <codeblock>ring-specifications:
+  - region: region1
+    swift-zones:
+     - id: 1
+       server-groups:
+         - AZ1
+         - AZ2
+         - AZ3
+    rings:
+      …</codeblock>
+              </stentry>
+              <stentry>
+                <codeblock>server-groups:
+  - name: ZONE_ONE
+    server-groups:
+       - AZ1
+       - AZ2
+       - AZ3
+ring-specifications:
+  - region: region1
+    swift-zones:
+       - id: 1
+         server-groups:
+            - ZONE_ONE
+    rings:
+       …</codeblock>
+              </stentry>
+            </strow>
+          </simpletable>
+        </p>
+        <p>Alternatively, if you omit the <codeph>swift-zones</codeph> specification, a single Swift
+          zone is used by default for all servers.</p>
+        <p>In the following example, three Swift zones are specified and mapped to the same
+          availability zones that Nova uses (assuming you are using one of the example input
+          models):</p>
+        <codeblock>ring-specifications:
+  - region: region1
+    swift-zones:
+      - id: 1
+        server-groups:
+          - AZ1
+      - id: 2
+        server-groups:
+          - AZ2
+      - id: 3
+        server-groups:
+          - AZ3</codeblock>
+        <p>In this example, it shows a datacenter with four availability zones which are mapped to
+          two Swift zones. This type of setup may be used if you had two buildings where each
+          building has a duplicated network infrastructure:</p>
+        <codeblock>ring-specifications:
+  - region: region1
+    swift-zones:
+      - id: 1
+        server-groups:
+           - AZ1
+           - AZ2
+      - id: 2
+        server-groups:
+           - AZ3
+           - AZ4</codeblock>
+      </sectiondiv>
+    </section>
+
+    <section id="zones_ring_level"><title outputclass="headerH">Specifying Swift Zones at Ring
+        Level</title>
+      <sectiondiv outputclass="insideSection">
+        <p>Usually, you would use the same Swift zone layout for all rings in your system. However,
+          it is possible to specify a different layout for a given ring. The following example shows
+          that the account, container and object-0 rings have two zones, but the object-1 ring has a
+          single zone.</p>
+        <codeblock>ring-specifications:
+  - region: region1
+    swift-zones:
+      - id: 1
+        server-groups:
+           - AZ1
+      - id: 2
+        server-groups:
+           - AZ2
+    rings
+      - name: account
+        …
+      - name: container
+        …
+      - name: object-0
+        …
+      - name: object-1
+        swift-zones:
+          - id: 1
+            server-groups:
+              - CLOUD
+        …</codeblock>
+      </sectiondiv>
+    </section>
+  </body>
+</topic>

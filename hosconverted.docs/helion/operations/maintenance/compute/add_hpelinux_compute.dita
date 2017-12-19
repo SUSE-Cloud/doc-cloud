@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="add_compute_node">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Adding a Linux for HPE Helion Compute
+    Node</title>
+  <abstract><shortdesc outputclass="hdphidden">Adding a Linux for HPE Helion Compute node allows you
+      to add additional capacity for more virtual machines.</shortdesc><p>You may have a need to add
+      additional compute nodes for additional virtual machine capacity and these steps will help you
+      achieve this.</p>
+    <p>The steps involved are:</p></abstract>
+  <body>
+    <!--not tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <section id="prereqs"><title>Prerequisites</title>
+      <p>You should have one or more baremetal servers that meet the minimum hardware requirements
+        for a compute node which are documented in the <xref
+          href="../../../planning/hw_support_matrix.dita">Hardware Support Matrix</xref>.</p>
+    </section>
+
+    <section id="steps"><title>Adding a compute node</title>
+      <p>These steps will show you how to add the new Compute node to your
+          <codeph>servers.yml</codeph> file and then run the playbooks that update your cloud
+        configuration. You will run these playbooks from the lifecycle manager.</p>
+      <ol>
+        <li>Log in to your lifecycle manager.</li>
+        <li>Checkout the <codeph>site</codeph> branch of your local git so you can begin to make the
+          necessary edits:
+          <codeblock>cd ~/helion/my_cloud/definition/data
+git checkout site</codeblock></li>
+        <li>Edit your <codeph>~/helion/my_cloud/definition/data/servers.yml</codeph> file to include
+          the details about your new compute node(s). <p>For example, if you already had a cluster
+            of three compute nodes and needed to add a fourth one you would add your details to the
+            bottom of the file in this
+            format:</p><codeblock># Compute Nodes
+- id: compute1
+  ip-addr: 10.13.111.137
+  role: COMPUTE-ROLE
+  server-group: RACK1
+  nic-mapping: HP-DL360-4PORT
+  mac-addr: f0:92:1c:05:69:98
+  ilo-ip: 192.168.9.4
+  ilo-password: password
+  ilo-user: admin</codeblock><p>You
+            can find detailed descriptions of these fields <xref keyref="configobj_servers"
+              >here</xref>.</p><note type="important">You will need to verify that the
+              <codeph>ip-addr</codeph> value you choose for this node does not conflict with any
+            other IP address in your cloud environment. You can confirm this by checking the
+              <codeph>~/helion/my_cloud/info/address_info.yml</codeph> file on your lifecycle
+            manager.</note></li>
+        <li>In your <codeph>~/helion/my_cloud/definition/data/control_plane.yml</codeph> file you
+          will need to check the values for <codeph>member-count</codeph>,
+            <codeph>min-count</codeph>, and <codeph>max-count</codeph>. If you specified them,
+          ensure that they match up with your new total node count. For example, if you had
+          previously specified <codeph>member-count: 3</codeph> and are adding a fourth Compute
+          node, you will need to change that value to <codeph>member-count: 4</codeph>. <p>See <xref
+              keyref="configobj_controlplane">Input Model - Control Plane</xref> for more
+            details.</p></li>
+        <li>Commit the changes to git:
+          <codeblock>git add -A
+git commit -a -m "Add node &lt;name>"</codeblock></li>
+        <li>Run the configuration processor and resolve any errors that are indicated:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+        <li>Add the new node into Cobbler:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost cobbler-deploy.yml</codeblock></li>
+        <li>Then you can image the node:
+            <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost bm-reimage.yml -e nodelist=&#60;node name></codeblock><note>If
+            you don't know the <codeph>&#60;node name></codeph> already, you can get it by using
+              <codeph>sudo cobbler system list</codeph></note><p>Before proceeding, you may want to
+            take a look at <codeph>~/helion/my_cloud/info/server_info.yml</codeph> to see if the
+            assignment of the node you have added is what you expect. It may not be, as nodes will
+            not be numbered consecutively if any have previously been removed. This is to prevent
+            loss of data; the config processor retains data about removed nodes and keeps their ID
+            numbers from being reallocated. See the Persisted Server Allocations section in <xref
+              keyref="persisteddata/persistedserverallocations">Input Model</xref> for information
+            on how this works.</p></li>
+        <li>Update your deployment directory:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+        <li>[OPTIONAL] - Run the <codeph>wipe_disks.yml</codeph> playbook to ensure all of your
+          partitions on your nodes are completely wiped prior to continuing with the installation:
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible/
+ansible-playbook -i hosts/verb_hosts wipe_disks.yml --limit &#60;hostname></codeblock><note>You
+            can obtain the <codeph>&#60;hostname></codeph> from the
+              <codeph>~/scratch/ansible/next/hos/ansible/hosts/verb_hosts</codeph> file.</note></li>
+        <li>Complete the compute host deployment with these two playbooks. For the last one, ensure
+          you specify the compute hosts you are added with the <codeph>--limit</codeph> switch:
+          <codeblock>cd ~/scratch/ansible/next/hos/ansible/
+ansible-playbook -i hosts/verb_hosts site.yml --tag "generate_hosts_file"
+ansible-playbook -i hosts/verb_hosts site.yml --limit &lt;hostname></codeblock></li>
+      </ol>
+    </section>
+
+    <section id="monitoring"><title>Adding a new compute host to monitoring</title>
+      <p>If you want to add a new Compute host to the monitoring service checks, there is an
+        additional playbook that must be run to ensure this happens:</p>
+      <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts monasca-deploy.yml --tags active_ping_checks</codeblock>
+    </section>
+
+    <section id="az"><title>Adding a new compute host to an availability zone</title>
+      <p>If you have configured availability zones for your compute hosts, you will need to do these
+        additional steps to ensure your added compute hosts are placed into availability zones. If
+        you skip this step, the hosts will be placed into a general <codeph>nova</codeph>
+        availability zone.</p>
+      <ol>
+        <li>Log in to the lifeycle manager.</li>
+        <li>Source the admin credentials to run the
+          commands:<codeblock>source ~/service.osrc</codeblock></li>
+        <li>Get a list of availability zones to get their status:
+            <codeblock>nova availability-zone-list</codeblock><codeblock>+-----------------------------+----------------------------------------+
+| Name                        | Status                                 |
++-----------------------------+----------------------------------------+
+| internal                    | available                              |
+| |- helion-cp1-c1-m1-mgmt    |                                        |
+| | |- nova-conductor         | enabled :-) 2015-11-21T17:35:44.000000 |
+| | |- nova-scheduler         | enabled :-) 2015-11-21T17:35:42.000000 |
+| | |- nova-consoleauth       | enabled :-) 2015-11-21T17:35:46.000000 |
+| |- helion-cp1-c1-m2-mgmt    |                                        |
+| | |- nova-conductor         | enabled :-) 2015-11-21T17:35:40.000000 |
+| | |- nova-scheduler         | enabled :-) 2015-11-21T17:35:46.000000 |
+| |- helion-cp1-c1-m3-mgmt    |                                        |
+| | |- nova-conductor         | enabled :-) 2015-11-21T17:35:41.000000 |
+| | |- nova-scheduler         | enabled :-) 2015-11-21T17:35:40.000000 |
+| AZ1                         | available                              |
+| |- helion-cp1-comp0001-mgmt |                                        |
+| | |- nova-compute           | enabled :-) 2015-11-21T17:35:43.000000 |
+| nova                        | available                              |
+| |- helion-cp1-comp0002-mgmt |                                        |
+| | |- nova-compute           | enabled :-) 2015-11-21T17:35:43.000000 |
++-----------------------------+----------------------------------------+</codeblock><p>Notice
+            that your new compute host is showing up under the <codeph>nova</codeph>
+          section.</p></li>
+        <li>Then run the <codeph>nova-cloud-configure.yml</codeph> playbook to update the Nova
+          availability zones:
+          <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts nova-cloud-configure.yml</codeblock></li>
+        <li>Get a list of availability zones again to verify that the new host is in the right
+          availability zone now.
+            <codeblock>nova availability-zone-list</codeblock><codeblock>+-----------------------------+----------------------------------------+
+| Name                        | Status                                 |
++-----------------------------+----------------------------------------+
+| internal                    | available                              |
+| |- helion-cp1-c1-m1-mgmt    |                                        |
+| | |- nova-conductor         | enabled :-) 2015-11-21T17:35:44.000000 |
+| | |- nova-scheduler         | enabled :-) 2015-11-21T17:35:42.000000 |
+| | |- nova-consoleauth       | enabled :-) 2015-11-21T17:35:46.000000 |
+| |- helion-cp1-c1-m2-mgmt    |                                        |
+| | |- nova-conductor         | enabled :-) 2015-11-21T17:35:40.000000 |
+| | |- nova-scheduler         | enabled :-) 2015-11-21T17:35:46.000000 |
+| |- helion-cp1-c1-m3-mgmt    |                                        |
+| | |- nova-conductor         | enabled :-) 2015-11-21T17:35:41.000000 |
+| | |- nova-scheduler         | enabled :-) 2015-11-21T17:35:40.000000 |
+| AZ1                         | available                              |
+| |- helion-cp1-comp0001-mgmt |                                        |
+| | |- nova-compute           | enabled :-) 2015-11-21T17:35:43.000000 |
+| AZ2                         | available                              |
+| |- helion-cp1-comp0002-mgmt |                                        |
+| | |- nova-compute           | enabled :-) 2015-11-21T17:35:43.000000 |
++-----------------------------+----------------------------------------+</codeblock><p>Now
+            the new compute host is showing up under the <codeph>AZ2</codeph> section.</p></li>
+      </ol>
+    </section>
+
+    <section id="servernames"><title>Notes about server names and IDs</title>
+      <p>The server ID is a name the administrator assigns to an entry in the
+          <codeph>servers.yml</codeph> file. When the configuration processor is run against the
+          <codeph>servers.yml</codeph> file it will generate or update the
+          <codeph>~/helion/my_cloud/info/server_info.yml</codeph> file which contains the mapping
+        between the entry in the <codeph>servers.yml</codeph> file and the machine entity created in
+        your cloud as seen in the output from <codeph>nova service-list</codeph>.</p>
+      <p>For example, here is a sample of a <codeph>servers.yml</codeph> file:</p>
+      <codeblock># Compute Nodes
+- id: compute1
+  ip-addr: 10.13.111.137
+  role: COMPUTE-ROLE
+  server-group: RACK1
+  nic-mapping: DL360p_G8_2Port
+  mac-addr: f0:92:1c:05:69:98
+  ilo-ip: 10.12.11.173
+  ilo-password: password
+  ilo-user: admin</codeblock>
+      <p>In the server_info.yml file it is mapped to the <codeph>helion-cp1-comp0001-mgmt</codeph>
+        seen below:</p>
+      <codeblock>compute1:
+   failure-zone: AZ1
+   hostname: helion-cp1-comp0001-mgmt
+   net_data:
+      hed1:
+          EXTERNAL-VM-NET:
+             addr: null
+             tagged-vlan: true
+             vlan-id: 1874
+          GUEST-NET:
+             addr: 10.13.111.203
+             tagged-vlan: true
+             vlan-id: 1873
+          MANAGEMENT-NET:
+             addr: 10.13.111.137
+             tagged-vlan: false
+             vlan-id: 1872
+   state: allocated        </codeblock>
+      <p>So when doing a <codeph>nova service-list</codeph> or <codeph>nova hypervisor-list</codeph>
+        commands you can map the hosts shown there to items in the <codeph>servers.yml</codeph> file
+        by looking for them in <codeph>server_info.yml</codeph> per the advice above.</p>
+      <p>Example output of <codeph>nova service-list</codeph>:</p>
+      <codeblock>$ nova service-list
++----+------------------+--------------------------+----------+---------+-------+----------------------------+-----------------+
+| Id | Binary           | Host                     | Zone     | Status  | State | Updated_at                 | Disabled Reason |
++----+------------------+--------------------------+----------+---------+-------+----------------------------+-----------------+
+| 1  | nova-conductor   | helion-cp1-c1-m1-mgmt    | internal | enabled | up    | 2015-11-21T18:39:14.000000 | -               |
+| 10 | nova-scheduler   | helion-cp1-c1-m1-mgmt    | internal | enabled | up    | 2015-11-21T18:39:12.000000 | -               |
+| 13 | nova-conductor   | helion-cp1-c1-m3-mgmt    | internal | enabled | up    | 2015-11-21T18:39:11.000000 | -               |
+| 16 | nova-conductor   | helion-cp1-c1-m2-mgmt    | internal | enabled | up    | 2015-11-21T18:39:10.000000 | -               |
+| 25 | nova-consoleauth | helion-cp1-c1-m1-mgmt    | internal | enabled | up    | 2015-11-21T18:39:16.000000 | -               |
+| 28 | nova-scheduler   | helion-cp1-c1-m2-mgmt    | internal | enabled | up    | 2015-11-21T18:39:16.000000 | -               |
+| 31 | nova-scheduler   | helion-cp1-c1-m3-mgmt    | internal | enabled | up    | 2015-11-21T18:39:10.000000 | -               |
+| 34 | nova-compute     | helion-cp1-comp0001-mgmt | AZ1      | enabled | up    | 2015-11-21T18:39:13.000000 | -               |
+| 37 | nova-compute     | helion-cp1-comp0002-mgmt | AZ2      | enabled | up    | 2015-11-21T18:39:11.000000 | -               |
++----+------------------+--------------------------+----------+---------+-------+----------------------------+-----------------+</codeblock>
+      <p>Example output of <codeph>nova hypervisor-list</codeph>:</p>
+      <codeblock>$ nova hypervisor-list
++----+--------------------------+-------+---------+
+| ID | Hypervisor hostname      | State | Status  |
++----+--------------------------+-------+---------+
+| 1  | helion-cp1-comp0001-mgmt | up    | enabled |
+| 4  | helion-cp1-comp0002-mgmt | up    | enabled |
++----+--------------------------+-------+---------+</codeblock>
+    </section>
+  </body>
+</topic>

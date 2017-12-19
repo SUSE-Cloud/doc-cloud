@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic xml:lang="en-us" id="configure_glance">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Configuring the Image Service</title>
+  <abstract><shortdesc outputclass="hdphidden">The image service, based on OpenStack Glance, works
+      out of the box and does not need any special configuration. However, we show you how to enable
+      Glance image caching as well as how to configure your environment to allow the Glance
+      copy-from feature if you should choose to do so.</shortdesc>The image service, based on
+    OpenStack Glance, works out of the box and does not need any special configuration. However,
+    there are a few features detailed below that if you wish to use will require some additional
+    configuration.</abstract>
+  <body>
+    
+    <section id="image_warning">
+      <p>
+        <note type="warning">
+          <p>Glance images are assigned IDs upon creation, either automatically or
+            specified by the user. The ID of an image should be unique, so if a user
+            assigns an ID which already exists, a conflict (409) will occur.
+          </p>
+          <p>This only becomes a problem if users can publicize or share images with
+            others. If users can share images AND cannot publicize images then your system
+            is not vulnerable. If the system has also been purged (via 'glance-manage db
+            purge') then it is possible for deleted image IDs to be reused.
+          </p>
+          <p>If deleted image IDs can be reused then recycling of public and shared images
+          becomes a possibility. This means that a new (or modified) image can replace
+          an old image, which could be malicious.
+          </p>
+          <p>If this is a problem for you, please contact HPE.</p>
+        </note>
+      </p>  
+    </section>
+
+    <section id="expandCollapse">
+      <sectiondiv outputclass="expandall">Expand All Sections</sectiondiv>
+      <sectiondiv outputclass="collapseall">Collapse All Sections</sectiondiv>
+    </section>
+
+    <section id="config"><title outputclass="headerH">How to enable Glance image caching</title>
+      <sectiondiv outputclass="insideSection">
+        <p>In <keyword keyref="kw-hos-phrase"/>, by default, the Glance image caching option is not
+          enabled. You have the option to have image caching enabled and these steps will show you
+          how to do that.</p>
+        <p>The main benefits to using image caching is that it will allow the Glance service to
+          return the images faster and it will cause less load on other services to supply the
+          image.</p>
+        <p>In order to use the image caching option you will need to supply a logical volume for the
+          service to use for the caching.</p>
+        <p>If you wish to use the Glance image caching option, you will see the section below in
+          your <codeph>~/helion/my_cloud/definition/data/disks_controller.yml</codeph> file. You
+          will specify the mount point for the logical volume you wish to use for this.</p>
+        <ol>
+          <li>Log in to the lifecycle manager.</li>
+          <li>Edit your <codeph>~/helion/my_cloud/definition/data/disks_controller.yml</codeph> file
+            and specify the volume and mount point for your glance-cache. Here is
+            example:<codeblock># Glance cache: if a logical volume with consumer usage 'glance-cache'
+# is defined Glance caching will be enabled. The logical volume can be
+# part of an existing volume group or a dedicated volume group.
+ - name: glance-vg
+   physical-volumes:
+     - /dev/sdx
+   logical-volumes:
+     - name: glance-cache
+       size: 95%
+       mount: /var/lib/glance/cache
+       fstype: ext4
+       mkfs-opts: -O large_file
+       consumer:
+         name: glance-api
+         usage: glance-cache</codeblock>
+            If you are enabling image caching during your initial installation, prior to running
+              <codeph>site.yml</codeph> the first time, then continue with the installation steps.
+            However, if you are making this change post-installation then you will need to commit
+            your changes with the steps below.</li>
+          <li>Commit your configuration to the <xref href="../../installation/using_git.dita">local
+              git repo</xref>, as follows:
+            <codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -m "My config or other commit message"</codeblock></li>
+          <li>Run the configuration processor:
+            <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+          <li>Update your deployment directory:
+            <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+          <li>Run the Glance reconfigure playbook:
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts glance-reconfigure.yml</codeblock></li>
+        </ol>
+      </sectiondiv>
+    </section>
+
+    <section id="copyfrom"><title outputclass="headerH">Allowing the Glance copy-from option in your
+        environment</title>
+      <sectiondiv outputclass="insideSection">
+        <p>When creating images, one of the options you have is to copy the image from a remote
+          location to your local Glance store. You do this by specifying the
+            <codeph>--copy-from</codeph> option when creating the image. To use this feature though
+          you need to ensure the following conditions are met:</p>
+        <ul>
+          <li>The server hosting the Glance service must have network access to the remote location
+            that is hosting the image.</li>
+          <li>There cannot be a proxy between Glance and the remote location.</li>
+          <li>The Glance v1 API must be enabled, as v2 does not currently support the
+              <codeph>copy-from</codeph> function.</li>
+          <li>The http Glance store must be enabled in the environment, following the steps
+            below.</li>
+        </ul>
+        <sectiondiv><p><b>Enabling the HTTP Glance Store</b></p>
+          <p>
+            <ol>
+              <li>Log in to the lifecycle manager.</li>
+              <li>Edit the <codeph>~/helion/my_cloud/config/glance/glance-api.conf.j2</codeph> file
+                and add <codeph>http</codeph> to the list of Glance stores in the
+                  <codeph>[glance_store]</codeph> section as seen below in bold:
+                <codeblock>[glance_store]
+stores = {{ glance_stores }}<b>, http</b></codeblock></li>
+              <li>Commit your configuration to the <xref href="../../installation/using_git.dita"
+                  >local git repo</xref>, as follows:
+                <codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -m "My config or other commit message"</codeblock></li>
+              <li>Run the configuration processor:
+                <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+              <li>Update your deployment directory:
+                <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+              <li>Run the Glance reconfigure playbook:
+                <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts glance-reconfigure.yml</codeblock></li>
+              <li>Run the Horizon reconfigure
+                playbook:<codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts horizon-reconfigure.yml</codeblock></li>
+            </ol>
+          </p>
+        </sectiondiv>
+      </sectiondiv>
+    </section>
+  </body>
+</topic>

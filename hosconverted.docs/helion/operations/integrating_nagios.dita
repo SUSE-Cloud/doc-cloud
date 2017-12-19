@@ -1,0 +1,260 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="nagios_integration">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Nagios Integration</title>
+  <abstract><shortdesc outputclass="hdphidden">This documentation demonstrates the possible
+      integration between the <keyword keyref="kw-hos-phrase"/> centralized logging solution and
+      Splunk including the steps to setup and forward logs.</shortdesc></abstract>
+  <body>
+    <!-- DOCS-3564 -->
+    <section id="about">
+      <p><keyword keyref="kw-hos"/> cloud operators that are using Nagios or Icinga-based monitoring
+        systems may wish to integrate them with the built-in monitoring infrastructure of HPE Helion
+        OpenStack. Integrating with the existing monitoring processes and procedures will reduce
+        support overhead and avoid duplication. This document describes the different approaches
+        that can be taken to create a well-integrated monitoring dashboard using both
+        technologies.</p>
+      <p><note>This document refers to Nagios but the proposals will work equally well with Icinga,
+          Icinga2, or other Nagios clone monitoring systems.</note></p>
+    </section>
+    <section id="monitoring_overview">
+      <title><keyword keyref="kw-hos"/> monitoring and reporting</title>
+      <p><keyword keyref="kw-hos"/> comes with a monitoring engine (Monasca) and a separate
+        management dashboard (Operations Console). Monasca is extremely scalable, designed to cope
+        with the constant change in monitoring sources and services found in a cloud environment.
+        Monitoring agents running on hosts (physical and virtual) submit data to the Monasca message
+        bus via a RESTful API. Threshold and notification engines then trigger alarms when
+        predefined thresholds are passed. Notification methods are flexible and extendible. Typical
+        examples of notification methods would be emails generated or creating alarms in
+        PagerDuty.</p>
+      <p>While extensible, Monasca is largely focused on monitoring cloud infrastructures rather
+        than traditional environments such as server hardware, network links, switches, etc. For
+        more details about the monitoring service, see <xref href="monitoring.dita"/>.</p>
+      <p>The Operations Console (Ops Console) provides cloud administrators a clear web interfaces
+        to view alarm status, management alarm workflow, and configure alarms and thresholds. For
+        more details about the Ops Console, see <xref href="opsconsole_overview.dita"/>.</p>
+    </section>
+    <section id="nagios">
+      <title>Nagios monitoring and reporting</title>
+      <p>Nagios is an industry leading open source monitoring service with extensive plugins and
+        agents. Nagios checks are either run directly from the monitoring server or run on a remote
+        host via an agent and submit results back to the monitoring server. Whilst Nagios has proven
+        itself as extremely flexible and scalable it requires significant explicit configuration.
+        Using Nagios to monitor guest virtual machines becomes more challenging because virtual
+        machines can be ephemeral which means new virtual machines are created and destroyed
+        regularly. Configuration automation (Chef, Puppet, Ansible etc) can create a more dynamic
+        Nagios setup but they still require the Nagios service to be restarted every time a new host
+        is added.</p>
+      <p>A key benefit of Nagios style monitoring is that it allows for <keyword keyref="kw-hos"/>
+        to be monitored externally, from a user or service perspective. For example, checks can be
+        created to monitor availability of all the API endpoints from external locations or even to
+        create and destroy instances to ensure the entire system is working as expected.</p>
+    </section>
+    <section id="summary">
+      <title>Summary</title>
+      <p>We recognize that most private cloud operators already have existing monitoring solutions
+        in place such as Nagios and Icinga. We recommend that you extend your existing solutions
+        into Monasca or forward Monasca alerts to your existing solution to maximize coverage and
+        reduce risk.</p>
+    </section>
+    <section id="integration_approaches">
+      <title>Integration Approaches</title>
+      <p>Integration between Nagios and Monasca can occur at two levels, at the individual check
+        level or at the management interfaces. Both options are discussed in the following
+        sections.</p>
+      <sectiondiv id="one">
+        <p><b>Running Nagios-style checks in the Monasca agents</b></p>
+        <p><image href="../../media/hos.docs/integrations/nagios/nagios_int1.png"/></p>
+        <p>The Monasca agent is installed on all <keyword keyref="kw-hos"/> servers and includes the
+          ability to execute Nagios-style plugins as well as its own plugin scripts. For this
+          configuration check, plugins need to be installed on the required server then added to the
+          Monasca configuration under <codeph>/etc/monasca/agent/conf.d</codeph>. Care should be
+          taken as plugins that take a long time (greater than 10 seconds) to run can result in the
+          Monasca agent failing to run its own checks in the allotted time and therefore stopping
+          all client monitoring. Issues have been seen with hardware monitoring plugins that can
+          take greater than 30 seconds and any plugins relying on name resolution when DNS services
+          aren’t available. Details on the required Monasca configuration can be found here: <xref
+            href="https://github.com/openstack/monasca-agent/blob/master/docs/Plugins.md#nagios-wrapper"
+            scope="external" format="html">Link</xref>.</p>
+        <p>Use Case:</p>
+        <ul>
+          <li>Local host checking. As an operator I want to run a local monitoring check on my host
+            to check physical hardware. Check status and alert management will be based around the
+            Ops Console, not Nagios.</li>
+        </ul>
+        <p>Limitation</p>
+        <ul>
+          <li>As mentioned earlier, care should be taken to ensure checks don’t introduce load or
+            delays in the Monasca agent check cycle. Additionally, depending on the operating system
+            the node is running, plugins or dependencies may not be available.</li>
+        </ul>
+      </sectiondiv>
+      <sectiondiv id="two">
+        <p><b>Using Nagios as a central dashboard</b></p>
+        <p><image href="../../media/hos.docs/integrations/nagios/nagios_int2.png"/></p>
+        <p>It is possible to create a Nagios-style plugin that will query the Monasca API endpoint
+          for an alarm status to create Nagios alerts and alarms based on Monasca alarms and
+          filters. The following diagram demonstrates how the Monasca alarms appear in Nagios using
+          two approaches, one listing checks by service and the other listing checks by physical
+          host.</p>
+        <p><image href="../../media/hos.docs/integrations/nagios/nagios.png"/></p>
+        <p>In the top section, services have been created under a dummy host,
+            <codeph>monasca_endpoint</codeph>. Each service retrieves all alarms based on defined
+          dimensions, for example the <codeph>hos-compute</codeph> check will return all alarms with
+          the compute (Nova) dimension.</p>
+        <p>In the subsequent section, the physical servers making up the <keyword keyref="kw-hos"/>
+          cluster have been defined and two checks are being run, one to check the server hardware
+          from the Nagios server using a third party plugin and the second to retrieve all monasca
+          alarms related to that host.</p>
+        <p>To build this configuration, a custom Nagios plugin was created with the following
+          options:</p>
+        <codeblock>check_monasca –c &lt;credentials> -d &lt;dimension> -v &lt;value></codeblock>
+        <p>Examples:</p>
+        <p>To check alarms on <codeph>test-ccp-comp001-mgmt</codeph> you would use:</p>
+        <codeblock>check_monasca –c service.osrc –d hostname –v test-ccp-comp001-mgmt</codeblock>
+        <p>To check all Network related alarms, you would use:</p>
+        <codeblock>check_monasca –c service.osrc –d service –v networking</codeblock>
+        <p>Use Cases:</p>
+        <ul>
+          <li>Multiple clouds, integrating <keyword keyref="kw-hos"/> monitoring with existing
+            monitoring – viewing Monasca alerts in Nagios, fully integrating Monasca alarms with
+            Nagios alarms and workflow.</li>
+          <li>If you predominately use a Nagios or Icinga based monitoring environment, Monasca
+            alarm status can be integrated into existing processes and workflows. This approach
+            works best for checks associated with physical servers running the <keyword
+              keyref="kw-hos"/> services.</li>
+          <li>If you have multiple <keyword keyref="kw-hos"/> clusters it allows all of their alarms
+            to be consolidated into a single view, the current version of Ops Console if for a
+            single cluster only.</li>
+        </ul>
+        <p>Limitations</p>
+        <ul>
+          <li>Nagios has a more traditional configuration model that requires checks to belong to
+            predefined services and hosts, this is not well suited in highly dynamic cloud
+            environments where the lifespan of virtual instances can be very short. One possible
+            solution is with Icinga2 which has an API available to dynamically add host and service
+            definitions, the check plugin could be extended to create alarm definitions dynamically
+            as they occur.</li>
+        </ul>
+        <p>Disadvantages</p>
+        <ul>
+          <li>The key disadvantage is that multiple alarms can appear as a single service (e.g. in
+            the screen shot above there are 3 warnings against one service. If an operator
+            acknowledges this alarm and subsequently a 4th warning alarm occurs it wouldn’t generate
+            an alert and could get missed.</li>
+          <li>Care has to be taken that alarms aren’t missed. If the defined checks are only looking
+            for checks in an ALARM status they won’t report undetermined checks that might indicate
+            other issues.</li>
+        </ul>
+      </sectiondiv>
+      <sectiondiv id="three">
+        <p><b>Using Ops Console as central dashboard</b></p>
+        <p><image href="../../media/hos.docs/integrations/nagios/nagios_int3.png"/></p>
+        <p>Nagios has the ability to run custom scripts in response to events. It is therefore
+          possible to write a plugin to update Monasca whenever a Nagios alert occurs. The Ops
+          Console could then be used as a central reporting dashboard for both Monasca and Nagios
+          alarms. The external Nagios alarms can have their own check dimension and could be
+          displayed as a separate group in the Ops Console.</p>
+        <p>Use Cases</p>
+        <ul>
+          <li>Using Ops Console the central monitoring tool.</li>
+        </ul>
+        <p>Disadvantages</p>
+        <ul>
+          <li>The alarm could not be acknowledged from the Ops Console so Nagios could send
+            repetitive notifications unless configured to take this into account.</li>
+        </ul>
+      </sectiondiv>
+      <sectiondiv id="four">
+        <p><b><keyword keyref="kw-hos"/>-specific Nagios Plugins</b></p>
+        <p>Several OpenStack plugin packages exist (see <xref
+            href="https://launchpad.net/ubuntu/+source/nagios-plugins-openstack" format="html"
+            scope="external">here</xref>) that are useful to run from external sources to ensure the
+          overall system is working as expect. Monasca requires some OpenStack components to be
+          working in order to work at all. For example, if Keystone were unavailable then Monasca
+          couldn't authenticate client or console requests. An external service check could
+          highlight this.</p>
+      </sectiondiv>
+    </section>
+    <section id="issues">
+      <title>Common integration issues</title>
+      <p><b>Alarm status differences</b></p>
+      <p>Monasca and Nagios treat alarms and status in different ways and for the two systems to
+        talk there needs to be a mapping between them. The following table details the alarm
+        parameters available for each:</p>
+      <table frame="all" rowsep="1" colsep="1" id="table_jn2_fmf_zw">
+        <tgroup cols="4">
+          <colspec colname="c1" colnum="1"/>
+          <colspec colname="c2" colnum="2"/>
+          <colspec colname="c3" colnum="3"/>
+          <colspec colname="c4" colnum="4"/>
+          <thead>
+            <row>
+              <entry>System</entry>
+              <entry>Status</entry>
+              <entry>Severity</entry>
+              <entry>Details</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry morerows="3">Nagios</entry>
+              <entry>OK</entry>
+              <entry/>
+              <entry>Plugin returned OK with given thresholds</entry>
+            </row>
+            <row>
+              <entry>WARNING</entry>
+              <entry/>
+              <entry>Plugin returned WARNING based on thresholds</entry>
+            </row>
+            <row>
+              <entry>CRITICAL</entry>
+              <entry/>
+              <entry>Plugin returned CRITICAL alarm</entry>
+            </row>
+            <row>
+              <entry>UNKNOWN</entry>
+              <entry/>
+              <entry>Plugin failed</entry>
+            </row>
+            <row>
+              <entry morerows="4">Monasca</entry>
+              <entry>OK</entry>
+              <entry/>
+              <entry>No alarm triggered</entry>
+            </row>
+            <row>
+              <entry>ALARM</entry>
+              <entry>LOW</entry>
+              <entry>Alarm state, LOW impact</entry>
+            </row>
+            <row>
+              <entry>ALARM</entry>
+              <entry>MEDIUM</entry>
+              <entry>Alarm state, MEDIUM impact</entry>
+            </row>
+            <row>
+              <entry>ALARM</entry>
+              <entry>HIGH</entry>
+              <entry>Alarm state, HIGH impact</entry>
+            </row>
+            <row>
+              <entry>UNDETERMINED</entry>
+              <entry/>
+              <entry>No metrics received</entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </table>
+      <p>In the plugin described here, the mapping was created with this flow:</p>
+      <codeblock>Monasca OK -> Nagios OK
+Monasca ALARM ( LOW or MEDIUM ) -> Nagios Warning
+Monasca ALARM ( HIGH ) -> Nagios Critical</codeblock>
+      <p><b>Alarm workflow differences</b></p>
+      <p>In both, system alarms can be acknowledged in the dashboards to indicate they are being
+        worked on (or ignored). Not all the scenarios above will provide the same level of workflow
+        integration.</p>
+    </section>
+  </body>
+</topic>

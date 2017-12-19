@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="hdp_servicenet">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Creating the HPE Helion Development Platform
+    Service Net</title>
+  <body><!--not tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <section id="about">
+      <p>Many of the HPE Helion Development Platform services require the creation of a service
+        network in order to access the cloud control plane. This service network is a
+        VLAN-encapsulated provider network which is fully routable to the <keyword keyref="kw-hos"/>
+        MGMT network.</p>
+      <p>You should complete these steps prior to doing your HPE Helion Development Platform
+        installation.</p>
+    </section>
+    <section id="prereqs"><title>Prerequisites</title>
+      <p>These steps assume you have already allocated a VLAN for the service network prior to
+        beginning these steps.</p>
+    </section>
+
+    <section id="inputmodel"><title>Specifying Your Service Net VLAN in the Input Model</title>
+      <p>You will need to specify your service network in the input model, either during the <xref
+          href="../installation/installing_kvm.dita#install_kvm/configuration">Configure
+          Your Environment</xref> portion of the installation or you can do it post-installation
+        using the steps below.</p>
+      <ol>
+        <li>Log in to your lifecycle manager.</li>
+        <li>Configure your input model to include the service network. This is used to provide
+          routing from management (and potentially other networks) back to the newly created service
+          net. <ol>
+            <li>Ensure that the service network is routable from the management network and that the
+              service network is defined in
+                <codeph>~/helion/my_cloud/definition/data/network_groups.yml</codeph>. <p>Here is an
+                example showing the two new entries you need to make in this file, <b>bold</b>:</p>
+              <codeblock>- name: MANAGEMENT
+  hostname-suffix: mgmt
+  hostname: true
+
+  component-endpoints:
+      - default
+
+  routes:
+      - default
+      <b>- SERVICE</b>
+
+  load-balancers:
+      - provider: ip-cluster
+        name: lb
+        components:
+            - default
+        roles:
+            - internal
+            - admin
+
+   tags:
+      - neutron.networks.vlan:
+        provider-physical-network: physnet1
+
+ <b>- name: SERVICE</b></codeblock></li>
+            <li>Ensure that there is a valid definition for the service network in the
+                <codeph>~/helion/my_cloud/definition/data/networks.yml</codeph> file. <p>The
+                  <codeph>cidr</codeph> and <codeph>gateway</codeph> given must match the values
+                provided when the VLAN was created.</p>
+              <p>Here is an example showing the format:</p>
+              <codeblock>- name: SERVICE-NET
+  vlanid: 306 
+  tagged-vlan: true 
+  cidr: 10.1.6.0/24 
+  gateway-ip: 10.1.6.1 
+  network-group: SERVICE</codeblock></li>
+            <li>[OPTIONAL] - If your cloud deployment utilizes the
+                <codeph>server_groups.yml</codeph> file in your configuration files, ensure that
+              this network is a member of the server-group listed in the
+                <codeph>~/helion/my_cloud/definition/data/server_groups.yml</codeph> file. <p>Here
+                is an example showing this:</p>
+              <codeblock>server-groups: 
+- name: CLOUD 
+  server-groups: 
+     - AZ1
+     - AZ2
+     - AZ3
+  networks: 
+     - EXTERNAL-NET
+     - GUEST-NET 
+     - MANAGEMENT-NET
+     - PXE-NET 
+     <b>- SERVICE-NET</b></codeblock></li>
+            <li>If you made these changes prior to your first run of the configuration processor,
+              then continue with the installation steps as documented. If you are making these
+              changes after your initial run then continue on with the next steps.</li>
+            <li>Commit your configuration to the <xref href="../installation/using_git.dita">local
+                git repo</xref>, as follows:
+              <codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -m "My config or other commit message"</codeblock></li>
+            <li>Run the configuration
+              processor:<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+            <li>Update your deployment
+              directory:<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+            <li>Run the <codeph>site.yml</codeph> playbook below: <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts site.yml</codeblock>
+              <p>If you have used an encryption password when running the configuration processor
+                use the command below and enter the encryption password when prompted:
+                <codeblock>ansible-playbook -i hosts/verb_hosts site.yml --ask-vault-pass</codeblock>
+              </p></li>
+          </ol></li>
+      </ol>
+    </section>
+
+    <section id="svcnet"><title>Creating the Neutron Service Net</title>
+      <ol>
+        <li>Log in to your lifecycle manager.</li>
+        <li>Source the admin credentials: <codeblock>source ~/service.osrc</codeblock></li>
+        <li>Configure a Neutron network that will map to an external network for the service net. <ul>
+            <li>For simple configurations, a lifecycle manager playbook has been provided for this
+              purpose.</li>
+            <li>For non-trivial network configurations, any additional routes should be added to the
+              subnet definition using the <codeph>--host-route</codeph> option of the
+                <codeph>neutron subnet-create</codeph> command. The <codeph>--host-route</codeph>
+              option can be specified multiple times if necessary. <p>Here are the details for the
+                ansible playbook:</p>
+              <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts neutron-svc-net-configure.yml \
+    -e PROV_NET_TYPE=&#60;provider_network_type&#62; \
+    -e PROV_PHYS_NET=&#60;physical_network_name&#62; \
+    -e PROV_NET_VLAN_ID=&#60;vlan_id&#62; \
+    -e SVC_NET_CIDR=&#60;provider_network_cidr&#62; \
+    -e SVC_NET_DEST=&#60;svc_net_destination&#62; \
+    -e SVC_NET_GATEWAY="&lt;svc_net_gateway_ip" \
+    -e SVC_ALLOCATION_START="&lt;svc_net_first_ip_in_range" \
+    -e SVC_ALLOCATION_END="&lt;svc_net_last_ip_in_range"</codeblock>
+              <p>For example, if you had a network configuration with the following attributes the
+                playbook command you would use for creating your service network would look like
+                this:</p>
+              <codeblock>
+- name: MANAGEMENT-NET
+  vlanid: 1872
+  tagged-vlan: false
+  cidr: 192.168.245.0/24
+  gateway-ip: 192.168.245.1
+  network-group: MANAGEMENT
+  start-address: 192.168.245.10
+                
+- name: SERVICE-NET
+  vlanid: 306
+  tagged-vlan: true
+  cidr: 10.1.6.0/24
+  gateway-ip: 10.1.6.1
+  network-group: SERVICE</codeblock>
+              <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts neutron-svc-net-configure.yml -e PROV_NET_TYPE=vlan -e PROV_PHYS_NET=physnet1 -e PROV_NET_VLAN_ID=306 -e SVC_NET_CIDR=10.1.6.0/24 -e SVC_NET_DEST=192.168.245.0/24 -e SVC_NET_GATEWAY=10.1.6.1 -e SVC_ALLOCATION_START=10.1.6.0 -e SVC_ALLOCATION_END=10.1.6.255</codeblock></li>
+          </ul><note>To configure a service network for flat encapsulation, modify the service
+            network creation statement: <codeph>-e PROV_NET_TYPE flat</codeph> The subnet creation
+            statement does not change.</note></li>
+        <li>By default, the subnet associated with your service network will not have a DNS
+          nameserver associated with it. If you want to associate one or more DNS nameservers with
+          this network you can use these steps: <ol>
+            <li>From the lifecycle manager, source the <codeph>~/service.osrc</codeph> file for
+              admin creds: <codeblock>source ~/service.osrc</codeblock></li>
+            <li>List out your networks: <codeblock>neutron net-list</codeblock>
+              <p>Example showing a SVC network:</p>
+              <codeblock>neutron net-list
++--------------------------------------+------+-----------------------------------------------------+
+| id                                   | name | subnets                                             |
++--------------------------------------+------+-----------------------------------------------------+
+| 7fa9e5c1-2f2b-484f-896e-caa17b50629f | SVC  | 735e71e1-4554-4f4b-839f-bd5beb1fa85a 10.13.189.0/24 |
++--------------------------------------+------+-----------------------------------------------------+</codeblock></li>
+            <li>Using the ID of the subnet in the previous command, use the <codeph>neutron
+                subnet-update</codeph> command to add one or more DNS nameservers: <p>Here is the
+                syntax to add one DNS nameserver:</p>
+              <codeblock>neutron subnet-update --dns-nameserver &lt;nameserver IP or hostname> &lt;subnet ID></codeblock>
+              <p>If you want to add more than one, just repeat the <codeph>--dns-nameserver</codeph>
+                option, like this:</p>
+              <codeblock>neutron subnet-update --dns-nameserver &lt; first nameserver IP or hostname> --dns-nameserver &lt;second nameserver IP or hostname> &lt;subnet ID></codeblock></li>
+            <li>You can then confirm that it was added by using the <codeph>neutron
+                subnet-show</codeph> command:
+              <codeblock>neutron subnet-show &lt;subnet ID></codeblock></li>
+          </ol></li>
+      </ol>
+    </section>
+
+  </body>
+</topic>

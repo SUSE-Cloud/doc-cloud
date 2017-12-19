@@ -1,0 +1,626 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic
+  PUBLIC "-//OASIS//DTD DITA Topic//EN" "http://docs.oasis-open.org/dita/v1.1/OS/dtd/topic.dtd" ><topic xml:lang="en-us" id="topic8352">
+<title>HPE Helion <tm tmtype="reg">OpenStack</tm> 1.1 and 1.1.1: Ceph Reliable Autonomic Distributed Object Store Gateway (RADOSGW)</title>
+<titlealts>
+<searchtitle>HPE Helion Openstack 1.1: Ceph Reliable Autonomic Distributed Object Store Gateway (RADOSGW)</searchtitle>
+</titlealts>
+<prolog>
+<metadata>
+<othermeta name="layout" content="default"/>
+<othermeta name="product-version" content="HPE Helion Openstack"/>
+<othermeta name="product-version" content="HPE Helion Openstack 1.1"/>
+<othermeta name="role" content="Storage Engineer"/>
+<othermeta name="role" content="Storage Architect"/>
+<othermeta name="role" content="Storage Administrator"/>
+<othermeta name="role" content="Storage Engineer"/>
+<othermeta name="role" content="Service Developer"/>
+<othermeta name="role" content="Cloud Administrator"/>
+<othermeta name="role" content="Application Developer"/>
+<othermeta name="role" content="Paul F"/>
+<othermeta name="product-version1" content="HPE Helion Openstack"/>
+<othermeta name="product-version2" content="HPE Helion Openstack 1.1"/>
+</metadata>
+</prolog>
+<body>
+<p>
+<!--PUBLISHED-->
+ <!--./commercial/GA1/ceph/1.1commercial.ceph-rados-gateway.md-->
+ <!--permalink: /helion/openstack/1.1/ceph-rados-gateway/--></p>
+<p>The Ceph RADOS Gateway offers Swift API access to objects stored in Ceph. It is this object storage interface that uses the Ceph Object Gateway daemon - <codeph>radosgw</codeph>. <codeph>radosgw</codeph> FastCGI module for interacting with the Ceph storage cluster. For more details, refer to <xref href="http://http://ceph.com/docs/master/radosgw/" scope="external" format="html" >http://http://ceph.com/docs/master/radosgw/</xref>
+</p>
+<p>RADOS gateway is setup on a discrete node which eventually becomes an integral part of Ceph cluster. The existing Ceph cluster is easily extended by adding gateway node. For more details, refer to<xref href="http://http://ceph.com/docs/master/install/install-ceph-gateway/" scope="external" format="html" >http://http://ceph.com/docs/master/install/install-ceph-gateway/</xref>
+</p>
+<p>A load balancer is required for a high availability (HA) RADOS Gateway installations. HAProxy is an example of a load balancer that is used with RADOS Gateway endpoints. For implementing the HA RADOS Gateway, a second gateway node is set up similarly to the first one but a  unique client is required for a second node. The following section explains the HA RADOS Gateway set up.</p>
+<section id="configuring-the-administration-node"> <title>Configuring the Administration Node</title>
+<p>Perform the following steps from the Ceph admin node. It is assumed that the hostname for a gateway node is <codeph>gateway</codeph>, and the host name of the second node (for HA) is <codeph>gateway1</codeph>.</p>
+<p>It is recommended to stand up first node successfully before proceeding to second node.</p>
+<ol>
+<li>Log in to the admin node as the default hLinux user.</li>
+<li>Confirm that the Ceph cluster health is
+                                        OK:<codeblock><codeph>ceph health
+</codeph></codeblock></li>
+<li>Change the directory by entering:<codeblock><codeph>cd  /etc/ceph
+</codeph></codeblock></li>
+<li>Create a keyring for a gateway and associate the required permission by
+                                        entering:<codeblock><codeph>ceph-authtool --create-keyring /etc/ceph/ceph.client.radosgw.keyring
+chmod +r /etc/ceph/ceph.client.radosgw.keyring
+</codeph></codeblock></li>
+<li>To generate a gateway username and key (the default user is <b>gateway</b>),
+                                        enter:<codeblock><codeph>ceph-authtool /etc/ceph/ceph.client.radosgw.keyring -n client.radosgw.gateway --gen-key
+</codeph></codeblock></li>
+<li>For HA, create additional user - <codeph>gateway1</codeph> by
+                                        entering:<codeblock><codeph>ceph-authtool /etc/ceph/ceph.client.radosgw.keyring -n client.radosgw.gateway1 --gen-key
+</codeph></codeblock></li>
+<li>Add key capabilities by
+                                        entering:<codeblock><codeph>ceph-authtool -n client.radosgw.gateway --cap osd 'allow rwx' --cap mon 'allow rwx' /etc/ceph/ceph.client.radosgw.keyring
+</codeph></codeblock></li>
+<li>For HA, add key capabilities to the <codeph>gateway1</codeph> user, by
+                                        entering:<codeblock><codeph>ceph-authtool -n client.radosgw.gateway1 --cap osd 'allow rwx' --cap mon 'allow rwx' /etc/ceph/ceph.client.radosgw.keyring
+</codeph></codeblock></li>
+<li>Add a key to the Ceph cluster by
+                                        entering:<codeblock><codeph>ceph -k /etc/ceph/ceph.client.admin.keyring auth add client.radosgw.gateway -i /etc/ceph/ceph.client.radosgw.keyring
+</codeph></codeblock></li>
+<li>For HA, add a key for the <codeph>gateway1</codeph> user by
+                                        entering:<codeblock><codeph>ceph -k /etc/ceph/ceph.client.admin.keyring auth add client.radosgw.gateway1 -i /etc/ceph/ceph.client.radosgw.keyring
+</codeph></codeblock></li>
+<li>Copy a keyring to the gateway node(s) by
+                                        entering:<codeblock><codeph>scp /etc/ceph/ceph.client.radosgw.keyring root@gateway:/etc/ceph
+</codeph></codeblock></li>
+<li>Add the gateway user configurations by updating the <codeph>ceph.conf</codeph> file as shown
+                                        below. Make sure that the hostname of the gateway node(s) is
+                                        considered for both host and RGW DNS name fields by
+                                        entering:<codeblock><codeph>[client.admin]
+keyring = /etc/ceph/ceph.client.admin.keyring
+
+[client.radosgw.gateway]
+host = gateway
+keyring = /etc/ceph/ceph.client.radosgw.keyring
+rgw socket path = /var/run/ceph/ceph.radosgw.gateway.fastcgi.sock
+log file = /var/log/ceph/client.radosgw.gateway.log
+rgw dns name = gateway
+rgw print continue = false
+
+# Added for HA
+[client.radosgw.gateway1]
+host = gateway1
+keyring = /etc/ceph/ceph.client.radosgw.keyring
+rgw socket path = /var/run/ceph/ceph.radosgw.gateway.fastcgi.sock
+log file = /var/log/ceph/client.radosgw.gateway.log
+rgw dns name = gateway1
+rgw print continue = false
+</codeph>
+</codeblock></li>
+<li>Re-deploy the Ceph configuration on all cluster nodes and client nodes.</li>
+</ol>
+</section>
+<section id="configuring-the-gateway-node"> <title>Configuring the Gateway Node</title>
+<p>Perform the following steps on the gateway node. For HA implementations, you will repeat similar steps on the failover node as noted.</p>
+<ol>
+<li>Log into the gateway node as the default hLinux user.</li>
+<li>Check if the relevant services are in a good state. Services include <codeph>dnsmasq</codeph>,
+                                                <codeph>radosgw</codeph>, <codeph>apache2</codeph>,
+                                        and <codeph>ceph</codeph>. If they are not in good state,
+                                        fix the issue before proceeding. Check service status by
+                                                entering:<codeblock><codeph>/etc/init.d/&lt;service&gt; status
+</codeph></codeblock><p>For
+                                                example, to check the service status for
+                                                  <codeph>dnsmasq</codeph>,
+                                        enter:</p><codeblock><codeph>/etc/init.d/dnsmasq status
+</codeph></codeblock></li>
+<li>Configure Apache2 and/or FastCGI. <!--A BR tag was used here in the original source.--> Edit the
+                                                <codeph>/etc/apache2/apache2.conf</codeph> file to
+                                        include the server name of the gateway node(s) as
+                                                follows:<codeblock><codeph>ServerName gateway.ex.com
+</codeph></codeblock><p>Note
+                                                that, for HA, the second node
+                                        is:</p><codeblock><codeph>ServerName gateway1.ex.com
+</codeph></codeblock></li>
+<li>Enable URL rewrite modules for Apache2 and FastCGI by
+                                        entering:<codeblock><codeph>a2enmod rewrite
+a2enmod fastcgi
+</codeph></codeblock></li>
+<li>Restart Apache2 for the changes to take effect by
+                                        entering:<codeblock><codeph>/etc/init.d/apache2 restart
+</codeph></codeblock></li>
+<li>Enable SSL by entering:<codeblock><codeph>a2enmod ssl
+</codeph></codeblock></li>
+<li>Generate the SSL certificate by
+                                        entering:<codeblock><codeph>mkdir /etc/apache2/ssl
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/apache2/ssl/apache.key -out /etc/apache2/ssl/apache.crt
+</codeph></codeblock></li>
+<li>Restart Apache2 by
+                                        entering:<codeblock><codeph>/etc/init.d/apache2 restart
+</codeph></codeblock></li>
+<li>Edit <codeph>/etc/hosts</codeph> file to include the <codeph>fqdn</codeph> of a gateway node by
+                                        entering:<codeblock><codeph>192.x.x.x gateway.ex.com gateway
+</codeph></codeblock></li>
+<li>For HA, second node
+                                        is:<codeblock><codeph>192.x.x.x gateway1.ex.com gateway1
+</codeph></codeblock></li>
+<li>Add wildcard support to DNS by following these steps.<ol>
+                                                <li>Edit <codeph>/etc/dnsmasq.conf</codeph> as
+                                                  follows:<codeblock><codeph>address=/.{fqdn}/{host ip}
+listen-address=127.0.0.1
+</codeph></codeblock><p>For
+                                                  example
+                                                  -</p><codeblock><codeph>address=/.gateway.ex.com/192.x.x.x
+listen-address=127.0.0.1
+</codeph></codeblock></li>
+                                                <li>For HA, the second node
+                                                  is:<p>address=/.gateway1.ex.com/192.x.x.x
+                                                  listen-address=127.0.0.1</p></li>
+                                                <li>Restart dsnmasq by
+                                                  entering:<codeblock><codeph>/etc/init.d/dnsmasq restart
+</codeph></codeblock></li>
+                                                <li>Ping the server with the subdomain to ensure
+                                                  RADOSGW can process subdomain requests by
+                                                  entering:<codeblock><codeph>ping mybucket.{fqdn}
+ping mybucket.gateway.ex.com
+</codeph></codeblock><note>Make
+                                                  sure that <codeph>mybucket.gateway.ex.com</codeph>
+                                                  is defined in the <codeph>/etc/hosts</codeph>
+                                                  file. Otherwise, the ping will fail.</note></li>
+                                        </ol></li>
+<li>Add the Ceph Object Gateway script <codeph>s3gw.fcgi in /var/www</codeph> directory with the
+                                        file contents as shown
+                                        below:<codeblock><codeph>#!/bin/sh
+exec /usr/bin/radosgw -c /etc/ceph/ceph.conf -n client.radosgw.gateway
+</codeph></codeblock></li>
+<li>Provide proper file permission by
+                                        entering:<codeblock><codeph>chmod +x s3gw.fcgi
+</codeph></codeblock></li>
+<li>For HA, second node will
+                                        be:<codeblock><codeph>#!/bin/sh
+exec /usr/bin/radosgw -c /etc/ceph/ceph.conf -n client.radosgw.gateway1
+</codeph></codeblock></li>
+<li>Create a data directory by
+                                        entering:<codeblock><codeph>mkdir -p /var/lib/ceph/radosgw/ceph-radosgw.gateway
+</codeph></codeblock></li>
+<li>Add the gateway configuration file <codeph>rgw.conf in /etc/apache2/sites-available</codeph>
+                                        directory. For increased security, an SSL-enabled virtual
+                                        host is considered. If necessary, you can configure a
+                                        virtual host on port 80. The file contents are shown
+                                                below:<codeblock><codeph>FastCgiExternalServer /var/www/s3gw.fcgi -socket /var/run/ceph/ceph.radosgw.gateway.fastcgi.sock
+
+&lt;VirtualHost *:443&gt;
+
+    ServerName gateway.ex.com
+    ServerAlias *.gateway.ex.com
+    ServerAdmin gateway@hp.com
+    DocumentRoot /var/www
+    RewriteEngine On
+    RewriteRule ^/(.*) /s3gw.fcgi?%{QUERY_STRING} [E=HTTP_AUTHORIZATION:%{HTTP:Authorization},L]
+
+    &lt;IfModule mod_fastcgi.c&gt;
+        &lt;Directory /var/www&gt;
+            Options +ExecCGI
+            AllowOverride All
+            SetHandler fastcgi-script
+            Order allow,deny
+            Allow from all
+            AuthBasicAuthoritative Off
+        &lt;/Directory&gt;
+    &lt;/IfModule&gt;
+
+    AllowEncodedSlashes On
+    ErrorLog /var/log/apache2/error.log
+    CustomLog /var/log/apache2/access.log combined
+    ServerSignature Off
+
+    SSLEngine on
+    SSLCertificateFile /etc/apache2/ssl/apache.crt
+    SSLCertificateKeyFile /etc/apache2/ssl/apache.key
+    SetEnv SERVER_PORT_SECURE 443
+
+&lt;/VirtualHost&gt;
+</codeph>
+</codeblock><note>For
+                                                HA, second node will have changes for
+                                                  <codeph>ServerName</codeph>,
+                                                  <codeph>ServerAlias</codeph> and
+                                                  <codeph>ServerAdmin</codeph>
+                                        accordingly.</note></li>
+<li>Enable the site for <codeph>rgw.conf</codeph> by
+                                        entering:<codeblock><codeph>a2ensite rgw.conf
+</codeph></codeblock></li>
+<li>Disable the default site by
+                                        entering:<codeblock><codeph>a2dissite 000-default
+</codeph></codeblock></li>
+<li>Restart all services and start the gateway by entering:<ul>
+                                                <li>
+                                                  <p>Apache2:</p>
+                                                  <codeblock><codeph> /etc/init.d/apache2 restart
+</codeph></codeblock>
+                                                </li>
+                                                <li>
+                                                  <p>Gateway RADOSGW:</p>
+                                                  <codeblock><codeph>/etc/init.d/radosgw start
+</codeph></codeblock>
+                                                </li>
+                                                <li>
+                                                  <p>RADOSGW in a debug mode for
+                                                  troubleshooting:</p>
+                                                  <codeblock><codeph>/usr/bin/radosgw -d -c /etc/ceph/ceph.conf --debug-rgw 20 --rgw-socket-path=/var/run/ceph/ceph.radosgw.gateway.fastcgi.sock
+</codeph></codeblock>
+                                                  <!--
+    * Ceph:
+
+            /etc/init.d/ceph restart
+-->
+                                                </li>
+                                        </ul></li>
+</ol>
+<p>
+<!--
+###Validating the Installation
+
+Once all the services are up and running, make an anonymous GET request to the gateway instance to make sure you can receive a valid response.
+
+1. Make sure that the proxy is not set on a gateway node(s) by entering:
+    
+        unset http_proxy https_proxy
+    
+2. Execute the RADOSGW service in debug mode to ensure that there are no obvious errors in the logs on both gateway nodes:
+
+        /usr/bin/radosgw -d -c /etc/ceph/ceph.conf -??-debug-rgw 20 -??-rgw-socket-path=/var/run/ceph/ceph.radosgw.gateway.fastcgi.sock
+
+3. From the controller node, make a Swift v1 request as shown below. The IP address used will be the Helion VIP address followed by the RADOSGW service port. Make sure the s3 and Swift user are created using the `radosgw-admin` commands. The output should list containers if any. 
+
+        swift -??-insecure -V 1.0 -A https://192.0.2.x:10080/auth/v1.0 -U s3User:swiftUser -K abc list
+
+4. From the controller node, make a Swift v2 request using Keystone. The Ceph Object Gateway user:subuser tuple maps to the tenant:user tuple expected by Swift. The IP address used will be the Helion VIP address followed by the Keystone service port. Here, admin credentials are considered. Output should list containers if any.
+
+        swift -V 2.0 -A https://192.0.2.x:5000/v2.0 -U admin:admin -K abc list
+
+
+    This response indicates that gateway instance is working as expected.
+
+5. If the above Swift calls fail, make sure port 10080 is open on all controller nodes. Then verify if certificates in use have not expired. If they have expired, copy the respective certificates from Helion nodes like explained above.
+
+6. From the controller node, get the admin tenant ID by entering:
+
+        Keystone tenant-list
+
+A sample of the output from this command is:
+    
+    +==================================+=========+=========+
+    |id|   name  | enabled |
+    +==================================+=========+=========+
+    | 627770d0c17c4423b8c27a2607e60798 |  admin  |   True  |
+    | aa70711bd69e4958ac239e2564c18054 |   demo  |   True  |
+    | 250bf66045814455a5b3c3e6c7fb7c19 | service |   True  |
+    +==================================+=========+=========+
+    
+
+7. Verify that the admin tenant is created in the RADOS  pool  by entering:
+
+        rados -??-pool .users.uid ls
+
+    A sample of the output from this command is:
+  
+
+        s3User
+        s3User.buckets
+        627770d0c17c4423b8c27a2607e60798 
+        627770d0c17c4423b8c27a2607e60798.buckets
+    
+-->
+<!--this section is moved
+    
+##Creating Gateway Pools, Users and Sub-users, Access and Secret keys
+
+###Pools
+
+Ceph Object Gateways require Ceph Storage Cluster pools to store specific gateway data.  The gateway automatically creates pools. Created users will need permissions to access these pools. 
+
+To list available pools, enter:
+
+    rados lspools
+
+Verify that the .`rgw.buckets` and `.rgw.buckets.index` pools are created by default. If not, create these pools using `ceph osd pool create` command. For more details, refer to [http://https://ceph.com/docs/master/radosgw/config-ref#pools](http://https://ceph.com/docs/master/radosgw/config-ref#pools)
+
+
+<img src="/media/helion-ceph-rados-lspools.png"/)>
+
+###Creating the User and Sub-User
+
+The User is a user of the S3 interface, and Sub-user is a user of Swift interface. The sub-user is always associated to a user. For details, refer to https://ceph.com/docs/master/radosgw/admin/. 
+
+* To create a User and a Sub-user, enter:
+
+    radosgw-admin user create -??-subuser=s3User:swiftUser -??-display-name="First User " -??-key-type=swift -??-access=full
+
+    <img src="/media/helion-ceph-create-user-subuser.png"/)>
+
+
+* Ensure that the user (**s3User**) and subuser (**s3User:swiftUser**) are stored in respective `.users.uid` and `.users.swift` pools.
+
+    <img src="/media/helion-ceph-user-uid-user-swift.png"/)>
+
+
+###Provisioning Access and Secret keys
+
+S3 users and Swift users must have access and secret keys to enable end users and to interact with a gateway instance. S3 user access and its secret key are created by entering:
+
+    radosgw-admin key create -??-uid=s3User -??-key-type=s3 -??-gen-access-key -??-gen-secret
+
+    <img src="/media/helion-ceph-generate-secrete-key.png"/)>
+
+The key generated must be free of JSON escape (\) characters.
+
+If the user or application writes more than 1k containers, then modify the `max_buckets` variable. Also, right-sizing of Placement Groups per Pool is required. Ensure `max_buckets` is set to unlimited size by setting the value to 0. It is important in order to write unlimited containers in `.rgw.buckets` default pool during workload testing. To do this, enter:
+
+    radosgw-admin user modify -??-uid=s3User -??-max-buckets=0 -->
+<!--
+
+###Configuring the S3 Client
+
+The S3 client is not supported by HPE for user data, other than as a validation step during installation and configuration. For the gateway instance, S3 users created can be verified using  the s3cmd tool on the gateway node or Ceph client. For more details on the s3cmd tool, refer to http://s3tools.org/s3cmd.
+
+* To install the s3cmd tool, enter:
+
+        sudo apt-get install s3cmd
+
+* Configure the s3cmd tool as shown below. Enter relevant information like access key, secret key, etc when prompted. This information is stored in the `.s3cfg` file:
+
+        s3cmd -??-configure
+
+* Access and secret key generated for the S3 user can be collected as shown below:
+
+        radosgw-admin user info -uid=s3User
+
+* List buckets using `radosgw-admin` command or `s3cmd` or by listing the .rgw.buckets pool as shown below. Initially, the list is empty.
+
+* Create the bucket by entering:
+
+        s3cmd mb s3://my-Bucket
+
+* Upload the image to the bucket
+
+        s3cmd put <image> <bucket>
+
+* List bucket contents (and verify that it was created) by entering:
+        s3cmd ls <bucket>
+
+* Download the uploaded image by entering:
+
+        s3cmd get <bucket> <image>
+
+* Run checksum to validate that the downloaded image is not corrupt by entering:
+
+        md5sum <image uploaded> <image downloaded>
+--></p>
+<!--
+###Configuring the Swift Client
+
+For the gateway instance, swift users can be verified using the Swift client on the gateway node or the Ceph client. For more details on the Swift client, refer to https://www.swiftstack.com/docs/integration/python-swiftclient.html
+
+
+* Create `creds.py` with following file contents by entering:
+
+        #Auth URL pointing to gateway node:
+
+        export ST_AUTH=http://gateway.ex.com/auth/v1.0
+
+        #Swift user:
+
+        export ST_USER=s3User:swiftUser
+
+        #Swift user - secret key:
+
+        export ST_KEY= Pp3YqVoyqOpFF28kby03e55j3akd0wEE3NYGjXsK
+
+* Source the Swift credentials as shown below:
+
+        source creds.py
+
+* List the Swift container (aka S3 bucket) as shown below:
+
+        swift list
+
+* Display the Swift container information by entering:
+
+        swift stat <container>
+
+* Upload the image into the Swift container by entering:
+
+        swift upload <container> <image to upload>
+
+* Verify the upload by entering:
+
+        swift stat <container>
+
+* Verify that the uploaded image is residing in the rgw pool by entering:
+
+        rados -p .rgw.buckets ls
+-->
+<!--
+        
+**Verifying the Ceph RADOSGW Client**
+
+Assuming that the Ceph client packages are already installed, perform following steps on the client node to verify the gateway instance, user and sub-user created in the previous section.
+
+* Edit the `/etc/hosts` file to include the gateway node by entering:
+
+        192.x.x.x gateway.ex.com gateway
+
+* Edit `/etc/environment` to include the gateway node entries and source the same. For example, enter:
+
+        export no_proxy=localhost,127.0.0.1,192.x.x.x,gateway.ex.com,gateway
+
+* Copy the `ceph.client.radosgw.keyring` and `ceph.conf` file from the gateway node to the `/etc/ceph` directory by entering:
+    
+        scp ceph-admin@192.x.x.x:/etc/ceph/ceph.client.radosgw.keyring .
+
+        scp ceph-admin@192.x.x.x:/etc/ceph/ceph.conf .
+
+* Verify that the Ceph Health is OK.
+
+* Exercise S3 or Swift API calls as described in previous sections.
+-->
+<p>
+<!--Binamra - we already have this as a seperate file-->
+<!--
+###Integrating the RADOS Gateway - Keystone Authentication
+
+Integration of the RADOS Gateway with the HPE Helion OpenStack Identity service (Keystone) sets up the Gateway to authorize and accept Keystone users automatically. Users are created in RADOS pools provided they have valid Keystone tokens. For details refer to [RADOS pools and Keystone tokens](http://ceph.com/docs/master/radosgw/keystone).
+
+**Assumptions**
+
+* The gateway node has Apache2/FastCGI without `100 continue support`.
+
+* Two RADOS gateway nodes with two distinct users sharing same RADOSGW keyring.
+
+**Integration Steps**
+
+To achieve this integration, perform the following steps.
+
+#### Admin Node ####
+
+* On the Ceph admin node, edit the `ceph.conf` file to include the following:
+
+        rgw keystone url = {keystone server url:keystone server admin port}
+        
+        rgw keystone admin token = [keystone admin token - Available in /etc/keystone/keystone.conf]
+        
+        rgw keystone accepted roles = {accepted user roles}
+        
+        rgw keystone token cache size = {number of tokens to cache}
+        
+        rgw keystone revocation interval = {number of seconds before checking revoked tickets}
+        
+        rgw s3 auth use keystone = true
+        
+        rgw nss db path = {path to nss db}
+
+    For example - rgw keystone url = http://192.0.2.21:5000
+
+        rgw keystone admin token = aa4edaa3aa219a8b8e78f937083c61d68728b654
+        rgw keystone accepted roles = Member, admin, swiftoperator
+        rgw keystone token cache size = 500
+        rgw keystone revocation interval = 500
+        rgw s3 auth use keystone = true
+        rgw nss db path = /var/ceph/nss
+
+* Re-deploy the `ceph.conf` file on all Ceph cluster nodes and the Helion Controller nodes.
+
+#### Helion Controller Nodes ####
+
+* On any controller node, register the RADOS gateway endpoint with Keystone. The IP address is the Helion VIP address and  the RADOS port is 10080:
+
+    * `keystone service-create -??-name swift -??-type object-store`. Note the Swift service ID.
+
+    * `keystone endpoint-create -??-service-id e001b96dc4b54a6c9f672418c21eb132` `-??-publicurl https://192.0.2.x:10080/swift/v1 -??-internalurl https://192.0.2.x:10080/swift/v1 -??-adminurl https://192.0.2.x:10080/swift/v1`
+
+* To return the pointer to the Ceph store and not default to the Swift store enter:
+    
+        keystone endpoint-get -??-service object-store
+    
+* Download and backup any images from Glance
+* Delete the existing Swift endpoint if the above command returns a Swift store.
+* Configure the Ceph store as explained in this section.
+* Re-upload the Glance images and use the Ceph store for Glance images going forward.
+* On all controller nodes, edit `/etc/haproxy/haproxy.cfg` as shown below. (The IP address used for bind is the Helion VIP address.)    
+    
+        listen radosgw
+        bind 192.0.2.x:10080
+        balance roundrobin
+        server gateway 192.x.x.x:443 check inter 2000 rise 2 fall 5 maxconn 1500
+        server gateway1 192.x.x.x:443 check inter 2000 rise 2 fall 5 maxconn 1500
+  
+* Restart the HAProxy service on all controller nodes as shown below:    
+    
+        /etc/init.d/haproxy restart
+    
+* On all controller nodes, edit `/etc/stunnel4/from-heat.conf` as shown below. (The IP address used is physical the IP address of the respective controller node.):    
+    
+        [radosgw]
+        accept = 192.0.2.x:10080
+        connect = 127.0.0.1:10080
+        ciphers=ECDH+AESGCM:DH+AESGCM:ECDH+AES256:DH+AES256:ECDH+AES128:DH+AES:ECDH+3DES:DH+3DES:RSA+AESGCM:RSA+AES:RSA+3DES:!aNULL:!MD5:!DSS
+    
+* Restart `stunnel4service` on all controller nodes as shown below:    
+    
+        /etc/init.d/stunnel4 restart
+
+* Open port 10080 on all controller nodes as shown below:    
+    
+        add-rule INPUT -p tcp -??-dport 10080 -j ACCEPT
+        iptables-save|grep 10080
+    
+--></p>
+<!--
+
+* On the Management node, delete the existing Swift endpoint and service if Swift store is no longer required. For example:
+
+    * `keystone service-list` will list all services. Note down swift service ID
+
+    * `keystone endpoint-list` will all endpoints. Note down swift endpoint ID
+
+    * `keystone endpoint-delete` *`<swift endpoint ID>`*
+
+    * `keystone service-delete` *`<swift service ID>`*
+
+* On the Management node, configure Keystone to point to the RADOS gateway endpoint as shown below. Assumption here is that the URL for the gateway node is http://gateway.ex.com.
+
+    * `keystone service-create` -??-name swift -??-type object-store [Note down service ID]
+
+    * `keystone endpoint-create` -??-service-id <service ID from above> -??-public url http://gateway.ex.com/swift/v1 -??-internal url http://gateway.ex.com/swift/v1 -??-admin url http://gateway.ex.com/swift/v1
+
+* On any controller node (for example, node 0), convert the OpenSSL certificates that Keystone uses to a NSS database format. To do this, ensure that the `certutil` package is available on all controller nodes. To do this, enter:
+
+    * `apt-get install libnss3-tools`
+
+    * `mkdir /var/ceph/nss`
+    
+    * `openssl x509 -in /mnt/state/etc/keystone/ssl/certs/ca.pem -pubkey | certutil -d /var/ceph/nss -A -n ca -t "TCu,Cu,Tuw"`
+
+    * `openssl x509 -in /mnt/state/etc/keystone/ssl/certs/signing_cert.pem -pubkey | certutil -A -d /var/ceph/nss -n signing_cert -t "P,P,P"`
+
+    * Create the `/var/ceph/nss` directory on the gateway node and copy converted certificates generated above in this path.
+-->
+<!--
+
+* On all controller nodes, edit `/etc/apache2/sites-enabled/keystone_modwsgi.conf` to include `WSGIChunkedRequest` as shown below. For details, refer to [Including WSGIChunkedRequests](http://tracker.ceph.com/issues/7796).
+
+        <VirtualHost *:35357>
+            ......
+        <Directory /etc/keystone>
+        ......
+        WSGIChunkedRequest On
+        ......
+        </Directory>
+        ......
+        </VirtualHost>
+
+        <VirtualHost *:5000>
+        ......
+        <Directory /etc/keystone>
+        ......
+        WSGIChunkedRequest On
+        ......
+        </Directory>
+        ......
+        </VirtualHost>
+
+* Restart the Apache2 service on all controller nodes as shown below:
+
+        service apache2 restart-->
+<!--is it required?
+### Ceph RADOS Gateway Nodes ####
+
+* Create the following directory on gateway node(s) by entering:    
+-->
+</section>
+<section id="next-steps"> <title>Next Steps</title>
+<p>
+  <xref href="../../../commercial/GA1/ceph/1.1commercial.ceph-rados-gateway-pools.dita" >Ceph RADOS Gateway Pools</xref>
+</p>
+<p>
+  <xref href="#topic8352"> Return to Top </xref>
+</p>
+</section>
+</body>
+</topic>

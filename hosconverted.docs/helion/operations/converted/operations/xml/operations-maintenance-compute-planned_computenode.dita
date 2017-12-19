@@ -1,0 +1,128 @@
+<?xml version="1.0"?>
+<!DOCTYPE section PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN" "http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd" [ <!ENTITY % entities SYSTEM "entities.xml"> %entities; ]><section id="planned_computenode">
+   <title>
+      <phrase/>Planned Maintenance for a Compute Node</title>
+    <para>If one or more of your compute nodes needs hardware maintenance and you can schedule a
+        planned maintenance then this procedure should be followed.</para>
+    
+      <bridgehead renderas="sect4">Performing planned maintenance on a compute node</bridgehead>
+      <para>If you have planned maintenance to perform on a compute node, you have to take it offline,
+        repair it, and restart it. To do so, follow these steps:</para>
+      <orderedlist id="ol_ufd_y3y_kx">
+        <listitem>
+            <para>Log in to the lifecycle manager.</para>
+         </listitem>
+        <listitem>
+            <para>Source the administrator credentials: </para>
+            <screen>source ~/service.osrc</screen>
+         </listitem>
+        <listitem>
+            <para>Obtain the hostname for your compute node, which you will use in subsequent commands
+          when <literal>&lt;hostname&gt;</literal> is
+            requested:</para>
+            <screen>nova host-list | grep compute</screen>
+            <para>The following example
+            shows two compute
+          nodes:</para>
+            <screen>$ nova host-list | grep compute
+| helion-cp1-comp0001-mgmt | compute     | AZ1      |
+| helion-cp1-comp0002-mgmt | compute     | AZ2      |</screen>
+         </listitem>
+        <listitem>
+            <para>Disable provisioning on the compute node, which will prevent additional instances from
+          being spawned on it:
+            </para>
+            <screen>nova service-disable --reason "Maintenance mode" &lt;hostname&gt; nova-compute</screen>
+            <note>
+               <para>Make
+            sure you reenable provisioning after the maintenance is complete if you want to continue
+            to be able to spawn instances on the node. You can do this with the <literal>nova
+              service-enable &lt;hostname&gt; nova-compute</literal> command.</para>
+            </note>
+         </listitem>
+        <listitem>
+            <para>At this point you have two choices: </para>
+            <orderedlist id="ol_vfd_y3y_kx">
+               <listitem>
+                  <para>
+                     <emphasis role="bold">Live migration</emphasis>: This option enables you to migrate the instances off the
+              compute node with minimal downtime so you can perform the maintenance without risk of
+              losing data.</para>
+               </listitem>
+               <listitem>
+                  <para>
+                     <emphasis role="bold">Stop/start the instances</emphasis>: Issuing <literal>nova stop</literal> commands to each
+              of the instances will halt them. This option lets you do maintenance and then start
+              the instances back up, as long as no disk failures occur on the compute node data
+              disks. This method involves downtime for the length of the maintenance.</para>
+               </listitem>
+            </orderedlist>
+            <para>If you choose the live migration route, See <xref linkend="liveInstMigration"/>
+            for more details. Skip to step #6 after you finish live migration.</para>
+            <para>If you choose
+            the stop start method, continue on.</para>
+            <orderedlist id="ol_wfd_y3y_kx">
+               <listitem>
+                  <para>List all of the instances on the node so you can issue stop commands to them:
+              </para>
+                  <screen>nova list --host &lt;hostname&gt; --all-tenants</screen>
+               </listitem>
+               <listitem>
+                  <para>Issue the <literal>nova stop</literal> command against each of the instances:
+              </para>
+                  <screen>nova stop &lt;instance uuid&gt;</screen>
+               </listitem>
+               <listitem>
+                  <para>Confirm that the instances are stopped. If stoppage was successful you should see
+              the instances in a <literal>SHUTOFF</literal> state, as shown here:
+              </para>
+                  <screen>$ nova list --host helion-cp1-comp0002-mgmt --all-tenants
++--------------------------------------+-----------+----------------------------------+---------+------------+-------------+-----------------------+
+| ID                                   | Name      | Tenant ID                        | Status  | Task State | Power State | Networks              |
++--------------------------------------+-----------+----------------------------------+---------+------------+-------------+-----------------------+
+| ef31c453-f046-4355-9bd3-11e774b1772f | instance1 | 4365472e025c407c8d751fc578b7e368 | <emphasis role="bold">SHUTOFF</emphasis> | -          | Shutdown    | demo_network=10.0.0.5 |
++--------------------------------------+-----------+----------------------------------+---------+------------+-------------+-----------------------+</screen>
+               </listitem>
+               <listitem>
+                  <para>Do your required maintenance. If this maintenance does not take down the disks
+              completely then you should be able to list the instances again after the repair and
+              confirm that they are still in their <literal>SHUTOFF</literal> state:
+              </para>
+                  <screen>nova list --host &lt;hostname&gt; --all-tenants</screen>
+               </listitem>
+               <listitem>
+                  <para>Start the instances back up using this command:
+                </para>
+                  <screen>nova start &lt;instance uuid&gt;</screen>
+                  <para>Example:</para>
+                  <screen>$ nova start ef31c453-f046-4355-9bd3-11e774b1772f
+Request to start server ef31c453-f046-4355-9bd3-11e774b1772f has been accepted.</screen>
+               </listitem>
+               <listitem>
+                  <para>Confirm that the instances started back up. If restarting is successful you should
+              see the instances in an <literal>ACTIVE</literal> state, as shown here:
+              </para>
+                  <screen>$ nova list --host helion-cp1-comp0002-mgmt --all-tenants
++--------------------------------------+-----------+----------------------------------+--------+------------+-------------+-----------------------+
+| ID                                   | Name      | Tenant ID                        | Status | Task State | Power State | Networks              |
++--------------------------------------+-----------+----------------------------------+--------+------------+-------------+-----------------------+
+| ef31c453-f046-4355-9bd3-11e774b1772f | instance1 | 4365472e025c407c8d751fc578b7e368 | <emphasis role="bold">ACTIVE</emphasis> | -          | Running     | demo_network=10.0.0.5 |
++--------------------------------------+-----------+----------------------------------+--------+------------+-------------+-----------------------+</screen>
+               </listitem>
+               <listitem>
+                  <para>If the <literal>nova start</literal> fails, you can try doing a hard reboot:
+                </para>
+                  <screen>nova reboot --hard &lt;instance uuid&gt;</screen>
+                  <para>If this does not
+                resolve the issue you may want to contact support.</para>
+               </listitem>
+            </orderedlist>
+         </listitem>
+        <listitem>
+            <para>Reenable provisioning when the node is fixed:
+          </para>
+            <screen>nova service-enable &lt;hostname&gt; nova-compute</screen>
+         </listitem>
+      </orderedlist>
+   
+  </section>

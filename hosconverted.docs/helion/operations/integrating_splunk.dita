@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="splunk_integration">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Splunk Integration</title>
+  <abstract><shortdesc outputclass="hdphidden">This documentation demonstrates the possible
+      integration between the <keyword keyref="kw-hos-phrase"/> centralized logging solution and
+      Splunk including the steps to setup and forward logs.</shortdesc></abstract>
+  <body>
+    <!-- DOCS-3419 -->
+    <!-- https://wiki.hpcloud.net/display/core/Helion+OpenStack+Logging+Integration+with+Splunk -->
+    <section id="about">
+      <p>The <keyword keyref="kw-hos-phrase"/> logging solution provides a flexible and extensible
+        framework to centralize the collection and processing of logs from all of the nodes in a
+        cloud. The logs are shipped to a highly available and fault tolerant cluster where they are
+        transformed and stored for better searching and reporting. The <keyword
+          keyref="kw-hos-phrase"/> logging solution uses the ELK stack (Elasticsearch, Logstash and
+        Kibana) as a production grade implementation and can support other storage and indexing
+        technologies. The Logstash pipeline can be configured to forward the logs to an alternative
+        target if you wish.</p>
+      <p>This documentation demonstrates the possible integration between the <keyword
+          keyref="kw-hos-phrase"/> centralized logging solution and Splunk including the steps to
+        setup and forward logs.</p>
+    </section>
+
+    <section id="about_splunk">
+      <title>What is Splunk?</title>
+      <p>Splunk is software for searching, monitoring, and analyzing <xref
+          href="https://en.wikipedia.org/wiki/Machine-generated_data" format="html" scope="external"
+          >machine-generated big data</xref>, via a web-style interface. Splunk captures, indexes
+        and correlates real-time data in a searchable repository from which it can generate graphs,
+        reports, alerts, dashboards and visualizations. It is a commercial software (unlike
+        Elasticsearch) and more details about Splunk can be found on their website at <xref
+          href="https://www.splunk.com" format="html" scope="external">splunk.com</xref>.</p>
+    </section>
+
+    <section id="configuration">
+      <title>Configuring Splunk to receive log messages from <keyword keyref="kw-hos-phrase"
+        /></title>
+      <p>This documentation assumes that you already have Splunk set up and running. For help with
+        installing and setting up Splunk, refer to <xref
+          href="http://docs.splunk.com/Documentation/Splunk/latest/SearchTutorial/Systemrequirements"
+          format="html" scope="external">Splunk Tutorial</xref>.</p>
+      <p>There are different ways in which a log message (or "event" in Splunk's terminology) can be
+        shipped to Splunk. These steps will set up a TCP port (5514) where Splunk will listen for
+        messages.</p>
+      <ol>
+        <li>On the Splunk web UI, click on the Settings menu in the upper right-hand corner:
+              <p><image href="../../media/hos.docs/planning/splunk/configuring_splunk_1.png"
+          /></p></li>
+        <li>In the Data section of the Settings menu, click Data Inputs: <p><image
+              href="../../media/hos.docs/planning/splunk/configuring_splunk_2.png"/></p></li>
+        <li>Choose the TCP option: <p><image
+              href="../../media/hos.docs/planning/splunk/configuring_splunk_3.png"/></p></li>
+        <li>Click the New button to add an input. <p><image
+              href="../../media/hos.docs/planning/splunk/configuring_splunk_4.png"/></p></li>
+        <li>In the Port field, enter <codeph>5514</codeph> (or any other port number of your
+          choice): <note>If you are on a less secure network and want to restrict connections to
+            this port, use the <codeph>Only accept connection from</codeph> field to restrict the
+            traffic to a specific IP address.</note><p><image
+              href="../../media/hos.docs/planning/splunk/configuring_splunk_5.png"/></p></li>
+        <li>Click the Next button: <p><image
+              href="../../media/hos.docs/planning/splunk/configuring_splunk_6.png"/></p></li>
+        <li>Specify the Source Type by clicking on the Select button and choosing
+            <codeph>linux_messages_syslog</codeph> from the list: <p><image
+              href="../../media/hos.docs/planning/splunk/configuring_splunk_7.png"/></p></li>
+        <li>Click the Review button: <p><image
+              href="../../media/hos.docs/planning/splunk/configuring_splunk_8.png"/></p></li>
+        <li>Review the configuration and click the Submit button: <p><image
+              href="../../media/hos.docs/planning/splunk/configuring_splunk_9.png"/></p></li>
+        <li>You should see this success images if everything went okay: <p><image
+              href="../../media/hos.docs/planning/splunk/configuring_splunk_10.png"/></p></li>
+      </ol>
+    </section>
+
+    <section>
+      <title>Forwarding log messages from <keyword keyref="kw-hos-phrase"/> Centralized Logging to
+        Splunk</title>
+      <p>Once you have Splunk setup and configured to receive log messages, the final step is to
+        configure <keyword keyref="kw-hos-phrase"/> to forward the logs to Splunk. These steps will
+        show you how to do this.</p>
+      <ol>
+        <li>Log in to the lifecycle manager.</li>
+        <li>Verify the status of the logging service to ensure everything is up and running: <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts logging-status.yml</codeblock>
+          <p>If everything is up and running, continue to the next step.</p></li>
+        <li>Edit the logstash config file at the location below:
+          <codeblock>~/helion/hos/ansible/roles/logging-server/templates/logstash.conf.j2</codeblock></li>
+        <li>At the bottom of the file will be a section for the Logstash outputs. You will need to
+          add details about your Splunk environment details. <p>Example, showing the placement in
+            bold:</p>
+          <codeblock># Logstash outputs
+#----------------------------------------------------------------------------------------
+output {
+  # Configure Elasticsearch output
+  # http://www.elastic.co/guide/en/logstash/current/plugins-outputs-elasticsearch.html
+  elasticsearch {
+    hosts => ["{{ elasticsearch_http_host }}:{{ elasticsearch_http_port }}"]
+    flush_size => 5000
+    idle_flush_time => 5
+    workers => {{ logstash_num_workers }}
+  }
+<b>  # Forward Logs to Splunk on TCP port 5514
+ tcp { 
+   mode => "client"
+   host => "&lt;Enter Splunk listener IP address>"
+   port => 5514</b>
+ }  
+}</codeblock>
+          <note>If you are not planning on using the Kibana UI to parse your centralized logs, there
+            is no need to forward your logs to Elasticsearch so you can comment out those lines in
+            the Logstash outputs pertaining to Elasticsearch. However, you can continue to forward
+            your centralized logs to multiple locations.</note></li>
+        <li>Commit your changes to git:
+          <codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -m "Logstash configuration change for Splunk integration"</codeblock></li>
+        <li>Run the configuration processor:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+        <li>Update your deployment directory:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+        <li>Complete this change with a reconfigure of the logging environment:
+          <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts logging-server-configure.yml</codeblock></li>
+        <li>You can confirm via your Splunk UI that the logs have begun to forward.</li>
+      </ol>
+    </section>
+
+    <section>
+      <title>Searching for log messages from the Spunk dashboard</title>
+      <p>To both verify that your integration worked and to search your log messages that have been
+        forwarded you can navigate back to your Splunk dashboard. In the search field, use this
+        string:</p>
+      <codeblock>source="tcp:5514"</codeblock>
+      <p>Example:</p>
+      <p><image href="../../media/hos.docs/planning/splunk/configuring_splunk_11.png"/></p>
+    </section>
+  </body>
+</topic>

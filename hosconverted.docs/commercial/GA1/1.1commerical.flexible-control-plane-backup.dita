@@ -1,0 +1,1670 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic
+  PUBLIC "-//OASIS//DTD DITA Topic//EN" "http://docs.oasis-open.org/dita/v1.1/OS/dtd/topic.dtd" ><topic xml:lang="en-us" id="topic33045">
+<title>HPE Helion <tm tmtype="reg">OpenStack</tm> 1.1: Backup and Restore Flexible Control Plane Hosts</title>
+<prolog>
+<metadata>
+<othermeta name="layout" content="default"/>
+<othermeta name="product-version" content="HPE Helion Openstack"/>
+<othermeta name="product-version" content="HPE Helion Openstack 1.1"/>
+<othermeta name="role" content="Systems Administrator"/>
+<othermeta name="role" content="Cloud Architect"/>
+<othermeta name="role" content="Storage Administrator"/>
+<othermeta name="role" content="Network Administrator"/>
+<othermeta name="role" content="Service Developer"/>
+<othermeta name="role" content="Cloud Administrator"/>
+<othermeta name="role" content="Application Developer"/>
+<othermeta name="role" content="Network Engineer"/>
+<othermeta name="role" content="Michael B, Fausto Marzi"/>
+<othermeta name="product-version1" content="HPE Helion Openstack"/>
+<othermeta name="product-version2" content="HPE Helion Openstack 1.1"/>
+</metadata>
+</prolog>
+<body>
+<p>
+<!--PUBLISHED-->
+ <!--./commercial/GA1/1.1commerical.flexible-control-pane-backup.md-->
+ <!--permalink: /helion/openstack/1.1/fcp/backup.restore/--></p>
+<!-- taken from http://wiki.hpcloud.net/display/core/Helion+1.1+FCP+KVM+Hosts+backup+and+recovery+procedure -->
+    <p><b>This document is valid for HPE Helion OpenStack Flexible Control Plane (FCP) in 1.1.1 only.
+      </b></p>
+    <p>This document describes how to back up an HPE Helion OpenStack Flexible Control Plane (FCP)
+      configuration and how to restore the FCP configuration from the backed-up nodes.</p>
+<p>The HPE Helion OpenStack FCP architectural configuration enables you to deploy the control plane in a virtual environment. This configuration reduces the control plane footprint to just three servers from the current seven servers. For more information, see <xref href="../../commercial/GA1/1.1commerical.flexible-control-pane-overview.dita" >Flexible Control Plane Overview</xref>.</p>
+<p>The backup and restore process involves running commands on each of the three servers that host the HPE Helion OpenStack components. The backup process requires an additional server to store backed-up files.</p>
+<p>This document contains the following topics:</p>
+<ul>
+<li>
+<xref type="section" href="#topic33045/about">About HPE Helion OpenStack FCP</xref>
+</li>
+<li>
+<xref type="section" href="#topic33045/back">Backing Up Helion FCP</xref>
+</li>
+<li>
+<xref type="section" href="#topic33045/restore">Restore the Helion FCP configuration</xref>
+</li>
+</ul>
+<section id="about"> <title>About backing up and restoring an FCP configuration</title>
+<p>The FCP backup and restore procedure is based on the architecture diagrams from the FCP
+        documentation.</p>
+<p>
+        <!-- Our overview suggests only one deployment is possible. In FCP the above diagram can be changed, as the individual components (seed, undercloud, overcloud, and Swift) can be installed with a different layout.
+-->
+        Only one deployment architecture is possible, using three physical hosts.</p>
+<p>The following figure illustrates the deployment of overcloud compute nodes and VSA nodes to physical servers. 
+In the diagram:</p>
+<ul>
+<li>one physical system hosts the seed VM, undercloud controller node, and one of the three overcloud controllers (<codeph>Overcloud-0</codeph>); </li>
+<li>one physical system hosts one of the three overcloud controller nodes (<codeph>Overcloud-1</codeph>) and one of two Swift storage nodes (<codeph>Swift-Storage-0</codeph>); </li>
+<li>one physical system hosts one of the three overcloud controller nodes (<codeph>Overcloud-2</codeph>); and one of two Swift storage nodes (<codeph>Swift-Storage-1</codeph>). </li>
+</ul>
+<p>
+<image href="../../media/flexiblecontrolpane1.png" placement="break"/>
+<!--A BR tag was used here in the original source.-->
+Figure 1</p>
+<p>Based on this deployment, the following failure scenarios will be covered:</p>
+<ul>
+<li>
+<p>Backing up and restoring the host where the following components run:</p>
+
+<ul>
+<li>Seed cloud VM</li>
+<li>Undercloud Controller VM</li>
+<li>Overcloud Controller VM <codeph>Overcloud-0</codeph>
+</li>
+</ul>
+</li>
+<li>
+<p>Backing up and restoring the host where the following components run:</p>
+
+<ul>
+<li>Overcloud Controller VM <codeph>Overcloud-1</codeph>
+</li>
+<li>Swift Storage VM <codeph>Swift-Storage-0</codeph>
+</li>
+</ul>
+</li>
+<li>
+<p>Backing up and restoring the host where the following components run:</p>
+
+<ul>
+<li>Overcloud Controller VM <codeph>Overcloud-2</codeph>
+</li>
+<li>Swift Storage VM <codeph>Swift-Storage-0</codeph>
+</li>
+</ul>
+</li>
+</ul>
+<p>The following approach can be also used to recover from a total failure of all three physical
+        systems (disaster recovery):</p>
+</section>
+<section id="backing-up-an-fcp-installationback"> <title>Backing up an FCP installation{#back}</title>
+<p>This section describes how to perform a full backup of an FCP configuration.</p>
+<p>It will take approximately five hours to perform the back up.</p>
+<ul>
+<li>
+          <xref type="section" href="#topic33045/seed">Back up the seed, undercloud, and
+            Overcloud-0</xref>
+        </li>
+<li>
+          <xref type="section" href="#topic33045/oc1">Back up Overcloud-1 and Swift storage
+            VMs</xref>
+        </li>
+<li>
+          <xref type="section" href="#topic33045/oc2">Back up Overcloud-2 and Swift storage
+            VMs</xref>
+        </li>
+</ul>
+</section>
+<section id="before"> <title>Before you begin</title>
+<p>Before you start the back up and restore, you can review files on your systems for important information you will need for the procedure. For example, you can review the current installation layout by checking the contents of several files for information you will use during the back up and restore process.</p>
+</section>
+<section id="review-server-mac-addresses"> <title>Review server MAC addresses</title>
+<p>The <codeph>baremetal.csv</codeph> file contains the MAC addresses of the seed VM, the undercloud, and the overcloud controllers. It does not contain the MAC addresses of the physical nodes.</p>
+<p>View the <codeph>baremetal.csv</codeph> file found on the seed cloud host using the following command:</p>
+<codeblock>
+  <codeph>cat /root/baremetal.csv
+</codeph>
+</codeblock>
+<p>A typical <codeph>baremetal.csv</codeph> file will look similar to the following:</p>
+<codeblock>
+  <codeph>00:19:f2:eb:bf:b6,root,undefined,10.22.170.23,6,32768,512,Undercloud,VM
+00:53:f2:cf:a2:b1,root,undefined,10.22.170.20,6,32768,512,OvercloudControl,VM
+00:e1:09:c6:ab:f2,root,undefined,10.22.170.28,6,32768,512,OvercloudControl,VM
+00:47:b1:f1:69:e3,root,undefined,10.22.170.23,6,32768,512,OvercloudControl,VM
+00:f4:af:5e:a1:67,root,undefined,10.22.170.20,6,32768,512,OvercloudSwiftStorage,VM
+00:81:16:a2:1d:bd,root,undefined,10.22.170.28,6,32768,512,OvercloudSwiftStorage,VM
+</codeph>
+</codeblock>
+</section>
+<section id="review-physical-mapping-of-nodes"> <title>Review physical mapping of nodes</title>
+<p>The <codeph>vm-plan</codeph> file contains the mapping between physical nodes and VM roles.</p>
+<p>View the <codeph>vm-plan</codeph> file available on the seed cloud host using the following command:</p>
+<codeblock>
+  <codeph>cat /tmp/vm-plan 
+</codeph>
+</codeblock>
+<p>A typical <codeph>vm-plan</codeph> file will look similar to the following:</p>
+<codeblock>
+  <codeph>,root,,10.22.170.23,6,32768,,Undercloud,
+eth2,root,,10.22.170.20,6,32768,,OvercloudControl,
+eth2,root,,10.22.170.28,6,32768,,OvercloudControl,
+,root,,10.22.170.23,6,32768,,OvercloudControl,
+eth2,root,,10.22.170.20,6,32768,,OvercloudSwiftStorage,
+eth2,root,,10.22.170.28,6,32768,,OvercloudSwiftStorage,
+</codeph>
+</codeblock>
+</section>
+<section id="seed"> <title>Back up the seed cloud host, seed VM, undercloud node, and Overcloud-0 node</title>
+<p>This procedure will back up the seed cloud host, the seed VM, Undercloud node and <codeph>Overcloud-0</codeph> node.</p>
+<p>The following files will be backed up:</p>
+<ul>
+<li>
+<codeph>/root/baremetal.csv</codeph>
+</li>
+<li>
+<codeph>/root/tripleo/configs</codeph>
+</li>
+<li>
+<codeph>/tmp/vm-plan</codeph>
+</li>
+<li>The seed VM image file and libvirt XML configuration file - seed domain</li>
+<li>The undercloud VM image file and libvirt XML configuration file - baremetal_0 domain</li>
+<li>The Overcloud-0 VM image file and libvirt XML configuration file - baremetal_3 domain</li>
+<li>The content of /root/.ssh</li>
+</ul>
+<p>When these components are backed up, make a compressed and encrypted TGZ and send it in stream to
+        the backup node.</p>
+      <note>Make sure there is sufficient disk space (at least 150GB) for the backup.</note>
+<p>To back up these components:</p>
+<ol>
+<li>
+<p>Log into the seed cloud host as root:</p>
+
+<codeblock>
+<codeph>sudo -i
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>SSH to the seed VM, undercloud node, and Overcloud-0 node host:</p>
+
+<codeblock>
+<codeph>ssh backup-user@&lt;IP_address&gt;
+</codeph>
+</codeblock>
+
+<p>where &lt;IP_address&gt; is the address of the host.</p>
+</li>
+<li>
+<p>Use the following command to initialize the <codeph>date time var</codeph> and <codeph>list</codeph> domains:</p>
+
+<codeblock>
+<codeph>export NOW=$(date +"%T-%m-%d-%Y")
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Switch to root:</p>
+
+<codeblock>
+<codeph>sudo su -
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Make sure that the nodes are running:</p>
+
+<codeblock>
+<codeph>virsh list
+
+Id    Name                           State
+----------------------------------------------------
+2     seed                           running
+4     baremetal_3                    running
+5     baremetal_0                    running
+</codeph>
+</codeblock>
+
+<p>By default, the undercloud node and <codeph>overcloud-0</codeph> nodes are
+              <codeph>baremetal_3</codeph> and <codeph>baremetal_0</codeph>, respectively.</p>
+</li>
+<li>
+<p>Dump the XML domain configuration files to disk for each node you are backing up:</p>
+
+<p>a. Create the back up directory:</p>
+
+<codeblock>
+<codeph> mkdir dom-xml-config
+</codeph>
+</codeblock>
+
+<p>b. Run the command for the seed VM:</p>
+
+<codeblock>
+<codeph>virsh dumpxml seed &gt; ~/dom-xml-config/seed-$NOW.xml
+</codeph>
+</codeblock>
+
+<p>c. Run the command for <codeph>baremetal_3</codeph>:</p>
+
+<codeblock>
+<codeph>virsh dumpxml baremetal_3 &gt; ~/dom-xml-config/baremetal_3-$NOW.xml
+</codeph>
+</codeblock>
+
+<p>d. Run the command for <codeph>baremetal_0</codeph>:</p>
+
+<codeblock>
+<codeph>virsh dumpxml baremetal_0 &gt; ~/dom-xml-config/baremetal_0-$NOW.xml
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>List the contents of the <codeph>dom-xml-config</codeph> directory, created by the previous commands:</p>
+
+<codeblock>
+<codeph>ls ~/dom-xml-config/
+</codeph>
+</codeblock>
+
+<p>The following files should appear, where &lt;datetime&gt; is the date and time the backup was
+            performed:</p>
+
+<codeblock>
+<codeph>baremetal_0-&lt;datetime&gt;.xml
+seed-&lt;datetime&gt;.xml
+baremetal_&lt;datetime&gt;.xml
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>List the virtual disk name of each domain you are backing up. Note these names for the following step:</p>
+
+<p>a. Run the command for the seed VM:</p>
+
+<codeblock>
+<codeph>virsh domblklist seed 
+</codeph>
+</codeblock>
+
+<p>The result will look like this:</p>
+
+<codeblock>
+<codeph>Target     Source
+------------------------------------------------
+sda        /var/lib/libvirt/images/seed.qcow2
+</codeph>
+</codeblock>
+
+<p>b. Run the command for <codeph>baremetal_0</codeph>:</p>
+
+<codeblock>
+<codeph>virsh domblklist baremetal_0
+</codeph>
+</codeblock>
+
+<p>The result will look like this:</p>
+
+<codeblock>
+<codeph>Target     Source
+------------------------------------------------
+sda        /var/lib/libvirt/images/baremetal_0.qcow2
+</codeph>
+</codeblock>
+
+<p>c. Run the command for <codeph>baremetal_3</codeph>:</p>
+
+<codeblock>
+<codeph>virsh domblklist baremetal_3
+</codeph>
+</codeblock>
+
+<p>The result will look like this:</p>
+
+<codeblock>
+<codeph>Target     Source
+------------------------------------------------
+sda        /var/lib/libvirt/images/baremetal_3.qcow2
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Create a point-in-time snapshot of the seed VM, the undercloud node
+            (<codeph>baremetal_0</codeph>) and Overcloud-0 (<codeph>baremetal_3</codeph>) node,
+            specifying the virtual disk name from the previous step:</p>
+
+<p>a. Create a snapshot for the seed VM:</p>
+
+<codeblock>
+<codeph>virsh snapshot-create-as seed  snap-1-seed "seed snapshot 1" --diskspec sda,file=/var/lib/libvirt/images/snap1-seed.qcow2 --disk-only --atomic
+</codeph>
+</codeblock>
+
+<p>The following message displays:</p>
+
+<codeblock>
+<codeph>Domain snapshot snap-1-seed created
+</codeph>
+</codeblock>
+
+<p>b. Create a snapshot for <codeph>baremetal 0</codeph>:</p>
+
+<codeblock>
+<codeph>virsh snapshot-create-as baremetal_0 snap-1-baremetal_0  "baremetal_0 snapshot 1" --diskspec sda,file=/var/lib/libvirt/images/snap1-baremetal_0.qcow2 --disk-only --atomic
+</codeph>
+</codeblock>
+
+<p>The following message displays:</p>
+
+<codeblock>
+<codeph>Domain snapshot snap-1-baremetal_0 created
+</codeph>
+</codeblock>
+
+<p>c. Create a snapshot for <codeph>baremetal 3</codeph>:</p>
+
+<codeblock>
+<codeph>virsh snapshot-create-as baremetal_3 snap-1-baremetal_3  "baremetal_3 snapshot 1" --diskspec sda,file=/var/lib/libvirt/images/snap1-baremetal_3.qcow2 --disk-only --atomic
+</codeph>
+</codeblock>
+
+<p>The following message displays:</p>
+
+<codeblock>
+<codeph>Domain snapshot snap-1-baremetal_3 created
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>List the snapshots for each domain:</p>
+
+<p>a. List the snapshot for the seed VM:</p>
+
+<codeblock>
+<codeph>virsh snapshot-list seed
+</codeph>
+</codeblock>
+
+<p>The result will look like this:</p>
+
+<codeblock>
+<codeph>Name                 Creation Time             State
+------------------------------------------------------------
+snap-1-seed          2015-05-06 16:51:14 +0100 disk-snapshot
+</codeph>
+</codeblock>
+
+<p>b. List the snapshot for <codeph>baremetal 0</codeph>:</p>
+
+<codeblock>
+<codeph>virsh snapshot-list baremetal_0
+</codeph>
+</codeblock>
+
+<p>The result will look like this:</p>
+
+<codeblock>
+<codeph>Name                 Creation Time             State
+------------------------------------------------------------
+snap-1-baremetal_0   2015-05-06 16:51:56 +0100 disk-snapshot
+</codeph>
+</codeblock>
+
+<p>c. List the snapshot for <codeph>baremetal 1</codeph>:</p>
+
+<codeblock>
+<codeph>virsh snapshot-list baremetal_3
+</codeph>
+</codeblock>
+
+<p>The result will look like this:</p>
+
+<codeblock>
+<codeph>Name                 Creation Time             State
+------------------------------------------------------------
+snap-1-baremetal_3   2015-05-06 16:52:13 +0100 disk-snapshot
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Use the <codeph>virsh domblklist</codeph> command to make sure each domain is using the appropriate snapshot for block storage:</p>
+
+<p>a. Run the command for the seed VM:</p>
+
+<codeblock>
+<codeph>virsh domblklist seed       
+</codeph>
+</codeblock>
+
+<p>The result will look like this:</p>
+
+<codeblock>
+<codeph>Target     Source
+------------------------------------------------
+sda        /var/lib/libvirt/images/snap1-seed.qcow
+</codeph>
+</codeblock>
+
+<p>b. Run the command for <codeph>baremetal 0</codeph>:</p>
+
+<codeblock>
+<codeph>virsh domblklist baremetal_0
+</codeph>
+</codeblock>
+
+<p>The result will look like this:</p>
+
+<codeblock>
+<codeph>Target     Source
+------------------------------------------------
+sda        /var/lib/libvirt/images/snap1-baremetal_0.qcow
+</codeph>
+</codeblock>
+
+<p>c. Run the command for <codeph>baremetal_3</codeph>:</p>
+
+<codeblock>
+<codeph>virsh domblklist baremetal_3
+</codeph>
+</codeblock>
+
+<p>The following output will be displayed:</p>
+
+<codeblock>
+<codeph>Target     Source
+------------------------------------------------
+sda        /var/lib/libvirt/images/snap1-baremetal_3.qcow
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Create an encryption key file.</p>
+
+<codeblock>
+<codeph>vim /root/.ssh/backup_key
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Make a compressed and encrypted TGZ file from the backed-up files listed above and copy it to the backup node.  Use the appropriate user name and IP address to SSH to the backup node.</p>
+
+<codeblock>
+<codeph>tar SPzcvf - /root/.ssh /root/tripleo /root/baremetal.csv /tmp/vm-plan /var/lib/libvirt/images/baremetal_0.qcow2 /var/lib/libvirt/images/baremetal_3.qcow2 /var/lib/libvirt/images/seed.qcow2 /root/dom-xml-config | openssl enc -aes-256-cbc -salt -pass file:/root/.ssh/backup_key | ssh  ssh &lt;user&gt;@&lt;IP_address&gt; "cat &gt; /backup/kvm-seed-host-$NOW.enc"
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Rejoin the snapshot image to the original base machine.</p>
+
+<p>a. Run the command for the seed VM:</p>
+
+<codeblock>
+<codeph>virsh blockcommit seed sda --active --verbose --pivot
+</codeph>
+</codeblock>
+
+<p>The following displays:</p>
+
+<codeblock>
+<codeph>Block Commit: [100 %]
+Successfully pivoted
+</codeph>
+</codeblock>
+
+<p>b. Run the command for <codeph>baremetal 0</codeph>:</p>
+
+<codeblock>
+<codeph>virsh blockcommit baremetal_0 sda --active --verbose --pivot
+</codeph>
+</codeblock>
+
+<p>The following displays:</p>
+
+<codeblock>
+<codeph>Block Commit: [100 %]
+Successfully pivoted
+</codeph>
+</codeblock>
+
+<p>c. Run the command for <codeph>baremetal_3</codeph>:</p>
+
+<codeblock>
+<codeph>virsh blockcommit baremetal_3 sda --active --verbose --pivot
+</codeph>
+</codeblock>
+
+<p>The following displays:</p>
+
+<codeblock>
+<codeph>Block Commit: [100 %]
+Successfully pivoted
+</codeph>
+</codeblock>
+</li>
+</ol>
+<p>The backup of seed host, undercloud, and <codeph>Overcloud-0</codeph> is complete.</p>
+</section>
+<section id="oc1"> <title>Back up the Overcloud-1 and Swift storage VMs</title>
+<p>This procedure will back up the Overcloud-1 and Swift Storage nodes.</p>
+<p>The following files will be backed up:</p>
+<ul>
+<li>
+<codeph>/root/hp_ced_host_manager.sh</codeph> </li>
+<li>
+<codeph>/root/hp_ced_ensure_host_bridge.sh</codeph>
+</li>
+<li>
+<codeph>/tmp/vm-plan</codeph>
+</li>
+<li>The Overcloud-1 VM image file and libvirt XML configuration file - baremetal_1 domain</li>
+<li>The Swift Storage VM image file and libvirt XML configuration file - baremetal_4 domain</li>
+<li>The content of <codeph>/root/.ssh</codeph>
+</li>
+</ul>
+<p>When these components are backed up, make a compressed and encrypted TGZ file and copy the file to the backup node.</p>
+      <note> Make sure there is sufficient disk space (at least 150GB) for the backup.</note>
+<p>To back up these components:</p>
+<ol>
+<li>
+<p>Log into the seed cloud host as root.</p>
+
+<codeblock>
+<codeph>sudo -i
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>SSH to the Overcloud-1 and Swift Storage host.</p>
+
+<codeblock>
+<codeph>ssh &lt;user&gt;@&lt;IP_address&gt;
+</codeph>
+</codeblock>
+
+<p>where &lt;IP_address&gt; is the address of the host.</p>
+</li>
+<li>
+<p>Use the following command to initialize the <codeph>date time var</codeph> and <codeph>list</codeph> domains</p>
+
+<codeblock>
+<codeph>export NOW=$(date +"%T-%m-%d-%Y")
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Switch to root:</p>
+
+<codeblock>
+<codeph>sudo su -
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Make sure that the nodes are running:</p>
+
+<codeblock>
+<codeph>virsh list
+</codeph>
+</codeblock>
+
+<p>The following output will be displayed:</p>
+
+<codeblock>
+<codeph>Id    Name                           State
+----------------------------------------------------
+4     baremetal_4                    running
+5     baremetal_1                    running
+</codeph>
+</codeblock>
+
+<p>By default, the <codeph>Overcloud-1</codeph> and <codeph>Swift-Storage-0</codeph> nodes are <codeph>baremetal_1</codeph> and <codeph>baremetal_4</codeph> respectively.</p>
+</li>
+<li>
+<p>Dump the XML domain configuration files to disk for each node to back up:</p>
+
+<p>a. Create the back up directory:</p>
+
+<codeblock>
+<codeph>mkdir dom-xml-config
+</codeph>
+</codeblock>
+
+<p>b. Run the command for <codeph>baremetal_4</codeph>:</p>
+
+<codeblock>
+<codeph>virsh dumpxml baremetal_4 &gt; ~/dom-xml-config/baremetal_4-$NOW.xml
+</codeph>
+</codeblock>
+
+<p>c. Run the command for <codeph>baremetal_1</codeph>:</p>
+
+<codeblock>
+<codeph>virsh dumpxml baremetal_1 &gt; ~/dom-xml-config/baremetal_1-$NOW.xml
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>List the contents of the <codeph>dom-xml-config</codeph> directory, created by the previous commands:</p>
+
+<codeblock>
+<codeph>ls ~/dom-xml-config/
+</codeph>
+</codeblock>
+
+<p>The following files should appear, where &lt;datetime&gt; is the date and time the backup was
+            performed:</p>
+
+<codeblock>
+<codeph>baremetal_1-&lt;datetime&gt;.xml 
+baremetal_4-&lt;datetime&gt;.xml
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>List the virtual disk name of each domain you are backing up. Note these names for the following step:</p>
+
+<p>a. Run the command for <codeph>baremetal_3</codeph>:</p>
+
+<codeblock>
+<codeph>virsh domblklist baremetal_3
+</codeph>
+</codeblock>
+
+<p>The following displays:</p>
+
+<codeblock>
+<codeph>Target     Source
+------------------------------------------------
+sda        /var/lib/libvirt/images/baremetal_1.qcow2
+</codeph>
+</codeblock>
+
+<p>b. Run the command for <codeph>baremetal_4</codeph>:</p>
+
+<codeblock>
+<codeph>virsh domblklist baremetal_4
+</codeph>
+</codeblock>
+
+<p>The following displays:</p>
+
+<codeblock>
+<codeph>Target     Source
+------------------------------------------------
+sda        /var/lib/libvirt/images/baremetal_4.qcow2
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Create a point-in-time snapshot of the seed VM, the Overcloud-1 (<codeph>baremetal_1</codeph>)
+            and Swift-Storage-0 (<codeph>baremetal_4</codeph>) nodes, specifying the virtual disk
+            name from the previous step:</p>
+
+<p>a. Run the command for <codeph>baremetal_1</codeph>:</p>
+
+<codeblock>
+<codeph>virsh snapshot-create-as baremetal_1  snap-1-baremtal_1 "baremetal_1 snapshot 1" --diskspec sda,file=/var/lib/libvirt/images/snap1-baremetal_1.qcow2 --disk-only --atomic
+</codeph>
+</codeblock>
+
+<p>The following message displays:</p>
+
+<codeblock>
+<codeph>Domain snapshot snap-1-baremtal_1 created
+</codeph>
+</codeblock>
+
+<p>b. Run the command for <codeph>baremetal_4</codeph>:</p>
+
+<codeblock>
+<codeph>virsh snapshot-create-as baremetal_4  snap-1-baremtal_4 "baremetal_4 snapshot 1" --diskspec sda,file=/var/lib/libvirt/images/snap1-baremetal_1.qcow2 --disk-only --atomic
+</codeph>
+</codeblock>
+
+<p>The following message displays:</p>
+
+<codeblock>
+<codeph>Domain snapshot snap-1-baremtal_4 created
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>List the snapshots for each domain.</p>
+
+<p>a. Run the command for <codeph>baremetal_4</codeph>:</p>
+
+<codeblock>
+<codeph>snapshot-list baremetal_4
+</codeph>
+</codeblock>
+
+<p>The following displays, with the appropriate date and time:</p>
+
+<codeblock>
+<codeph>Name                 Creation Time             State
+------------------------------------------------------------
+snapshot_baremetal_4 2015-05-05 16:05:42 +0100 disk-snapshot
+</codeph>
+</codeblock>
+
+<p>b. Run the command for <codeph>baremetal_1</codeph>:</p>
+
+<codeblock>
+<codeph>virsh snapshot-list baremetal_1
+</codeph>
+</codeblock>
+
+<p>The following displays, with the appropriate date and time:</p>
+
+<codeblock>
+<codeph>Name                 Creation Time             State
+------------------------------------------------------------
+snapshot_baremetal_1 2015-05-05 15:57:04 +0100 disk-snapshot
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Use the <codeph>virsh domblklist</codeph> command to make sure each domain is using the appropriate snapshot for block storage:</p>
+
+<p>a. Run the command for <codeph>baremetal_1</codeph>:</p>
+
+<codeblock>
+<codeph>virsh domblklist baremetal_1
+</codeph>
+</codeblock>
+
+<p>The following displays:</p>
+
+<codeblock>
+<codeph>Target     Source
+------------------------------------------------
+sda        /var/lib/libvirt/images/snap-1-baremtal_1.qcow
+</codeph>
+</codeblock>
+
+<p>b. Run the command for <codeph>baremetal_4</codeph>:</p>
+
+<codeblock>
+<codeph>virsh domblklist baremetal_4       
+</codeph>
+</codeblock>
+
+<p>The following displays:</p>
+
+<codeblock>
+<codeph>Target     Source
+------------------------------------------------
+sda        /var/lib/libvirt/images/snap-1-baremtal_4.qcow
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Create an encryption key file.</p>
+
+<codeblock>
+<codeph>vim /root/.ssh/backup_key
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Make a compressed and encrypted TGZ file from the backed-up files listed above and copy it to the
+            backup node. Use the appropriate user name and IP address to SSH to the backup node.</p>
+
+<codeblock>
+<codeph>tar SPzcvf - /var/lib/libvirt/images/baremetal_1.qcow2 /var/lib/libvirt/images/baremetal_4.qcow2 /root/dom-xml-config /root/hp_ced_host_manager.sh /root/hp_ced_ensure_host_bridge.sh /root/id_rsa_virt_power.pub | openssl enc -aes-256-cbc -salt -pass file:/root/.ssh/backup_key | ssh &lt;user&gt;@&lt;IP_address&gt; "NOW=$(date +"%T-%m-%d-%Y") cat &gt; /backup/kvm-oc-1-sw-st-1-host-$NOW.enc"
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Rejoin the snapshot image to the original base machine.</p>
+
+<p>a. Run the command for <codeph>baremetal_1</codeph>:</p>
+
+<codeblock>
+<codeph>virsh blockcommit baremetal_1 sda --active --verbose --pivot
+</codeph>
+</codeblock>
+
+<p>The following displays:</p>
+
+<codeblock>
+<codeph>Block Commit: [100 %]
+Successfully pivoted
+</codeph>
+</codeblock>
+
+<p>b. Run the command for <codeph>baremetal_4</codeph>:</p>
+
+<codeblock>
+<codeph>virsh blockcommit baremetal_4 sda --active --verbose --pivot
+</codeph>
+</codeblock>
+
+<p>The following displays:</p>
+
+<codeblock>
+<codeph>Block Commit: [100 %]
+</codeph>
+</codeblock>
+</li>
+</ol>
+<p>The backup of Overcloud-1 and Swift-Storage-0 KVM host is complete.</p>
+</section>
+<section id="oc2"> <title>Back up Overcloud-2 and Swift storage VMs</title>
+<p>This procedure will back up the Overcloud-2 and Swift Storage nodes.</p>
+<p>The following files will be backed up:</p>
+<ul>
+<li>
+<codeph>/root/hp_ced_host_manager.sh</codeph> </li>
+<li>
+<codeph>/root/hp_ced_ensure_host_bridge.sh</codeph>
+</li>
+<li>
+<codeph>/tmp/vm-plan</codeph>
+</li>
+<li>The Overcloud-1 VM image file and <codeph>libvirt</codeph> XML configuration file for the <codeph>baremetal_2</codeph> domain</li>
+<li>The Swift Storage VM image file and <codeph>libvirt</codeph> XML configuration file for the <codeph>baremetal_5</codeph> domain</li>
+<li>The contents of the <codeph>/root/.ssh</codeph> directory </li>
+</ul>
+<p>When these components are backed up, make a compressed and encrypted TGZ and send it in stream to
+        the backup node.</p>
+<p>To back up these components:</p>
+<ol>
+<li>
+<p>Log into the seed cloud host as root.</p>
+
+<codeblock>
+<codeph>sudo -i
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>SSH to the Overcloud-2 and Swift Storage host:</p>
+
+<codeblock>
+<codeph>ssh backup-user@&lt;IP_address&gt;
+</codeph>
+</codeblock>
+
+<p>where &lt;IP_address&gt; is the address of the host.</p>
+</li>
+<li>
+<p>Use the following command to initialize the <codeph>date time var</codeph> and <codeph>list</codeph> domains</p>
+
+<codeblock>
+<codeph>export NOW=$(date +"%T-%m-%d-%Y")
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Switch to root:</p>
+
+<codeblock>
+<codeph>sudo su -
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Make sure that the nodes are running:</p>
+
+<codeblock>
+<codeph>virsh list
+</codeph>
+</codeblock>
+
+<p>The following output will be displayed:</p>
+
+<codeblock>
+<codeph>Id    Name                           State
+----------------------------------------------------
+2     baremetal_2                    running
+3     baremetal_5                    running
+</codeph>
+</codeblock>
+
+<p>By default, the <codeph>Overcloud-2</codeph> and <codeph>Swift-Storage-1</codeph> nodes are <codeph>baremetal_2</codeph> and <codeph>baremetal_5</codeph> respectively.</p>
+</li>
+<li>
+<p>Dump the XML domain configuration files to disk for each node to back up:</p>
+
+<p>a. Create the back up directory:</p>
+
+<codeblock>
+<codeph>mkdir dom-xml-config
+</codeph>
+</codeblock>
+
+<p>b. Run the command for <codeph>baremetal_2</codeph>:</p>
+
+<codeblock>
+<codeph>virsh dumpxml baremetal_2 &gt; ~/dom-xml-config/baremetal_2-$NOW.xml
+</codeph>
+</codeblock>
+
+<p>c. Run the command for <codeph>baremetal_5</codeph>:</p>
+
+<codeblock>
+<codeph>virsh dumpxml baremetal_5 &gt; ~/dom-xml-config/baremetal_5-$NOW.xml
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>List the contents of the <codeph>dom-xml-config</codeph> directory, created by the previous commands:</p>
+
+<codeblock>
+<codeph>ls ~/dom-xml-config/
+</codeph>
+</codeblock>
+
+<p>The following files should appear, where &lt;datetime&gt; is the date and time the backup was
+            performed:</p>
+
+<codeblock>
+<codeph>baremetal_2-&lt;datetime&gt;.xml 
+baremetal_5-&lt;datetime&gt;.xml
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>List the virtual disk name of each domain you are backing up. Note these names for the following step:</p>
+
+<p>a. Run the command for <codeph>baremetal_2</codeph>:</p>
+
+<codeblock>
+<codeph>virsh domblklist baremetal_2
+</codeph>
+</codeblock>
+
+<p>The following output will be displayed:</p>
+
+<codeblock>
+<codeph>Target     Source
+------------------------------------------------
+sda        /var/lib/libvirt/images/baremetal_2.qcow2
+</codeph>
+</codeblock>
+
+<p>b. Run the command for <codeph>baremetal_5</codeph>:</p>
+
+<codeblock>
+<codeph>virsh domblklist baremetal_5
+</codeph>
+</codeblock>
+
+<p>The following output will be displayed:</p>
+
+<codeblock>
+<codeph>Target     Source
+------------------------------------------------
+sda        /var/lib/libvirt/images/baremetal_5.qcow2
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Create a point-in-time snapshot of the seed VM, the Overcloud-2 (<codeph>baremetal_2</codeph>)
+            and Swift-Storage-1 (<codeph>baremetal_5</codeph>) nodes, specifying the virtual disk
+            name from the previous step:</p>
+
+<p>a. Run the command for <codeph>baremetal_2</codeph>:</p>
+
+<codeblock>
+<codeph>virsh snapshot-create-as baremetal_2  snap-1-baremtal_2 "baremetal_2 snapshot 1" --diskspec sda,file=/var/lib/libvirt/images/snap1-baremetal_2.qcow2 --disk-only --atomic
+</codeph>
+</codeblock>
+
+<p>The following message will be displayed:</p>
+
+<codeblock>
+<codeph>Domain snapshot snap-1-baremtal_2 created
+</codeph>
+</codeblock>
+
+<p>b. Run the command for <codeph>baremetal_5</codeph>:</p>
+
+<codeblock>
+<codeph>virsh snapshot-create-as baremetal_5  snap-1-baremtal_5 "baremetal_5 snapshot 1" --diskspec sda,file=/var/lib/libvirt/images/snap1-baremetal_5.qcow2 --disk-only --atomic
+</codeph>
+</codeblock>
+
+<p>The following message will be displayed:</p>
+
+<codeblock>
+<codeph>Domain snapshot snap-1-baremtal_5 created
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>List the snapshots for each domain.</p>
+
+<p>a. Run the command for <codeph>baremetal_2</codeph>:</p>
+
+<codeblock>
+<codeph>virsh snapshot-list baremetal_2 
+</codeph>
+</codeblock>
+
+<p>The following message will be displayed, with the appropriate date and time:</p>
+
+<codeblock>
+<codeph>Name                 Creation Time             State
+------------------------------------------------------------
+snap-1-baremtal_2    2015-05-08 13:40:33 +0100 disk-snapshot
+</codeph>
+</codeblock>
+
+<p>b. Run the command for <codeph>baremetal_5</codeph>:</p>
+
+<codeblock>
+<codeph>virsh snapshot-list baremetal_5 
+</codeph>
+</codeblock>
+
+<p>The following message will be displayed, with the appropriate date and time:</p>
+
+<codeblock>
+<codeph>Name                 Creation Time             State
+------------------------------------------------------------
+snap-1-baremtal_5    2015-05-08 13:40:33 +0100 disk-snapshot
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Use the <codeph>virsh domblklist</codeph> command to make sure each domain is using the appropriate snapshot for block storage:</p>
+
+<p>a. Run the command for <codeph>baremetal_2</codeph>:</p>
+
+<codeblock>
+<codeph>virsh domblklist baremetal_2
+</codeph>
+</codeblock>
+
+<p>The following output will be displayed:</p>
+
+<codeblock>
+<codeph>Target     Source
+------------------------------------------------
+sda        /var/lib/libvirt/images/snap1-baremetal_2.qcow2
+</codeph>
+</codeblock>
+
+<p>b. Run the command for <codeph>baremetal_5</codeph>:</p>
+
+<codeblock>
+<codeph>virsh domblklist baremetal_5
+</codeph>
+</codeblock>
+
+<p>The following output will be displayed:</p>
+
+<codeblock>
+<codeph>Target     Source
+------------------------------------------------
+sda        /var/lib/libvirt/images/snap1-baremetal_5.qcow2
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Create an encryption key file:</p>
+
+<codeblock>
+<codeph>vim /root/.ssh/backup_key
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Make a compressed and encrypted TGZ file from the backed-up files listed above and copy the file to the backup node. Use the appropriate user name and IP address to SSH to the backup node.</p>
+
+<codeblock>
+<codeph>tar SPzcvf - /root/.ssh /var/lib/libvirt/images/baremetal_2.qcow2 /var/lib/libvirt/images/baremetal_5.qcow2 /root/dom-xml-config /root/hp_ced_host_manager.sh /root/hp_ced_ensure_host_bridge.sh /root/id_rsa_virt_power.pub | openssl enc -aes-256-cbc -salt -pass file:/root/.ssh/backup_key | ssh &lt;user&gt;@&lt;IP_address&gt; "NOW=$(date +"%T-%m-%d-%Y") cat &gt; /backup/kvm-oc-2-sw-st-1-host-$NOW.enc"
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Use the following command to rejoin the snapshot image to the original base machine:</p>
+
+<p>a. Run the command for <codeph>baremetal_2</codeph>:</p>
+
+<codeblock>
+<codeph>virsh blockcommit baremetal_2 sda --active --verbose --pivot
+</codeph>
+</codeblock>
+
+<p>The following message will be displayed:</p>
+
+<codeblock>
+<codeph>Block Commit: [100 %]
+Successfully pivoted
+</codeph>
+</codeblock>
+
+<p>b. Run the command for <codeph>baremetal_5</codeph>:</p>
+
+<codeblock>
+<codeph>virsh blockcommit baremetal_5 sda --active --verbose --pivot
+</codeph>
+</codeblock>
+
+<p>The following message will be displayed:</p>
+
+<codeblock>
+<codeph>Block Commit: [100 %]
+</codeph>
+</codeblock>
+</li>
+</ol>
+<p>The backup of Overcloud-2 and Swift-Storage-1 KVM host is complete.</p>
+</section>
+<section id="restore"> <title>Restore the Helion FCP configuration</title>
+<p>Each of the components, the seed VM, undercloud node, overcloud nodes, and Swift nodes, can be
+        restored from backups.</p>
+<p>This section describes how to perform a full restore of an FCP configuration.</p>
+<p>It will take approximately four hours to perform the backup.</p>
+<ul>
+<li>
+          <xref type="section" href="#topic33045/seed-rest">Restore the seed, undercloud and
+            Overcloud-0</xref>
+        </li>
+<li>
+<xref type="section" href="#topic33045/oc1-rest">Restore Overcloud-1 and Swift Storage VMs</xref>
+</li>
+<li>
+<xref type="section" href="#topic33045/oc2-rest">Restore Overcloud-2 and Swift Storage VMs</xref>
+</li>
+</ul>
+      <note>Some of the following steps are specific to the physical node where the seed VM runs. Do
+        not use the following steps to install baremetal for nodes where the seed VM will not be
+        running.</note>
+</section>
+<section id="pre"> <title>Prerequisites</title>
+<p>Before starting the restore process, make sure the system you are using meets the following requirements:</p>
+<ul>
+<li>QEMU 2.1 (or above)</li>
+<li>libvirt-1.2.9 (or above).</li>
+</ul>
+<p>You must also have SSH access to the backup node and the decryption key.</p>
+</section>
+<section id="hard"> <title>Hardware and software requirements</title>
+<p>Before you start, if you have not done so already, make sure your environment meets the hardware and software requirements defined in the <xref href="../../commercial/GA1/1.1commercial.install-GA-supportmatrix.dita" >Support Matrix</xref>.</p>
+<p>Make sure the network setup where the new node will be installed is consistent with the following
+        requirements:</p>
+<ul>
+<li>
+<p>Install Linux for HPE Helion Ubuntu 14.04 LTS or Debian 8</p>
+
+<p>The seed cloud host must have Linux for HPE Helion Ubuntu 14.04 LTS or Debian 8 installed before performing the restore procedure.</p>
+</li>
+<li>
+<p>Configure SSH</p>
+
+<p>On the seed cloud host, the OpenSSH server must be running and the firewall configuration should allow access to the SSH ports.</p>
+
+<p>After Linux installation, additional software needs to be installed as defined in the <b>Software Requirements</b> section of the <xref href="../../commercial/GA1/1.1commercial.install-GA-supportmatrix.dita#software-requirements" type="section"  >Support Matrix</xref>.</p>
+</li>
+</ul>
+</section>
+<section id="seed-rest"> <title>Restore the seed VM, undercloud, and Overcloud Controller-0</title>
+<p>Use the following section to restore the host where the seed VM, undercloud, and overcloud
+        controller-0 reside.</p>
+<p>Make sure the system you are restoring to meets the <xref type="section" href="#topic33045/pre">Prerequisites</xref> and <xref type="section" href="#topic33045/hard">Hardware and software requirements</xref> before you start.</p>
+<ol>
+<li>
+<p>Log into the seed cloud host as root.</p>
+
+<codeblock>
+<codeph>sudo -i
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Use the following commands to download, decrypt, and untar the data from the backup node using
+            the appropriate IP addresses and users:</p>
+
+<codeblock>
+<codeph>vim /root/.ssh/backup_key
+ssh &lt;user&gt;@&lt;IP_address&gt;
+mkdir /var/lib/libvirt/images/restore
+</codeph>
+</codeblock>
+
+<p>Where &lt;IP_address&gt; is the IP address of the system where the backed-up files are stored.</p>
+</li>
+<li>
+<p>Use the following command:</p>
+
+<codeblock>
+<codeph>cat /backup/kvm-seed-host-backup-date.enc | ssh heat-admin@&lt;IP_address&gt; 'NOW=$(date +"%T-%m-%d-%Y") cat | openssl enc -d -aes-256-cbc -salt -pass file:/root/.ssh/backup_key | tar -S -P -z -x -v -'
+</codeph>
+</codeblock>
+
+<p>Where &lt;IP_address&gt; is the address of the seed VM.</p>
+
+<p>All the files will be restored to the same path as the original installation.</p>
+</li>
+<li>
+<p>Use the following command to set required environment variables:</p>
+
+<codeblock>
+<codeph>BRIDGE_INTERFACE=&lt;interface&gt; 
+HP_VM_MODE=hybrid
+SEED_NTP_SERVER=&lt;NTP_IP-address&gt;
+BM_NETWORK_SEED_IP=&lt;Seed_IP-address&gt;
+BM_NETWORK_CIDR=&lt;Netmask&gt; 
+</codeph>
+</codeblock>
+
+<p>Where:
+    <b>&lt;interface&gt;</b> is the interface to use for the network bridge
+    <b>&lt;NTP_IP-address&gt;</b> is the IP address of the NTP server to use
+    <b>&lt;Seed_IP-address&gt;</b> is the IP address to assign to the seed VM.
+    <b>&lt;Netmask&gt;</b> is the range of IP addressed to assign for the baremetal network,</p>
+</li>
+<li>
+<p>Use the following command to start the restore. Provide the location of the previously backed-up <codeph>vm-plan</codeph> and <codeph>baremetal.csv</codeph> files:</p>
+
+<codeblock>
+<codeph>bash -x ~root/tripleo/tripleo-incubator/scripts/hp_ced_host_manager.sh --vm-plan /tmp/vm-plan --local-setup
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Use the following commands to create the KVM domains from the XML configuration files previously dumped. Enter the appropriate name of the back up file: <codeph>system-timedate.xml</codeph>.</p>
+
+<p>a. Create the seed VM:</p>
+
+<codeblock>
+<codeph>virsh create /root/dom-xml-config/seed-&lt;time-date&gt;.xml
+</codeph>
+</codeblock>
+
+<p>b. Create the undercloud:</p>
+
+<codeblock>
+<codeph>virsh create /root/dom-xml-config/baremetal_0-&lt;time-date&gt;.xml
+</codeph>
+</codeblock>
+
+<p>c. Create the <codeph>Overcloud-controller-0</codeph>:</p>
+
+<codeblock>
+<codeph>virsh create /root/dom-xml-config/baremetal_3-&lt;time-date&gt;.xml
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Connect to the seed VM using SSH: 
+<!-- Can user run these three commands in order on each system? config, restart, config --></p>
+
+<codeblock>
+<codeph>ssh &lt;user&gt;@&lt;IP_address&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Use the following command to refresh the configuration:</p>
+
+<codeblock>
+<codeph>os-refresh-config
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Connect to the undercloud using SSH:</p>
+
+<codeblock>
+<codeph>ssh &lt;user&gt;@&lt;IP_address&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Use the following command to refresh the configuration:</p>
+
+<codeblock>
+<codeph>os-refresh-config
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Connect to the <codeph>Overcloud-controller-0</codeph> using SSH:</p>
+
+<codeblock>
+<codeph>ssh &lt;user&gt;@&lt;IP_address&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Use the following command to refresh the configuration:</p>
+
+<codeblock>
+<codeph>os-refresh-config
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Connect to the seed VM using SSH:</p>
+
+<codeblock>
+<codeph>ssh &lt;user&gt;@&lt;IP_address&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Use the following command to restart MySQL:</p>
+
+<codeblock>
+<codeph>service mysql restart
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Connect to the undercloud using SSH:</p>
+
+<codeblock>
+<codeph>ssh &lt;user&gt;@&lt;IP_address&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Use the following command to restart MySQL:</p>
+
+<codeblock>
+<codeph>service mysql restart
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Connect to the <codeph>Overcloud-controller-0</codeph> using SSH:</p>
+
+<codeblock>
+<codeph>ssh &lt;user&gt;@&lt;IP_address&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Use the following command to restart MySQL:</p>
+
+<codeblock>
+<codeph>service mysql restart
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Again execute the <codeph>os-refresh-config</codeph> command on each of the three VMs (seed VM, undercloud, <codeph>Overcloud-controller-0</codeph>)</p>
+</li>
+</ol>
+<p>The restore of the seed VM, undercloud, and <codeph>Overcloud-controller-0</codeph> is complete.</p>
+</section>
+<section id="oc1-rest"> <title>Restore Overcloud Controller-1 and Swift Storage-0</title>
+<p>Use the following steps to restore the physical KVM host where Overcloud Controller-1 and Swift Storage-0 VM will run.</p>
+<p>Make sure the system you are restoring to meets the <xref type="section" href="#topic33045/pre">Prerequisites</xref> and <xref type="section" href="#topic33045/hard">Hardware and software requirements</xref> before you start.</p>
+      <note>The restore will take approximately 4 hours.</note>
+<ol>
+<li>
+<p>Log in as root to the system where you want to restore:</p>
+
+<codeblock>
+<codeph>sudo -i
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Use the following commands to download, decrypt, and untar the data from the backup node using
+            the appropriate IP addresses and users:</p>
+
+<codeblock>
+<codeph>vim /root/.ssh/backup_key
+ssh &lt;user&gt;@&lt;IP_address&gt;
+mkdir /var/lib/libvirt/images/restore
+</codeph>
+</codeblock>
+
+<p>Where &lt;IP_address&gt; is the IP address of the system where the backed-up files are stored.</p>
+</li>
+<li>
+<p>Use the following command:</p>
+
+<codeblock>
+<codeph>cat /backup/kvm-seed-host-backup-date.enc | ssh heat-admin@&lt;IP_address&gt; 'NOW=$(date +"%T-%m-%d-%Y") cat | openssl enc -d -aes-256-cbc -salt -pass file:/root/.ssh/backup_key | tar -S -P -z -x -v -'
+</codeph>
+</codeblock>
+
+<p>Where &lt;IP_address&gt; is the address of the system where you are restoring to.</p>
+
+<p>All the files will be restored to the same path as the original installation.</p>
+</li>
+<li>
+<p>Use the following command to set required environment variables:</p>
+
+<codeblock>
+<codeph>BRIDGE_INTERFACE=&lt;interface&gt; 
+HP_VM_MODE=hybrid
+SEED_NTP_SERVER=&lt;NTP_IP-address&gt;
+BM_NETWORK_SEED_IP=&lt;Seed_IP-address&gt;
+BM_NETWORK_CIDR=&lt;Netmask&gt; 
+</codeph>
+</codeblock>
+
+<p>Where: <b>&lt;interface&gt;</b> is the interface to use for the network bridge
+              <b>&lt;NTP_IP-address&gt;</b> is the IP address of the NTP server to use
+              <b>&lt;Seed_IP-address&gt;</b> is the IP address to assign to the seed VM.
+              <b>&lt;Netmask&gt;</b> is the range of IP addressed to assign for the baremetal
+            network.</p>
+</li>
+<li>
+<p>Use the following command to start the restore. Provide the location of the previously backed-up <codeph>vm-plan</codeph> and <codeph>baremetal.csv</codeph> files:</p>
+
+<codeblock>
+<codeph>bash -x ~root/tripleo/tripleo-incubator/scripts/hp_ced_host_manager.sh --vm-plan /tmp/vm-plan --local-setup
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Use the following commands to create the KVM domains from the XML configuration files previously dumped. Enter the appropriate name of the back up file: <codeph>system-timedate.xml</codeph>.</p>
+
+<p>a. Create <codeph>Overcloud-1</codeph>:</p>
+
+<codeblock>
+<codeph>virsh create /root/dom-xml-config/baremetal_1-&lt;time-date&gt;.xml
+</codeph>
+</codeblock>
+
+<p>b. Create <codeph>Swift-Storage-0</codeph>:</p>
+
+<codeblock>
+<codeph>virsh create /root/dom-xml-config/baremetal_4-&lt;time-date&gt;.xml
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Connect to the <codeph>Overcloud-1 VM</codeph> using SSH:</p>
+
+<codeblock>
+<codeph>ssh &lt;user&gt;@&lt;IP_address&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Use the following command to refresh the configuration:</p>
+
+<codeblock>
+<codeph>os-refresh-config
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Connect to <codeph>Swift-Storage-0</codeph> using SSH:</p>
+
+<codeblock>
+<codeph>ssh &lt;user&gt;@&lt;IP_address&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Use the following command to refresh the configuration:</p>
+
+<codeblock>
+<codeph>os-refresh-config
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Connect to <codeph>Overcloud-1</codeph> using SSH:</p>
+
+<codeblock>
+<codeph>ssh &lt;user&gt;@&lt;IP_address&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Use the following command to restart MySQL:</p>
+
+<codeblock>
+<codeph>service mysql restart
+</codeph>
+</codeblock>
+</li>
+</ol>
+<p>The <codeph>Overcloud-1</codeph> and <codeph>Swift-Storage-0</codeph> are restored.</p>
+</section>
+<section id="oc2-rest"> <title>Restore the Overcloud Controller-2 and Swift Storage-1</title>
+<p>Use the following steps to restore the physical KVM host where Overcloud Controller-2 and Swift
+        Storage-1 VM will run.</p>
+<p>Make sure the system you are restoring to meets the <xref type="section" href="#topic33045/pre">Prerequisites</xref> and <xref type="section" href="#topic33045/hard">Hardware and software requirements</xref> before you start.</p>
+      <note>The restore will take approximately three hours.</note>
+<ol>
+<li>
+<p>Log in as root to the system where you want to restore:</p>
+
+<codeblock>
+<codeph>sudo -i
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Use the following commands to download, decrypt, and untar the data from the backup node using
+            the appropriate IP addresses and users:</p>
+
+<codeblock>
+<codeph>vim /root/.ssh/backup_key
+ssh &lt;user&gt;@&lt;IP_address&gt;
+mkdir /var/lib/libvirt/images/restore
+</codeph>
+</codeblock>
+
+<p>Where &lt;IP_address&gt; is the IP address of the system where the backed-up files are stored.</p>
+</li>
+<li>
+<p>Use the following command:</p>
+
+<codeblock>
+<codeph>backup-node# cat /backup/kvm-oc-2-sw-st-1-host-date.enc | ssh heat-admin@&lt;IP_address&gt; 'NOW=$(date +"%T-%m-%d-%Y") cat | openssl enc -d -aes-256-cbc -salt -pass file:/root/.ssh/backup_key | tar -S -P -z -x -v -'
+</codeph>
+</codeblock>
+
+<p>Where &lt;IP_address&gt; is the address of the system where you are restoring to.</p>
+
+<p>All the files will be restored to the same path as the original installation.</p>
+</li>
+<li>
+<p>Use the following command to set required environment variables:</p>
+
+<codeblock>
+<codeph>BRIDGE_INTERFACE=&lt;interface&gt; 
+HP_VM_MODE=hybrid
+SEED_NTP_SERVER=&lt;NTP_IP-address&gt;
+BM_NETWORK_SEED_IP=&lt;Seed_IP-address&gt;
+BM_NETWORK_CIDR=&lt;Netmask&gt; 
+</codeph>
+</codeblock>
+
+<p>Where: <b>&lt;interface&gt;</b> is the interface to use for the network bridge
+              <b>&lt;NTP_IP-address&gt;</b> is the IP address of the NTP server to use
+              <b>&lt;Seed_IP-address&gt;</b> is the IP address to assign to the seed VM.
+              <b>&lt;Netmask&gt;</b> is the range of IP addressed to assign for the baremetal
+            network.</p>
+</li>
+<li>
+<p>Use the following command to start the restore. Provide the location of the previously backed-up <codeph>vm-plan</codeph> and <codeph>baremetal.csv</codeph> files:</p>
+
+<codeblock>
+<codeph>bash -x ~root/tripleo/tripleo-incubator/scripts/hp_ced_host_manager.sh --vm-plan /tmp/vm-plan --local-setup
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Use the following commands to create the KVM domains from the XML configuration files previously dumped. Enter the appropriate name of the back up file: <codeph>system-timedate.xml</codeph>.</p>
+
+<p>a. Create <codeph>Overcloud-2</codeph>:</p>
+
+<codeblock>
+<codeph>virsh create /root/dom-xml-config/baremetal_2-&lt;time-date&gt;.xml
+</codeph>
+</codeblock>
+
+<p>b. Create <codeph>Swift-Storage-1</codeph>:</p>
+
+<codeblock>
+<codeph>virsh create /root/dom-xml-config/baremetal_5-&lt;time-date&gt;.xml
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Connect to the <codeph>Overcloud-2 VM</codeph> using SSH: 
+  <codeblock>
+<codeph>   ssh &#60;user&#62; @&#60;ip_address&#62;</codeph></codeblock>
+
+</p>
+</li>
+<li>
+<p>Use the following command to refresh the configuration:</p>
+
+<codeblock>
+<codeph>os-refresh-config
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Connect to <codeph>Swift-Storage-1</codeph> using SSH:</p>
+
+<codeblock>
+<codeph>ssh &lt;user&gt;@&lt;IP_address&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Use the following command to refresh the configuration:</p>
+
+<codeblock>
+<codeph>os-refresh-config
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Connect to <codeph>Overcloud-2</codeph> using SSH:</p>
+
+<codeblock>
+<codeph>ssh &lt;user&gt;@&lt;IP_address&gt;
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Use the following command to restart MySQL:</p>
+
+<codeblock>
+<codeph>service mysql restart
+</codeph>
+</codeblock>
+</li>
+</ol>
+<p>The <codeph>Overcloud-2</codeph> and <codeph>Swift-Storage-1</codeph> are restored.</p>
+<p>
+  <xref type="section" href="#topic33045"> Return to Top </xref>
+</p>
+<!-- ===================== horizontal rule ===================== -->
+<p>
+  
+</p>
+</section>
+</body>
+</topic>

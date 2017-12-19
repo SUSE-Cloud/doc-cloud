@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: OK to edit-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="upgrade_perform_upgrade">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Reconfiguring the Disk Model of a Deployed VSA </title>
+  <shortdesc outputclass="hdphidden">Reconfiguring VSA verbs to add extra disks to the already
+    deployed VSA.</shortdesc>
+  <body>
+    <!--tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <section>
+      <title>Overview</title>
+      <p>With the development of a new automation playbook, you can add new disks to the already
+        deployed VSA. This allows you to gradually increase the storage capacity of a cluster, i.e.
+        at the time of initial deployment. For example, you can start with a deployment of VSA with
+        a single disk, create a cluster and user it for cloud use cases. Later, you can add new
+        disks to VSA nodes and run the playbook. This way all the VSA nodes will see the extra disk
+        and hence forms a cluster of higher capacity. It is recommended to use playbook to extend
+        disk model instead of using CMC to add a new set of disks. Directly going to CMC will lead
+        in discrepancy in Helion OpenStack VSA disks model vs. disk sets presented to the VSA
+        system. </p>
+    </section>
+    <section>
+      <title>Prerequisite</title>
+      <p>Before adding a disk to a deployed VSA, ensure the following:
+        <ol>
+          <li>Disks are already mounted to each VSA node.</li>
+          <li>Only SSD are added to tier 0 (for AO), no check to validate it.</li>
+          <li>Capacity of each added disk is more than 5 GB.</li>
+          <li>Add a same number of disks to the VSA nodes of a respective cluster.</li>
+        </ol></p>
+    </section>
+
+    <section id="procedure-to-reconfigure-the-existing-vsa-disk-single-cluster"><title>Procedure to
+        Reconfigure the Existing VSA Disk </title>
+      
+        <p>You can reconfigure the existing VSA disk for a single or multiple
+            cluster(s).</p><p><b>Procedure to reconfigure the existing VSA disk for a single
+            cluster</b></p> To reconfigure the existing VSA disk for a single cluster, perform the
+        following steps: <ol>
+          <li>Login to lifecycle manager.</li>
+          <li> Edit <codeph>~/helion/my_cloud/definition/data/disks_vsa.yml</codeph> file and add a
+            single disk. <p>In the following example, three disks are added. Two disks
+                <codeph>/dev/sdd</codeph> and <codeph>/dev/sde</codeph> are added for data disks and
+              one disk <codeph>/dev/sdf</codeph> for adaptive optimization. With the addition of the
+              new disks, the disk model should reflect as follows.
+            </p><codeblock># Disks to be used by VSA
+    # Additional disks can be added if available
+    device-groups:
+      - name: vsa-data
+        consumer:
+          name: vsa
+          usage: data
+        devices:
+          - name: /dev/sdd
+          - name: /dev/sde
+      - name: vsa-cache
+        consumer:
+          name: vsa
+          usage: adaptive-optimization
+        devices:
+          - name: /dev/sdf		  </codeblock></li>
+        </ol>
+        <p><b>Procedure to Reconfigure the Existing VSA Disk for multiple cluster</b></p><p>If you
+          have multiple cluster and you want to expand the disk sets of only one cluster, make sure
+          to verify the following points:<ul id="ul_ehm_zrz_4x">
+            <li>Check the usage of disk model. If it is using the same disk model then create a new
+              disk model.</li>
+            <li>If you want to configure a disk model of a one cluster, edit the respective disk
+              model.</li>
+          </ul></p><p>In the following example, two clusters are defined for two disk models:
+          VSA-DISKS and VSA-DISKS-2. <codeph>dev/sdd</codeph> and <codeph>dev/sde</codeph> disks are
+          added only to the second cluster.</p><p>
+          <codeblock>disk-models:
+    - name: VSA-DISKS
+# Disks to be used by VSA
+  #  Additional disks can be added if available
+     device-groups:
+   - name: vsa-data
+     consumer:
+     name: vsa
+     usage: data
+     devices:
+   - name: /dev/sdc
+   - name: vsa-cache
+     consumer:
+     name: vsa
+     usage: adaptive-optimization
+     devices:
+   - name: /dev/sdb
+   - name: VSA-DISKS-2
+# Disks to be used by VSA
+   #  Additional disks can be added if availiable
+     device-groups:
+   - name: vsa-data
+     consumer:
+     name: vsa
+     usage: data
+     devices:
+   - name: /dev/sdc
+   - name: /dev/sdd
+   - name: vsa-cache
+     consumer:
+     name: vsa
+     usage: adaptive-optimization
+     devices:
+   - name: /dev/sdb
+   - name: /dev/sde</codeblock>
+        </p><note>Do not remove or replace the disk(s). You can only add new disk(s). </note>
+        <p><b>Commit the change and run the playbooks</b><ol id="ol_ikv_r4h_px">
+            <li>Commit the changes to the local git
+              repo.<codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -a -m "&lt;commit message>"</codeblock></li>
+            <li>Run the configuration
+              processor.<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+            <li>Update your deployment
+              directory.<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+            <li>Run disk configuration playbook to add disk(s) to
+                VSA:<codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts vsalm-configure-disk.yml</codeblock><p>This
+                playbook verifies the physical existence of the disk and checks that the total disks
+                count does not exceed the limit, i.e., 7.</p><p>Once the disks are available in the
+                VSA node, you must add the disks to the VSA system from <xref
+                  href="../../../installation/configure_vsa.dita#config_vsa/launching-cmc-utility"
+                  format="dita">HPE StoreVirtual Centralized Management Console (CMC)
+                GUI</xref>.</p></li>
+          </ol></p>
+    </section>
+           
+    <section><title outputclass="headerH">Centralized Management Console (CMC)</title>
+      <sectiondiv outputclass="insideSection">
+        <p>Perform the following steps to add disk(s):</p>
+        <p>
+          <ol id="ol_qkt_5pj_zw">
+            <li>Launch the CMC utility. See <xref
+                href="../../../installation/configure_vsa.dita#config_vsa/cmc">Launching the CMC
+                utility GUI</xref> for more details.</li>
+            <li>Select the system in the Available Systems pool and click <image
+                href="../../../../media/blockstorage/vsa/plus.png" id="image_uhv_1cq_zw"/> to expand
+              the <b>mg-vsa</b> (VSA node) in which you have added the extra disk in the input
+                  model.<p><image href="../../../../media/blockstorage/vsa/homepage.png"
+                  id="image_lbb_ttj_zw"/></p></li>
+            <li>Click <image href="../../../../media/blockstorage/vsa/plus.png"
+                id="image_jnh_bcq_zw"/>
+              <b>cluster-vsa</b> to expand. <p><image
+                  href="../../../../media/blockstorage/vsa/cluster_expansion.png"
+                  id="image_njm_szp_zw"/></p></li>
+            <li>Click <image href="../../../../media/blockstorage/vsa/plus.png"
+                id="image_b3n_bcq_zw"/>
+              <b>Storage Systems</b> and <b>VSA-VM-vsa1</b> to expand and select
+                  <b>Storage</b>.<p><image
+                  href="../../../../media/blockstorage/vsa/storage_selection.png"
+                  id="image_tsh_tzp_zw"/></p></li>
+            <li>On the Disk Setup tab, place the cursor in the status <b>Uninitializing</b> in the
+              status column, right click on the status and then select <b>Add Disk to RAID and Set
+                Tiers</b>. The disk(s) which is added in the input model appears in the <b>Disk
+                Setup tab</b>.<p><image
+                  href="../../../../media/blockstorage/vsa/disks_setup_page.png"
+                  id="image_gwz_tzp_zw"/></p></li>
+            <li>Select appropriate disk(s) to RAID and set the desired tier and click
+                  <b>OK</b><p><image
+                  href="../../../../media/blockstorage/vsa/operation_disk_setup.png"
+                  id="image_o1l_vzp_zw"/></p></li>
+            <li>A pop-up box appears. Click <b>Yes</b> to add a disk to RAID.</li>
+            <li>A warning message is displayed in the screen. Click <b>Yes</b> to proceed.</li>
+            <li>Click <b>OK</b> to proceed further.<p>The status that appears in the status column
+                will change from <b>Uninitializing</b> to <b>Active</b>. Now you can see the
+                additional disks added to VSA in an active status.</p><p><image
+                  href="../../../../media/blockstorage/vsa/status_change.png" id="image_uhr_j1q_zw"
+                /></p></li>
+            <li>Repeat the steps from <b>2-9</b> for all the VSA system to which you want to add the
+                disks.<note type="caution">Do not add/ delete a new volume until the status of a
+                newly added disk does not change to <b>Active</b> state. Do not perform any volume
+                lifecycle operations until the newly added disk gets into the active
+              state.</note></li>
+          </ol>
+        </p>
+        <note>
+          <ol id="ol_dfb_q5b_nx">
+            <li>It requires a change in a disk model for extra disks. Disk model is same for all VSA
+              nodes of same type (defined by role), it is important to present same number of disks
+              to all VSA nodes. Ignoring this will result in a failure of playbook. </li>
+            <li>It does not support removal of disks from existing VSA. Do not modify a disk model
+              to remove disk configuration and run the playbook to reconfigure VSA disk systems. </li>
+            <li>For one VSA node, you can add maximum seven disks. </li>
+            <li>If you do have multiple clusters and want to expand disk sets of only one cluster,
+              ensure the following point: <ol id="ol_vjd_sxb_nx">
+                <li>Check the usage of disk model. If it is using the same disk model then create a
+                  new disk model. </li>
+              </ol>
+            </li>
+          </ol>
+        </note>
+      </sectiondiv>
+    </section>
+  </body>
+</topic>

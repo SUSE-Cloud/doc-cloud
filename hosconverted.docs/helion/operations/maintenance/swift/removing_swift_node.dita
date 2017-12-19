@@ -1,0 +1,227 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="remove_swift_node">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Removing a Swift Node</title>
+  <abstract><shortdesc outputclass="hdphidden">Removal process for both Swift Object and PAC
+      nodes.</shortdesc><p>You can use this process when you want to remove one or more Swift nodes
+      permanently. This process applies to both Swift Proxy, Account, Container (PAC) nodes and
+      Swift Object nodes.</p>
+    <p>This process has three phases:</p></abstract>
+  <body>
+    <!--not tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+
+    <section id="passthrough">
+      <title>Setting the Pass-through Attributes</title>
+      <p>This process will remove the Swift node's drives from the rings and move it to the
+        remaining nodes in your cluster.</p>
+      <ol>
+        <li>Log in to the lifecycle manager.</li>
+        <li>Ensure that the weight-step attribute is set. See <xref
+            href="../../objectstorage/swift_weight_attribute.dita"/> for more
+          details.</li>
+        <li>Add the pass-through definition to your input model, specifying the server ID (as
+          opposed to the server name). It is easiest to include in your
+            <codeph>~/helion/my_cloud/definition/data/servers.yml</codeph> file since your server
+          IDs are already listed in that file. See <xref keyref="passthrough">Input Model -
+            Passthrough</xref> for more details on how pass-through works. <p>Here is the general
+            format:</p>
+          <codeblock>
+pass-through:
+  servers:
+    - id: &lt;server-id&gt;
+      data:
+          &lt;subsystem&gt;:
+                &lt;subsystem-attributes&gt;</codeblock>
+          <p>Here is an example:</p>
+          <codeblock>
+---
+  product:
+    version: 2
+            
+  <b>pass-through:
+    servers:
+      - id: ccn-0001
+        data:
+          swift:
+            drain: yes</b></codeblock>
+          <p>By setting this pass-through attribute, you indicate that the system should reduce the
+            weight of the server's drives. The weight reduction is determined by the weight-step
+            attribute as described in the previous step. This process is known as "draining", where
+            you remove the Swift data from the node in preparation for removing the node.</p></li>
+        <li>Commit your configuration to the <xref href="../../../installation/using_git.dita">local
+            git repo</xref>, as follows:
+          <codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -m "My config or other commit message"</codeblock></li>
+        <li>Run the configuration processor:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+        <li>Use the playbook to create a deployment directory:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+        <li>Run the Swift deploy playbook to perform the first ring rebuild. This will remove some
+          of the partitions from all drives on the node you are removing:
+          <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts swift-deploy.yml</codeblock></li>
+        <li>Wait until the replication has completed. For further details, see <xref
+            href="../../objectstorage/safe_rebalance_deploy_ring.dita"/></li>
+        <li>Determine whether all of the partitions have been removed from all drives on the Swift
+          node you are removing. You can do this by SSH'ing into the first account server node and
+          using these commands: <codeblock>cd /etc/swiftlm/builder_dir/region-&lt;region_name>
+sudo swift-ring-builder &lt;ring_name>.builder</codeblock>
+          <p>For example, if the node you are removing was part of the object-o ring the command
+            would be:</p>
+          <codeblock>sudo swift-ring-builder object-0.builder</codeblock>
+          <p>Check the output. You will need to know the IP address of the server being drained. In
+            the example below, the number of partitions of the drives on 192.168.245.3 has reached
+            zero for the object-0 ring:</p>
+          <codeblock>$ cd /etc/swiftlm/builder_dir/region-region1/
+$ sudo swift-ring-builder object-0.builder 
+account.builder, build version 6
+4096 partitions, 3.000000 replicas, 1 regions, 1 zones, 6 devices, 0.00 balance, 0.00 dispersion
+The minimum number of hours before a partition can be reassigned is 16
+The overload factor is 0.00% (0.000000)
+Devices:    id  region  zone      ip address  port  replication ip  replication port      name weight partitions balance meta
+             0       1     1   192.168.245.3  6002   192.168.245.3              6002     disk0   0.00          0   -0.00 padawan-ccp-c1-m1:disk0:/dev/sdc
+             1       1     1   192.168.245.3  6002   192.168.245.3              6002     disk1   0.00          0   -0.00 padawan-ccp-c1-m1:disk1:/dev/sdd
+             2       1     1   192.168.245.4  6002   192.168.245.4              6002     disk0  18.63       2048   -0.00 padawan-ccp-c1-m2:disk0:/dev/sdc
+             3       1     1   192.168.245.4  6002   192.168.245.4              6002     disk1  18.63       2048   -0.00 padawan-ccp-c1-m2:disk1:/dev/sdd
+             4       1     1   192.168.245.5  6002   192.168.245.5              6002     disk0  18.63       2048   -0.00 padawan-ccp-c1-m3:disk0:/dev/sdc
+             5       1     1   192.168.245.5  6002   192.168.245.5              6002     disk1  18.63       2048   -0.00 padawan-ccp-c1-m3:disk1:/dev/sdd</codeblock></li>
+        <li>If the number of partitions is zero for the server on all rings, you can move to the
+          next step, otherwise continue the ring rebalance cycle by repeating steps 7-9 until the
+          weight has reached zero.</li>
+        <li>If the number of partitions is zero for the server on all rings, you can remove the
+          Swift nodes' drives from all rings. Edit the pass-through data you created in step #3 and
+          set the <codeph>remove</codeph> attribute as shown in this example:
+          <codeblock>---
+  product:
+    version: 2
+            
+  pass-through:
+    servers:
+      - id: ccn-0001
+        data:
+          swift:
+            <b>remove: yes</b></codeblock></li>
+        <li>Commit your configuration to the <xref href="../../../installation/using_git.dita">local
+            git repo</xref>, as follows:
+          <codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -m "My config or other commit message"</codeblock></li>
+        <li>Run the configuration processor:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+        <li>Update your deployment directory:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+        <li>Run the Swift deploy playbook to rebuild the rings by removing the server:
+          <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts swift-deploy.yml</codeblock></li>
+        <li>At this stage, the server has been removed from the rings and the data that was
+          originally stored on the server has been replicated in a balanced way to the other servers
+          in the system. You can proceed to the next phase.</li>
+      </ol>
+    </section>
+
+    <section>
+      <title>To Disable Swift on a Node</title>
+      <p>The next phase in this process will disable the Swift service on the node. In this example,
+          <b>swobj4</b> is the node being removed from Swift.<ol id="ol_lty_22g_pt">
+          <li>Log in to the lifecycle manager.</li>
+          <li>Stop Swift services on the node using the <codeph>swift-stop.yml</codeph>
+              playbook:<codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts swift-stop.yml --limit <b>&lt;hostname></b></codeblock><p>The
+              following example uses the <codeph>swift-stop.yml</codeph> playbook to stop Swift
+              services on
+              <b>helion-cp1-swobj0004</b>:<codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts swift-stop.yml --limit <b>helion-cp1-swobj0004</b></codeblock></p><note>When
+              using the <codeph>--limit</codeph> argument, you must specify the full hostname (for
+              example: <b>helion-cp1-swobj0004</b>) or use the wild card * (for example:
+                <b>*swobj4*</b>).</note></li>
+          <li>Remove the configuration
+              files.<codeblock>ssh helion-cp1-swobj4-mgmt sudo rm -R /etc/swift</codeblock><note>Do
+              not run any other playbooks until you have finished the process described in <b>To
+                Remove a Node from the Input Model</b>. Otherwise, these playbooks may recreate
+                <codeph>/etc/swift</codeph> and restart Swift on <b>swobj4</b>. If you accidentally
+              run a playbook, simply repeat the process in <b>To Disable Swift on a
+            Node</b>.</note></li>
+        </ol></p>
+    </section>
+
+    <section>
+      <title>To Remove a Node from the Input Model</title>
+      <p>Use the following steps to finish the process of removing the Swift node.<ol
+          id="ol_afc_m2g_pt">
+          <li>Log in to the lifecycle manager.</li>
+          <li>Edit the <codeph>~/helion/my_cloud/definition/data/servers.yml</codeph> file and
+            remove the entry for the node (<b>swobj4</b> in this example).</li>
+          <li>If this was a SWPAC node, reduce the member-count attribute by 1 in the
+              <codeph>~/helion/my_cloud/definition/data/control_plane.yml</codeph> file. For SWOBJ
+            nodes, no such action is needed.</li>
+          <li>Commit your configuration to the <xref href="../../../installation/using_git.dita">local
+              git repo</xref>, as follows:
+            <codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -m "My config or other commit message"</codeblock></li>
+          <li>Run the configuration processor:<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock>
+            <p>You may want to use the <codeph>remove_deleted_servers</codeph> and
+                <codeph>free_unused_addresses</codeph> switches to free up the resources when
+              running the configuration processor. See <xref keyref="persisteddata">Persisted
+                Data</xref> for more details.</p>
+            <codeblock>ansible-playbook -i hosts/localhost config-processor-run.yml -e remove_deleted_servers="y" -e free_unused_addresses="y"</codeblock></li>
+          <li>Update your deployment
+            directory:<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+          <li>Validate the changes you've made to the configuration files using the playbook below
+            before proceeding further: <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts swift-compare-model-rings.yml --limit SWF*</codeblock>
+            <p>If any errors occur, correct them in your configuration files and repeat steps 3-5
+              again until no more errors occur before going to the next step.</p>
+            <p>For more details on how to interpret and resolve errors, see <xref
+                href="../../troubleshooting/objectstorage/interpreting_swift_validate_input_model.dita"
+                >Interpreting Swift Input Model Validation Errors</xref></p></li>
+          <li>Remove the node from
+            Cobbler:<codeblock>sudo cobbler system remove --name=swobj4</codeblock></li>
+          <li>Run the Cobbler deploy playbook:
+            <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost cobbler-deploy.yml</codeblock></li>
+          <li>The final step will depend on what type of Swift node you are removing. <p>If the node
+              was a SWPAC node, run the <codeph>hlm-deploy.yml</codeph> playbook:</p>
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-deploy.yml</codeblock>
+            <p>If the node was a SWOBJ node, run the <codeph>swift-deploy.yml</codeph> playbook:</p>
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts swift-deploy.yml</codeblock>
+          </li>
+          <li>Wait until replication has finished. For more details, see <xref
+              href="../../objectstorage/safe_rebalance_deploy_ring.dita"/>.</li>
+          <li>You may need to continue to rebalance the rings. For instructions, see <b>Final
+              Rebalance Phase </b> at <xref
+              href="../../objectstorage/input_model_change_existing_rings.dita"
+            />.</li>
+        </ol></p>
+    </section>
+
+    <section id="remove_monitoring"><title>Remove the Swift Node from Monitoring</title>
+      <p>Once you have removed the Swift node(s), the alarms against them will trigger so there are
+        additional steps to take to resolve this issue.</p>
+      <p>You will want to SSH to each of the Monasca API servers and edit the
+          <codeph>/etc/monasca/agent/conf.d/host_alive.yaml</codeph> file to remove references to
+        the Swift node(s) you removed. This will require <codeph>sudo</codeph> access.</p>
+      <p>Once you have removed the references on each of your Monasca API servers you then need to
+        restart the monasca-agent on each of those servers with this command:</p>
+      <codeblock>sudo service monasca-agent restart</codeblock>
+      <p>With the Swift node references removed and the monasca-agent restarted, you can then delete
+        the corresponding alarm to finish this process. To do so we recommend using the Monasca CLI
+        which should be installed on each of your Monasca API servers by default:</p>
+      <codeblock>monasca alarm-list --metric-dimensions hostname=&#60;swift node deleted></codeblock>
+      <p>You can then delete the alarm with this command:</p>
+      <codeblock>monasca alarm-delete &#60;alarm ID></codeblock>
+    </section>
+
+  </body>
+</topic>

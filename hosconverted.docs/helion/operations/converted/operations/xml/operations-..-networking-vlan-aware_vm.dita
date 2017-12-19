@@ -1,0 +1,410 @@
+<?xml version="1.0"?>
+<!DOCTYPE section PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN" "http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd" [ <!ENTITY % entities SYSTEM "entities.xml"> %entities; ]><section id="vlan-aware">
+   <title>
+      <phrase/>Setting up VLAN-Aware VMs</title>
+
+
+
+    <para> Creating a VM with a trunk port will allow a VM to gain connectivity to one or more
+      networks over the same virtual NIC (vNIC) through the use VLAN interfaces in the guest VM.
+      Connectivity to different networks can be added and removed dynamically through the use of
+      subports. The network of the parent port will be presented to the VM as the untagged VLAN, and
+      the networks of the child ports will be presented to the VM as the tagged VLANs (the VIDs of
+      which can be chosen arbitrarily as long as they are unique to that trunk). The VM will
+      send/receive VLAN-tagged traffic over the subports, and Neutron will mux/demux the traffic
+      onto the subport's corresponding network. This is not to be confused with <xref linkend="vlan_transparency"/>, in which a VM can
+      pass VLAN-tagged traffic transparently across the network without interference from Neutron. </para>
+
+
+    
+      <bridgehead renderas="sect4">Terminology</bridgehead>
+      <itemizedlist>
+        <listitem>
+            <para><emphasis role="bold">Trunk</emphasis>: a resource that logically represents a trunked vNIC and references a
+          parent port. </para>
+
+         </listitem>
+        <listitem>
+            <para><emphasis role="bold">Parent port</emphasis>: a Neutron port that a Trunk is referenced to. Its network is
+          presented as the untagged VLAN. </para>
+
+         </listitem>
+        <listitem>
+            <para><emphasis role="bold">Subport</emphasis>: a resource that logically represents a tagged VLAN port on a Trunk. A
+          Subport references a child port and consists of the
+          &lt;port&gt;,&lt;segmentation-type&gt;,&lt;segmentation-id&gt; tuple. Currently only the 'vlan'
+          segmentation type is supported. </para>
+
+         </listitem>
+        <listitem>
+            <para><emphasis role="bold">Child port</emphasis>: a Neutron port that a Subport is referenced to. Its network is
+          presented as a tagged VLAN based upon the segmentation-id used when creating/adding a
+          Subport. </para>
+
+         </listitem>
+        <listitem>
+            <para><emphasis role="bold">Legacy VM</emphasis>: a VM that does not use a trunk port. </para>
+
+         </listitem>
+        <listitem>
+            <para><emphasis role="bold">Legacy port</emphasis>: a Neutron port that is not used in a Trunk. </para>
+
+         </listitem>
+        <listitem>
+            <para><emphasis role="bold">VLAN-aware VM</emphasis>: a VM that uses at least one trunk port.</para>
+
+         </listitem>
+      </itemizedlist>
+   
+
+    
+      <bridgehead renderas="sect4">Trunk CLI reference</bridgehead>
+      <informaltable id="table_rvh_hss_3x" colsep="1" rowsep="1">
+         <tgroup cols="2">
+            <colspec colname="c1" colnum="1" colwidth="1.0*"/>
+            <colspec colname="c2" colnum="2" colwidth="1.0*"/>
+            <thead>
+               <row>
+                  <entry> Command</entry>
+                  <entry>Action</entry>
+               </row>
+            </thead>
+            <tbody>
+               <row>
+                  <entry>network trunk create </entry>
+                  <entry>Create a trunk.</entry>
+               </row>
+               <row>
+                  <entry>network trunk delete </entry>
+                  <entry>Delete a given trunk.</entry>
+               </row>
+               <row>
+                  <entry>network trunk list </entry>
+                  <entry>List all trunks.</entry>
+               </row>
+               <row>
+                  <entry>network trunk show </entry>
+                  <entry>Show information of a given trunk.</entry>
+               </row>
+               <row>
+                  <entry>network trunk set </entry>
+                  <entry>Add subports to a given trunk.</entry>
+               </row>
+               <row>
+                  <entry>network subport list </entry>
+                  <entry>List all subports for a given trunk.</entry>
+               </row>
+               <row>
+                  <entry>network trunk unset</entry>
+                  <entry>Remove subports from a given trunk.</entry>
+               </row>
+               <row>
+                  <entry>network trunk set</entry>
+                  <entry>Update trunk properties.</entry>
+               </row>
+            </tbody>
+        </tgroup>
+      </informaltable>
+   
+
+    
+      <bridgehead renderas="sect4">Enabling VLAN-aware VM capability</bridgehead>
+      <orderedlist>
+        <listitem>
+            <para>Edit <literal>~helion/my_cloud/config/neutron/neutron.conf.j2</literal> to add the "trunk"
+          service_plugin:
+          </para>
+
+            <screen>service_plugins = {{ neutron_service_plugins }},trunk</screen>
+         </listitem>
+        <listitem>
+            <para>Edit <literal>~/helion/my_cloud/config/neutron/ml2_conf.ini.j2</literal> to enable the
+          noop firewall driver: </para>
+
+            <note>
+               <para>This is a manual configuration step because it must be made
+            apparent that this step disables Neutron security groups completely. The default <phrase/>
+            firewall_driver is
+              <literal>neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver</literal>
+            which does not implement security groups for trunk ports. Optionally, the <phrase/> default
+            firewall_driver may still be used (i.e. skip this step), which would provide security
+            groups for legacy VMs but not for VLAN-aware VMs. However, this mixed environment is not
+            recommended. See the section called <ulink url="#vlan-aware/firewall">Firewall issues</ulink> below for more
+          details.</para>
+
+            </note>
+            <screen>[securitygroup]
+firewall_driver = neutron.agent.firewall.NoopFirewallDriver</screen>
+         </listitem>
+        <listitem>
+            <para>Commit the configuration changes:
+          </para>
+
+            <screen>git add -A
+git commit -m "Enable vlan-aware VMs"
+cd ~/helion/hos/ansible/</screen>
+         </listitem>
+        <listitem>
+            <para>If this is an initial deployment, continue the rest of normal deployment process:
+          </para>
+
+            <screen>ansible-playbook -i hosts/localhost config-processor-run.yml
+ansible-playbook -i hosts/localhost ready-deployment.yml
+cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts site.yml</screen>
+         </listitem>
+        <listitem>
+            <para>If the cloud has already been deployed and this is a reconfiguration:
+          </para>
+
+            <screen>ansible-playbook -i hosts/localhost ready-deployment.yml
+cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts neutron-reconfigure.yml</screen>
+         </listitem>
+      </orderedlist>
+   
+
+    
+      <bridgehead renderas="sect4">Use Cases</bridgehead>
+      <para><emphasis role="bold">Creating a trunk port</emphasis></para>
+
+      <para> Assume that a number of Neutron networks/subnets already
+      exist: private, foo-net, and bar-net. This will create a trunk with two subports allocated to
+      it. The parent port will be on the "private" network, while the two child ports will be on
+      "foo-net" and "bar-net", respectively: </para>
+
+      <orderedlist>
+        <listitem>
+            <para>Create a port that will function as the trunk's parent port:
+          </para>
+
+            <screen>$ neutron port-create --name trunkparent private</screen>
+         </listitem>
+        <listitem>
+            <para>Create ports that will function as the child ports to be used in subports:
+          </para>
+
+            <screen>$ neutron port-create --name subport1 foo-net
+$ neutron port-create --name subport2 bar-net</screen>
+         </listitem>
+        <listitem>
+            <para>Create a trunk port using the <literal>openstack network trunk create</literal> command,
+          passing the parent port created in step 1 and child ports created in step 2:
+          </para>
+
+            <screen>$ openstack network trunk create --parent-port trunkparent --subport port=subport1,segmentation-type=vlan,segmentation-id=1 --subport port=subport2,segmentation-type=vlan,segmentation-id=2 mytrunk
++-----------------+-----------------------------------------------------------------------------------------------+
+| Field           | Value                                                                                         |
++-----------------+-----------------------------------------------------------------------------------------------+
+| admin_state_up  | UP                                                                                            |
+| created_at      | 2017-06-02T21:49:59Z                                                                          |
+| description     |                                                                                               |
+| id              | bd822ebd-33d5-423e-8731-dfe16dcebac2                                                          |
+| name            | mytrunk                                                                                       |
+| port_id         | 239f8807-be2e-4732-9de6-c64519f46358                                                          |
+| project_id      | f51610e1ac8941a9a0d08940f11ed9b9                                                              |
+| revision_number | 1                                                                                             |
+| status          | DOWN                                                                                          |
+| sub_ports       | port_id='9d25abcf-d8a4-4272-9436-75735d2d39dc', segmentation_id='1', segmentation_type='vlan' |
+|                 | port_id='e3c38cb2-0567-4501-9602-c7a78300461e', segmentation_id='2', segmentation_type='vlan' |
+| tenant_id       | f51610e1ac8941a9a0d08940f11ed9b9                                                              |
+| updated_at      | 2017-06-02T21:49:59Z                                                                          |
++-----------------+-----------------------------------------------------------------------------------------------+
+
+$ openstack network subport list --trunk mytrunk
++--------------------------------------+-------------------+-----------------+
+| Port                                 | Segmentation Type | Segmentation ID |
++--------------------------------------+-------------------+-----------------+
+| 9d25abcf-d8a4-4272-9436-75735d2d39dc | vlan              |               1 |
+| e3c38cb2-0567-4501-9602-c7a78300461e | vlan              |               2 |
++--------------------------------------+-------------------+-----------------+</screen>
+            <para>
+          Optionally, a trunk may be created without subports (they can be added later):
+          </para>
+
+            <screen>$ openstack network trunk create --parent-port trunkparent mytrunk
++-----------------+--------------------------------------+
+| Field           | Value                                |
++-----------------+--------------------------------------+
+| admin_state_up  | UP                                   |
+| created_at      | 2017-06-02T21:45:35Z                 |
+| description     |                                      |
+| id              | eb8a3c7d-9f0a-42db-b26a-ca15c2b38e6e |
+| name            | mytrunk                              |
+| port_id         | 239f8807-be2e-4732-9de6-c64519f46358 |
+| project_id      | f51610e1ac8941a9a0d08940f11ed9b9     |
+| revision_number | 1                                    |
+| status          | DOWN                                 |
+| sub_ports       |                                      |
+| tenant_id       | f51610e1ac8941a9a0d08940f11ed9b9     |
+| updated_at      | 2017-06-02T21:45:35Z                 |
++-----------------+--------------------------------------+</screen>
+            <para>A
+          port that is already bound (i.e. already in use by a VM) cannot be "upgraded" to a trunk
+          port. The port must be unbound to be eligible for use as a trunk's parent port. When
+          adding subports to a trunk, the child ports must be unbound as well. </para>
+
+         </listitem>
+      </orderedlist>
+      <para><emphasis role="bold">Checking a port's trunk details</emphasis></para>
+
+      <para> Once a trunk has been created, its parent port
+      will show the <literal>trunk_details</literal> attribute, which consists of the
+        <literal>trunk_id</literal> and list of subport dictionaries:
+      </para>
+
+      <screen>$ neutron port-show -F trunk_details trunkparent
++---------------+-------------------------------------------------------------------------------------+
+| Field         | Value                                                                               |
++---------------+-------------------------------------------------------------------------------------+
+| trunk_details | {"trunk_id": "bd822ebd-33d5-423e-8731-dfe16dcebac2", "sub_ports":                   |
+|               | [{"segmentation_id": 2, "port_id": "e3c38cb2-0567-4501-9602-c7a78300461e",          |
+|               | "segmentation_type": "vlan", "mac_address": "fa:16:3e:11:90:d2"},                   |
+|               | {"segmentation_id": 1, "port_id": "9d25abcf-d8a4-4272-9436-75735d2d39dc",           |
+|               | "segmentation_type": "vlan", "mac_address": "fa:16:3e:ff:de:73"}]}                  |
++---------------+-------------------------------------------------------------------------------------+</screen>
+      <para>
+      Ports that are not trunk parent ports will not have a <literal>trunk_details</literal> field: </para>
+
+      <screen>$ neutron port-show -F trunk_details subport1
+need more than 0 values to unpack</screen>
+      <para><emphasis role="bold">Adding subports to a trunk</emphasis></para>
+
+      <para> Assuming a trunk and new child port have been created
+      already, the <literal>trunk-subport-add</literal> command will add one or more subports to the
+      trunk. </para>
+
+      <orderedlist>
+        <listitem>
+            <para>Run <literal>openstack network trunk set</literal></para>
+
+            <screen>$ openstack network trunk set --subport port=subport3,segmentation-type=vlan,segmentation-id=3 mytrunk</screen>
+         </listitem>
+        <listitem>
+            <para>Run <literal>openstack network subport list</literal></para>
+
+            <screen>$ openstack network subport list --trunk mytrunk
++--------------------------------------+-------------------+-----------------+
+| Port                                 | Segmentation Type | Segmentation ID |
++--------------------------------------+-------------------+-----------------+
+| 9d25abcf-d8a4-4272-9436-75735d2d39dc | vlan              |               1 |
+| e3c38cb2-0567-4501-9602-c7a78300461e | vlan              |               2 |
+| bf958742-dbf9-467f-b889-9f8f2d6414ad | vlan              |               3 |
++--------------------------------------+-------------------+-----------------+</screen>
+         </listitem>
+      </orderedlist>
+      <note>
+         <para>The <literal>--subport</literal> option may be repeated multiple times in order to add
+        multiple subports at a time.</para>
+
+      </note>
+      <para><emphasis role="bold">Removing subports from a trunk</emphasis></para>
+
+      <para>To remove a subport from a trunk, use <literal>openstack network trunk unset</literal>
+        command: </para>
+<screen>$ openstack network trunk unset --subport subport3 mytrunk</screen>
+
+      <para><emphasis role="bold">Deleting a trunk port</emphasis></para>
+
+      <para>To delete a trunk port, use the <literal>openstack network
+        trunk delete</literal> command: </para>
+
+      <screen>$ openstack network trunk delete mytrunk</screen>
+      <para>Once a trunk has been created successfully, its parent port may be passed to the
+        <literal>nova boot</literal> command, which will make the VM VLAN-aware: 
+        </para>
+<screen>nova boot --image ubuntu-server --flavor 1 --nic port-id=239f8807-be2e-4732-9de6-c64519f46358 vlan-aware-vm</screen>
+
+      <note>
+         <para>A trunk cannot be deleted until its parent port is unbound. Mainly, this means you must
+        delete the VM using the trunk port before you are allowed to delete the trunk. </para>
+
+      </note>
+   
+
+    
+      <bridgehead renderas="sect4">VLAN-aware VM network configuration</bridgehead>
+      <para>
+       
+      This section illustrates how to
+      configure the VLAN interfaces inside a VLAN-aware VM based upon the subports allocated to the
+      trunk port being used. 
+      </para>
+
+      <orderedlist>
+         <listitem>
+            <para> Run <literal>openstack network trunk subport list</literal> to see the VLAN IDs in use on the
+          trunk port:
+          </para>
+
+            <screen>$ openstack network subport list --trunk mytrunk
++--------------------------------------+-------------------+-----------------+
+| Port                                 | Segmentation Type | Segmentation ID |
++--------------------------------------+-------------------+-----------------+
+| e3c38cb2-0567-4501-9602-c7a78300461e | vlan              |               2 |
++--------------------------------------+-------------------+-----------------+</screen>
+         </listitem>
+        <listitem>
+            <para>Run <literal>neutron port-show</literal> on the child port to get its mac_address:
+      </para>
+
+            <screen>$ neutron port-show -F mac_address 08848e38-50e6-4d22-900c-b21b07886fb7
++-------------+-------------------+
+| Field       | Value             |
++-------------+-------------------+
+| mac_address | fa:16:3e:08:24:61 |
++-------------+-------------------+</screen>
+         </listitem>
+         <listitem>
+            <para>Log into the VLAN-aware VM and run the following commands to set up the VLAN interface:
+          </para>
+
+            <screen>$ sudo ip link add link ens3 ens3.2 address fa:16:3e:11:90:d2 broadcast ff:ff:ff:ff:ff:ff type vlan id 2
+$ sudo ip link set dev ens3.2 up</screen>
+         </listitem>
+         <listitem>
+            <para>Note the usage of the mac_address from step 2 and VLAN ID from step 1 in configuring the VLAN
+          interface:
+          </para>
+
+            <screen>$ sudo ip link add link ens3 ens3.2 address fa:16:3e:11:90:d2 broadcast ff:ff:ff:ff:ff:ff type vlan id 2</screen>
+         </listitem>
+         <listitem>
+            <para>Trigger a DHCP request for the new vlan interface to verify connectivity and retrieve its IP
+          address. On an Ubuntu VM, this might be:
+          </para>
+
+            <screen>$ sudo dhclient ens3.2
+$ ip a
+1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host
+       valid_lft forever preferred_lft forever
+2: ens3: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1400 qdisc pfifo_fast state UP group default qlen 1000
+    link/ether fa:16:3e:8d:77:39 brd ff:ff:ff:ff:ff:ff
+    inet 10.10.10.5/24 brd 10.10.10.255 scope global ens3
+       valid_lft forever preferred_lft forever
+    inet6 fe80::f816:3eff:fe8d:7739/64 scope link
+       valid_lft forever preferred_lft forever
+3: ens3.2@ens3: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1400 qdisc noqueue state UP group default qlen 1000
+    link/ether fa:16:3e:11:90:d2 brd ff:ff:ff:ff:ff:ff
+    inet 10.10.12.7/24 brd 10.10.12.255 scope global ens3.2
+       valid_lft forever preferred_lft forever
+    inet6 fe80::f816:3eff:fe11:90d2/64 scope link
+       valid_lft forever preferred_lft forever</screen>
+         </listitem>
+      </orderedlist>
+   
+
+   
+    <formalpara id="firewall">
+      <title>Firewall issues</title>
+      <para><phrase/><literal>neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver</literal><literal>firewall_driver =
+        neutron.agent.firewall.NoopFirewallDriver</literal></para>
+
+   </formalpara>
+
+ 
+  </section>

@@ -1,0 +1,239 @@
+<?xml version="1.0"?>
+<!DOCTYPE section PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN" "http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd" [ <!ENTITY % entities SYSTEM "entities.xml"> %entities; ]><section id="lifecyclemanager_recovery">
+   <title>
+      <phrase/>Lifecycle Manager Disaster Recovery</title>
+    <para>In this scenario everything is still running (controller nodes and compute nodes) but you've
+      lost either a dedicated lifecycle manager or a shared lifecycle manager/controller node.</para>
+    <para>Ensuring that you use the same version of <phrase/> that you previously had
+      loaded on your lifecycle manager, you will need to download and install the lifecycle
+      management software using the instructions from the <xref linkend="install_kvm"/> before proceeding further.</para>
+    
+      <bridgehead renderas="sect4">Restore from a Swift backup</bridgehead>
+      <orderedlist>
+        <listitem>
+            <para>Log in to the lifecycle manager. </para>
+         </listitem>
+        <listitem>
+            <para>Install the freezer-agent using the following
+          playbook:</para>
+            <screen>cd ~/helion/hos/ansible/
+ansible-playbook -i hosts/localhost _deployer_restore_helper.yml</screen>
+         </listitem>
+        <listitem>
+            <para>Access one of the other controller or compute nodes in your environment to perform the
+          following steps:</para>
+            <orderedlist id="ol_snq_wqs_px">
+               <listitem>
+                  <para>Retrieve the <literal>/home/stack/backup.osrc</literal> file and copy it to the
+                <literal>/home/stack</literal> directory on the lifecycle manager.</para>
+               </listitem>
+               <listitem>
+                  <para>Copy all the files in the <literal>/opt/stack/service/freezer-agent/etc/</literal>
+              directory to the same directory on the lifecycle manager.</para>
+               </listitem>
+               <listitem>
+                  <para>Copy all the files in the <literal>/usr/local/share/ca-certificates</literal>
+              directory to the same directory on the lifecycle manager.</para>
+               </listitem>
+               <listitem>
+                  <para>Retrieve the <literal>/etc/hosts</literal> file and replace the one found on the
+              lifecycle manager.</para>
+               </listitem>
+            </orderedlist>
+         </listitem>
+        <listitem>
+            <para>Log back in to the lifecycle manager.</para>
+         </listitem>
+        <listitem>
+            <para>Edit the value for <literal>client_id</literal> in the following file to contain the
+          hostname of your lifecycle
+          manager:</para>
+            <screen>/opt/stack/service/freezer-agent/etc/scheduler.conf</screen>
+         </listitem>
+        <listitem>
+            <para>Update your ca-certificates:</para>
+            <screen>sudo update-ca-certificates</screen>
+         </listitem>
+        <listitem>
+            <para>Edit the <literal>/etc/hosts</literal> file, ensuring you edit the 127.0.0.1 line so it
+          points to <literal>hlm</literal> like so:
+          </para>
+            <screen>127.0.0.1       localhost hlm
+::1             localhost ip6-localhost ip6-loopback
+ff02::1         ip6-allnodes
+ff02::2         ip6-allrouters</screen>
+         </listitem>
+        <listitem>
+            <para>On the lifecycle manager, source the backup user credentials:
+          </para>
+            <screen>source ~/backup.osrc</screen>
+         </listitem>
+        <listitem>
+            <para>List the Freezer jobs
+          </para>
+            <screen>freezer-scheduler -c &lt;deployer_hostname&gt; job-list</screen>
+         </listitem>
+        <listitem>
+            <para>Get the id of the job corresponding to <literal>HLM Default: Deployer backup to
+            Swift</literal>. Stop that job so the freezer-scheduler doesn't begin making backups when
+          started.
+          </para>
+            <screen>freezer-scheduler -c &lt;deployer_hostname&gt; job-stop -j &lt;job-id&gt;</screen>
+            <para>If
+          it is present, also stop the lifecycle manager's SSH backup.</para>
+         </listitem>
+        <listitem>
+            <para>Next, stop the dayzero UI
+          installer:</para>
+            <screen>sudo systemctl stop dayzero</screen>
+         </listitem>
+        <listitem>
+            <para>Start the freezer-scheduler:
+          </para>
+            <screen>sudo systemctl start freezer-scheduler</screen>
+         </listitem>
+        <listitem>
+            <para>Get the id of the job corresponding to <literal>HLM Default: deployer restore from
+            Swift</literal> and launch that job:
+          </para>
+            <screen>freezer-scheduler -c &lt;deployer_hostname&gt; job-start -j &lt;job-id&gt;</screen>
+            <para>This
+          will take some time; you can follow the progress in
+            <literal>/var/log/freezer-agent/freezer-scheduler.log</literal>. </para>
+         </listitem>
+        <listitem>
+            <para>When the job completes, the previous lifecycle manager contents should be restored to
+          your home directory:</para>
+            <screen>cd ~
+ls</screen>
+         </listitem>
+        <listitem>
+            <para>Start the dayzero UI installer:</para>
+            <screen>sudo systemctl start dayzero</screen>
+         </listitem>
+        <listitem>
+            <para>If you are using Cobbler, restore your Cobbler configuration with these steps:</para>
+            <orderedlist id="ol_wsr_xss_px">
+               <listitem>
+                  <para>Remove the following
+              files:</para>
+                  <screen>sudo rm -rf /var/lib/cobbler
+sudo rm -rf /srv/www/cobbler</screen>
+               </listitem>
+               <listitem>
+                  <para>Deploy
+              Cobbler:</para>
+                  <screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost cobbler-deploy.yml</screen>
+               </listitem>
+               <listitem>
+                  <para>Set the <literal>netboot-enabled</literal> flag for each of your nodes with this
+              command:</para>
+                  <screen>for h in $(sudo cobbler system list)
+do
+  sudo cobbler system edit --name=$h --netboot-enabled=0
+done</screen>
+               </listitem>
+            </orderedlist>
+         </listitem>
+        <listitem>
+            <para>Update your deployment
+          directory:</para>
+            <screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready_deployment.yml</screen>
+         </listitem>
+        <listitem>
+            <para>If you are using a dedicated lifecycle manager, follow these steps:</para>
+            <orderedlist id="ol_psj_wx5_qx">
+               <listitem>
+                  <para>re-run the deployment to ensure the lifecycle manager is in the correct
+              state:</para>
+                  <screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts site.yml --limit localhost</screen>
+               </listitem>
+            </orderedlist>
+         </listitem>
+        <listitem>
+            <para>If you are using a shared lifecycle manager/controller, follow these steps:</para>
+            <orderedlist id="ol_fbs_yx5_qx">
+               <listitem>
+                  <para>If the node is also a HLM hypervisor, run the following commands to recreate the
+              virtual machines that were
+              lost:</para>
+                  <screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-hypervisor-setup.yml --limit &lt;this node&gt;</screen>
+               </listitem>
+               <listitem>
+                  <para>If the node that was lost (or one of the VMs that it hosts) was a member of the
+              RabbitMQ cluster then you need to remove the record of the old node, by running the
+              following command <emphasis role="bold">on any one of the other cluster members</emphasis>. In this example the
+              nodes are called <literal>cloud-cp1-rmq-mysql-m*-mgmt</literal> but you need to use the
+              correct names for your system, which you can find in
+              <literal>/etc/hosts</literal>:</para>
+                  <screen>cd ~/scratch/ansible/next/hos/ansible
+ssh cloud-cp1-rmq-mysql-m3-mgmt sudo rabbitmqctl forget_cluster_node rabbit@cloud-cp1-rmq-mysql-m1-mgmt</screen>
+               </listitem>
+               <listitem>
+                  <para>Run the <literal>site.yml</literal> against the complete cloud to reinstall and
+              rebuild the services that were lost. If you replaced one of the RabbitMQ cluster
+              members then you'll need to add the <literal>-e</literal> flag shown below, to nominate
+              a new master node for the cluster, otherwise you can omit
+              it.</para>
+                  <screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts site.yml -e rabbit_primary_hostname=cloud-cp1-rmq-mysql-m3</screen>
+               </listitem>
+            </orderedlist>
+         </listitem>
+      </orderedlist>
+   
+    
+      <bridgehead renderas="sect4">Restore from an SSH backup</bridgehead>
+      <orderedlist id="ol_q5k_qyh_1v">
+        <listitem>
+            <para>On the lifecycle manager, edit the following file so it contains the same information as
+          it did previously:
+          </para>
+            <screen>~/helion/my_cloud/config/freezer/ssh_credentials.yml</screen>
+         </listitem>
+        <listitem>
+            <para>On the lifecycle manager, copy the following files, change directories, and run the
+          playbook _deployer_restore_helper.yml:
+          </para>
+            <screen>cp -r ~/hp-ci/helion/* ~/helion/my_cloud/definition/
+cd ~/helion/hos/ansible/
+ansible-playbook -i hosts/localhost _deployer_restore_helper.yml</screen>
+         </listitem>
+        <listitem>
+            <para>Perform the restore. First become root and change directories:
+          </para>
+            <screen>sudo su
+cd /root/deployer_restore_helper/</screen>
+         </listitem>
+        <listitem>
+            <para>Then, stop the Dayzero UI installer:</para>
+            <screen>systemctl stop dayzero</screen>
+         </listitem>
+        <listitem>
+            <para>Execute the restore job: </para>
+            <screen>./deployer_restore_script.sh</screen>
+         </listitem>
+        <listitem>
+            <para>Start the Dayzero UI installer:</para>
+            <screen>systemctl start dayzero</screen>
+         </listitem>
+        <listitem>
+            <para>Update your deployment
+          directory:</para>
+            <screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready_deployment.yml</screen>
+         </listitem>
+        <listitem>
+            <para>When the lifecycle manager is restored, re-run the deployment to ensure the lifecycle
+          manager is in the correct state:
+          </para>
+            <screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts site.yml --limit localhost</screen>
+         </listitem>
+      </orderedlist>
+   
+  </section>

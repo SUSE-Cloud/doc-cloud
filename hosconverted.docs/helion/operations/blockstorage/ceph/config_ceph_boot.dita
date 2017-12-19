@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="config_ceph_boot">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Efficiently Creating Bootable Volumes when using
+    Ceph for Glance and Cinder</title>
+  <body>
+    <section>
+      <note type="important">This section only applies if you are using Ceph as a backend for both
+        Glance and Cinder. If you are only using Ceph as a backend for either Glance or Cinder, but
+        not both, then this section would not apply.</note>
+      <p>By default, creation of multiple bootable volumes from an image in Glance can involve
+        significant data movement. When Ceph is used as a backend for both Glance and Cinder,
+        performance of these operations can be improved significantly. Glance can be configured
+        (using the v2 API) to pass image locations to its client, and the Ceph backend can be
+        configured to read the image locations and use an efficient Ceph clone operation to avoid
+        data copies.</p>
+      <note>Image locations can only be made available with the Glance v2 API, which is not the
+        default.</note>
+      <p>Steps to utilize this feature:</p>
+      <ol id="ol_un3_jvt_qx">
+        <li>Log in to the lifecycle manager.</li>
+        <li>Edit the <codeph>~/helion/my_cloud/config/cinder/cinder.conf.j2</codeph> file and add
+          the following line: <codeblock>glance_api_version = 2</codeblock></li>
+        <li>Log in to a controller node and create a <codeph>cinder-advanced</codeph> role using the
+          OpenStack CLI tool, which eash user who will be creating bootable volumes should
+            have:<codeblock>source ~/keystone.osrc
+openstack role create cinder-advanced</codeblock><note>If
+            you wish to use a different role name than <codeph>cinder-advanced</codeph> you can, but
+            ensure you update the rest of the example commands to match.</note></li>
+        <li>Log back in to the lifecycle manager.</li>
+        <li>Update the <codeph>~/helion/my_cloud/config/glance/policy.json.j2</codeph> file to
+          provide the <codeph>cinder-advanced</codeph> role the permissions to perform the necessary
+          API
+          calls:<codeblock>from:
+    "get_image_location": "role:admin",
+to:
+    "get_image_location": "role:admin or role:cinder-advanced"</codeblock></li>
+        <li>For each user who will be creating bootable volumes, add the
+            <codeph>cinder-advanced</codeph> role for the necessary Projects with the following
+          OpenStack CLI
+            command:<codeblock>source ~/keystone.osrc
+openstack role add --project &lt;project> --user &lt;user> cinder-advanced</codeblock><p>For
+            example, to provide the <codeph>demo</codeph> user permission to efficiently create
+            bootable volumes in the <codeph>demo</codeph> project, you would use this
+            command:<codeblock>openstack role add --project demo --user demo cinder-advanced</codeblock></p></li>
+        <li>Edit the <codeph>~/helion/my_cloud/config/glance/glance-api.conf.j2</codeph> file to
+          uncomment and change the line <codeph>#show_image_direct_url = False</codeph> and add the
+          line <codeph>show_multiple_locations =
+          True</codeph>:<codeblock>CHANGE:
+from:
+    #show_image_direct_url = False
+to:
+    show_image_direct_url = True
+
+ADD:
+show_multiple_locations = True</codeblock></li>
+        <li>Commit your configuration to the <xref href="../../../installation/using_git.dita">local
+            git repo</xref>, as follows:
+          <codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -m "My config or other commit message"</codeblock></li>
+        <li>Run the configuration processor:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+        <li>Update your deployment directory:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+        <li>Change to the deployment directory and run both the Glance and Cinder reconfigure
+          playbooks:
+          <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts glance-reconfigure.yml
+ansible-playbook -i hosts/verb_hosts cinder-reconfigure.yml</codeblock></li>
+      </ol>
+    </section>
+  </body>
+</topic>

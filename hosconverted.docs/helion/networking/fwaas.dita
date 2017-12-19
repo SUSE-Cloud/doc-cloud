@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: ready for edit (Carter)-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="HP2.0FWaaS">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Using Firewall as a Service (FWaaS)</title>
+  <body><!--not tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <section id="about">
+    <p>The Firewall as a Service (FWaaS) provides the ability to assign network-level, port security
+        for all traffic entering and existing a tenant network. More information on this service can
+        be found via the public OpenStack documentation located at <xref
+          href="http://specs.openstack.org/openstack/neutron-specs/specs/api/firewall_as_a_service__fwaas_.html"
+          format="html" scope="external"
+          >http://specs.openstack.org/openstack/neutron-specs/specs/api/firewall_as_a_service__fwaas_.html</xref>.
+        The following documentation provides Command Line Interface (CLI) sample instructions for
+        configuring and testing a firewall. The Firewall as a Service can also be configured and
+        managed by the Horizon web interface.</p>
+
+    <p>FWaaS is implemented directly in the L3 agent (<i>neutron-l3-agent</i>), however if VPNaaS is
+      enabled, FWaaS is implemented in the VPNaaS agent (<i>neutron-vpn-agent</i>). Because FWaaS
+      does not use a separate agent process or start a specific service, there currently are no
+      Monasca alarms for it. </p>
+      <p>If DVR is enabled, the firewall service currently does not filter traffic between OpenStack
+        private networks, also known as <i>east-west traffic</i> and will only filter traffic from
+        external networks, also known as <i>north-south traffic</i>.</p>
+    <p>
+      <ul id="LBaaSlist">
+        <li><xref href="fwaas.dita#HP2.0FWaaS/Prerequisites">Prerequisites</xref></li>
+        <li><xref href="fwaas.dita#HP2.0FWaaS/Configuration">Configuration</xref></li>
+        <li><xref href="fwaas.dita#HP2.0FWaaS/MoreInfo">More Information</xref></li>
+      </ul>
+    </p>
+    </section>
+    <section id="Prerequisites">
+      <title>Prerequisites</title>
+      <p><keyword keyref="kw-hos"/> must be installed. </p>
+      
+    </section>
+    <section id="Configuration">
+      <title><keyword keyref="kw-hos-phrase"/> FWaaS Configuration</title>
+      
+      <p><b>Check for an enabled firewall.</b></p>
+      <ol>
+        <li>You should check to determine if the firewall is enabled.  The output of the <i>neutron
+            ext-list</i> should contain a firewall
+          entry.<codeblock>neutron ext-list</codeblock></li>
+        <li>Assuming the external network is already created by the admin, this command will show
+          the external network. <codeblock>neutron net-list</codeblock></li>
+      </ol>
+      
+      <p><b>Create required assets.</b></p>
+      <p>Before creating firewalls, you will need to create a network, subnet, router, security
+        group rules, start an instance and assign it a floating IP address.</p>
+      <ol>
+        <li>Create the network, subnet and router.
+          <codeblock>neutron net-create private
+neutron subnet-create --name sub private 10.0.0.0/24 --gateway 10.0.0.1
+neutron router-create router
+neutron router-interface-add router sub
+neutron router-gateway-set router ext-net</codeblock></li>
+        <li>Create security group rules. Security group rules filter traffic at VM level.
+          <codeblock>neutron security-group-rule-create default --protocol icmp
+neutron security-group-rule-create default --protocol tcp --port-range-min 22 --port-range-max 22
+neutron security-group-rule-create default --protocol tcp --port-range-min 80 --port-range-max 80</codeblock></li>
+        <li>Boot a VM.
+          <codeblock>NET=$(neutron net-list | awk '/private/ {print $2}')
+nova boot --flavor 1 --image &lt;image&gt; --nic net-id=$NET vm1 --poll</codeblock></li>
+        <li>Verify if the instance is ACTIVE and is assigned an IP address.
+          <codeblock>nova list</codeblock></li>
+        <li>Get the port id of the vm1 instance.
+          <codeblock>fixedip=$(nova list | awk '/vm1/ {print $12}' | awk -F '=' '{print $2}' | awk -F ',' '{print $1}')
+vmportuuid=$(neutron port-list | grep $fixedip | awk '{print $2}')</codeblock></li>
+        <li>Create and associate a floating IP address to the vm1 instance.
+          <codeblock>neutron floatingip-create ext-net --port-id $vmportuuid</codeblock></li>
+        <li>Verify if the floating IP is assigned to the instance. The following command should show
+          an assigned floating IP address from the external network
+          range.<codeblock>nova show vm1</codeblock></li>
+        <li>Verify if the instance is reachable from the external network. SSH into the instance
+          from a node in (or has route to) the external network.
+          <codeblock>ssh cirros@FIP-VM1
+password: &lt;password&gt;</codeblock></li>
+       </ol>
+      
+      <p><b>Create and attach the firewall.</b></p>
+      <note>By default, an internal "drop all" rule is enabled in IP tables if none of the defined
+        rules match the real-time data packets.</note>
+      <ol>
+        <li>Create new firewall rules using <codeph>firewall-rule-create</codeph> command and
+          providing the protocol, action (allow, deny, reject) and name for the new rule.
+            <p>Firewall actions provide rules in which data traffic can be handled. An <b>allow</b>
+            rule will allow traffic to pass through the firewall, <b>deny</b> will stop and prevent
+            data traffic from passing through the firewall and <b>reject</b> will reject the data
+            traffic and return a <i>destination-unreachable</i> response. Using <b>reject</b> will
+            speed up failure detection time dramatically for legitimate users, since they will not
+            be required to wait for retransmission timeouts or submit retries. Some customers should
+            stick with <b>deny</b> where prevention of port scanners and similar methods may be
+            attempted by hostile attackers. Using <b>deny</b> will drop all of the packets, making
+            it more difficult for malicious intent. The firewall action, <b>deny</b> is the default behavior. </p>
+          <p>The example below demonstrates how to allow icmp and ssh while denying access to http.
+            See the <codeph>neutron</codeph> command-line reference under <xref
+              href="fwaas.dita#HP2.0FWaaS/MoreInfo">more information</xref> on additional options
+            such as source IP, destination IP, source port and destination port. </p>
+          <note>You can create a firewall rule with an identical name and each instance will have a
+            unique id associated with the created rule, however for clarity purposes this is not
+            recommended.</note>
+          <codeblock>neutron firewall-rule-create --protocol icmp --action allow --name allow-icmp
+neutron firewall-rule-create --protocol tcp --destination-port 80 --action deny --name deny-http
+neutron firewall-rule-create --protocol tcp --destination-port 22 --action allow --name allow-ssh</codeblock></li>
+        <li>Once the rules are created, create the firewall policy by using the <codeph>firewall-policy-create</codeph> command with the 
+          <codeph>--firewall-rules</codeph> option and rules to include in quotes, followed by the name of the new policy.  The order of the 
+          rules is important.
+          <codeblock>neutron firewall-policy-create --firewall-rules "allow-icmp deny-http allow-ssh" policy-fw</codeblock></li>
+        <li>Finish the firewall creation by using the <codeph>firewall-create</codeph> command, the policy name and the new name you want to
+          give to your new firewall.
+          <codeblock>neutron firewall-create policy-fw --name user-fw</codeblock></li>
+        <li>You can view the details of your new firewall by using the
+            <codeph>firewall-show</codeph> command and the name of your firewall. This will verify
+          that the status of the firewall is
+          ACTIVE.<codeblock>neutron firewall-show user-fw</codeblock></li>
+      </ol>
+      
+      <p><b>Verify the FWaaS is functional.</b></p>
+      <ol>
+        <li>Since allow-icmp firewall rule is set you can ping the floating IP address of the
+          instance from the external network.<codeblock>ping &lt;FIP-VM1></codeblock></li>
+        <li>Similarly, you can connect via ssh to the instance due to the allow-ssh firewall
+          rule.<codeblock>ssh cirros@&lt;FIP-VM1>
+password: &lt;password></codeblock></li>
+        <li>Run a web server on vm1 instance that listens over port 80, accepts requests and sends a
+          WELCOME response.
+          <codeblock>$ vi webserv.sh
+            
+#!/bin/bash
+            
+MYIP=$(/sbin/ifconfig eth0|grep 'inet addr'|awk -F: '{print $2}'| awk '{print $1}');
+while true; do
+  echo -e "HTTP/1.0 200 OK\r\n\r\nWelcome to $MYIP" | sudo nc -l -p 80
+done
+            
+# Give it Exec rights
+$ chmod 755 webserv.sh
+            
+# Execute the script
+$ ./webserv.sh</codeblock></li>
+        <li>You should expect to see curl fail over port 80 because of the deny-http firewall rule.
+          If curl succeeds, the firewall is not blocking incoming http requests.
+          <codeblock>curl -vvv &lt;FIP-VM1></codeblock></li>
+      </ol>
+    </section>
+    
+    
+    <section>
+      <note type="warning"><p>When using reference implementation, new networks, FIPs and routers
+        created after the Firewall creation will not be automatically updated with firewall rules.
+        Thus, execute the firewall-update command by passing the current and new router Ids such
+        that the rules are reconfigured across all the routers (both current and new). </p><p>For
+          example if router-1 is created before and router-2 is created after the firewall
+          creation</p>
+        <codeblock>$ neutron firewall-update —router &lt;router-1-id&gt; —router &lt;router-2-id&gt; &lt;firewall-name&gt;</codeblock>
+      </note>
+      
+           
+     </section>
+    <section id="MoreInfo">
+      <title>More Information</title>
+      <p>Firewalls are based in IPtable settings.</p>
+      <p>Each firewall that is created is known as an instance.</p>
+      <p>A firewall instance can be deployed on selected project routers. If no specific project router is selected, a firewall 
+        instance is automatically applied to all project routers.</p>
+      <p>Only 1 firewall instance can be applied to a project router.</p>
+      <p>Only 1 firewall policy can be applied to a firewall instance.</p>
+      <p>Multiple firewall rules can be added and applied to a firewall policy.</p>
+      <p>Firewall rules can be shared across different projects via the Share API flag.</p>
+      <p>Firewall rules supersede the Security Group rules that are applied at the Instance level for all traffic entering or 
+        leaving a private, project network.</p>
+      <p>For more information on the neutron command-line interface (CLI) and firewalls, see the OpenStack networking command-line client
+        reference: <xref href="http://docs.openstack.org/cli-reference/content/neutronclient_commands.html" scope="external" format="html"></xref></p>
+    </section>
+  </body>
+</topic>

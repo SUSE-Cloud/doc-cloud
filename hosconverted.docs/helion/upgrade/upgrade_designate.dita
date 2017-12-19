@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="DesignateUpgrade">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>DNS Service (Designate) Upgrade</title>
+  <body><!--not tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <section id="Overview">
+      <title>DNS Service Upgrade from DNSaaS 2.x</title>
+      <p><keyword keyref="kw-hos"/>DNS Service can be upgraded to 3.0 by following the steps
+        outlined in this document.</p>
+      <note type="important">PowerDNS and BIND DNS backend servers are not supported in the 
+        <keyword keyref="kw-hos-phrase-30"/> release. Please consider other backend server options 
+        including InfloBlox.</note>
+
+	  
+    </section>
+    
+    <section id="HOSUpgrade">
+      <title>Step 1: Upgrade <keyword keyref="kw-hos"></keyword></title>
+      <p>You will need to upgrade to 3.0 without adding any of the new DNS Services to your input
+        models. This is done to reduce the risk of new services or other changes affecting an
+        upgrade adversely. </p>
+      <p>Once you have upgraded to 3.0, it is possible to restore pre-existing in-cloud DNS 2.x
+        using the 2.x install. This has the benefit of starting various services back up but is not
+        required and should be considered optional.</p>
+       <p>When you complete this step you will be running 3.0 on bare metal without DNS Service and
+        DNS 2.x in-cloud.</p>
+    </section>
+
+    <section id="DNSPreparations">
+      <title>Step 2: DNS Upgrade Preparations (Optional)</title>
+      <p>You can prepare for the migration from in-cloud to bare-metal DNS Service by reducing the
+        TTL's on the in-cloud nameservers.</p>
+      <p>Reduce the TTL's on the in-cloud nameserver's NS and A records to a low value and wait for
+        the existing TTL period to expire.  The recommended value is 60 seconds.  This helps speed up the 
+        migration by allowing a quick transition from in-cloud to bare-metal nameserver.</p>
+    </section>
+    
+    <section id="DNSaaSDB">
+      <title>Step 3: DNSaaS 2.x Database Information</title>
+      <p><b>SSH to the DNSaaS 2.x lifecycle manager node.</b>
+        <codeblock>ssh -i dns_shared stack@&lt;SVC-NET IP Address&gt;</codeblock>
+      </p>
+      
+      <p><b>Stop the DNSaaS Control Plane Services</b></p>
+      <p>This will stop any requests to the DNS Service and will cause designate client and 
+          Horizon panels to give timeout and server error messages, but will not stop DNS 
+          information from being served.
+        <codeblock>ansible-playbook -i hosts/verb_hosts designate-stop.yml --limit=DES-API</codeblock>
+      </p>
+      
+      <p><b>Dump the Current Database Content</b></p>
+      <note>Any updates to the designate database will not be reflected after this point.</note>
+      <p>Get DNS Service DB
+        <codeblock>ssh dnsaas-cp-c1-m1-svc "sudo mysqldump --add-drop-database --add-drop-table --databases designate" > designate-backup.sql</codeblock>
+      </p>
+      
+
+      <p><b>Copy the dump to the lifecycle manager node</b></p>
+      <note>This assumes you are connected to the <keyword keyref="kw-hos"/> lifecycle manager and have 
+        SSH access to the DNSaaS 2.x lifecycle manager VM. If this is not the case, you may need to use a 
+        different method of moving the files.
+        
+        The end location is required to be in <codeph>/home/stack/ </codeph>on the <keyword keyref="kw-hos"/>
+        lifecycle manager node.</note>
+      <codeblock>scp -i dns_shared stack@&lt;SVC-NET IP Address&gt;:*-backup.sql .</codeblock>
+      
+     <p>When you have completed this stage, the DNS Service API will be stopped and PowerDNS will
+        still be serving DNS Queries with a low TTL for NS and A records.</p>
+    </section>
+    
+    <section id="BareMetalInstall">
+      <title>Step 4: DNS Service Bare-Metal Installation</title>
+      <p><b>Update the cloudconfig to add DNS services</b></p>
+      <p>in <codeph>~/helion/my_cloud/definition/data/control_plane.yml</codeph> add the 
+        following content to the <codeph>{{service-components}}</codeph> of one of the deployed clusters.
+        <codeblock>- designate-api
+- designate-central
+- designate-pool-manager
+- designate-zone-manager
+- designate-mdns
+- designate-client</codeblock>
+      </p>
+      <p>Run the config processor and ready deployment play books as normal and then run
+        site.yml
+        <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts site.yml</codeblock>
+      </p>
+      <p>Run the designate-stop.yml
+        <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts designate-stop.yml</codeblock>
+      </p> 
+      <p>The site.yml will enable the new API endpoints, and any data entered before the 
+        import is complete will be removed.</p>
+      <p>At the end of this stage, DNS Service has been deployed to bare metal and is receiving API
+        traffic to an empty database, but is not yet receiving DNS traffic. </p>
+    </section>
+    
+    <section id="MigrateData">
+      <title>Step 5: Migrate Data</title>
+      <p>You will now need to migrate the data from the 2.x database dumps.</p>
+      <p>Run the migrate playbook to migrate the data.
+        <codeblock>cd ~/scratch/ansible/next/hos/ansible 
+ansible-playbook -i hosts/verb_hosts designate-migrate-from-2.0.yml</codeblock>
+      </p>
+      
+      <p>The playbook will need the names of the files you downloaded from the DNSaaS 2.x 
+      lifecycle manager and placed in the <codeph>/home/stack</codeph> directory on the
+      <keyword keyref="kw-hos"/> lifecycle manager node.
+        <codeblock>$ ansible-playbook -i hosts/verb_hosts designate-migrate-from-2.0.yml
+Enter Name of Designate SQL dump file from DNSaaS 2.0: designate-backup.sql
+Enter Name of PowerDNS SQL dump file from DNSaaS 2.0: pdns-backup.sql
+          
+...
+            
+PLAY RECAP ********************************************************************
+designate-post-configure | db_configure | Run designate-manage database sync --- 7.84s
+designate-monasca | start | Run Monasca agent Designate detection plugin --- 6.01s
+designate-monasca | local_monitor | Setup active check on the Designate API locally --- 5.31s
+designate-monasca | remote_monitor | Setup active check on the Designate API remotely --- 3.89s
+designate-post-configure | migrate-designate-database | run sql import for designate database --- 3.63s
+designate-post-configure | keystone_conf | Add role to Designate User --- 2.96s
+powerdns-post-configure | migrate-powerdns-database | run sql import for pdns database --- 2.50s
+designate-post-configure | keystone_conf | Get a domain scoped token ---- 2.27s
+monasca-agent | monasca-agent | configure | create conf.d dir and custom plugin dirs --- 1.94s
+monasca-agent | monasca-agent | configure | create conf.d dir and custom plugin dirs --- 1.84s
+-------------------------------------------------------------------------------
+Total: ---------------------------------------------------------------- 104.80s
+localhost                  : ok=0    changed=0    unreachable=0    failed=0
+padawan-ccp-c1-m1-mgmt     : ok=34   changed=16   unreachable=0    failed=0
+padawan-ccp-c1-m2-mgmt     : ok=34   changed=16   unreachable=0    failed=0
+padawan-ccp-c1-m3-mgmt     : ok=34   changed=16   unreachable=0    failed=0</codeblock>
+      </p>
+
+      <p>DNS Service has been migrated from in-cloud to bare-metal. The bare-metal DNS Service is
+        now receiving all API traffic. DNS traffic is still being pointed at the in-cloud DNS
+        Servers.</p>
+      
+    </section>
+    
+    <section id="DNSTraffic">
+      <title>Step 6: DNS Traffic to bare metal DNS Servers</title>
+      <p>You will need to update the NS and A records to the new DNS Servers.</p>
+      
+      <p>Once you have updated the NS and A records, DNS Service has been migrated from in-cloud to
+        bare-metal. The bare-metal DNS Service is now receiving all API traffic. DNS traffic is
+        still moving from in-cloud to bare-metal.</p>
+    </section>
+    
+    <section id="Cleanup">
+      <title>Step 7: Cleanup In-Cloud DNS Service</title>
+      <p>You will need to clean up the in-cloud DNS Service.</p>
+      
+      <p>To clean up the in-cloud DNS Service, increase the TTL on the nameserver A and NS records
+        back to their original values and remove the in-cloud DNS Service. The recommendation is to
+        clean up the in-cloud service as soon as DNS Service is running entirely on bare-metal,
+        however the in-cloud components can be removed at a later time, if desired.</p>
+      
+      <p>Once cleanup is complete, DNS Service will be running entirely on bare-metal, with all
+        in-cloud components removed, and all data preserved. </p>
+    </section>
+  </body>
+</topic>

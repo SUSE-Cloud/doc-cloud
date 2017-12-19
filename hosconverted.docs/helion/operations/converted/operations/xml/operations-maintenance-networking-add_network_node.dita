@@ -1,0 +1,218 @@
+<?xml version="1.0"?>
+<!DOCTYPE section PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN" "http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd" [ <!ENTITY % entities SYSTEM "entities.xml"> %entities; ]><!--Edit status: not edited-->
+<section id="add_network_node">
+   <title>
+      <phrase/>Adding a Neutron Network Node</title>
+    
+    <para/>
+    
+      <bridgehead renderas="sect4">Prerequisites</bridgehead>
+      <para>If you are using the mid-scale model then your networking nodes are already separate and
+        the roles are defined. If you are not already using this model and wish to add separate
+        networking nodes then you need to ensure that those roles are defined. You can look in the
+          <literal>~/helion/examples</literal> folder on your lifecycle manager for the mid-scale
+        example model files which show how to do this. We have also added the basic edits that need
+        to be made below:</para>
+      <orderedlist>
+        <listitem>
+            <para>In your <literal>server_roles.yml</literal> file, ensure you have the
+            <literal>NEUTRON-ROLE</literal> defined. </para>
+            <para>Path to file:</para>
+            <screen>~/helion/my_cloud/definition/data/server_roles.yml</screen>
+            <para>Example snippet:</para>
+            <screen>- name: NEUTRON-ROLE
+  interface-model: NEUTRON-INTERFACES
+  disk-model: NEUTRON-DISKS</screen>
+         </listitem>
+        <listitem>
+            <para>In your <literal>net_interfaces.yml</literal> file, ensure you have the
+            <literal>NEUTRON-INTERFACES</literal> defined. </para>
+            <para>Path to file:</para>
+            <screen>~/helion/my_cloud/definition/data/net_interfaces.yml</screen>
+            <para>Example snippet:</para>
+            <screen>- name: NEUTRON-INTERFACES
+  network-interfaces:
+  - device:
+      name: hed3
+    name: hed3
+    network-groups:
+    - EXTERNAL-VM
+    - GUEST
+    - MANAGEMENT</screen>
+         </listitem>
+        <listitem>
+            <para>Create a <literal>disks_neutron.yml</literal> file, ensure you have the
+            <literal>NEUTRON-DISKS</literal> defined in it. </para>
+            <para>Path to file:</para>
+            <screen>~/helion/my_cloud/definition/data/disks_neutron.yml</screen>
+            <para>Example snippet:</para>
+            <screen>  product:
+    version: 2
+
+  disk-models:
+  - name: NEUTRON-DISKS
+    volume-groups:
+      - name: hlm-vg
+        physical-volumes:
+         - /dev/sda_root
+
+        logical-volumes:
+        # The policy is not to consume 100% of the space of each volume group.
+        # 5% should be left free for snapshots and to allow for some flexibility.
+          - name: root
+            size: 35%
+            fstype: ext4
+            mount: /
+          - name: log
+            size: 50%
+            mount: /var/log
+            fstype: ext4
+            mkfs-opts: -O large_file
+          - name: crash
+            size: 10%
+            mount: /var/crash
+            fstype: ext4
+            mkfs-opts: -O large_file</screen>
+         </listitem>
+        <listitem>
+            <para>Modify your <literal>control_plane.yml</literal> file, ensure you have the
+            <literal>NEUTRON-ROLE</literal> defined as well as the Neutron services added. </para>
+            <para>Path to
+            file:</para>
+            <screen>~/helion/my_cloud/definition/data/control_plane.yml</screen>
+            <para>Example snippet:</para>
+            <screen>  - allocation-policy: strict
+    cluster-prefix: neut
+    member-count: 1
+    name: neut
+    server-role: NEUTRON-ROLE
+    service-components:
+    - ntp-client
+    - neutron-vpn-agent
+    - neutron-dhcp-agent
+    - neutron-metadata-agent
+    - neutron-openvswitch-agent</screen>
+         </listitem>
+      </orderedlist>
+      <para>You should also have one or more baremetal servers that meet the minimum hardware
+        requirements for a network node which are documented in the <citetitle>FIXME: broken external xref</citetitle>.</para>
+   
+
+    
+      <bridgehead renderas="sect4">Adding a network node</bridgehead>
+      <para>These steps will show you how to add the new network node to your
+          <literal>servers.yml</literal> file and then run the playbooks that update your cloud
+        configuration. You will run these playbooks from the lifecycle manager.</para>
+      <orderedlist>
+        <listitem>
+            <para>Log in to your lifecycle manager.</para>
+         </listitem>
+        <listitem>
+            <para>Checkout the <literal>site</literal> branch of your local git so you can begin to make the
+          necessary edits:
+          </para>
+            <screen>cd ~/helion/my_cloud/definition/data
+git checkout site</screen>
+         </listitem>
+        <listitem>
+            <para>In the same directory, edit your <literal>servers.yml</literal> file to include the
+          details about your new network node(s). </para>
+            <para>For example, if you already had a cluster of
+            three network nodes and needed to add a fourth one you would add your details to the
+            bottom of the file in this format:</para>
+            <screen># network nodes
+- id: neut3
+  ip-addr: 10.13.111.137
+  role: NEUTRON-ROLE
+  server-group: RACK2
+  mac-addr: "5c:b9:01:89:b6:18"
+  nic-mapping: HP-DL360-6PORT
+  ip-addr: 10.243.140.22
+  ilo-ip: 10.1.12.91
+  ilo-password: password
+  ilo-user: admin</screen>
+            <important>
+               <para>You will need to verify that the <literal>ip-addr</literal> value you
+            choose for this node does not conflict with any other IP address in your cloud
+            environment. You can confirm this by checking the
+              <literal>~/helion/my_cloud/info/address_info.yml</literal> file on your lifecycle
+            manager.</para>
+            </important>
+         </listitem>
+        <listitem>
+            <para>In your <literal>control_plane.yml</literal> file you will need to check the values for
+            <literal>member-count</literal>, <literal>min-count</literal>, and
+            <literal>max-count</literal>, if you specified them, to ensure that they match up with
+          your new total node count. So for example, if you had previously specified
+            <literal>member-count: 3</literal> and are adding a fourth network node, you will need to
+          change that value to <literal>member-count: 4</literal>.</para>
+         </listitem>
+        <listitem>
+            <para>Commit the changes to git:
+          </para>
+            <screen>git commit -a -m "Add new networking node &lt;name&gt;"</screen>
+         </listitem>
+        <listitem>
+            <para>Run the configuration processor:
+          </para>
+            <screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</screen>
+         </listitem>
+        <listitem>
+            <para>Update your deployment directory:
+          </para>
+            <screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+         </listitem>
+        <listitem>
+            <para>Add the new node into Cobbler:
+          </para>
+            <screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost cobbler-deploy.yml</screen>
+         </listitem>
+        <listitem>
+            <para>Then you can image the node: </para>
+            <screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost bm-reimage.yml -e nodelist=&lt;hostname&gt;</screen>
+            <note>
+               <para>If you don't know the <literal>&lt;hostname&gt;</literal> already, you can get it by
+            using <literal>sudo cobbler system list</literal>
+               </para>
+            </note>
+         </listitem>
+        <listitem>
+            <para>[OPTIONAL] - Run the <literal>wipe_disks.yml</literal> playbook to ensure all of your
+          partitions on your nodes are completely wiped prior to continuing with the installation:
+          </para>
+            <screen>cd ~/scratch/ansible/next/hos/ansible/
+ansible-playbook -i hosts/verb_hosts wipe_disks.yml --limit &lt;hostname&gt;</screen>
+         </listitem>
+        <listitem>
+            <para>Configure the operating system on the new networking node with this playbook:
+          </para>
+            <screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts osconfig-run.yml --limit &lt;hostname&gt;</screen>
+         </listitem>
+        <listitem>
+            <para>Complete the networking node deployment with this playbook:
+          </para>
+            <screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-deploy.yml --limit &lt;hostname&gt;</screen>
+         </listitem>
+        <listitem>
+            <para>Run the <literal>site.yml</literal> playbook with the required tag so that all other
+          services become aware of the new node:
+          </para>
+            <screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts site.yml --tags "generate_hosts_file"</screen>
+         </listitem>
+      </orderedlist>
+   
+    
+      <bridgehead renderas="sect4">Adding a New Network Node to Monitoring</bridgehead>
+      <para>If you want to add a new networking node to the monitoring service checks, there is an
+        additional playbook that must be run to ensure this happens:</para>
+      <screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts monasca-deploy.yml --tags "active_ping_checks"</screen>
+   
+  </section>

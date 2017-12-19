@@ -1,0 +1,621 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: Edited (Michael)-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="websso">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Configuring Web Single Sign-On</title>
+  <body>
+    <!--not tested-->
+    
+    <!--https://wiki.hpcloud.net/display/iaas/WebSSO+with+ADFS+in+HOS+3.0 -->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <bodydiv/>
+    <section>This topic explains how to implement web single sign-on.</section>
+    <section>
+      <title>What is WebSSO?</title>
+      <p>WebSSO, or seb single sign-on, is a method for web browsers to receive current
+        authentication information from an identity provider system without requiring a user to log
+        in again to the application displayed by the browser. Users initially access the identity
+        provider web page and supply their credentials. If the user successfully authenticates with
+        the identity provider, the authentication credentials are then stored in the user’s web
+        browser and automatically provided to all web-based applications, such as the Horizon
+        dashboard in <keyword keyref="kw-hos-phrase-30"/> . If users have not yet authenticated with
+        an identity provider or their credentials have timed out, they are automatically redirected
+        to the identity provider to renew their credentials.</p>
+    </section>
+    <section>
+      <title>Limitations</title>
+      <ul id="webssoLimitations">
+        <li>The WebSSO function supports only Horizon web authentication. It is not supported for
+          direct API or CLI access. </li>
+        <li>The <keyword keyref="kw-hos"/> WebSSO function was tested with Microsoft Active Directory
+          Federation Services (ADFS). The instructions provided are pertinent to ADFS and are
+          intended to provide a sample configuration for deploying WebSSO with an external identity
+          provider. If you have a different identity provider such as Ping Identity or IBM Tivoli,
+          consult with those vendors for specific instructions for those products. </li>
+        <li>Only WebSSO federation using the SAML method is supported in <keyword
+            keyref="kw-hos-phrase-30"/> . OpenID-based federation is not currently supported. </li>
+        <li><b>WebSSO has a change password option in User Settings, but note that this function is
+            not accessible for users authenticating with external systems such as LDAP or SAML
+            Identity Providers.</b></li>
+      </ul>
+    </section>
+    <section><title> Enabling WebSSO</title>
+      <keyword keyref="kw-hos-phrase-30"/> now provides WebSSO support for the Horizon web
+      interface. This support requires several configuration steps including editing the Horizon
+      configuration file as well as ensuring that the correct Keystone authentication configuration
+      is enabled to receive the authentication assertions provided by the identity provider. <p>The
+        following is the workflow that depicts how Horizon and Keystone supports WebSSO if no
+        current authentication assertion is available. <ol id="ul_fcj_z4g_4v">
+          <li>Horizon redirects the web browser to the Keystone endpoint.</li>
+          <li>Keystone automatically redirects the web browser to the correct identity provider
+            authentication web page based on the Keystone configuration file.</li>
+          <li>The user authenticates with the identity provider.</li>
+          <li>The identity provider automatically redirects the web browser back to the Keystone
+            endpoint.</li>
+          <li>Keystone generates the required Javascript code to POST a token back to Horizon.</li>
+          <li>Keystone automatically redirects the web browser back to Horizon and the user can then
+            access projects and resources assigned to the user.</li>
+        </ol>The following diagram provides more details on the WebSSO authentication workflow.
+        </p><image
+        href="../../../../media/keystone/Keystone-ADFS-WebSSO-Authentication-Sequence.png"
+        id="image_xc4_zfh_mv"/>
+      <p>Note that the Horizon dashboard service never talks directly to the Keystone identity
+        service until the end of the sequence, after the federated unscoped token negotiation has
+        completed. The browser interacts with the Horizon dashboard service, the Keystone identity
+        service, and ADFS on their respective public endpoints.</p> The following sequence of events
+      is depicted in the diagram.<ol>
+        <li>The user's browser reaches the Horizon dashboard service's login page. The user selects
+          ADFS login from the drop-down menu. </li>
+        <li>The Horizon dashboard service issues an HTTP Redirect (301) to redirect the browser to
+          the Keystone identity service's (public) SAML2 Web SSO endpoint
+          (/auth/OS-FEDERATION/websso/saml2). The endpoint is protected by Apache mod_shib
+          (shibboleth). </li>
+        <li>The browser talks to the Keystone identity service. Because the user's browser does not
+          have an active session with ADFS, the Keystone identity service issues an HTTP Redirect
+          (301) to the browser, along with the required SAML2 request, to the ADFS endpoint. </li>
+        <li>The browser talks to ADFS. ADFS returns a login form. The browser presents it to the
+          user. </li>
+        <li>The user enters credentials (such as username and password) and submits the form to
+          ADFS. </li>
+        <li>Upon successful validation of the user's credentials, ADFS issues an HTTP Redirect (301)
+          to the browser, along with the SAML2 assertion, to the Keystone identity service's
+          (public) SAML2 endpoint (/auth/OS-FEDERATION/websso/saml2). </li>
+        <li>The browser talks to the Keystone identity service. the Keystone identity service
+          validates the SAML2 assertion and issues a federated unscoped token. the Keystone identity
+          service returns JavaScript code to be executed by the browser, along with the federated
+          unscoped token in the headers. </li>
+        <li>Upon execution of the JavaScript code, the browser is redirected to the Horizon
+          dashboard service with the federated unscoped token in the header. </li>
+        <li>The browser talks to the Horizon dashboard service with the federated unscoped token. </li>
+        <li>With the unscoped token, the Horizon dashboard service talks to the Keystone identity
+          service's (internal) endpoint to get a list of projects the user has access to. </li>
+        <li>The Horizon dashboard service rescopes the token to the first project in the list. At
+          this point, the user is successfully logged in.</li>
+      </ol>
+    </section>
+    <section><title>ADFS prerequisites</title>To enable the WebSSO feature, you need to have an ADFS
+      server already set up. This server will be used as an identity provider to identify and
+      authenticate users. To create the trust between the Keystone identity service as the service
+      provider and ADFS as the identity provider you need to exchange metadata information between
+      them. To do this, you must export the ADFS metadata information from the ADFS server. </section>
+    <section><title>Create ADFS metadata</title>Here's how to create ADFS metadata. For more
+      information, see the <xref href="https://technet.microsoft.com/en-us/library/gg317734"
+        format="html" scope="external">Microsoft wiki </xref> section "To create edited ADFS 2.0
+      metadata with an added scope element." <ol>
+        <li>On the ADFS computer, use a browser such as Internet Explorer to view
+            <codeph>https://&lt;adfs_server_hostname>/FederationMetadata/2007-06/FederationMetadata.xml</codeph>. </li>
+        <li>On the File menu, click Save as, and then navigate to the Windows desktop and save the
+          file with the name adfs_metadata.xml. Make sure to change the Save as type drop-down box
+          to All Files (*.*). </li>
+        <li>Use Windows Explorer to navigate to the Windows desktop, right-click adfs_metadata.xml,
+          and then click Edit. </li>
+        <li>In Notepad, insert the following XML in the first element. Before editing, the
+          EntityDescriptor appears as follows:
+          <codeblock>&lt;EntityDescriptor ID="abc123" entityID=http://WIN-CAICP35LF2I.vlan44.domain/adfs/services/trust xmlns="urn:oasis:names:tc:SAML:2.0:metadata" ></codeblock>
+          After editing, it should look like this:
+          <codeblock>&lt;EntityDescriptor ID="abc123" entityID="http://WIN-CAICP35LF2I.vlan44.domain/adfs/services/trust" xmlns="urn:oasis:names:tc:SAML:2.0:metadata" xmlns:shibmd="urn:mace:shibboleth:metadata:1.0"></codeblock>
+        </li>
+        <li>In Notepad, on the Edit menu, click Find. In Find what, type IDPSSO, and then click Find
+          Next. </li>
+        <li>Insert the following XML in this section: Before editing, the IDPSSODescriptor appears
+          as follows:
+          <codeblock>&lt;IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">&lt;KeyDescriptor use="encryption"></codeblock>
+          After editing, it should look like this:
+          <codeblock>&lt;IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">&lt;Extensions>&lt;shibmd:Scope regexp="false">vlan44.domain&lt;/shibmd:Scope>&lt;/Extensions>&lt;KeyDescriptor use="encryption"></codeblock>
+        </li>
+        <li>Delete the metadata document signature section of the file (the bold text shown in the
+          following code). Because you have edited the document, the signature will now be invalid.
+          Before editing the singature appears as
+          follows:<codeblock>&lt;EntityDescriptor ID="abc123" entityID="http://FSWEB.contoso.com/adfs/services/trust" xmlns="urn:oasis:names:tc:SAML:2.0:metadata" xmlns:shibmd="urn:mace:shibboleth:metadata:1.0">
+<b>&lt;ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
+    SIGNATURE DATA
+&lt;/ds:Signature></b>
+&lt;RoleDescriptor xsi:type=…></codeblock>
+          After editing it should look like this:
+          <codeblock>&lt;EntityDescriptor ID="abc123" entityID="http://FSWEB.contoso.com/adfs/services/trust" xmlns="urn:oasis:names:tc:SAML:2.0:metadata" xmlns:shibmd="urn:mace:shibboleth:metadata:1.0">
+&lt;RoleDescriptor xsi:type=…></codeblock>
+        </li>
+        <li> Save and close adfs_metadata.xml. </li>
+        <li> Copy adfs_metadata.xml to the lifecycle manager node in your preferred location. Here
+          it is /tmp. </li>
+      </ol>
+    </section>
+    <section><title>Set up WebSSO</title>To enable WebSSO for the Keystone identity service and the
+      Horizon dashboard service, </section>
+    <section>start by creating a <codeph>config file adfs_config.yml</codeph> with the following
+      parameters and place it in any directory on your lifecycle manager, such as
+        <codeph>/tmp</codeph>.
+      <codeblock>keystone_trusted_idp: adfs
+keystone_sp_conf:
+    idp_metadata_file: /tmp/adfs_metadata.xml
+    shib_sso_application_entity_id: http://sp_uri_entityId
+    shib_sso_idp_entity_id: http://default_idp_uri_entityId
+    target_domain:
+        name: domain1
+        description: my domain
+    target_project:
+        name: project1
+        description: my project
+    target_group:
+        name: group1
+        description: my group
+    role:
+        name: service
+    identity_provider:
+        id: adfs_idp1
+        description: This is the ADFS identity provider.
+    mapping:
+        id: mapping1
+        rules_file: adfs_mapping.json
+    protocol:
+        id: saml2
+    attribute_map:
+        -
+          name: http://schemas.xmlsoap.org/claims/Group
+          id: ADFS_GROUP
+        -
+          name: urn:oid:1.3.6.1.4.1.5923.1.1.1.6
+          id: ADFS_LOGIN</codeblock>A
+      sample config file like this exists in
+      roles/KEY-API/files/samples/websso/keystone_configure_adfs_sample.yml. Here are some detailed
+      descriptions for each of the config options: <!--<dl>
+        <dlentry>
+          <dt>keystone_trusted_idp</dt>
+          <dd>A flag to indicate if this configuration is used for WebSSO or K2K. The value can be
+            either "adfs" or "k2k".</dd>
+        </dlentry>
+        <dlentry>
+          <dt> keystone_sp_conf</dt>
+          <?oxy_comment_start author="mwelch" timestamp="20160824T154820-0700" comment="What&apos;s this?"?>
+          <dd/>
+          <?oxy_comment_end?>
+        </dlentry>
+        <dlentry>
+          <dt>shib_sso_idp_entity_id</dt>
+          <dd>The ADFS URI used as an entity Id to identity the IdP.</dd>
+        </dlentry>
+        <dlentry>
+          <dt> shib_sso_application_entity_id</dt>
+          <dd>The service provider URI used as a entity Id. It can be any URI here for WebSSO as
+            long as it is unique to the service provider.</dd>
+        </dlentry>
+        <dlentry>
+          <dt> target_domain</dt>
+          <dd>A domain where the group will be created from.</dd>
+        </dlentry>
+        <dlentry>
+          <dt> name</dt>
+          <dd>Any domain name. If it does not exist, it will be created or updated.</dd>
+        </dlentry>
+        <dlentry>
+          <dt> description</dt>
+          <dd>Any description.</dd>
+        </dlentry>
+        <dlentry>
+          <dt> target_project</dt>
+          <dd>A project scope that the group has.</dd>
+        </dlentry>
+        <dlentry>
+          <dt><?oxy_comment_start author="mwelch" timestamp="20160824T183834-0700" comment="Why are these repeated from above? And repeated below."?>
+            name</dt>
+          <dd>Any project name. If it does not exist, it will be created or updated.</dd>
+        </dlentry>
+        <dlentry>
+          <dt> description</dt>
+          <dd>Any description.<?oxy_comment_end?></dd>
+        </dlentry>
+        <dlentry>
+          <dt> target_group</dt>
+          <dd>A group will be created from "target_domain".</dd>
+        </dlentry>
+        <dlentry>
+          <dt> name</dt>
+          <dd>Any group name. If it does not exist, it will be created or updated.</dd>
+        </dlentry>
+        <dlentry>
+          <dt> description</dt>
+          <dd>Any description.</dd>
+        </dlentry>
+        <dlentry>
+          <dt> role</dt>
+          <dd>A role will be assigned on "target_project". This role impacts the idp user scoped
+            token permission on the SP side.</dd>
+        </dlentry>
+        <dlentry>
+          <dt> name</dt>
+          <dd>The name has to be an existing role.</dd>
+        </dlentry>
+        <dlentry>
+          <dt> idp_metadata_file</dt>
+          <dd>A reference to the ADFS metadata file that validates the SAML2 assertion.</dd>
+        </dlentry>
+        <dlentry>
+          <dt> identity_provider</dt>
+          <dd>An ADFS IdP</dd>
+        </dlentry>
+        <dlentry>
+          <dt> id</dt>
+          <dd>Any Id. If it does not exist, it will be created or updated. This Id needs to be
+            shared with the client so that the right mapping will be selected.</dd>
+        </dlentry>
+        <dlentry>
+          <dt> description</dt>
+          <dd>Any description.</dd>
+        </dlentry>
+        <dlentry>
+          <dt> mapping</dt>
+          <dd>A mapping in json format that maps a federated user to a corresponding group.</dd>
+        </dlentry>
+        <dlentry>
+          <dt> id</dt>
+          <dd>Any Id. If it does not exist, it will be created or updated.</dd>
+        </dlentry>
+        <dlentry>
+          <dt> rules_file</dt>
+          <dd>A reference to the file that has the mapping in json.</dd>
+        </dlentry>
+        <dlentry>
+          <dt> protocol</dt>
+          <dd>The supported federation protocol.</dd>
+        </dlentry>
+        <dlentry>
+          <dt> id</dt>
+          <dd>"saml2" is the only supported protocol for WebSSO.</dd>
+        </dlentry>
+        <dlentry>
+          <dt> attribute_map</dt>
+          <dd>A shibboleth with defined additional attributes to map the attributes from the SAML2
+            assertion to the WebSSO mapping that SP understands.</dd>
+        </dlentry>
+        <dlentry>
+          <dt> name</dt>
+          <dd>An attribute name from the SAML2 assertion.</dd>
+        </dlentry>
+        <dlentry>
+          <dt> id</dt>
+          <dd>An Id that the preceding name will be mapped to.</dd>
+        </dlentry>
+      </dl>-->
+      <codeblock>keystone_trusted_idp: A flag to indicate if this configuration is used for WebSSO or K2K. The value can be either 'adfs' or 'k2k'.
+keystone_sp_conf:
+    shib_sso_idp_entity_id: The ADFS URI used as an entity Id to identity the IdP.
+    shib_sso_application_entity_id: The Service Provider URI used as a entity Id. It can be any URI here for Websso as long as it is unique to the SP.
+    target_domain: A domain where the group will be created from.
+        name: Any domain name. If it does not exist, it will be created or be updated.
+        description: Any description.
+    target_project: A project scope that the group has.
+        name: Any project name. If it does not exist, it will be created or be updated.
+        description: Any description.
+    target_group: A group will be created from 'target_domain'.
+        name: Any group name. If it does not exist, it will be created or be updated.
+        description: Any description.
+    role: A role will be assigned on 'target_project'. This role impacts the idp user scoped token permission at sp side.
+        name: It has to be an existing role.
+    idp_metadata_file: A reference to the ADFS metadata file that validates the SAML2 assertion.
+    identity_provider: An ADFS IdP
+        id: Any Id. If it does not exist, it will be created or be updated. This Id needs to be shared with the client so that the right mapping will be selected.
+        description: Any description.
+    mapping: A mapping in json format that maps a federated user to a corresponding group.
+        id: Any Id. If it does not exist, it will be created or be updated.
+        rules_file: A reference to the file that has the mapping in json.
+    protocol: The supported federation protocol.
+        id: 'saml2' is the only supported protocol for Websso.
+    attribute_map: A shibboleth mapping defined additional attributes to map the attributes from the SAML2 assertion to the Websso mapping that SP understands.
+        -
+          name: An attribute name from the SAML2 assertion.
+          id: An Id that the above name will be mapped to.</codeblock>
+      <ol id="ol_ab2_s3p_mv">
+        <li>In the preceding config file, /tmp/adfs_config.yml, make sure the idp_metadata_file
+          references the previously generated ADFS metadata file. In this case:
+          <codeblock>idp_metadata_file: /tmp/adfs_metadata.xml</codeblock>
+        </li>
+        <li>Create a mapping file that is referenced from the preceding config file, such as
+          /tmp/adfs_sp_mapping.json. rules_file: /tmp/adfs_sp_mapping.json. The following is an
+          example of the mapping file, existing in
+          roles/KEY-API/files/samples/websso/adfs_sp_mapping.json: <codeblock>[
+             {
+               "local": [{
+                     "user": {
+                         "name": "{0}"
+                     }
+                 }],
+                 "remote": [{
+                     "type": "ADFS_LOGIN"
+                 }]
+              },
+              {
+                "local": [{
+                    "group": {
+                        "id": "GROUP_ID"
+                    }
+                }],
+                "remote": [{
+                    "type": "ADFS_GROUP",
+                "any_one_of": [
+                    "Domain Users"
+                    ]
+                }]
+              }
+ ]        </codeblock>
+          <p>You can find more details about how the WebSSO mapping works on <xref
+              href="http://docs.openstack.org"
+              format="html" scope="external"
+              >http://docs.openstack.org/</xref>.
+            Also see the following section titled <xref href="#websso/maprules" format="dita"
+              >Mapping Rules</xref> for more information.</p></li>
+        <li>Go to /home/stack/scratch/ansible/next/hos/ansible and run the following playbook to
+          enable WebSSO in the Keystone identity service:
+          <codeblock>ansible-playbook  -i hosts/verb_hosts keystone-reconfigure.yml  -e@/tmp/adfs_config.yml</codeblock>
+        </li>
+        <li>Enable WebSSO in the the Horizon dashboard service by setting horizon_websso_enabled
+          flag to True in roles/HZN-WEB/defaults/main.yml and then run the horizon-reconfigure
+          playbook:
+          <codeblock>ansible-playbook  -i hosts/verb_hosts horizon-reconfigure.yml</codeblock>
+        </li>
+      </ol>
+    </section>
+    <section id="maprules"><title>Mapping rules</title> One IdP-SP has only one mapping. The last
+      mapping that the customer configures will be the one used and will overwrite the old mapping
+      setting. Therefore, if the example mapping adfs_sp_mapping.json is used, the following
+      behavior is expected because it maps the federated user only to the one group configured in
+        <codeph>keystone_configure_adfs_sample.yml</codeph>. <ul>
+        <li>Configure domain1/project1/group1, mapping1; websso login horizon, see project1; </li>
+        <li>Then reconfigure: domain1/project2/group1. mapping1, websso login horizon, see project1
+          and project2; </li>
+        <li>Reconfigure: domain3/project3/group3; mapping1, websso login horizon, only see project3;
+          because now the IDP mapping maps the federated user to group3, which only has priviliges
+          on project3.</li>
+      </ul>
+      <!-- asked sept 6 2016 for clarification using the wiki-->
+      <p>If you need a more complex mapping, you can use a custom mapping file, which needs to be
+        specified in keystone_configure_adfs_sample.yml -> rules_file. </p><p>You can use different
+        attributes of the ADFS user in order to map to different or multiple groups. </p><p>An
+        example of a more complex mapping file is adfs_sp_mapping_multiple_groups.json, as
+        follows.</p>
+      <p outputclass="expandcode"><b>Open | Close </b> adfs_sp_mapping_multiple_groups.json</p>
+      <p outputclass="hiddencode">
+        <codeblock outputclass="nomaxheight">[
+  {
+    "local": [
+      {
+        "user": {
+          "name": "{0}"
+        }
+      },
+      {
+        "group": {
+           "name": "group1",
+           "domain":{
+             "name": "domain1"
+           }
+        }
+      }
+    ],
+    "remote":[{
+      "type": "ADFS_LOGIN"
+    },
+    {
+      "type": "ADFS_GROUP",
+      "any_one_of":[
+         "Domain Users"
+      ]
+     }
+    ]
+   },
+  {
+    "local": [
+      {
+        "user": {
+          "name": "{0}"
+        }
+      },
+      {
+        "group": {
+           "name": "group2",
+           "domain":{
+             "name": "domain2"
+           }
+        }
+      }
+    ],
+    "remote":[{
+      "type": "ADFS_LOGIN"
+    },
+    {
+      "type": "ADFS_SCOPED_AFFILIATION",
+      "any_one_of": [
+          "member@contoso.com"
+      ]
+    },
+    ]
+   }
+]
+</codeblock>
+      </p>
+      <p>The adfs_sp_mapping_multiple_groups.json must be run together with
+        keystone_configure_mutiple_groups_sample.yml, which adds a new attribute for the shibboleth
+        mapping. That file is as follows:</p>
+      <p outputclass="expandcode"><b>Open | Close </b>
+        keystone_configure_mutiple_groups_sample.yml</p>
+      <p outputclass="hiddencode">
+        <codeblock outputclass="nomaxheight"># 
+# (c) Copyright 2016 Hewlett Packard Enterprise Development Company LP 
+# 
+# Licensed under the Apache License, Version 2.0 (the "License"); you may 
+# not use this file except in compliance with the License. You may obtain 
+# a copy of the License at 
+# 
+# http://www.apache.org/licenses/LICENSE-2.0 
+# 
+# Unless required by applicable law or agreed to in writing, software 
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT 
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the 
+# License for the specific language governing permissions and limitations 
+# under the License.
+# 
+---
+
+keystone_trusted_idp: adfs
+keystone_sp_conf:
+    identity_provider:
+        id: adfs_idp1
+        description: This is the ADFS identity provider.
+    idp_metadata_file: /opt/stack/adfs_metadata.xml
+
+    shib_sso_application_entity_id: http://blabla
+    shib_sso_idp_entity_id: http://WIN-CAICP35LF2I.vlan44.domain/adfs/services/trust
+
+    target_domain:
+        name: domain2
+        description: my domain
+
+    target_project:
+        name: project6
+        description: my project
+
+    target_group:
+        name: group2
+        description: my group
+
+    role:
+        name: admin
+
+    mapping:
+        id: mapping1
+        rules_file: /opt/stack/adfs_sp_mapping_multiple_groups.json
+
+    protocol:
+        id: saml2
+
+    attribute_map:
+        -
+          name: http://schemas.xmlsoap.org/claims/Group
+          id: ADFS_GROUP
+        -
+          name: urn:oid:1.3.6.1.4.1.5923.1.1.1.6
+          id: ADFS_LOGIN
+        -
+          name: urn:oid:1.3.6.1.4.1.5923.1.1.1.9
+          id: ADFS_SCOPED_AFFILIATION
+</codeblock>
+      </p>
+    </section>
+    <section><title>Setting up the ADFS server as the identity provider</title>
+      <p>For ADFS to be able to communicate with the Keystone identity service, you need to add the
+        Keystone identity service as a trusted relying party for ADFS and also specify the user
+        attributes that you want to send to the Keystone identity service when users authenticate
+        via WebSSO.</p>
+      <p>For more information, see the <xref
+          href="https://technet.microsoft.com/en-us/library/gg317734" format="html" scope="external"
+          >Microsoft ADFS wiki</xref>, section "Step 2: Configure ADFS 2.0 as the identity provider
+        and shibboleth as the Relying Party".</p>
+      <!--<p>For in-place reference, please see the following example instructions taken from the Microsoft
+        wiki.</p>-->
+      <p>Log in to the ADFS server.</p>
+      <b>Add a relying party using metadata</b>
+      <ol>
+        <li>From Server Manager Dashboard, click Tools on the upper right, then ADFS Management. </li>
+        <li>Right-click ADFS, and then select Add Relying Party Trust.</li>
+        <li>Click Start, leave the already selected option <codeph>Import data about the relying
+            party published online or on a local network</codeph>. </li>
+        <li>In the Federation metadata address field, type
+            <codeph>&lt;keystone_publicEndpoint>/Shibboleth.sso/Metadata</codeph> (your Keystone
+          identity service Metadata endpoint), and then click Next. You can also import metadata
+          from a file. Create a file with the content of the result of the following curl command
+          <codeblock>curl &lt;keystone_publicEndpoint>/Shibboleth.sso/Metadata</codeblock> and then
+          choose this file for importing the metadata for the relying party. </li>
+        <li>In the Specify Display Name page, choose a proper name to identify this trust
+          relationship, and then click Next. </li>
+        <li>On the Choose Issuance Authorization Rules page, leave the default Permit all users to
+          access the relying party selected, and then click Next. </li>
+        <li>Click Next, and then click Close.</li>
+      </ol>
+      <b>Edit claim rules for relying party trust</b>
+      <ol>
+        <li>The Edit Claim Rules dialog box should already be open. If not, In the ADFS center pane,
+          under Relying Party Trusts, right-click your newly created trust, and then click Edit
+          Claim Rules. </li>
+        <li>On the Issuance Transform Rules tab, click Add Rule. </li>
+        <li>On the Select Rule Template page, select Send LDAP Attributes as Claims, and then click
+          Next. </li>
+        <li>On the Configure Rule page, in the Claim rule name box, type Get Data. </li>
+        <li>In the Attribute Store list, select Active Directory. </li>
+        <li>In the Mapping of LDAP attributes section, create the following mappings. <table
+            frame="all" rowsep="1" colsep="1" id="table_kn3_mt3_mv" outputclass="width50">
+            <tgroup cols="2">
+              <colspec colname="c1" colnum="1" colwidth="1.0*"/>
+              <colspec colname="c2" colnum="2" colwidth="1.0*"/>
+              <thead>
+                <row>
+                  <entry> LDAP Attribute</entry>
+                  <entry>Outgoing Claim Type</entry>
+                </row>
+              </thead>
+              <tbody>
+                <row>
+                  <entry>Token-Groups – Unqualified Names</entry>
+                  <entry>Group</entry>
+                </row>
+                <row>
+                  <entry>User-Principal-Name</entry>
+                  <entry>UPN</entry>
+                </row>
+              </tbody>
+            </tgroup>
+          </table></li>
+        <li>Click Finish. </li>
+        <li>On the Issuance Transform Rules tab, click Add Rule. </li>
+        <li>On the Select Rule Template page, select Send Claims Using a Custom Rule, and then click
+          Next. </li>
+        <li>In the Configure Rule page, in the Claim rule name box, type Transform UPN to epPN. </li>
+        <li>In the Custom Rule window, type or copy and paste the following:
+          <codeblock>c:[Type == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/upn"]
+=> issue(Type = "urn:oid:1.3.6.1.4.1.5923.1.1.1.6", Value = c.Value, Properties["http://schemas.xmlsoap.org/ws/2005/05/identity/claimproperties/attributename"] = "urn:oasis:names:tc:SAML:2.0:attrname-format:uri");</codeblock>
+        </li>
+        <li>Click Finish. </li>
+        <li>On the Issuance Transform Rules tab, click Add Rule. </li>
+        <li>On the Select Rule Template page, select Send Claims Using a Custom Rule, and then click
+          Next. </li>
+        <li>On the Configure Rule page, in the Claim rule name box, type Transform Group to epSA. </li>
+        <li>In the Custom Rule window, type or copy and paste the following:
+          <codeblock>c:[Type == "http://schemas.xmlsoap.org/claims/Group", Value == "Domain Users"]
+=> issue(Type = "urn:oid:1.3.6.1.4.1.5923.1.1.1.9", Value = "member@contoso.com", Properties["http://schemas.xmlsoap.org/ws/2005/05/identity/claimproperties/attributename"] = "urn:oasis:names:tc:SAML:2.0:attrname-format:uri");</codeblock>
+        </li>
+        <li>Click Finish, and then click OK.</li>
+      </ol>This list of Claim Rules is just an example and can be modified or enhanced based on the
+      customer's necessities and ADFS setup specifics. <p><b>Create a sample user on the ADFS
+          server</b></p>
+      <ol>
+        <li>From the Server Manager Dashboard, click Tools on the upper right, then Active Directory
+          Users and Computer. </li>
+        <li>Right click User, then New, and then User. </li>
+        <li>Follow the screen instructions. </li>
+      </ol>
+      <p><b>Test it out</b></p>You can test the Horizon dashboard service "Login with ADFS" by
+      opening a browser at the Horizon dashboard service URL and choose <codeph>Authenticate using:
+        ADFS Credentials</codeph>. You should be redirected to the ADFS login page and be able to
+      log into the Horizon dashboard service with your ADFS credentials. </section>
+  </body>
+</topic>
+
+<?oxy_options track_changes="on"?>

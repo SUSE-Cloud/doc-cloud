@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="replace_dedicated_lm">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Replacing a Standalone Controller Node</title>
+  <abstract><shortdesc outputclass="hdphidden">If the controller node you need to replace is not
+      also being used as the lifecycle manager then you will use these steps.</shortdesc></abstract>
+  <body>
+    <p>If the controller node you need to replace is not also being used as the lifecycle manager
+      then you will use these steps:,</p>
+    <ol>
+      <li>Log in to the lifecycle manager.</li>
+      <li>Update your cloud model, specifically the <codeph>servers.yml</codeph> file, with the new
+          <codeph>mac-addr</codeph>, <codeph>ilo-ip</codeph>, <codeph>ilo-password</codeph>, and
+          <codeph>ilo-user</codeph> fields where these have changed. Do not change the
+          <codeph>id</codeph>, <codeph>ip-addr</codeph>, <codeph>role</codeph>, or
+          <codeph>server-group</codeph> settings.</li>
+      <li>Commit your configuration to the <xref href="../../../installation/using_git.dita">local
+          git repo</xref>, as follows:
+        <codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -m "My config or other commit message"</codeblock></li>
+      <li>Run the configuration processor:
+        <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+      <li>Update your deployment directory:
+        <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+      <li>Remove the old controller node(s) from Cobbler. You can list out the systems in Cobbler
+        currently with this command: <codeblock>sudo cobbler system list</codeblock><p>and then
+          remove the old controller nodes with this command:
+        </p><codeblock>sudo cobbler system remove --name &lt;node></codeblock></li>
+      <li>Remove the SSH key of the old controller node from the known hosts file. You will specify
+        the <codeph>ip-addr</codeph> value:
+          <codeblock>ssh-keygen -f "/home/stack/.ssh/known_hosts" -R &lt;ip_addr></codeblock><p>You
+          should see a response similar to this
+        one:</p><codeblock>stack@helion-cp1-c1-m1-mgmt:~/helion/hos/ansible$ ssh-keygen -f "/home/stack/.ssh/known_hosts" -R 10.13.111.135
+# Host 10.13.111.135 found: line 6 type ECDSA
+/home/stack/.ssh/known_hosts updated.
+Original contents retained as /home/stack/.ssh/known_hosts.old</codeblock></li>
+      <li>Run the cobbler-deploy playbook to add the new controller node:
+        <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost cobbler-deploy.yml</codeblock></li>
+      <li>Image the new node(s) by using the bm-reimage playbook. You will specify the name for the
+        node in Cobbler in the command:
+          <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost bm-reimage.yml -e nodelist=&lt;node-name></codeblock><note
+          type="important">You must ensure that the old controller node is powered off before
+          completing this step. This is because the new controller node will re-use the original IP
+          address.</note></li>
+      <li>Configure the necessary keys used for the database etc:
+        <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts monasca-rebuild-pretasks.yml</codeblock></li>
+      <li>Run osconfig on the replacement controller node. For example:
+        <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts osconfig-run.yml -e rebuild=True --limit=&lt;controller-hostname></codeblock></li>
+      <li>If the controller being replaced is the Swift ring builder (see <xref
+          href="../../troubleshooting/objectstorage/identify_ring_builder.dita">Identifying the
+          Swift Ring Building Server</xref>) you need to restore the Swift ring builder files to the
+          <codeph>/etc/swiftlm/builder_dir</codeph> directory. See <xref
+          href="../../troubleshooting/objectstorage/recovering_builder_file.dita">Recovering Builder
+          Files</xref> for details.</li>
+      <li>Run the hlm-deploy playbook on the replacement controller. <p>If the node being replaced
+          is the Swift ring builder server then you only need to use the <codeph>--limit</codeph>
+          switch for that node, otherwise you need to specify the hostname of your Swift ringer
+          builder server and the hostname of the node being
+          replaced.</p><codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-deploy.yml -e rebuild=True --limit=&lt;controller-hostname>,&lt;swift-ring-builder-hostname></codeblock><note
+          type="important">If you receive a RabbitMQ failure when running this playbook, review
+            <xref href="../../troubleshooting/recover_rabbit.dita"/> for how to resolve the issue
+          and then re-run the hlm-deploy playbook.</note></li>
+      <li>During the replacement of the node there will be alarms that show up during the process.
+        If those do not clear after the node is back up and healthy, restart the threshold engine by
+        running the following
+        playbooks:<codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts monasca-stop.yaml --tags thresh
+ansible-playbook -i hosts/verb_hosts monasca-start.yaml --tags thresh</codeblock></li>
+    </ol>
+  </body>
+</topic>

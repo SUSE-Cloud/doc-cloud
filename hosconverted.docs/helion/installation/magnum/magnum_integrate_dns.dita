@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="MagnumIntegrateDNS">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Integrate Magnum with the DNS Service </title>
+  <body>
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <section id="Overview">
+      <title>Integrate Magnum with the DNS Service</title>
+      <p>Integration with DNSaaS may be needed if: <ol>
+          <li>External endpoint is configured to use 'myhelion.test' as hostname and <keyword
+              keyref="kw-hos"/> frontend certificate is issued for this hostname.</li>
+          <li>Minions are registered using Nova VM names as hostnames Kubernetes API server. Most
+            kubectl command won't work if VM name (e.g.
+            'cl-mu3eevqizh-1-b3vifun6qtuh-kube-minion-ff4cqjgsuzhy') is not getting resolved at
+            provided DNS server/</li>
+        </ol>
+      </p>
+      <p>Follow these steps to integrate the Magnum Service with the DNS Service.
+        <ol>
+          <li>Allow connections from VMs to EXT-API
+            <codeblock>sudo modprobe 8021q
+sudo ip link add link virbr5 name vlan108 type vlan id 108
+sudo ip link set dev vlan108 up
+sudo ip addr add 192.168.14.200/24 dev vlan108
+sudo iptables -t nat -A POSTROUTING -o vlan108 -j MASQUERADE</codeblock>
+          </li>
+          <li>Workaround for  ????
+            <codeblock>$ grep enable_host_header hos/ansible/roles/designate-api/templates/api.conf.j2
+enable_host_header = False</codeblock>
+          </li>
+          <li>Run the designate reconfigure playbook.
+            <codeblock>$ cd ~/scratch/ansible/next/hos/ansible/
+$ ansible-playbook -i hosts/verb_hosts designate-reconfigure.yml</codeblock>
+          </li>
+          <li>Set up Designate to resolve myhelion.test correctly.
+            <codeblock>$ openstack zone create --email hostmaster@myhelion.test myhelion.test.
+# wait for status to become active
+$ EXTERNAL_VIP=$(grep HZN-WEB-extapi /etc/hosts | awk '{ print $1 }')
+$ openstack recordset create --records $EXTERNAL_VIP --type A myhelion.test. myhelion.test.
+# wait for status to become active
+$ LOCAL_MGMT_IP=$(grep `hostname` /etc/hosts | awk '{ print $1 }')
+$ nslookup myhelion.test $LOCAL_MGMT_IP
+Server:        192.168.14.2
+Address:       192.168.14.2#53
+Name:          myhelion.test
+Address:       192.168.14.5</codeblock>
+          </li>
+          <li>If you need to add/override a top level domain record:
+            <codeblock>$ openstack tld create --name net
+$ openstack zone create --email hostmaster@proxy.houston.hpecorp.net proxy.houston.hpecorp.net.
+$ openstack recordset create --records 16.85.88.10 --type A proxy.houston.hpecorp.net. proxy.houston.hpecorp.net.
+$ nslookup proxy.houston.hpecorp.net 192.168.14.2
+Server:        192.168.14.2
+Address:       192.168.14.2#53
+Name:          proxy.houston.hpecorp.net
+Address:       16.85.88.10</codeblock>
+          </li>
+          <li>Enable propagation of dns_assignment and dns_name attributes to neutron ports, as per
+              <xref href="https://docs.openstack.org/draft/networking-guide/config-dns-int.html"
+              format="html" scope="external"/>
+            <codeblock># optionally add 'dns_domain = &lt;some domain name&gt;.' to [DEFAULT] section of hos/ansible/roles/neutron-common/templates/neutron.conf.j2
+stack@ksperf2-cp1-c1-m1-mgmt:~/helion$ cat &lt;&lt;-EOF &gt;&gt;hos/services/designate/api.yml
+                
+   provides-data:
+   -   to:
+       -   name: neutron-ml2-plugin
+       data:
+       -   option: extension_drivers
+           values:
+           -   dns
+EOF
+$ git commit -a -m "Enable DNS support for neutron ports"
+$ cd hos/ansible
+$ ansible-playbook -i hosts/localhost config-processor-run.yml 
+$ ansible-playbook -i hosts/localhost ready-deployment.yml </codeblock>
+          </li>
+          <li>Enable DNSaaS registration of created VMs by editing the
+              <codeph>~/helion/hos/ansible/roles/neutron-common/templates/neutron.conf.j2</codeph> file. You
+            will need to add <codeph>external_dns_driver = designate</codeph> to the
+              <b>[DEFAULT]</b> section and create a new <b>[designate]</b> section for the Designate
+            specific configurations.
+            <codeblock>...
+advertise_mtu = False
+dns_domain = ksperf.
+external_dns_driver = designate
+{{ neutron_api_extensions_path|trim }}
+{{ neutron_vlan_transparent|trim }}
+                        
+# Add additional options here
+              
+[designate]
+url = https://10.240.48.45:9001
+admin_auth_url = https://10.240.48.45:35357/v3
+admin_username = designate
+admin_password = P8lZ9FdHuoW
+admin_tenant_name = services
+allow_reverse_dns_lookup = True
+ipv4_ptr_zone_prefix_size = 24
+ipv6_ptr_zone_prefix_size = 116
+ca_cert = /etc/ssl/certs/ca-certificates.crt
+            </codeblock>
+          </li>
+          <li>Commit your changes.
+            <codeblock>$ git commit -a -m "Enable DNSaaS registration of Nova VMs"
+[site f4755c0] Enable DNSaaS registration of Nova VMs
+1 file changed, 11 insertions(+)</codeblock>
+          </li>
+        </ol>
+      </p>
+    </section>
+
+  </body>
+</topic>

@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="add_sles_compute">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Adding a SLES Compute Node</title>
+  <abstract><shortdesc outputclass="hdphidden">Adding a SLES compute node allows you to add additional capacity
+      for more virtual machines.</shortdesc><p>You may have a need to add additional SLES compute hosts for more virtual machine capacity or
+      another purpose and these steps will help you achieve this.</p></abstract>
+  <body>
+    <section id="notes">
+      <p>There are two methods you can use to add SLES compute hosts to your environment:</p>
+      <ol>
+        <li>Adding SLES pre-installed compute hosts. This method does not require the SLES iso be on
+          the lifecycle manager to complete.</li>
+        <li>Using the provided Ansible playbooks and Cobbler, SLES will be installed on your new
+          compute hosts. This method requires that you provided a SLES 12 SP2 iso during the initial
+          installation of your cloud, following the instructions at <xref
+            href="../../../installation/sles/sles_overview.dita"/>. <p>If you want to use the
+            provided Ansible playbooks and Cobbler to setup and configure your SLES hosts and you
+            did not have the SLES 7.2 iso on your lifecycle manager during your initial installation
+            then ensure you look at the note at the top of that section before proceeding.</p></li>
+      </ol>
+    </section>
+
+    <section id="prereqs"><title>Prerequisites</title>
+      <p>You need to ensure your input model files are properly setup for SLES compute host
+        clusters. This must be done during the installation process of your cloud and is discussed
+        further at <xref href="../../../installation/sles/install_sles.dita"/> and <xref
+          href="../../../architecture/alternative/sles_compute_model.dita"/>.</p>
+    </section>
+
+    <section id="steps"><title>Adding a SLES compute node</title>
+      <sectiondiv>
+        <p><b>Adding pre-installed SLES compute hosts</b></p>
+        <p>This method requires that you have SLES 12 SP2 pre-installed on the baremetal host prior
+          to beginning these steps.</p>
+        <ol>
+          <li>Ensure you have SLES 12 SP2 pre-installed on your baremetal host.</li>
+          <li>Log in to the lifecycle manager.</li>
+          <li>Edit your <codeph>~/helion/my_cloud/definition/data/servers.yml</codeph> file to
+            include the details about your new compute host(s). <p>For example, if you already had a
+              cluster of three SLES compute hosts using the <codeph>SLES-COMPUTE-ROLE</codeph> role
+              and needed to add a fourth one you would add your details to the bottom of the file in
+              the format. Note that we left out the iLo details because they won't be needed since
+              you pre-installed the SLES O/S on your
+              host(s).</p><codeblock>- id: compute4
+  ip-addr: 192.168.102.70
+  role: SLES-COMPUTE-ROLE
+  server-group: RACK1  </codeblock><p>You
+              can find detailed descriptions of these fields <xref keyref="configobj_servers"
+                >here</xref>. Ensure that you use the same role for any new SLES hosts you are
+              adding as you specified on your existing SLES hosts.</p><note type="important">You
+              will need to verify that the <codeph>ip-addr</codeph> value you choose for this host
+              does not conflict with any other IP address in your cloud environment. You can confirm
+              this by checking the <codeph>~/helion/my_cloud/info/address_info.yml</codeph> file on
+              your lifecycle manager.</note></li>
+          <li>In your <codeph>~/helion/my_cloud/definition/data/control_plane.yml</codeph> file you
+            will need to check the values for <codeph>member-count</codeph>,
+              <codeph>min-count</codeph>, and <codeph>max-count</codeph>. If you specified them,
+            ensure that they match up with your new total node count. For example, if you had
+            previously specified <codeph>member-count: 3</codeph> and are adding a fourth compute
+            node, you will need to change that value to <codeph>member-count: 4</codeph>. <p>See
+                <xref keyref="configobj_controlplane">Input Model - Control Plane</xref> for more
+              details.</p></li>
+          <li>Commit the changes to git:
+            <codeblock>git add -A
+git commit -a -m "Add node &lt;name>"</codeblock></li>
+          <li>Run the configuration processor and resolve any errors that are indicated:
+            <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+          <li>Update your deployment directory:
+              <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock><p>Before
+              proceeding, you may want to take a look at <b>info/server_info.yml</b> to see if the
+              assignment of the node you have added is what you expect. It may not be, as nodes will
+              not be numbered consecutively if any have previously been removed. This is to prevent
+              loss of data; the config processor retains data about removed nodes and keeps their ID
+              numbers from being reallocated. See the Persisted Server Allocations section in <xref
+                keyref="persisteddata/persistedserverallocations">Input Model</xref> for information
+              on how this works.</p></li>
+          <li>[OPTIONAL] - Run the <codeph>wipe_disks.yml</codeph> playbook to ensure all of your
+            partitions on your nodes are completely wiped prior to continuing with the installation:
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible/
+ansible-playbook -i hosts/verb_hosts wipe_disks.yml --limit &#60;hostname></codeblock></li>
+          <li>Complete the compute host deployment with this playbook:
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible/
+ansible-playbook -i hosts/verb_hosts site.yml --tag "generate_hosts_file"
+ansible-playbook -i hosts/verb_hosts site.yml --limit &lt;hostname></codeblock></li>
+        </ol>
+      </sectiondiv>
+      <sectiondiv>
+        <p><b>Using the provided Ansible playbooks and Cobbler</b></p>
+        <p>These steps will show you how to add the new SLES compute host to your
+            <codeph>servers.yml</codeph> file and then run the playbooks that update your cloud
+          configuration. You will run these playbooks from the lifecycle manager.</p>
+        <p>If you did not have the SLES 12 SP2 iso available on your lifecycle manager during your
+          initial installation, ensure that you follow these steps:<ol id="ol_tv2_dbf_kw">
+            <li>Save the SLES 12 SP2 iso in your home directory (example:
+                <codeph>~/SLES12SP2.iso</codeph>)</li>
+            <li>Mount the <keyword keyref="kw-hos-phrase"/> iso to
+              <codeph>/media/cdrom</codeph></li>
+            <li>Run the <codeph>~/hos-5.0.0/hos-init.bash</codeph> script again, like you did during
+              the initial installation.</li>
+          </ol></p>
+        <p>See <xref href="../../../installation/sles/provisioning_sles.dita"/> for other
+          prerequisites that must be completed before continuing.</p>
+        <p>When you are prepared to continue, use these steps:</p>
+        <ol>
+          <li>Log in to your lifecycle manager.</li>
+          <li>Checkout the <codeph>site</codeph> branch of your local git so you can begin to make
+            the necessary edits:
+            <codeblock>cd ~/helion/my_cloud/definition/data
+git checkout site</codeblock></li>
+          <li>Edit your <codeph>~/helion/my_cloud/definition/data/servers.yml</codeph> file to
+            include the details about your new compute host(s). <p>For example, if you already had a
+              cluster of three SLES compute hosts using the <codeph>SLES-COMPUTE-ROLE</codeph> role
+              and needed to add a fourth one you would add your details to the bottom of the file in
+              this format:</p><codeblock>- id: compute4
+  ip-addr: 192.168.102.70
+  role: SLES-COMPUTE-ROLE
+  server-group: RACK1
+  mac-addr: e8:39:35:21:32:4e
+  ilo-ip: 10.1.192.36
+  ilo-password: password
+  ilo-user: admin
+  distro-id: sles12sp2-x86_64</codeblock>
+            <p>You can find detailed descriptions of these fields <xref keyref="configobj_servers"
+                >here</xref>. Ensure that you use the same role for any new SLES hosts you are
+              adding as you specified on your existing SLES hosts.</p><note type="important">You
+              will need to verify that the <codeph>ip-addr</codeph> value you choose for this host
+              does not conflict with any other IP address in your cloud environment. You can confirm
+              this by checking the <codeph>~/helion/my_cloud/info/address_info.yml</codeph> file on
+              your lifecycle manager.</note></li>
+          <li>In your <codeph>~/helion/my_cloud/definition/data/control_plane.yml</codeph> file you
+            will need to check the values for <codeph>member-count</codeph>,
+              <codeph>min-count</codeph>, and <codeph>max-count</codeph>. If you specified them,
+            ensure that they match up with your new total node count. For example, if you had
+            previously specified <codeph>member-count: 3</codeph> and are adding a fourth compute
+            node, you will need to change that value to <codeph>member-count: 4</codeph>. <p>See
+                <xref keyref="configobj_controlplane">Input Model - Control Plane</xref> for more
+              details.</p></li>
+          <li>Commit the changes to git:
+            <codeblock>git add -A
+git commit -a -m "Add node &lt;name>"</codeblock></li>
+          <li>Run the configuration processor and resolve any errors that are indicated:
+            <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+          <li>Add the new node into Cobbler:
+            <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost cobbler-deploy.yml</codeblock></li>
+          <li>Then you can image the node:
+              <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost bm-reimage.yml -e nodelist=&#60;node name></codeblock><note>If
+              you don't know the <codeph>&#60;node name></codeph> already, you can get it by using
+                <codeph>sudo cobbler system list</codeph></note><p>Before proceeding, you may want
+              to take a look at <b>info/server_info.yml</b> to see if the assignment of the node you
+              have added is what you expect. It may not be, as nodes will not be numbered
+              consecutively if any have previously been removed. This is to prevent loss of data;
+              the config processor retains data about removed nodes and keeps their ID numbers from
+              being reallocated. See the Persisted Server Allocations section in <xref
+                keyref="persisteddata/persistedserverallocations">Input Model</xref> for information
+              on how this works.</p></li>
+          <li>Update your deployment directory:
+            <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+          <li>[OPTIONAL] - Run the <codeph>wipe_disks.yml</codeph> playbook to ensure all of your
+            partitions on your hosts are completely wiped prior to continuing with the installation:
+              <codeblock>cd ~/scratch/ansible/next/hos/ansible/
+ansible-playbook -i hosts/verb_hosts wipe_disks.yml --limit &#60;hostname></codeblock><note>You
+              can obtain the <codeph>&#60;hostname></codeph> from the
+                <codeph>~/scratch/ansible/next/hos/ansible/hosts/verb_hosts</codeph>
+            file.</note></li>
+          <li>You should verify that the netmask, bootproto, and other necessary settings are
+            correct and if they are not then re-do them. See <xref
+              href="../../../installation/sles/install_sles_compute.dita"/> for details.</li>
+          <li>Complete the compute host deployment with these playbooks. For the last one, ensure
+            you specify the compute hosts you are added with the <codeph>--limit</codeph> switch:
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible/
+ansible-playbook -i hosts/verb_hosts site.yml --tag "generate_hosts_file"
+ansible-playbook -i hosts/verb_hosts site.yml --limit &lt;hostname></codeblock></li>
+        </ol>
+      </sectiondiv>
+    </section>
+
+    <section id="monitoring"><title outputclass="headerH">Adding a new SLES compute node to monitoring</title>
+      <p>If you want to add a new Compute node to the monitoring service checks, there is an
+        additional playbook that must be run to ensure this happens:</p>
+      <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts monasca-deploy.yml --tags "active_ping_checks"</codeblock>
+    </section>
+
+
+
+  </body>
+</topic>

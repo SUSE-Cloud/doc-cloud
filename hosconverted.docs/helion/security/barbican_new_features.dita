@@ -1,0 +1,275 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="barbican_40">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Features in the Barbican Key Manager
+    Service</title>
+
+  <body>
+    <section> This topic explains the Barbican service in <keyword keyref="kw-hos-phrase"/>. </section>
+
+    <section>
+      <title>Enhancements</title>
+      <p><b>DAR Policy</b></p>In <keyword keyref="kw-hos-phrase"/>, DAR policy has been enhanced
+      for Barbican specific key-manager:creator role. User with key-manager:creator role on a
+      project now also has the privilege to delete encrypted volumes and secrets. Before this
+      enhancement, Barbican key-manager:creator role only had privilege to create, modify and list
+      the volumes/secrets. For deletion of encrypted volume/secrets, use would need
+      key-manager:admin role. </section>
+    <section><b>User, Roles And Service/ Endpoint Definitions </b></section>
+    <section>
+      <table id="table_qkp_rjn_jx">
+        <tgroup cols="4">
+          <colspec colnum="1" colname="col1"/>
+          <colspec colnum="2" colname="col2"/>
+          <colspec colnum="3" colname="col3"/>
+          <colspec colnum="4" colname="col4"/>
+          <thead>
+            <row>
+              <entry>Type</entry>
+              <entry>Name or Key-Value Pair</entry>
+              <entry>Purpose</entry>
+              <entry>Comments</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>Keystone Role</entry>
+              <entry><xref href="http://key-managercreator/" format="html" scope="external"
+                  >key-manager:creator</xref></entry>
+              <entry>Barbican specific role which has privilege to create/modify/list/<b>delete</b>
+                keys, certificates.Creator role does not allow modifications (update/delete) in
+                container's consumer, modifications in transport keys, modification in certificate
+                authorities (CA), assignment and management of per project CA. User with
+                  <i>admin</i> role can do this.</entry>
+              <entry>
+                <p>This role has exact same privileges as defined for '<i>creator</i>' role in
+                  upstream barbican.</p>
+                <p>Referred in service policy config file, <i>policy.json</i></p>
+                <p><b><i>Note: This role now can also delete keys</i></b></p>
+              </entry>
+            </row>
+            <row>
+              <entry>Keystone Role</entry>
+              <entry><xref href="http://key-manageradmin/" format="html" scope="external"
+                  >key-manager:admin</xref></entry>
+              <entry>Barbican specific role which has administrative privileges</entry>
+              <entry>
+                <p>This role has exact same privileges as defined for '<i>admin</i>' role in
+                  upstream barbican.</p>
+                <p>Referred in service policy config file, <i>policy.json</i></p>
+                <p><b><i>Note: This role is not required to delete keys</i></b></p>
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </table>
+    </section>
+    <section><b>MKEK Configuration: </b></section>
+    <section>
+      <ol id="ol_vkl_vjn_jx">
+        <li>Initial Master Key Setup.<ol id="ol_xkl_vjn_jx">
+            <li>When Barbican is used with *simple_crypto_plugin* as secret store backend, its
+              master key needs to be defined <b>before initial deployment</b>. This backend is used
+              when secrets are stored in its database. If you don't specify key before deployment,
+              default master key is used (not recommended practice).</li>
+            <li>Once master key is set, it must not be modified.</li>
+            <li>Earlier if you defined your own encrypted master key, Before you run any playbooks
+              remember that you need to export that encryption key in the following environment
+              variable:
+              <codeblock>export HOS_USER_PASSWORD_ENCRYPT_KEY=&lt;encryption key></codeblock>
+            </li>
+          </ol></li>
+        <li>Upgrade.<ol id="ol_zkl_vjn_jx">
+            <li>Check master key: <ol id="ol_all_vjn_jx">
+                <li>If you are upgrading and already have the master key defined from previous
+                  version or installation,
+                    check<i>~/helion/hos/ansible/roles/barbican-common/vars/barbican_deploy_config.yml</i>
+                  for<codeblock>'barbican_customer_master_key'</codeblock> value, if the value does
+                  not have a prefix <codeblock>'@hos@'</codeblock>that means it is not encrypted. It
+                  is highly recommended to encrypt this value.</li>
+              </ol></li>
+            <li>Encrypt the existing key during upgrade:<ol id="ol_bll_vjn_jx">
+                <li>Setup the environment variable
+                  <codeblock>HOS_USER_PASSWORD_ENCRYPT_KEY</codeblock> which contain the key used to
+                  encrypt barbican master key.</li>
+                <li>Before you run any playbooks, remember that you need to export the encryption
+                  key in the following environment variable, following steps:<ol id="ol_cll_vjn_jx">
+                    <li>
+                      <codeblock>export HOS_USER_PASSWORD_ENCRYPT_KEY=&lt;USER_ENCRYPTION_KEY></codeblock>
+                    </li>
+                    <li>
+                      <codeblock>python
+*roles/KEYMGR-API/templates/generate_kek &lt;barbican_customer_master_key></codeblock>
+                    </li>
+                    <li>Master key is generated at stdout.</li>
+                    <li>Set above master key in file
+                        <codeblock>~/helion/hos/ansible/roles/barbican-common/vars/barbican_deploy_config.yml</codeblock><ol
+                        id="ol_dll_vjn_jx">
+                        <li>Replace existing <codeblock>barbican_customer_master_key</codeblock>
+                          value with above generated master key.</li>
+                        <li>Commit the change in git repository.</li>
+                        <li><codeblock>cd ~/helion/hos/ansible/ 
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock>
+                        </li>
+                        <li>Once master key is set, continue with cloud deployment.</li>
+                      </ol></li>
+                  </ol></li>
+              </ol></li>
+            <li>It is not recommended to change the master key during the upgrade process. Changing
+              master key will result in read error for existing secrets as they were encrypted using
+              previous master key.</li>
+          </ol></li>
+      </ol>
+    </section>
+    <section> </section>
+    <section><title>Features</title>
+      <ol id="ol_ybh_rkn_jx">
+        <li>Import and install the PKCS11 library debian package:This is a one-time setup to install
+          pkcs11 package on barbican nodes.<ol id="ol_ach_rkn_jx">
+            <li> Make sure you are on deployer node.</li>
+            <li>If not present, Create the directory
+              <codeblock>/home/stack/third-party/barbican/pkgs/debian</codeblock></li>
+            <li>Populate the directory with the full set of debian packages which has HSM specific
+              PKCS11 library.</li>
+            <li>Run the 3rd-party import playbook:
+              <codeblock>cd ~/helion/hos/ansible/
+ansible-playbook -i hosts/localhost third-party-import.yml
+cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts osconfig-run.yml</codeblock></li>
+            <li>This will import the above packages to the HLM thirdparty repo, and ready for
+              installation, this will ensure that the <codeph>/etc/apt/source.list.d</codeph> entry
+              exists for the third-party apt repo. For example you can import hppkcs11
+              (hpe_eskm_pkcs11_0.2.2.deb), which is PKCS11 library for HPE ESKM (Atalla) HSM.</li>
+            <li>Once the library package is imported into third party repository you can install the
+              library package by running barbican playbook by passing extra ansible variable
+              'barbican_pkcs11_package_name, if the given package is not present on the controller
+              nodes it will install the latest version from the 3rd party repository, like
+              <codeblock>ansible-playbook  -i hosts/verb_hosts barbican-reconfigure.yml --extra-vars "barbican_pkcs11_package_name=hppkcs11"</codeblock></li>
+            <li>Or if you want to install specific version of the package, or upgrade or downgrade
+              from the one you have on the controller nodes, you can pass the version info to the
+              playbook, like
+              <codeblock>ansible-playbook  -i hosts/verb_hosts barbican-reconfigure.yml --extra-vars "barbican_pkcs11_package_name=hppkcs11=0.2.1"</codeblock></li>
+            <li>Above step would install provided package on controller node in its default
+                location.<p> </p></li>
+          </ol></li>
+        <li>To provide or update HSM connection credential for Barbican service:<ol
+            id="ol_cch_rkn_jx">
+            <li>Edit the files
+              <codeblock>~/helion/hos/ansible/roles/barbican-common/vars/barbican_deploy_config.yml</codeblock></li>
+            <li>Change the value <codeph>use_pkcs11_crypto_plugin</codeph> to <codeph>True</codeph>
+              to use PKCS11 plugin crypto setup. False is used to indicate other plugin setup
+              usage.</li>
+            <li>Provide details for PKCS11 client connection. Details needed are:<ul
+                id="ul_dch_rkn_jx">
+                <li> session password </li>
+                <li> expected location for vendor specific pkcs11 shared library on Barbican nodes.
+                  Provide absolute path on the controller node. </li>
+                <li> label used for master kek </li>
+                <li> label used for hmac key </li>
+              </ul></li>
+            <li> If PKCS11 provider is HPE ESKM, then the
+                <codeph>barbican_pkcs11_provider_is_hpe_eskm</codeph> flag can be set to
+                <codeph>True</codeph> and playbooks will use default paths for library and its
+              certificate location. </li>
+            <li> Commit the change in git repository.
+              <codeblock>cd ~/helion/hos/ansible/</codeblock></li>
+            <li><codeblock>ansible-playbook -i hosts/localhost
+ready-deployment.yml</codeblock></li>
+            <li><codeblock>cd ~/scratch/ansible/next/hos/ansible</codeblock>
+            </li>
+            <li><codeblock>ansible-playbook -i hosts/verb_hosts
+barbican-reconfigure.yml</codeblock>
+            </li>
+          </ol></li>
+        <li>HPE Atalla ESKM Specific Setup Only:<ol id="ol_ech_rkn_jx">
+            <li>Please note that PKCS11 provider may have some custom configuration steps and those
+              needs to be done manually. This specific step is just provided for HPE ESKM PKCS11
+              connector. In this step, HPE KMIP server address is set or updated.</li>
+            <li>For HPE PKCS11 connector, there is connection configuration information needed by
+              its PKCS11 connector e.g. KMIP server address, token firmware version and various
+              flags needed for PKCS11 session. Customer is expected to provide KMIP server
+              address.</li>
+            <li>Barbican playbook provides following mechanism to generate related configuration
+              with customer provided KMIP server address. For any other customization, customer is
+              expected to refer HPE PKCS11 documentation and make those changes manually on
+              controller nodes hosting Barbican service.<p> Edit the files
+                <codeblock>~/helion/hos/ansible/roles/barbican-common/vars/barbican_deploy_config.yml</codeblock></p><p>
+                Set the value for <codeph>barbican_pkcs11_hpe_kmip_host</codeph> and
+                  <codeph>barbican_pkcs11_hpe_kmip_port</codeph></p><p> Commit the change in git
+                repository.</p><p>
+                <codeblock>cd ~/helion/hos/ansible/</codeblock>
+              </p><p> *
+                <codeblock>ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></p><p> * <codeblock>cd ~/scratch/ansible/next/hos/ansible</codeblock></p><p> *
+                <codeblock>ansible-playbook  -i hosts/verb_hosts barbican-reconfigure.yml --extra-vars "barbican_pkcs11_hpe_generate_conf=True"</codeblock></p></li>
+          </ol></li>
+        <li>To populate or change clients certificate on Barbican nodes:<ol id="ol_fch_rkn_jx">
+            <li>For PKCS11 device, SSL client certificate is needed as generally HSM devices require
+              2-way SSL for security reasons.</li>
+            <li>Get needed client certificate, client private key and client root CA recognized by
+              HSM device.</li>
+            <li>These certificate information is provided to Barbican service via reconfigure
+              playbook.</li>
+            <li>Look into HSM certificates sample file
+              <codeblock>barbican_pkcs11_plugin_config_sample.yml</codeblock></li>
+            <li>Copy this file to a temporary directory e.g.
+              <codeblock>/tmp/pkcs11_plugin_certs.yml</codeblock></li>
+            <li>Edit the file to provide either client certificates as absolute file paths (i.e.
+              'client_cert_file_path', 'client_key_file_path', 'client_cacert_file_path') or pasting
+              certificate content directly into the file (i.e. in 'client_cert_content',
+              'client_key_content', 'client_cacert_content').</li>
+            <li>Edit the file
+              <codeblock>~/helion/hos/ansible/roles/barbican-common/vars/barbican_deploy_config.yml</codeblock>
+              for pkcs11 certificate locations.</li>
+            <li>Provide expected path for client side certificates on barbican
+              nodes.'<codeblock>barbican_pkcs11_client_cert_path &lt;client certificate file path></codeblock></li>
+            <li>
+              <codeblock>barbican_pkcs11_client_key_path &lt;Private key file path created via CSR generation></codeblock>
+            </li>
+            <li>
+              <codeblock>barbican_pkcs11_client_cacert_path &lt;root CA recognized by HSM device and used for CSR signing></codeblock>
+            </li>
+            <li>Commit the change in git repository.</li>
+            <li>
+              <codeblock>cd ~/helion/hos/ansible/</codeblock>
+            </li>
+            <li>
+              <codeblock>ansible-playbook -i hosts/localhost
+ready-deployment.yml</codeblock>
+            </li>
+            <li>
+              <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts 
+barbican-reconfigure.yml -e@/tmp/pkcs11_plugin_certs.yml</codeblock>
+            </li>
+
+          </ol></li>
+        <li>Generate labels for master kek and hmac key used for PKCS11 plugin:<ol
+            id="ol_ich_rkn_jx">
+            <li>This is one-time setup which generates needed mkek and hmac labels. As a
+              pre-requisite, Step 2, (+ Step 2b in HPE HSM case) and Step 3 needs to be done
+              beforehand.</li>
+            <li>
+              <codeblock>ansible-playbook -i hosts/verb_hosts barbican-reconfigure.yml --extra-vars "barbican_pkcs11_generate_labels=True"</codeblock>
+            </li>
+          </ol></li>
+      </ol></section>
+
+
+    <section/>
+    <section><title>Notes</title>If preferred, actions described in step 1 (except running 3rd-party import
+      playbook), 2, 3 and 4 can be executed together. Just make sure that all PKCS11 specific
+      variables are configured correctly in barbican_deploy_config.yml and single space is present
+      between variables defined via 'extra-vars' option ansible-playbook -i hosts/verb_hosts
+      barbican-reconfigure.yml \ --extra-vars "barbican_pkcs11_package_name=hppkcs11
+      barbican_pkcs11_generate_labels=True" \ -e@/tmp/pkcs11_plugin_certs.yml For HPE ESKM, combined
+      step is as follows (with generate conf file option). ansible-playbook -i hosts/verb_hosts
+      barbican-reconfigure.yml \ --extra-vars "barbican_pkcs11_package_name=hppkcs11 \
+      barbican_pkcs11_hpe_generate_conf=True \ barbican_pkcs11_generate_labels=True" \
+      -e@/tmp/pkcs11_plugin_certs.yml Individual step 1, step 2, step 3 or step 4 are needed when
+      pkc11 library, client certificates or HSM connection information needs to be updated. Nova
+      Ephemeral Encryption: Ability to encrypt Nova ephemeral disk using Barbican as key-manager
+      Nova document (DOCS-3152 - Document the stesp to configure nova for having encryptd ephemeral
+      voluems using barbican as a keymanager - OPEN ) describes the steps to configure Nova service
+      for encrypted ephemeral disk volumes with Barbican. </section>
+  </body>
+</topic>

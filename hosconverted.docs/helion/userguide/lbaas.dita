@@ -1,0 +1,303 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="HP2.0LBaaS">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Using Load Balancing as a Service
+    (LBaaS)</title>
+  <body>
+    <!--not tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <p><b><keyword keyref="kw-hos-phrase"/> LBaaS Configuration</b></p>
+    <p>Load Balancing as a Service (LBaaS) is an advanced networking service that allows load
+      balancing of multi-node environments. It provides the ability to spread requests across
+      multiple servers thereby reducing the load on any single server. The following examples depict
+      usage of the various OpenStack Command Line Interfaces (CLI). The Load Balancer v1 API is also
+      accessible via the Horizon web interface if the v1 API is enabled. The Load Balancer v2 API
+      does not currently have a representative Horizon web interface. The v2 API is targeted to have
+      a Horizon web interface in a future <keyword keyref="kw-hos"/> release. This document
+      describes the configuration for LBaaS v1 and v2. </p>
+
+    <p>You can create TLS enabled Load Balancers in <keyword keyref="kw-hos-phrase"/> by following
+      the steps labeled for TLS Load Balancers. You cannot enable TLS with v1 Load Balancers, only
+      v2 Load Balancers can be enabled with TLS.<note type="important">When Barbican isn't installed
+        by default, you have to manually install Barbican and redeploy neutron.</note></p>
+
+    <p><keyword keyref="kw-hos-phrase"/> can support either LBaaS v1 or LBaaS v2 to allow for wide
+      ranging customer requirements. Check with your administrator for the version that is installed
+      before starting your configuration. </p>
+
+
+    <section id="Configuration">
+      <title>Configuration</title>
+      <p><keyword keyref="kw-hos-phrase"/> LBaaS Configuration</p>
+      <sectiondiv id="CreateLBaaSNetwork">
+        <p><b>Create Private Network for LBaaS</b></p>
+        <p>You can create the new network and router by executing the following command from the
+          lifecycle manager or a shell with access to the API nodes.</p>
+        <ol>
+          <li>As a cloud admin, run the following commands to create a private network and a router.
+            <codeblock>neutron net-create private
+neutron subnet-create --name sub private 10.1.0.0/24 --gateway 10.1.0.1
+neutron router-create --distributed false router
+neutron router-interface-add router sub
+neutron router-gateway-set router ext-net</codeblock></li>
+        </ol>
+      </sectiondiv>
+      <sectiondiv id="StartVirtualMachines">
+        <p><b>Start Virtual Machines</b></p>
+        <ol>
+          <li>Add security group rules. <note>In the example below the load balancer is tested on
+              port 80. If you need to test the load balancer on a different port you will need to
+              create a security group rule for your port number.</note>
+            <codeblock>neutron security-group-rule-create default --protocol icmp
+neutron security-group-rule-create default --protocol tcp --port-range-min 22 --port-range-max 22
+neutron security-group-rule-create default --protocol tcp --port-range-min 80 --port-range-max 80</codeblock></li>
+          <li>Start two VMs on the private network.
+            <codeblock>## Start vm1
+nova boot --flavor 1 --image &lt;image&gt; --nic net-id=$(neutron net-list | awk '/private/ {print $2}') vm1
+            
+## start vm2
+nova boot --flavor 1 --image &lt;image&gt; --nic net-id=$(neutron net-list | awk '/private/ {print $2}') vm2</codeblock></li>
+          <li>Check if the VMs are active. <codeblock>nova list</codeblock></li>
+        </ol>
+      </sectiondiv>
+      <sectiondiv id="TLSCertificate">
+        <p><b>For TLS Load Balancers - Create Certificate Chain and Key</b></p>
+        <ol>
+          <li>From a computer with access to the Barbican and labs API, run the following sequence
+            of commands
+            <codeblock>openssl genrsa -des3 -out ca.key 1024
+openssl req -new -x509 -days 3650 -key ca.key -out ca.crt  
+openssl x509  -in  ca.crt -out ca.pem 
+openssl genrsa -des3 -out ca-int_encrypted.key 1024
+openssl rsa -in ca-int_encrypted.key -out ca-int.key 
+openssl req -new -key ca-int.key -out ca-int.csr -subj "/CN=ca-int@acme.com"
+openssl x509 -req -days 3650 -in ca-int.csr -CA ca.crt -CAkey ca.key -set_serial 01 -out ca-int.crt 
+openssl genrsa -des3 -out server_encrypted.key 1024
+openssl rsa -in server_encrypted.key -out server.key 
+openssl req -new -key server.key -out server.csr -subj "/CN=server@acme.com"
+openssl x509 -req -days 3650 -in server.csr -CA ca-int.crt -CAkey ca-int.key -set_serial 01 -out server.crt</codeblock>
+          </li>
+          <li>For SNI, create another chain with a different CN
+            <codeblock>openssl genrsa -des3 -out ca2.key 1024
+openssl req -new -x509 -days 3650 -key ca2.key -out ca2.crt  
+openssl x509  -in  ca2.crt -out ca2.pem 
+openssl genrsa -des3 -out ca-int_encrypted2.key 1024
+openssl rsa -in ca-int_encrypted2.key -out ca-int2.key 
+openssl req -new -key ca-int2.key -out ca-int2.csr -subj "/CN=ca-int-test2@stacme.com"
+openssl x509 -req -days 3650 -in ca-int2.csr -CA ca2.crt -CAkey ca2.key -set_serial 01 -out ca-int2.crt 
+openssl genrsa -des3 -out server_encrypted2.key 1024
+openssl rsa -in server_encrypted2.key -out server2.key 
+openssl req -new -key server2.key -out server2.csr -subj "/CN=test2@stacme.com"
+openssl x509 -req -days 3650 -in server2.csr -CA ca-int2.crt -CAkey ca-int2.key -set_serial 01 -out server2.crt</codeblock></li>
+        </ol>
+      </sectiondiv>
+      <sectiondiv id="TLSBarbican">
+        <p><b>For TLS Load Balancers - Barbican Secrets and Containers</b></p>
+        <ol>
+          <li>Source the <codeph>barbican.osrc</codeph> file from the lifecycle manager node. If you
+            need to perform this operation on a different computer make sure that the OpenStack user
+            account uploading the certs has the keymanager-admin role and is in the admin tenant
+            (see <xref
+              href="../operations/configuring/identity/configure_identity.dita#topic_qmz_fg3_btx"/>
+            for a list of roles and tenants). LBaaS will only be able to access certificates stored
+            in the admin tenant. <codeblock>barbican secret store --payload-content-type='text/plain' --name='certificate' --payload="$(cat server.crt)"
+barbican secret store --payload-content-type='text/plain' --name='private_key' --payload="$(cat server.key)"
+barbican secret container create --name='tls_container' --type='certificate' --secret="certificate=$(barbican secret list | awk '/ certificate / {print $2}')" --secret="private_key=$(barbican secret list | awk '/ private_key / {print $2}')"
+            </codeblock>
+            <note type="warning">Do not delete the certificate container associated with your Load
+              Balancer listeners before deleting the Load Balancers themselves. If you delete the
+              certificate first, future operations on your Load Balancers and failover will cease to
+              function. </note>
+          </li>
+          <li>Add the second certificate chain to test SNI
+            <codeblock>barbican secret store --payload-content-type='text/plain' --name='certificate2' --payload="$(cat server2.crt)"
+barbican secret store --payload-content-type='text/plain' --name='private_key2' --payload="$(cat server2.key)"
+barbican secret container create --name='tls_container2' --type='certificate' --secret="certificate=$(barbican secret list | awk '/ certificate2 / {print $2}')" --secret="private_key=$(barbican secret list | awk '/ private_key2 / {print $2}')"
+            </codeblock>
+          </li>
+          <li>Find the Octavia user id.  You will add the id as a barbican acl user for the containers and keys.
+            <codeblock>source keystone.osrc
+openstack user list</codeblock>
+          </li>
+          <li>Get the container and secret hrefs.
+            <codeblock>source barbican.osrc
+barbican secret list
+barbican secret container list</codeblock>
+          </li>
+          <li>Add the acl user obtained in step 3 to the hrefs obtained in step 4 by executing
+            <codeph>barbican acl user add --user &lt;user id of Octavia&gt; &lt;href&gt;</codeph>.
+            In the example below, the Octavia user, <codeph>66649a0863b64275bc3bffb50e3d76c8</codeph> 
+            is being added as the Barbican acl user for the containers and keys:
+            <codeblock>barbican acl user add --user 66649a0863b64275bc3bffb50e3d76c8 https://10.242.124.130:9311/v1/containers/7ebcd4fa-e96a-493d-b1ee-260914d3cbeb
+barbican acl user add --user 66649a0863b64275bc3bffb50e3d76c8 https://10.242.124.130:9311/v1/secrets/d3c9584c-a43c-4fc1-bfa9-ebcafee57059
+barbican acl user add --user 66649a0863b64275bc3bffb50e3d76c8 https://10.242.124.130:9311/v1/secrets/0b958aa8-49d2-40aa-82dd-5660e012b3a3</codeblock>
+          </li>
+        </ol>
+      </sectiondiv>
+      
+      <sectiondiv id="CreateLoadBalancer">
+        <p><b>Create Load Balancer v2</b></p>
+        <ol>
+          <li>Create the new load balancer using the <codeph>lbaas-loadbalancer-create</codeph>
+            command and giving the load balancer a name and subnet. <note>The creation of the Load
+              Balancer requires a tenant network and not an external network. </note>
+            <codeblock>source barbican.osrc
+neutron lbaas-loadbalancer-create --name lb sub</codeblock></li>
+          <li>Create a new listener. If you are enabling TLS, use the second example, if you are
+            enabling TLS and SNI, use the third example. <note>Use unique port numbers for each
+              listener. This example uses 80, 443 and 444.</note>
+            <ol>
+              <li>Create a new listener for the load balancer without TLS using the
+                  <codeph>lbaas-listener-create</codeph> command and giving the listener the name of
+                the load balancer, the protocol, the protocol port and a name for the listener.
+                <codeblock>neutron lbaas-listener-create --loadbalancer lb --protocol HTTP --protocol-port 80 --name listener</codeblock>
+              </li>
+              <li>Create a new listener for the load balancer with TLS and no SNI using the
+                  <codeph>lbaas-listener-create</codeph> command and giving the listener the name of
+                the load balancer, the protocol, the protocol port, the name for the listener and
+                the default TLS container.
+                <codeblock>neutron lbaas-listener-create --loadbalancer lb --protocol-port 443 --protocol TERMINATED_HTTPS --name tls_listener --default-tls-container-ref=$(barbican secret container list | awk '/ tls_container / {print $2}')</codeblock>
+              </li>
+              <li>Create a new listener for the load balancer with TLS and SNI using the
+                  <codeph>lbaas-listener-create</codeph> command and giving the listener the name of
+                the load balancer, the protocol, the protocol port, the name for the listener, the
+                default TLS container and the SNI container.
+                <codeblock>neutron lbaas-listener-create --loadbalancer lb --protocol-port 444 --protocol TERMINATED_HTTPS --name sni_listener --default-tls-container-ref=$(barbican secret container list | awk '/ tls_container / {print $2}') --sni-container-refs $(barbican secret container list | awk '/ tls_container2 / {print $2}’</codeblock>
+              </li>
+            </ol>
+          </li>
+          <li>For each listener, create a new pool for the load balancer using the
+              <codeph>lbaas-pool-create</codeph> command. Creating a new pool requires the load
+            balancing algorithm, the name of the listener, the protocol and a name for the pool. In
+            the example below we show the command for the listener named <codeph>listener</codeph>.
+            You need to repeat that for the tls_listener and sni_listener as well. Make sure to
+            specify different names for each pool.
+            <codeblock>neutron lbaas-pool-create --lb-algorithm ROUND_ROBIN --listener listener --protocol HTTP --name &lt;pool name></codeblock></li>
+          <li>You can add members to the load balancer pool by running the
+              <codeph>lbaas-member-create</codeph> command. The command requires the subnet, IP
+            address, protocol port and the name of the pool for each virtual machine you'd like to
+            include into the load balancer pool. It is important to note that this will need to be
+            repeated for each pool created above.
+            <codeblock>neutron lbaas-member-create --subnet sub --address &lt;ip address vm1> --protocol-port &lt;port> &lt;pool name>
+neutron lbaas-member-create --subnet sub --address &lt;ip address vm2> --protocol-port &lt;port> &lt;pool name></codeblock></li>
+          <li>Display the current state of the load balancer and values with
+              <codeph>lbaas-loadbalancer-show</codeph>.
+            <codeblock>neutron lbaas-loadbalancer-show lb</codeblock></li>
+          <li>You need to assign the floating IP to lbaas VIP so it can be accessed from the
+            external network.
+            <codeblock>fixedip_vip=$(neutron lbaas-loadbalancer-list | awk '/lb/ {print $6}')
+portuuid_vip=$(neutron port-list | grep $fixedip_vip | awk '{print $2}')</codeblock></li>
+          <li>Create and associate the floating IP address to lbaas VIP address.
+            <codeblock>neutron floatingip-create ext-net --port-id $portuuid_vip</codeblock></li>
+        </ol>
+        <ul>
+          <li>A complete list of the Load Balancer v2 API commands can be found at: <xref
+              href="https://wiki.openstack.org/wiki/Neutron/LBaaS/API_2.0" format="html"
+              scope="external"/></li>
+          <li>Additional Load Balancer v2 API examples can be found at: <xref
+              href="http://docs.openstack.org/mitaka/networking-guide/adv-config-lbaas.html"
+              format="html" scope="external"/>
+            <!--<note>Examples of how to terminate SSL certificates on a Load Balancer are not currently
+              available. These examples are being created and a reference URL will be added to this
+              document when they become available.</note>-->
+          </li>
+          <li>Instructions on how to terminate TLS certificates on a deployed Load Balancer can be
+            found at: <xref
+              href="https://wiki.openstack.org/wiki/Neutron/LBaaS/API_2.0#Create_a_Listener"
+              format="html" scope="external"/></li>
+        </ul>
+      </sectiondiv>
+      <sectiondiv id="CreateLoadBalancerV1">
+        <p><b>Create Load Balancer v1</b></p>
+        <note>v1 Load Balancers cannot be enabled with TLS.</note>
+        <ol>
+          <li>Create the load balancer pool with <codeph>lb-pool-create</codeph> giving it a method,
+            name, protocol and subnet.
+            <codeblock>neutron lb-pool-create --lb-method ROUND_ROBIN --name pool --protocol HTTP --subnet-id $(neutron subnet-list | awk '/sub/ {print $2}')</codeblock></li>
+          <li>Create load balancing members with <codeph>lb-member-create</codeph> providing the IP
+            address, protocol and load balancing pool name to each member.
+            <codeblock>neutron lb-member-create --address &lt;ip address vm1> --protocol-port &lt;port> pool
+neutron lb-member-create --address &lt;ip address vm2> --protocol-port &lt;port> pool</codeblock></li>
+          <li>Create the vip with <codeph>lb-vip-create</codeph> giving it a name, protocol,
+            protocol port and a subnet.
+            <codeblock>neutron lb-vip-create --name vip --protocol-port &lt;port> --protocol HTTP --subnet-id $(neutron subnet-list | awk '/sub/ {print $2}') pool</codeblock></li>
+          <li>You can check to see if the load balancer is active with <codeph>lb-vip-show</codeph>
+            <codeblock>neutron lb-vip-show vip</codeblock></li>
+        </ol>
+      </sectiondiv>
+      <sectiondiv id="TestLoadBalancer">
+        <p><b>Validate LBaaS Functionality</b></p>
+        <note>You should perform the following steps from a node that has a route to the private
+          network. Using the examples from above, 10.1.0.0/24 should be reachable. </note>
+        <ol>
+          <li>SSH into both vm1 and vm2 in two separate windows and make them listen on your
+            configured port. </li>
+          <li>From one
+            window.<codeblock>ssh cirros@&lt;ip address vm1>
+pass: &lt;password&gt;</codeblock></li>
+          <li>From another window.
+            <codeblock>ssh cirros@&lt;ip address vm2>
+pass: &lt;password&gt;</codeblock></li>
+          <li>Start running web servers on both of the virtual machines.</li>
+          <li>Create a webserv.sh script with below contents. Use the &lt;port> from the member
+            creation
+            step.<codeblock>$ vi webserv.sh
+              
+#!/bin/bash
+              
+MYIP=$(/sbin/ifconfig eth0|grep 'inet addr'|awk -F: '{print $2}'| awk '{print $1}');
+while true; do
+    echo -e "HTTP/1.0 200 OK\r\n\r\nWelcome to $MYIP" | sudo nc -l -p &lt;port>
+done
+              
+## Give it Exec rights
+$ chmod 755 webserv.sh
+              
+## Start webserver
+$ ./webserv.sh</codeblock></li>
+          <li>Open a separate window. From the respective source node in external network (in case
+            of accessing LBaaS VIP thorough its FIP) or in private network (in case of no FIP), add
+            the respective IP address to the no_proxy env variable, if required. You can get the
+              <i>VIP</i> from the <codeph>neutron lbaas-loadbalancer-list</codeph> for LBaaS v2 and
+              <codeph>neutron lb-vip-list</codeph> for LBaaS v1.</li>
+          <li>Run the following commands to test load balancing. In this example, the VIP IP address
+            is 10.1.0.7 and when executing curl against the VIP, the responses are returned from the
+            load balanced
+            services.<codeblock>$ export no_proxy=$no_proxy,10.1.0.7
+              
+## Curl the VIP
+$ curl 10.1.0.7
+Welcome to 10.1.0.4
+             
+$ curl 10.1.0.7
+Welcome to 10.1.0.5
+              
+$ curl 10.1.0.7
+Welcome to 10.1.0.4</codeblock></li>
+        </ol>
+      </sectiondiv>
+      <sectiondiv id="verifySNI">
+        <p><b>Verify SNI</b></p>
+        <p>You can verify SNI by running the following command from a node with access to the
+          private network. You can get the VIP from the neutron
+            <codeph>lbaas-loadbalancer-list</codeph> for LBaaS v2.</p>
+        <codeblock>openssl s_client -servername test2@stacme.com -connect &lt;vip of lb&gt;:444</codeblock>
+        <p>Certificate information will print to the screen. You should verify that the CN matches
+          the CN you passed to <codeph>-servername</codeph>. In the example below the CN matches the
+          servername passed from above.
+          <codeblock>subject=/CN=test2@stacme.com
+issuer=/CN=ca-int-test2@stacme.com</codeblock>
+        </p>
+      </sectiondiv>
+    </section>
+
+    <section id="MoreInfo">
+      <title>More Information</title>
+      <p>For more information on the neutron command-line interface (CLI) and load balancing, see
+        the OpenStack networking command-line client reference: <xref
+          href="http://docs.openstack.org/cli-reference/content/neutronclient_commands.html"
+          scope="external" format="html"/></p>
+    </section>
+  </body>
+</topic>

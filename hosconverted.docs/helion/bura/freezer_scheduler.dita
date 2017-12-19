@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="topic_mlh_wtn_rt">
+    <title><ph conkeyref="HOS-conrefs/product-title"/>Backup/Restore Scheduler</title>
+    <body><!--not tested-->
+        <p conkeyref="HOS-conrefs/applies-to"/>
+        <section>
+            <title>Freezer (backup/resore service) Scheduler Overview</title>
+        </section>
+        <p>This document explains, through examples, how to set up backup and restore jobs using the
+            backup/restore service scheduler (referred to as Freezer Scheduler).</p>
+        <p>The scheduler is a long running process that executes the following:<ul>
+            <li>Interact with the Freezer API</li>
+            <li>Generate a client_id to register the client on to the API (to identify the node
+                during the next executions)</li>
+            <li>Execute the freezer-agent according the jobs information retrieved from the
+                API</li>
+            <li>Write to the freezer API the outcome of the freezer-agent execution</li>
+        </ul></p>
+        <note>Freezer API maintains information about jobs in Elastic Search Database.</note>
+        <note>You must run as root to perform any tasks using the Freezer backup/restore
+            service.</note>
+        <section><title>Freezer (backup/restore service) Scheduler Client-ID</title><p>In <keyword
+            keyref="kw-hos-phrase"/>, Freezer Scheduler is automatically installed on the
+            lifecycle manager and controller nodes.</p><p>There is a client_id for each node and
+                its corresponds to the hostname. The client_id is created at registration time. The
+                registration is done automatically when the scheduler executes any request to the
+                API.
+                <!--If you want to
+                execute the registration explicitly, you can use the - -register scheduler
+                option.--></p>The
+            following command lists all the freezer scheduler
+            clients:<codeblock>freezer-scheduler client-list</codeblock><p>Here is an
+                example:</p>
+            <codeblock>+---------------------------+---------------------------+-------------+
+                |         client_id         |          hostname         | description |
+                +---------------------------+---------------------------+-------------+
+                | padawan-ccp-comp0001-mgmt | padawan-ccp-comp0001-mgmt |             |
+                |   padawan-ccp-c0-m1-mgmt  |   padawan-ccp-c0-m1-mgmt  |             |
+                |   padawan-ccp-c1-m2-mgmt  |   padawan-ccp-c1-m2-mgmt  |             |
+                | padawan-ccp-comp0002-mgmt | padawan-ccp-comp0002-mgmt |             |
+                |   padawan-ccp-c1-m3-mgmt  |   padawan-ccp-c1-m3-mgmt  |             |
+                | padawan-ccp-comp0003-mgmt | padawan-ccp-comp0003-mgmt |             |
+                |   padawan-ccp-c1-m1-mgmt  |   padawan-ccp-c1-m1-mgmt  |             |
+                +---------------------------+---------------------------+-------------+</codeblock></section>
+        <section>
+            <title>Creating a Scheduler Job</title>
+        </section>
+        <p>
+            <ol>
+                <li>Log in to a controller node and create the job.</li>
+                <li>Source the operating system variables and use the correct client_id. (The
+                    client-id corresponds to the node where the backup files/directory/database
+                    resides.) In Helion the sourcing of the variable should be done like this when
+                    you need to use hlm_backup user and backup tenant (used for infrastructure
+                    backup): Note that when you perform these actions you must be <b>running as
+                        root</b>. The following command will provide the necessary credentials to
+                    run the job.<codeblock>source  /home/stack/backup.osrc</codeblock>
+                    <note>The location of backup.osrc has now changed from the old location of
+                        /opt/stack/service/freezer-agent/etc/backup.osrc.</note> And with the
+                    following when you need to use admin user and admin tenant. The following file
+                    will contain the admin user credentials. These are not for jobs that were
+                    created automatically; they are only used for jobs created manually to be
+                    created/executed under the admin account. Jobs created automatically use the
+                    credentials stored in the backup.osrc file noted above.<codeblock>source /home/stack/service.osrc</codeblock>
+                    <!--                    <codeblock>{
+        "job_actions": [
+            {
+                "freezer_action": {
+                "mode" : "mysql",
+                "mysql_conf" : "/etc/mysql/debian.cnf",
+                "path_to_backup": "/var/lib/mysql/",
+                "snapshot": true,
+                "backup_name": "freezer-db-mysql",
+                "max_level": 6,
+                "max_priority": true,
+                "remove_older_than": 90,
+                "container": "freezer_backup_devstack_1"
+            },
+            "max_retries": 5,
+            "max_retries_interval": 60,
+            "mandatory": true
+            }
+        ],
+        "job_schedule" : {
+        },
+        "description": "mysql backup"
+    }</codeblock></li>
+                <li>If we want the backup to be executed every day at 3am, we can specify the
+                    following scheduling properties:
+                    <codeblock>"job_schedule" : {
+    "schedule_interval": "1 days",
+    "schedule_start_date": "2015-06-30T03:00:00"
+},</codeblock>-->
+                    <codeblock>  {
+                        "job_actions": [
+                        {
+                        "freezer_action": {
+                        "action": "backup",
+                        "mode": "fs",
+                        "backup_name": "backup1",
+                        "path_to_backup": "/home/user/tmp",
+                        "container": "tmp_backups"
+                        },
+                        "max_retries": 3,
+                        "max_retries_interval": 60
+                        }
+                        ],
+                        "job_schedule": {
+                        "schedule_interval": "24 hours"
+                        },
+                        "description": "backup for tmp dir"
+                        }
+                    </codeblock>
+                </li>
+                <li>Upload it into the api using the correct client_id: <codeblock>freezer-scheduler job-create -c &lt;client_id&gt; --file &lt;freezer_file&gt;</codeblock>
+                    <note>Freezer file examples can be <xref href="#topic_mlh_wtn_rt/examples"
+                        format="dita">found below</xref>.</note>
+                </li>
+                <li>The status of the jobs can be checked with:
+                    
+                    <codeblock>freezer-scheduler -c &lt;client_ID> job-list</codeblock></li>
+                <li>If no scheduling information is provided, the job will be executed as soon as
+                    possible so its status will go into a "running" state, then "completed".</li>
+            </ol>
+        </p>
+        <p>You can find information about the scheduling and backup-execution in
+            /var/log/freezer-scheduler.log and /var/log/freezer.log, respectively.</p>
+        <note>Recurring jobs never go into a "completed" state, as they go back into "scheduled"
+            state.</note>
+        <section>
+            <title>Restore from a Different Node</title>
+            <p>The scheduler can be used to restore from a different node using the hostname
+                parameter that you see in the JSON below. Here is an example conf file. <!--  To see the file, run this:<codeblock>cat > job-restore-mysql.conf</codeblock>-->
+                <codeblock>{
+                    "job_actions": [
+                    {
+                    "freezer_action": {
+                    "action": "restore",
+                    "restore_abs_path": "/var/lib/mysql",
+                    "hostname": "test_machine_1",
+                    "backup_name": "freezer-db-mysql",
+                    "container": "freezer_backup_devstack_1"
+                    },
+                    "max_retries": 5,
+                    "max_retries_interval": 60,
+                    "mandatory": true
+                    }
+                    ],
+                    "description": "mysql test restore"
+                    }</codeblock>
+                Create the job like
+                so:<codeblock>freezer-scheduler job-create -c &lt;client_id> --file job-restore-mysql.conf</codeblock></p>
+        </section>
+        <section>
+            <title>Differential Backup and Restore</title>
+            <p>The difference is in the use of the parameter "always_level": 1 We also specify a
+                different container, so it's easier to spot the files created in the Swift
+                container:<codeblock>swift list freezer_backup_devstack_1_alwayslevel</codeblock></p>
+        </section>
+        <section id="examples">
+            <title>Example Backup Job File</title>
+            <p>Here is a sample backup file:</p>
+            <!--  <codeblock>cat > job-backup.conf</codeblock>-->
+            <codeblock>{
+                "job_actions": [
+                {
+                "freezer_action": {
+                "mode" : "mysql",
+                "mysql_conf" : "/etc/mysql/debian.cnf",
+                "path_to_backup": "/var/lib/mysql/",
+                "backup_name": "freezer-db-mysql",
+                "snapshot": true,
+                "always_level": 1,
+                "max_priority": true,
+                "remove_older_than": 90,
+                "container": "freezer_backup_devstack_1_alwayslevel"
+                },
+                "max_retries": 5,
+                "max_retries_interval": 60,
+                "mandatory": true
+                }
+                ],
+                "job_schedule" : {
+                },
+                "description": "mysql backup"
+                }</codeblock>
+            To create the job:
+            <codeblock>freezer-scheduler job-create -c client_node_1 --file job-backup.conf</codeblock>
+        </section>
+        <section>
+            <title>Example Restore Job File</title>
+            <p>Here is an example of job-restore.conf<!--<codeblock>cat > job-restore.conf</codeblock>-->
+                <codeblock>{
+                    "job_actions": [
+                    {
+                    "freezer_action": {
+                    "action": "restore",
+                    "restore_abs_path": "/var/lib/mysql",
+                    "hostname": "test_machine_1",
+                    "backup_name": "freezer-db-mysql",
+                    "container": "freezer_backup_devstack_1_alwayslevel"
+                    },
+                    "max_retries": 5,
+                    "max_retries_interval": 60,
+                    "mandatory": true
+                    }
+                    ],
+                    "description": "mysql test restore"
+                    }</codeblock>
+                To create the job:
+                <codeblock>freezer-scheduler job-create -c client_node_1 --file job-restore.conf</codeblock></p>
+        </section>
+    </body>
+</topic>

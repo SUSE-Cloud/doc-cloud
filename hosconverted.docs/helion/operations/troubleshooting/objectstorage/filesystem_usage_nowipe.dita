@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="swift_filesystem_ts">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Troubleshooting Swift File System Usage
+    Issues</title>
+  <body><!--not tested-->
+    <p>If you have recycled your environment to do a re-installation and you haven't run the
+        <codeph>wipe_disks.yml</codeph> playbook in the process, you may experience an issue where
+      your file system usage continues to grow exponentially even though you aren't adding any files
+      to your Swift system. This is likely occurring because the quarantined directory is getting
+      filled up. You can find this directory at <codeph>/srv/node/disk0/quarantined</codeph>.</p>
+    <p>You can resolve this issue by following these steps:</p>
+    <ol>
+      <li>SSH to each of your Swift nodes and stop the replication processes on each of them. The
+        following commands must be executed on each of your Swift nodes. Make note of the time that
+        you performed this action as you will reference it in step three.
+        <codeblock>sudo systemctl stop swift-account-replicator
+sudo systemctl stop swift-container-replicator
+sudo systemctl stop swift-object-replicator</codeblock></li>
+      <li>Example the <codeph>/var/log/swift/swift.log</codeph> file and look for events that
+        indicate when the auditor processes have started and completed audit cycles. For more
+        details, see <xref href="filesystem_usage_nowipe.dita#swift_filesystem_ts/swift_log"
+          >Examining the Swift Log for Audit Event Cycles</xref>.</li>
+      <li>Wait until you see that the auditor processes have finished two complete cycles since the
+        time you stopped the replication processes (from step one). You must check every Swift node,
+        which on a lightly loaded system that was recently installed this should take less than two
+        hours.</li>
+      <li>At this point you should notice that your quarantined directory has stopped growing. You
+        may now delete the files in that directory on each of your nodes.</li>
+      <li>Restart the replication processes using the Swift start playbook: <ol>
+          <li>Log in to the lifecycle manager.</li>
+          <li>Run the Swift start playbook:
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts swift-start.yml</codeblock></li>
+        </ol></li>
+    </ol>
+    <section id="swift_log"><title>Examining the Swift Log for Audit Event Cycles</title>
+      <p>Below is an example of the <codeph>object-server</codeph> start and end cycle details. They
+        were taken by using the following command on a Swift node:</p>
+      <codeblock>sudo grep object-auditor /var/log/swift/swift.log|grep ALL</codeblock>
+      <p>Example output:</p>
+      <codeblock>$ sudo grep object-auditor /var/log/swift/swift.log|grep ALL
+...
+Apr  1 13:31:18 padawan-ccp-c1-m1-mgmt object-auditor: Begin object audit "forever" mode (ALL)
+Apr  1 13:31:18 padawan-ccp-c1-m1-mgmt object-auditor: Object audit (ALL). Since Fri Apr  1 13:31:18 2016: Locally: 0 passed, 0 quarantined, 0 errors files/sec: 0.00 , bytes/sec: 0.00, Total time: 0.00, Auditing time: 0.00, Rate: 0.00
+Apr  1 13:51:32 padawan-ccp-c1-m1-mgmt object-auditor: Object audit (ALL) "forever" mode completed: 1213.78s. Total quarantined: 0, Total errors: 0, Total files/sec: 7.02, Total bytes/sec: 9999722.38, Auditing time: 1213.07, Rate: 1.00</codeblock>
+      <p>In this example, the auditor started at <codeph>13:31</codeph> and ended at
+          <codeph>13:51</codeph>.</p>
+      <p>In this next example, the <codeph>account-auditor</codeph> and
+          <codeph>container-auditor</codeph> use similar message structure, so we only show the
+        container auditor. You can substitute <codeph>account</codeph> for
+          <codeph>container</codeph> as well:</p>
+      <codeblock>$ sudo grep container-auditor /var/log/swift/swift.log
+...
+Apr  1 14:07:00 padawan-ccp-c1-m1-mgmt container-auditor: Begin container audit pass.
+Apr  1 14:07:00 padawan-ccp-c1-m1-mgmt container-auditor: Since Fri Apr  1 13:07:00 2016: Container audits: 42 passed audit, 0 failed audit
+Apr  1 14:37:00 padawan-ccp-c1-m1-mgmt container-auditor: Container audit pass completed: 0.10s</codeblock>
+      <p>In the example, the container auditor started a cycle at <codeph>14:07</codeph> and the
+        cycle finished at <codeph>14:37</codeph>.</p>
+    </section>
+  </body>
+</topic>

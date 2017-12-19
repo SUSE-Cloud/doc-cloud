@@ -1,0 +1,390 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: ready for edit (Nancy)-->
+<!DOCTYPE topic
+  PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd" >
+<topic xml:lang="en-us" id="neutron_rbac">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Role-based Access Control in Neutron</title>
+  <body><!--not tested-->
+<section>This topic explains how to achieve more granular access control for your Neutron networks.</section>
+    <section id="overview"><title>Overview</title>
+      <p>Previously in <keyword keyref="kw-hos"/>, a network object was either private to a project or
+        could be used by all projects. If the network's shared attribute was True, then the network
+        could be used by every project in the cloud. If false, only the members of the owning
+        project could use it. There was no way for the network to be shared by only a subset of the
+        projects.</p>
+      <p>Neutron Role Based Access Control (RBAC) solves this problem for networks. Now the network
+        owner can create RBAC policies that give network access to target projects. Members of a
+        targeted project can use the network named in the RBAC policy the same way as if the network
+        was owned by the project. Note, however, the l<xref href="#neutron_rbac/limitations"
+          format="dita">imitations described below</xref>.</p>
+      <p>With RBAC you are able to let another tenant use a network that you created, but as the
+        owner of the network, you need to create the subnet and the router for the network.</p>
+      <p>No Neutron config file changes are required to use RBAC.</p>
+    </section>
+    <section id="topics"><title>Topics covered</title>
+      <ul>
+
+        <li>
+          <xref href="#neutron_rbac/createNet" format="dita">Creating a network</xref></li>
+
+        <li><xref href="#neutron_rbac/createPolicy" format="dita">Creating an RBAC
+          policy</xref></li>
+        <li><xref href="#neutron_rbac/delete" format="dita">Deleting an RBAC policy</xref></li>
+        <li><xref href="#neutron_rbac/shareAll" format="dita">Sharing a network with all
+            tenants</xref></li>
+     
+        <li>   <xref href="#neutron_rbac/createPort" format="dita">Creating a port on a shared network</xref></li>
+        
+   
+        <li>     <xref href="#neutron_rbac/bootVM" format="dita">Booting a VM on a shared network</xref></li>
+        
+        <li><xref href="#neutron_rbac/limitations" format="dita">Limitations</xref></li>
+
+      </ul>
+    </section>
+    <section id="createNet"><title>Creating a network</title>
+      <codeblock>$ neutron net-create demo-net
+$ neutron net-show demo-net</codeblock>
+      <codeblock>+-----------------+--------------------------------------+
+| Field           | Value                                |
++-----------------+--------------------------------------+
+| admin_state_up  | True                                 |
+| id              | c3d55c21-d8c9-4ee5-944b-560b7e0ea33b |
+| mtu             | 0                                    |
+| name            | demo-net                             |
+| router:external | False                                |
+| shared          | False                                |
+| status          | ACTIVE                               |
+| subnets         | d9b765da-45eb-4543-be96-1b69a00a2556 |
+| tenant_id       | 75eb5efae5764682bca2fede6f4d8c6f     |
++-----------------+--------------------------------------+</codeblock>
+    </section>
+
+    <section id="createPolicy"><title>Creating an RBAC policy</title>
+      <p>Here we will create an RBAC policy where a member of the project called 'demo' will share
+        the network with members of project 'demo2'</p>
+      <p>To create the RBAC policy, run:</p>
+      <codeblock>neutron rbac-create --target-tenant &lt;demo2-project-uuid> --type network --action access_as_shared demo-net</codeblock>
+      <p>Here is an example where the demo2 project id is 5a582af8b44b422fafcd4545bd2b7eb5</p>
+      <codeblock>$ neutron rbac-create --target-tenant 5a582af8b44b422fafcd4545bd2b7eb5 --type network --action access_as_shared demo-net</codeblock>
+    </section>
+
+    <section id="listRBACs"><title>Listing RBACs</title>
+      <p>To list all the RBAC rules/policies, execute:</p>
+      <codeblock>$ neutron rbac-list</codeblock>
+      <codeblock>+--------------------------------------+--------------------------------------+
+| id                                   | object_id                            |
++--------------------------------------+--------------------------------------+
+| 0fd89dcb-9809-4a5e-adc1-39dd676cb386 | c3d55c21-d8c9-4ee5-944b-560b7e0ea33b |
++--------------------------------------+--------------------------------------+</codeblock>
+    </section>
+
+    <section id="listAttr"><title>Listing the attributes of an RBAC</title> To see the attributes of
+      a specific RBAC policy, run <codeblock>$ neutron rbac-show &lt;policy ID></codeblock> For
+      example: <codeblock>$ neutron rbac-show 0fd89dcb-9809-4a5e-adc1-39dd676cb386</codeblock> Here
+      is the output:
+      <codeblock>+---------------+--------------------------------------+
+| Field         | Value                                |
++---------------+--------------------------------------+
+| action        | access_as_shared                     |
+| id            | 0fd89dcb-9809-4a5e-adc1-39dd676cb386 |
+| object_id     | c3d55c21-d8c9-4ee5-944b-560b7e0ea33b |
+| object_type   | network                              |
+| target_tenant | 5a582af8b44b422fafcd4545bd2b7eb5     |
+| tenant_id     | 75eb5efae5764682bca2fede6f4d8c6f     |
++---------------+--------------------------------------+</codeblock>
+    </section>
+
+
+    <section id="delete"><title>Deleting an RBAC policy</title>
+      <p>To delete an RBAC policy, run rbac-delete passing the policy id:</p>
+      <codeblock>$ neutron rbac-delete &lt;policy ID></codeblock>
+      <p>For example:</p>
+      <codeblock>$ neutron rbac-delete 0fd89dcb-9809-4a5e-adc1-39dd676cb386</codeblock>
+      <p>Here is the output:</p>
+      <codeblock>Deleted rbac_policy: 0fd89dcb-9809-4a5e-adc1-39dd676cb386</codeblock>
+    </section>
+
+
+    <section id="shareAll">
+      <title>Sharing a network with all tenants</title>
+      <p>Either the administrator or the network owner can make a network shareable by all
+        tenants.</p>
+      <p>Like Neutron in Kilo, the administrator can make a tenant's network shareable by all
+        tenants. Suppose we want to make the network demo-shareall-net accessible by all tenants in
+        the cloud:</p>
+      <p>To share a network with all tenants, first get a list of all projects:</p>
+      <codeblock>stack@padawan-ccp-c0-m1-mgmt:~$ . ./service.osrc
+stack@padawan-ccp-c0-m1-mgmt:~$ openstack project list</codeblock>
+      Here is the list: <codeblock>+----------------------------------+------------------+
+| ID                               | Name             |
++----------------------------------+------------------+
+| 1be57778b61645a7a1c07ca0ac488f9e | demo             |
+| 5346676226274cd2b3e3862c2d5ceadd | admin            |
+| 749a557b2b9c482ca047e8f4abf348cd | swift-monitor    |
+| 8284a83df4df429fb04996c59f9a314b | swift-dispersion |
+| c7a74026ed8d4345a48a3860048dcb39 | demo-sharee      |
+| e771266d937440828372090c4f99a995 | glance-swift     |
+| f43fb69f107b4b109d22431766b85f20 | services         |
++----------------------------------+------------------+</codeblock>
+      <p>Next, get a list of networks:</p>
+      <codeblock>stack@padawan-ccp-c0-m1-mgmt:~$ neutron net-list</codeblock> Here's the list:<codeblock>+--------------------------------------+-------------------+----------------------------------------------------+
+| id                                   | name              | subnets                                            |
++--------------------------------------+-------------------+----------------------------------------------------+
+| f50f9a63-c048-444d-939d-370cb0af1387 | ext-net           | ef3873db-fc7a-4085-8454-5566fb5578ea 172.31.0.0/16 |
+| 9fb676f5-137e-4646-ac6e-db675a885fd3 | demo-net          | 18fb0b77-fc8b-4f8d-9172-ee47869f92cc 10.0.1.0/24   |
+| 8eada4f7-83cf-40ba-aa8c-5bf7d87cca8e | demo-shareall-net | 2bbc85a9-3ffe-464c-944b-2476c7804877 10.0.250.0/24 |
+| 73f946ee-bd2b-42e9-87e4-87f19edd0682 | demo-share-subset | c088b0ef-f541-42a7-b4b9-6ef3c9921e44 10.0.2.0/24   |
++--------------------------------------+-------------------+----------------------------------------------------+</codeblock>
+      <p>Then set the network you want to share to a shared value of True:</p>
+      <codeblock>stack@padawan-ccp-c0-m1-mgmt:~$ neutron net-update 8eada4f7-83cf-40ba-aa8c-5bf7d87cca8e --shared True</codeblock>
+      <p>You should see the following output:</p>
+      <codeblock>Updated network: 8eada4f7-83cf-40ba-aa8c-5bf7d87cca8e</codeblock>
+      <p>You can check the attributes of that network by running the following command using the ID
+        of the network in question:</p>
+      <codeblock>stack@padawan-ccp-c0-m1-mgmt:~$ neutron net-show 8eada4f7-83cf-40ba-aa8c-5bf7d87cca8e</codeblock>
+      <p>The output will look like this:</p>
+      <codeblock>+---------------------------+--------------------------------------+
+| Field                     | Value                                |
++---------------------------+--------------------------------------+
+| admin_state_up            | True                                 |
+| id                        | 8eada4f7-83cf-40ba-aa8c-5bf7d87cca8e |
+| mtu                       | 0                                    |
+| name                      | demo-shareall-net                    |
+| provider:network_type     | vxlan                                |
+| provider:physical_network |                                      |
+| provider:segmentation_id  | 1055                                 |
+| router:external           | False                                |
+| shared                    | True                                 |
+| status                    | ACTIVE                               |
+| subnets                   | 2bbc85a9-3ffe-464c-944b-2476c7804877 |
+| tenant_id                 | 1be57778b61645a7a1c07ca0ac488f9e     |
++---------------------------+--------------------------------------+</codeblock>
+      <p>As the owner of 'demo-shareall-net network' you can view the RBAC attributes for
+        demo-shareall-net (id=8eada4f7-83cf-40ba-aa8c-5bf7d87cca8e) by first getting an RBAC
+        list:</p>
+      <codeblock>stack@padawan-ccp-c0-m1-mgmt:~$ echo $OS_USERNAME ; echo $OS_PROJECT_NAME
+demo
+demo
+stack@padawan-ccp-c0-m1-mgmt:~$ neutron rbac-list</codeblock>
+      Here's the list:<codeblock>+--------------------------------------+--------------------------------------+
+| id                                   | object_id                            |
++--------------------------------------+--------------------------------------+
+| ...                                                                         |
+| 3e078293-f55d-461c-9a0b-67b5dae321e8 | 8eada4f7-83cf-40ba-aa8c-5bf7d87cca8e |
++--------------------------------------+--------------------------------------+</codeblock>
+      <p>Then reading the RBAC in which you are interested:</p>
+      <codeblock>stack@padawan-ccp-c0-m1-mgmt:~$ neutron rbac-show 3e078293-f55d-461c-9a0b-67b5dae321e8</codeblock>
+      <codeblock>+---------------+--------------------------------------+
+| Field         | Value                                |
++---------------+--------------------------------------+
+| action        | access_as_shared                     |
+| id            | 3e078293-f55d-461c-9a0b-67b5dae321e8 |
+| object_id     | 8eada4f7-83cf-40ba-aa8c-5bf7d87cca8e |
+| object_type   | network                              |
+| target_tenant | *                                    |
+| tenant_id     | 1be57778b61645a7a1c07ca0ac488f9e     |
++---------------+--------------------------------------+</codeblock>
+      <p>With network RBAC, the owner of the network can also make the network shareable by all
+        tenants. First create the network:</p>
+      <codeblock>stack@padawan-ccp-c0-m1-mgmt:~$ echo $OS_PROJECT_NAME ; echo $OS_USERNAME
+demo
+demo
+stack@padawan-ccp-c0-m1-mgmt:~$ neutron net-create test-net
+</codeblock>
+      The network is created:<codeblock>+-----------------+--------------------------------------+
+| Field           | Value                                |
++-----------------+--------------------------------------+
+| admin_state_up  | True                                 |
+| id              | a4bd7c3a-818f-4431-8cdb-fedf7ff40f73 |
+| mtu             | 0                                    |
+| name            | test-net                             |
+| router:external | False                                |
+| shared          | False                                |
+| status          | ACTIVE                               |
+| subnets         |                                      |
+| tenant_id       | 1be57778b61645a7a1c07ca0ac488f9e     |
++-----------------+--------------------------------------+</codeblock>
+      <p>Then create the RBAC. It is important that the asterisk is surrounded by single-quotes to
+        prevent the shell from expanding it to all files in the current directory.</p>
+      <codeblock>stack@padawan-ccp-c0-m1-mgmt:~$ neutron rbac-create --type network --action access_as_shared --target-tenant '*' test-net</codeblock>
+      Here are the resulting RBAC
+      attributes:<codeblock>+---------------+--------------------------------------+
+| Field         | Value                                |
++---------------+--------------------------------------+
+| action        | access_as_shared                     |
+| id            | 0b797cc6-debc-48a1-bf9d-d294b077d0d9 |
+| object_id     | a4bd7c3a-818f-4431-8cdb-fedf7ff40f73 |
+| object_type   | network                              |
+| target_tenant | *                                    |
+| tenant_id     | 1be57778b61645a7a1c07ca0ac488f9e     |
++---------------+--------------------------------------+ </codeblock>
+    </section>
+
+    <section id="view"><title>Target project (demo2) view of Networks and Subnets</title>
+      <p>Note that the owner of the network and subnet is not the tenant named 'demo2'. Both the
+        network and subnet are owned by tenant 'demo'. Demo2 members cannot create subnets of the
+        network. They also cannot modify or delete subnets owned by demo. </p>
+      <p>As the tenant demo2, if you get a list of neutron networks:</p>
+      <codeblock>$ neutron net-list</codeblock>
+      <codeblock>+--------------------------------------+-----------+--------------------------------------------------+
+| id                                   | name      | subnets                                          |
++--------------------------------------+-----------+--------------------------------------------------+
+| f60f3896-2854-4f20-b03f-584a0dcce7a6 | ext-net   | 50e39973-b2e3-466b-81c9-31f4d83d990b             |
+| c3d55c21-d8c9-4ee5-944b-560b7e0ea33b | demo-net  | d9b765da-45eb-4543-be96-1b69a00a2556 10.0.1.0/24 |
+   ...
++--------------------------------------+-----------+--------------------------------------------------+</codeblock>
+      And get a list of subnets: <codeblock>$ neutron subnet-list --network-id c3d55c21-d8c9-4ee5-944b-560b7e0ea33b</codeblock>
+      <codeblock>+--------------------------------------+-------------+-------------+--------------------------------------------+
+| id                                   | name        | cidr        | allocation_pools                           |
++--------------------------------------+-------------+-------------+--------------------------------------------+
+| d9b765da-45eb-4543-be96-1b69a00a2556 | sb-demo-net | 10.0.1.0/24 | {"start": "10.0.1.2", "end": "10.0.1.254"} |
++--------------------------------------+-------------+-------------+--------------------------------------------+</codeblock>
+      <codeblock>$ neutron subnet-show d9b765da-45eb-4543-be96-1b69a00a2556</codeblock>
+      <codeblock>+-------------------+--------------------------------------------+
+| Field             | Value                                      |
++-------------------+--------------------------------------------+
+| allocation_pools  | {"start": "10.0.1.2", "end": "10.0.1.254"} |
+| cidr              | 10.0.1.0/24                                |
+| dns_nameservers   |                                            |
+| enable_dhcp       | True                                       |
+| gateway_ip        | 10.0.1.1                                   |
+| host_routes       |                                            |
+| id                | d9b765da-45eb-4543-be96-1b69a00a2556       |
+| ip_version        | 4                                          |
+| ipv6_address_mode |                                            |
+| ipv6_ra_mode      |                                            |
+| name              | sb-demo-net                                |
+| network_id        | c3d55c21-d8c9-4ee5-944b-560b7e0ea33b       |
+| subnetpool_id     |                                            |
+| tenant_id         | 75eb5efae5764682bca2fede6f4d8c6f           |
++-------------------+--------------------------------------------+</codeblock>
+    </section>
+
+    <section id="createPort"><title>Target project: Creating a port using demo-net</title><p>Note
+        the owner of the port is 'demo2'. Members of the network owner project ('demo') will not see
+        this port. </p>Running the following command: <codeblock>$ neutron port-create c3d55c21-d8c9-4ee5-944b-560b7e0ea33b</codeblock>
+      <p>Creates a new port:</p>
+      <codeblock>+-----------------------+-----------------------------------------------------------------------------------------------------+
+| Field                 | Value                                                                                               |
++-----------------------+-----------------------------------------------------------------------------------------------------+
+| admin_state_up        | True                                                                                                |
+| allowed_address_pairs |                                                                                                     |
+| binding:vnic_type     | normal                                                                                              |
+| device_id             |                                                                                                     |
+| device_owner          |                                                                                                     |
+| dns_assignment        | {"hostname": "host-10-0-1-10", "ip_address": "10.0.1.10", "fqdn": "host-10-0-1-10.openstacklocal."} |
+| dns_name              |                                                                                                     |
+| fixed_ips             | {"subnet_id": "d9b765da-45eb-4543-be96-1b69a00a2556", "ip_address": "10.0.1.10"}                    |
+| id                    | 03ef2dce-20dc-47e5-9160-942320b4e503                                                                |
+| mac_address           | fa:16:3e:27:8d:ca                                                                                   |
+| name                  |                                                                                                     |
+| network_id            | c3d55c21-d8c9-4ee5-944b-560b7e0ea33b                                                                |
+| security_groups       | 275802d0-33cb-4796-9e57-03d8ddd29b94                                                                |
+| status                | DOWN                                                                                                |
+| tenant_id             | 5a582af8b44b422fafcd4545bd2b7eb5                                                                    |
++-----------------------+-----------------------------------------------------------------------------------------------------+</codeblock>
+    </section>
+
+    <section id="bootVM"><title>Target project booting a VM using demo-net</title>Here the tenant
+      demo2 boots a VM that uses the demo-net shared network: <codeblock>$ nova boot --flavor 1 --image $OS_IMAGE --nic net-id=c3d55c21-d8c9-4ee5-944b-560b7e0ea33b demo2-vm-using-demo-net-nic
+</codeblock>
+      <codeblock>+--------------------------------------+------------------------------------------------------------+
+| Property                             | Value                                                      |
++--------------------------------------+------------------------------------------------------------+
+| OS-EXT-AZ:availability_zone          |                                                            |
+| OS-EXT-STS:power_state               | 0                                                          |
+| OS-EXT-STS:task_state                | scheduling                                                 |
+| OS-EXT-STS:vm_state                  | building                                                   |
+| OS-SRV-USG:launched_at               | -                                                          |
+| OS-SRV-USG:terminated_at             | -                                                          |
+| accessIPv4                           |                                                            |
+| accessIPv6                           |                                                            |
+| adminPass                            | sS9uSv9PT79F                                               |
+| config_drive                         |                                                            |
+| created                              | 2016-01-04T19:23:24Z                                       |
+| flavor                               | m1.tiny (1)                                                |
+| hostId                               |                                                            |
+| id                                   | 3a4dc44a-027b-45e9-acf8-054a7c2dca2a                       |
+| image                                | cirros-0.3.3-x86_64 (6ae23432-8636-4e3c-83dc-e354f381efc5) |
+| key_name                             | -                                                          |
+| metadata                             | {}                                                         |
+| name                                 | demo2-vm-using-demo-net-nic                                |
+| os-extended-volumes:volumes_attached | []                                                         |
+| progress                             | 0                                                          |
+| security_groups                      | default                                                    |
+| status                               | BUILD                                                      |
+| tenant_id                            | 5a582af8b44b422fafcd4545bd2b7eb5                           |
+| updated                              | 2016-01-04T19:23:24Z                                       |
+| user_id                              | a0e6427b036344fdb47162987cb0cee5                           |
++--------------------------------------+------------------------------------------------------------+</codeblock>
+      Run nova-list:<codeblock>$ nova list</codeblock> See the VM
+      running:<codeblock>+--------------------------------------+-----------------------------+--------+------------+-------------+--------------------+
+| ID                                   | Name                        | Status | Task State | Power State | Networks           |
++--------------------------------------+-----------------------------+--------+------------+-------------+--------------------+
+| 3a4dc44a-027b-45e9-acf8-054a7c2dca2a | demo2-vm-using-demo-net-nic | ACTIVE | -          | Running     | demo-net=10.0.1.11 |
++--------------------------------------+-----------------------------+--------+------------+-------------+--------------------+</codeblock>
+      Run neutron
+      port-list:<codeblock>stack@padawan-ccp-c0-m1-mgmt:~$ neutron port-list --device-id 3a4dc44a-027b-45e9-acf8-054a7c2dca2a</codeblock>
+      View the
+      subnet:<codeblock>+--------------------------------------+------+-------------------+----------------------------------------------------------------------------------+
+| id                                   | name | mac_address       | fixed_ips                                                                        |
++--------------------------------------+------+-------------------+----------------------------------------------------------------------------------+
+| 7d14ef8b-9d48-4310-8c02-00c74d80348f |      | fa:16:3e:75:32:8e | {"subnet_id": "d9b765da-45eb-4543-be96-1b69a00a2556", "ip_address": "10.0.1.11"} |
++--------------------------------------+------+-------------------+----------------------------------------------------------------------------------+</codeblock>
+      Run neutron port-show:<codeblock>stack@padawan-ccp-c0-m1-mgmt:~$ neutron port-show 7d14ef8b-9d48-4310-8c02-00c74d80348f</codeblock>
+      <codeblock>+-----------------------+-----------------------------------------------------------------------------------------------------+
+| Field                 | Value                                                                                               |
++-----------------------+-----------------------------------------------------------------------------------------------------+
+| admin_state_up        | True                                                                                                |
+| allowed_address_pairs |                                                                                                     |
+| binding:vnic_type     | normal                                                                                              |
+| device_id             | 3a4dc44a-027b-45e9-acf8-054a7c2dca2a                                                                |
+| device_owner          | compute:None                                                                                        |
+| dns_assignment        | {"hostname": "host-10-0-1-11", "ip_address": "10.0.1.11", "fqdn": "host-10-0-1-11.openstacklocal."} |
+| dns_name              |                                                                                                     |
+| extra_dhcp_opts       |                                                                                                     |
+| fixed_ips             | {"subnet_id": "d9b765da-45eb-4543-be96-1b69a00a2556", "ip_address": "10.0.1.11"}                    |
+| id                    | 7d14ef8b-9d48-4310-8c02-00c74d80348f                                                                |
+| mac_address           | fa:16:3e:75:32:8e                                                                                   |
+| name                  |                                                                                                     |
+| network_id            | c3d55c21-d8c9-4ee5-944b-560b7e0ea33b                                                                |
+| security_groups       | 275802d0-33cb-4796-9e57-03d8ddd29b94                                                                |
+| status                | ACTIVE                                                                                              |
+| tenant_id             | 5a582af8b44b422fafcd4545bd2b7eb5                                                                    |
++-----------------------+-----------------------------------------------------------------------------------------------------+</codeblock>
+    </section>
+
+    <section id="limitations"><title>Limitations</title> Note the following limitations of RBAC in
+      Neutron. <ul>
+        <li> Neutron network is the only supported RBAC Neutron object type. </li>
+        <li>The "access_as_external" action is not supported – even though it is listed as a valid
+          action by python-neutronclient. </li>
+        <li>The neutron-api server will not accept action value of 'access_as_external'. The
+            <codeph>access_as_external</codeph> definition is not found in the specs. </li>
+        <li>The target project users cannot create, modify, or delete subnets on networks that have
+          RBAC policies. </li>
+        <li>The subnet of a network that has an RBAC policy cannot be added as an interface of a
+          target tenant's router. For example, the command <codeph>neutron router-interface-add
+            tgt-tenant-router &lt;sb-demo-net uuid></codeph> will error out. </li>
+        <li>The security group rules on the network owner do not apply to other projects that can
+          use the network. </li>
+        <li>A user in target project can boot up VMs using a VNIC using the shared network. The user
+          of the target project can assign a floating IP (FIP) to the VM. The target project must
+          have SG rules that allows SSH and/or ICMP for VM connectivity. </li>
+        <li>Neutron RBAC creation and management are currently not supported in Horizon. For now,
+          the Neutron CLI has to be used to manage RBAC rules. </li>
+        <li>A RBAC rule tells Neutron whether a tenant can access a network (Allow). Currently there
+          is no DENY action. </li>
+        <li>Port creation on a shared network fails if <codeph>--fixed-ip</codeph> is specified in
+          the <codeph>neutron port-create</codeph> command. This is reported in <xref
+            href="https://bugs.launchpad.net/neutron/+bug/1543756" format="html" scope="external"
+            >https://bugs.launchpad.net/neutron/+bug/1543756</xref>  <!--DOCS-2836 --></li>
+      </ul>
+    </section>
+
+
+
+
+  </body>
+</topic>

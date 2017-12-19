@@ -1,0 +1,290 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="swift_ansible_playbooks">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Managing Rings Using Swift Playbooks</title>
+  <body>
+    <!--not tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <section id="about">
+      <p>The following table describes how playbooks relate to ring management.</p>
+      <p>All of these playbooks will be run from the lifecycle manager from the
+          <codeph>~/scratch/ansible/next/hos/ansible</codeph> directory.</p>
+    </section>
+    <section id="table">
+      <table frame="all" rowsep="1" colsep="1" id="table_sg5_pjz_w5">
+        <tgroup cols="3">
+          <colspec colname="c1" colnum="1"/>
+          <colspec colname="c2" colnum="2"/>
+          <colspec colname="c3" colnum="3"/>
+          <thead>
+            <row>
+              <entry>Playbook</entry>
+              <entry>Description</entry>
+              <entry>Notes</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry><codeph>swift-update-from-model-rebalance-rings.yml</codeph></entry>
+              <entry>There are two steps in this playbook:<ul id="ul_smp_ygy_4t">
+                  <li>Make delta<p>It processes the input model and compares it against the existing
+                      rings. After comparison, it produces a list of differences between the input
+                      model and the existing rings. This is called the ring delta. The ring delta
+                      covers drives being added, drives being removed, weight changes, and replica
+                      count changes.</p></li>
+                </ul><ul id="ul_xbm_2hy_4t">
+                  <li>Rebalance<p>The ring delta is then converted into a series of commands (such
+                      as <codeph>add</codeph>) to the swift-ring-builder program. Finally, the
+                        <codeph>rebalance</codeph> command is issued to the swift-ring-builder
+                      program.</p></li>
+                </ul></entry>
+              <entry>This playbook performs its actions on the first node running the swift-proxy
+                service. (For more information, see <xref
+                  href="../troubleshooting/objectstorage/identify_ring_builder.dita"/>.) However, it
+                also scans all Swift nodes to find the size of disk drives.<p>If there are no
+                  changes in the ring delta, the <codeph>rebalance</codeph> command is still
+                  executed to rebalance the rings. If <codeph>min-part-hours</codeph> has not yet
+                  elapsed or if no partitions need to be moved, new rings are not
+                written.</p></entry>
+            </row>
+            <row>
+              <entry><codeph>swift-compare-model-rings.yml</codeph></entry>
+              <entry>There are two steps in this playbook:<ul id="ul_qc2_b3y_4t">
+                  <li>Make delta<p>This is the same as described for
+                        <codeph>swift-update-from-model-rebalance-rings.yml</codeph>.</p></li>
+                </ul><ul id="ul_ht2_f3y_4t">
+                  <li>Report<p>This prints a summary of the proposed changes that will be made to
+                      the rings (i.e., what would happen if you rebalanced).</p></li>
+                </ul><p>The playbook reports any issues or problems it finds with the input
+                  model.</p><p>This playbook can be useful to confirm that there are no errors in
+                  the input model. It also allows you to check that when you change the input model,
+                  that the proposed ring changes are as expected. For example, if you have added a
+                  server to the input model, but this playbook reports that no drives are being
+                  added, you should determine the cause.</p></entry>
+              <entry>There is troubleshooting information related to the information that you
+                receive in this report that you can view on this page: <xref
+                  href="../troubleshooting/objectstorage/interpreting_swift_validate_input_model.dita"
+                /></entry>
+            </row>
+            <row>
+              <entry><codeph>swift-deploy.yml</codeph></entry>
+              <entry><codeph>swift-deploy.yml</codeph> is responsible for installing software and
+                configuring Swift on nodes. As part of installing and configuring, it runs the
+                  <codeph>swift-update-from-model-rebalance-rings.yml</codeph> and
+                  <codeph>swift-reconfigure.yml</codeph> playbooks.</entry>
+              <entry>This playbook is included in the <codeph>hlm-deploy.yml</codeph> and
+                  <codeph>site.yml</codeph> playbooks, so if you run either of those playbooks, the
+                  <codeph>swift-deploy.yml</codeph> playbook is also run.</entry>
+            </row>
+            <row>
+              <entry><codeph>swift-reconfigure.yml</codeph></entry>
+              <entry>
+                <p><codeph>swift-reconfigure.yml</codeph> takes rings that the
+                    <codeph>swift-update-from-model-rebalance-rings.yml</codeph> playbook has
+                  changed and copies those rings to all Swift nodes.</p>
+              </entry>
+              <entry>Every time that you directly use the
+                  <codeph>swift-update-from-model-rebalance-rings.yml</codeph> playbook, you must
+                copy these rings to the system using the <codeph>swift-reconfigure.yml</codeph>
+                playbook. If you forget and run
+                  <codeph>swift-update-from-model-rebalance-rings.yml</codeph> twice, the process
+                may move two replicates of some partitions at the same time.</entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </table>
+    </section>
+    <section id="variables">
+      <title>Optional Ansible variables related to ring management</title>
+      <p>The following optional variables may be specified when running the playbooks outlined
+        above. They are specified using the <codeph>--extra-vars</codeph> option.</p>
+      <table frame="all" rowsep="1" colsep="1" id="table_phb_ysg_1v">
+        <tgroup cols="2">
+          <colspec colname="c1" colnum="1"/>
+          <colspec colname="c2" colnum="2"/>
+          <thead>
+            <row>
+              <entry>Variable</entry>
+              <entry>Description and Use</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry><codeph>limit_ring</codeph></entry>
+              <entry>Limit changes to the named ring. Other rings will not be examined or updated.
+                This option may be used with any of the Swift playbooks. For example, to only update
+                the <codeph>object-1</codeph> ring, use the following command:
+                <codeblock>ansible-playbook -i hosts/verb_hosts swift-update-from-model-rebalance-rings.yml --extra-vars "limit-ring=object-1"</codeblock>
+              </entry>
+            </row>
+            <row>
+              <entry>drive_detail</entry>
+              <entry>Used only with the swift-compare-model-rings.yml playbook. The playbook will
+                include details of changes to every drive where the model and existing rings differ.
+                If you omit the drive_detail variable, only summary information is provided. The
+                following shows how to use the drive_detail
+                variable:<codeblock>ansible-playbook -i hosts/verb_hosts swift-compare-model-rings.yml --extra-vars "drive_detail=yes"</codeblock></entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </table>
+    </section>
+    <section>
+      <title>Interpreting the report from the swift-compare-model-rings.yml playbook</title>
+      <p>The <codeph>swift-compare-model-rings.yml</codeph> playbook compares the existing Swift
+        rings with the input model and prints a report telling you how the rings and the model
+        differ. Specifically, it will tell you what actions will take place when you next run the
+          <codeph>swift-update-from-model-rebalance-rings.yml</codeph> playbook (or a playbook such
+        as <codeph>hlm-deploy.yml</codeph> that runs
+          <codeph>swift-update-from-model-rebalance-rings.yml</codeph>).</p>
+      <p>The <codeph>swift-compare-model-rings.yml</codeph> playbook will make no changes, but is
+        just an advisory report.</p>
+      <p>Here is an example output from the playbook. The report is between "report.stdout_lines"
+        and "PLAY RECAP":</p>
+      <codeblock>TASK: [swiftlm-ring-supervisor | validate-input-model | Print report] *********
+ok: [hlm-cp1-c1-m1-mgmt] => {
+    "var": {
+        "report.stdout_lines": [
+            "Rings:",
+            "  ACCOUNT:",
+            "    ring exists (minimum time to next rebalance: 8:07:33)",
+            "    will remove 1 devices (18.00GB)",
+            "    ring will be rebalanced",
+            "  CONTAINER:",
+            "    ring exists (minimum time to next rebalance: 8:07:35)",
+            "    no device changes",
+            "    ring will be rebalanced",
+            "  OBJECT-0:",
+            "    ring exists (minimum time to next rebalance: 8:07:34)",
+            "    no device changes",
+            "    ring will be rebalanced"
+        ]
+    }
+}</codeblock>
+      <p>The following describes the report in more detail:</p>
+      <table frame="all" rowsep="1" colsep="1" id="table_ivj_tp2_dv">
+        <tgroup cols="2">
+          <colspec colname="c1" colnum="1"/>
+          <colspec colname="c2" colnum="2"/>
+          <thead>
+            <row>
+              <entry>Message</entry>
+              <entry>Description</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>ring exists</entry>
+              <entry>The ring already exists on the system.</entry>
+            </row>
+            <row>
+              <entry>ring will be created</entry>
+              <entry>The ring does not yet exist on the system.</entry>
+            </row>
+            <row>
+              <entry>no device changes</entry>
+              <entry>The devices in the ring exactly match the input model. There are no servers
+                being added or removed and the weights are appropriate for the size of the
+                drives.</entry>
+            </row>
+            <row>
+              <entry>minimum time to next rebalance</entry>
+              <entry>If this time is <codeph>0:00:00</codeph>, if you run one of the Swift playbooks
+                that update rings, the ring will be rebalanced.<p>If the time is non-zero, it means
+                  that not enough time has elapsed since the ring was last rebalanced. Even if you
+                  run a Swift playbook that attempts to change the ring, the ring will not actually
+                  rebalance. This time is determined by the <codeph>min-part-hours</codeph>
+                  attribute.</p></entry>
+            </row>
+            <row>
+              <entry>set-weight hlm-ccp-c1-m1-mgmt:disk0:/dev/sdc 8.00 &gt; 12.00 &gt; 18.63</entry>
+              <entry>The weight of disk0 (mounted on /dev/sdc) on server
+                  <codeph>hlm-ccp-c1-m1-mgmt</codeph> is currently set to 8.0 but should be 18.83
+                given the size of the drive. However, in this example, we cannot go directly from
+                8.0 to 18.63 because of the weight-step attribute. Hence, the proposed weight change
+                is from 8.0 to 12.0.<p>This information is only shown when you the
+                    <codeph>drive_detail=yes</codeph> argument when running the
+                playbook.</p></entry>
+            </row>
+            <row>
+              <entry>will change weight on 12 devices (6.00TB)</entry>
+              <entry>The weight of 12 devices will be increased. This might happen for example, if a
+                server had been added in a prior ring update. However, with use of the
+                  <codeph>weight-step</codeph> attribute, the system gradually increases the weight
+                of these new devices. In this example, the change in weight represents 6TB of total
+                available storage. For example, if your system currently has 100TB of available
+                storage, when the weight of these devices is changed, there will be 106TB of
+                available storage. If your system is 50% utilized, this means that when the ring is
+                rebalanced, up to 3TB of data may be moved by the replication process. This is an
+                estimate - in practice, because only one copy of a given replica is moved in any
+                given rebalance, it may not be possible to move this amount of data in a single ring
+                rebalance.</entry>
+            </row>
+            <row>
+              <entry>add: hlm-ccp-c1-m1-mgmt:disk0:/dev/sdc</entry>
+              <entry>The disk0 device will be added to the hlm-ccp-c1-m1-mgmt server. This happens
+                when a server is added to the input model or if a disk model is changed to add
+                additional devices.<p>This information is only shown when you the
+                    <codeph>drive_detail=yes</codeph> argument when running the
+                playbook.</p></entry>
+            </row>
+            <row>
+              <entry>remove: hlm-ccp-c1-m1-mgmt:disk0:/dev/sdc</entry>
+              <entry>The device is no longer in the input model and will be removed from the ring.
+                This happens if a server is removed from the model, a disk drive is removed from a
+                disk model or the server is marked for removal using the pass-through
+                  feature.<p>This information is only shown when you the
+                    <codeph>drive_detail=yes</codeph> argument when running the
+                playbook.</p></entry>
+            </row>
+            <row>
+              <entry>will add 12 devices (6TB)</entry>
+              <entry>There are 12 devices in the input model that have not yet been added to the
+                ring. Usually this is because one or more servers have been added. In this example,
+                this could be one server with 12 drives or two servers, each with 6 drives. The size
+                in the report is the change in total available capacity. When the weight-step
+                attribute is used, this may be a fraction of the total size of the disk drives. In
+                this example, 6TB of capacity is being added. For example, if your system currently
+                has 100TB of available storage, when these devices are added, there will be 106TB of
+                available storage. If your system is 50% utilized, this means that when the ring is
+                rebalanced, up to 3TB of data may be moved by the replication process. This is an
+                estimate - in practice, because only one copy of a given replica is moved in any
+                given rebalance, it may not be possible to move this amount of data in a single ring
+                rebalance.</entry>
+            </row>
+            <row>
+              <entry>will remove 12 devices (6TB)</entry>
+              <entry>There are 12 devices in rings that no longer appear in the input model. Usually
+                this is because one or more servers have been removed. In this example, this could
+                be one server with 12 drives or two servers, each with 6 drives. The size in the
+                report is the change in total removed capacity. In this example, 6TB of capacity is
+                being removed. For example, if your system currently has 100TB of available storage,
+                when these devices are removed, there will be 94TB of available storage. If your
+                system is 50% utilized, this means that when the ring is rebalanced, approximately
+                3TB of data must be moved by the replication process.</entry>
+            </row>
+            <row>
+              <entry>min-part-hours will be changed</entry>
+              <entry>The <codeph>min-part-hours</codeph> attribute has been changed in the ring
+                specification in the input model.</entry>
+            </row>
+            <row>
+              <entry>replica-count will be changed</entry>
+              <entry>The <codeph>replica-count</codeph> attribute has been changed in the ring
+                specification in the input model.</entry>
+            </row>
+            <row>
+              <entry>ring will be rebalanced</entry>
+              <entry>This is always reported. Every time the
+                  <codeph>swift-update-from-model-rebalance-rings.yml</codeph> playbook is run, it
+                will execute the swift-ring-builder rebalance command. This happens even if there
+                were no input model changes. If the ring is already well balanced, the
+                swift-ring-builder will not rewrite the ring.</entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </table>
+    </section>
+  </body>
+</topic>

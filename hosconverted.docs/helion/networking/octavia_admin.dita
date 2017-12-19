@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: ready for edit (Carter)-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="OctaviaAdmin">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Load Balancer: Octavia Driver
+    Administration</title>
+  <body>
+    <!--not tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <section id="Overview">
+      <title>Octavia Driver Administration</title>
+      <p>This document provides the instructions on how to enable and manage various components of
+        the Load Balancer Octavia driver if that driver is enabled. </p>
+      <ul>
+        <li><xref href="#OctaviaAdmin/Alerts" format="dita">Monasca Alerts</xref></li>
+        <li><xref href="#OctaviaAdmin/Tuning" format="dita">Tuning Octavia Installation</xref>
+          <ul>
+            <li>Homogeneous Compute Configuration</li>
+            <li>Octavia and Floating IP's</li>
+            <li>Configuration Files</li>
+            <li>Spare Pools</li>
+          </ul>
+        </li>
+        <li><xref href="#OctaviaAdmin/Amphora" format="dita">Managing Amphora</xref>
+          <ul>
+            <li>Updating the Cryptographic Certificates</li>
+            <li>Accessing VM information in Nova</li>
+            <li>Initiating Failover of an Amphora VM</li>
+          </ul>
+        </li>
+        <li>More Information</li>
+      </ul>
+    </section>
+    <section id="Alerts">
+      <title>Monasca Alerts</title>
+      <p>The Monasca-agent has the following Octavia-related plugins:</p>
+      <ul>
+        <li>Process checks – checks if octavia processes are running. When it starts, it detects
+          which processes are running and then monitors them.</li>
+        <li>http_connect check – checks if it can connect to octavia api servers.</li>
+      </ul>
+      <p>Alerts are displayed in the OpsConsole. For more information see <xref
+          href="../operations/opsconsole_overview.dita#opsconsole"/></p>
+    </section>
+    <section id="Tuning">
+      <title>Tuning Octavia Installation</title>
+      <p><b>Homogeneous Compute Configuration</b></p>
+      <p>Octavia works only with homogeneous compute node configurations. Currently, Octavia does
+        not support multiple nova flavors. If Octavia needs to be supported on multiple compute
+        nodes, then all the compute nodes should carry same set of physnets (which will be used for
+        Octavia). </p>
+      <p><b>Octavia and Floating IP's</b></p>
+      <p>Due to a Neutron limitation Octavia will only work with CVR routers. Another option is to
+        use VLAN provider networks which do not require a router.</p>
+      <p>You cannot currently assign a floating IP address as the VIP (user facing) address for a
+        load balancer created by the Octavia driver if the underlying Neutron network is configured
+        to support Distributed Virtual Router (DVR). The Octavia driver uses a Neutron function
+        known as <b><i>allowed address pairs</i></b> to support load balancer fail over.</p>
+      <p>There is currently a Neutron bug that does not support this function in a DVR
+        configuration</p>
+      
+      <p><b>Octavia Configuration Files</b></p>
+      <p>The system comes pre-tuned and should not need any adjustments for most customers. If in
+        rare instances manual tuning is needed, follow these steps:</p>
+      <note type="warning">Changes might be lost during <keyword keyref="kw-hos"/> upgrades.</note>
+      <p>Edit the Octavia configuration files in <codeph>my_cloud/config/octavia</codeph>. It is
+        recommended that any changes be made in all of the Octavia configuration files. <ul>
+          <li>octavia-api.conf.j2</li>
+          <li>octavia-health-manager.conf.j2</li>
+          <li>octavia-housekeeping.conf.j2</li>
+          <li>octavia-worker.conf.j2</li>
+        </ul>
+      </p>
+      <p> After the changes are made to the configuration files, redeploy the service.</p>
+      <ol>
+        <li>Commit changes to git.
+          <codeblock>cd ~/helion
+git add -A
+git commit -m "My Octavia Config"</codeblock>
+        </li>
+        <li>Run the configuration processor and ready deployment.
+          <codeblock>cd ~/helion/hos/ansible/
+ansible-playbook -i hosts/localhost config-processor-run.yml
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock>
+        </li>
+        <li>Run the Octavia reconfigure.
+          <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts octavia-reconfigure.yml</codeblock>
+        </li>
+      </ol>
+      <p><b>Spare Pools</b></p>
+      <p> The Octavia driver provides support for creating spare pools of the HAProxy software
+        installed in VMs. This means instead of creating a new load balancer when loads increase,
+        create new load balancer calls will pull a load balancer from the spare pool. The spare
+        pools feature consumes resources, therefore the load balancers in the spares pool has been
+        set to 0, which is the default and also disables the feature. </p>
+      <p>Reasons to enable a load balancing spare pool in <keyword keyref="kw-hos"/>
+        <ol>
+          <li>You expect a large number of load balancers to be provisioned all at once (puppet
+            scripts, or ansible scripts) and you want them to come up quickly.</li>
+          <li>You want to reduce the wait time a customer has while requesting a new load
+            balancer.</li>
+        </ol>
+      </p>
+      <p>To increase the number of load balancers in your spares pool, edit the Octavia
+        configuration files by uncommenting the <codeph>spare_amphora_pool_size</codeph> and adding
+        the number of load balancers you would like to include in your spares pool.
+        <codeblock># Pool size for the spare pool 
+# spare_amphora_pool_size = 0</codeblock></p>
+      <note type="important">In <keyword keyref="kw-hos-phrase-30"/> the spare pool can’t be used to
+        speed up fail overs. If a load balancer fails in <keyword keyref="kw-hos"/>, Octavia will
+        always provision a new VM to replace that failed load balancer. </note>
+    </section>
+    <section id="Amphora">
+      <title>Managing Amphora</title>
+      <p>Octavia starts a separate VM for each load balancing function. These VMs are called
+        amphora.</p>
+      <p><b>Updating the Cryptographic Certificates</b></p>
+      <p>Octavia uses two-way SSL encryption for communication between amphora and the control
+        plane. Octavia keeps track of the certificates on the amphora and will automatically recycle
+        them. The certificates on the control plane are valid for one year after installation of
+          <keyword keyref="kw-hos-phrase-30"/>.</p>
+      <p>You can check on the status of the certificate by logging into the controller node as root
+        and running:
+        <codeblock>cd /opt/stack/service/octavia-&lt;some UUID&gt;/etc/certs/
+openssl x509 -in client.pem  -text –noout</codeblock></p>
+      <p>This prints the certificate out where you can check on the expiration dates.</p>
+      <p>To renew the certificates, reconfigure Octavia. Reconfiguring causes Octavia to
+        automatically generate new certificates and deploy them to the controller hosts.</p>
+      <p>On the lifecycle manager execute octavia-reconfigure:
+        <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts octavia-reconfigure.yml</codeblock></p>
+      <p><b>Accessing VM information in Nova</b></p>
+      <p>You can use <codeph>openstack project list</codeph> as an administrative user to obtain
+        information about the tenant or project-id of the Octavia project. In the example below, the
+        Octavia project has a project-id of <codeph>37fd6e4feac14741b6e75aba14aea833</codeph>.
+        <codeblock>$ openstack project list
++----------------------------------+------------------+
+| ID                               | Name             |
++----------------------------------+------------------+
+| 055071d8f25d450ea0b981ca67f7ccee | glance-swift     |
+| 37fd6e4feac14741b6e75aba14aea833 | octavia          |
+| 4b431ae087ef4bd285bc887da6405b12 | swift-monitor    |
+| 8ecf2bb5754646ae97989ba6cba08607 | swift-dispersion |
+| b6bd581f8d9a48e18c86008301d40b26 | services         |
+| bfcada17189e4bc7b22a9072d663b52d | cinderinternal   |
+| c410223059354dd19964063ef7d63eca | monitor          |
+| d43bc229f513494189422d88709b7b73 | admin            |
+| d5a80541ba324c54aeae58ac3de95f77 | demo             |
+| ea6e039d973e4a58bbe42ee08eaf6a7a | backup           |
++----------------------------------+------------------+</codeblock>
+      </p>
+      <p>You can then use <codeph>nova list --tenant &lt;project-id&gt;</codeph> to list the VMs for
+        the Octavia tenant. Take particular note of the IP address on the OCTAVIA-MGMT-NET; in the
+        example below it is <codeph>172.30.1.11</codeph>. For additional nova command-line options
+        see the <xref href="#OctaviaAdmin/MoreInfo" format="dita">More Information</xref> section
+        below.
+        <codeblock>$ nova list --tenant 37fd6e4feac14741b6e75aba14aea833
++--------------------------------------+----------------------------------------------+----------------------------------+--------+------------+-------------+------------------------------------------------+
+| ID                                   | Name                                         | Tenant ID                        | Status | Task State | Power State | Networks                                       |
++--------------------------------------+----------------------------------------------+----------------------------------+--------+------------+-------------+------------------------------------------------+
+| 1ed8f651-de31-4208-81c5-817363818596 | amphora-1c3a4598-5489-48ea-8b9c-60c821269e4c | 37fd6e4feac14741b6e75aba14aea833 | ACTIVE | -          | Running     | private=10.0.0.4; OCTAVIA-MGMT-NET=172.30.1.11 |
++--------------------------------------+----------------------------------------------+----------------------------------+--------+------------+-------------+------------------------------------------------+</codeblock>
+      </p>
+      <note type="important">The Amphora VMs do not have SSH or any other access. In the rare case
+        that there is a problem with the underlying load balancer the whole amphora will need to be
+        replaced. </note>
+      <p><b>Initiating Failover of an Amphora VM</b></p>
+      <p>Under normal operations Octavia will monitor the health of the amphora constantly and
+        automatically fail them over if there are any issues. This helps to minimize any potential
+        downtime for load balancer users. There are, however, a few cases a failover needs to be
+        initiated manually: <ol>
+          <li>The Loadbalancer has become unresponsive and Octavia hasn't detected an error.</li>
+          <li>A new image has become available and existing load balancers need to start using the
+            new image.</li>
+          <li>The cryptographic certificates to control and/or the HMAC password to verify Health
+            information of the amphora have been compromised. See <xref
+              href="http://octavia.io/review/master/design/version0.5/component-design.html#some-notes-on-controller-amphorae-communications"
+              format="html" scope="external">Controller to Amphorae communications</xref> for more
+            information.</li>
+        </ol>
+      </p>
+      <p>To minimize the impact for end users we will keep the existing load balancer working until
+        shortly before the new one has been provisioned. There will be a short interruption for the
+        load balancing service so keep that in mind when scheduling the failovers. To achieve that
+        follow these steps (assuming the management ip from the previous step): <ol>
+          <li>Assign the IP to a SHELL variable for better readability.
+            <codeblock>$ export MGM_IP=172.30.1.11</codeblock></li>
+          <li>Identify the port of the vm on the management network.
+            <codeblock>$ neutron port-list | grep $MGM_IP
+| 0b0301b9-4ee8-4fb6-a47c-2690594173f4 |                                                   | fa:16:3e:d7:50:92 | 
+{"subnet_id": "3e0de487-e255-4fc3-84b8-60e08564c5b7", "ip_address": "172.30.1.11"} |</codeblock></li>
+          <li>Disable the port to initiate a failover. Note the load balancer will still function
+            but can't be controlled any longer by Octavia. <note>Changes after disabling the port
+              will result in errors.</note>
+            <codeblock>$ neutron port-update --admin-state-up False 0b0301b9-4ee8-4fb6-a47c-2690594173f4
+Updated port: 0b0301b9-4ee8-4fb6-a47c-2690594173f4</codeblock></li>
+          <li>You can check to see if the amphora failed over with <codeph>nova list --tenant
+              &lt;project-id&gt;</codeph>. This may take some time and in some cases may need to be
+            repeated several times. You can tell that the failover has been successful by the
+            changed IP on the management network.
+            <codeblock>$ nova list --tenant 37fd6e4feac14741b6e75aba14aea833
++--------------------------------------+----------------------------------------------+----------------------------------+--------+------------+-------------+------------------------------------------------+
+| ID                                   | Name                                         | Tenant ID                        | Status | Task State | Power State | Networks                                       |
++--------------------------------------+----------------------------------------------+----------------------------------+--------+------------+-------------+------------------------------------------------+
+| 1ed8f651-de31-4208-81c5-817363818596 | amphora-1c3a4598-5489-48ea-8b9c-60c821269e4c | 37fd6e4feac14741b6e75aba14aea833 | ACTIVE | -          | Running     | private=10.0.0.4; OCTAVIA-MGMT-NET=172.30.1.12 |
++--------------------------------------+----------------------------------------------+----------------------------------+--------+------------+-------------+------------------------------------------------+</codeblock></li>
+        </ol>
+      </p>
+      <note type="warning">Don't issue too many failovers at once. In a big installation you might
+        be tempted to initiate several failovers in parallel for instance to speed up an update of
+        amphora images. This will put a strain on the nova service and depending on the size of your
+        installation you might need to throttle the failover rate.</note>
+    </section>
+    <section id="MoreInfo">
+      <title>More Information</title>
+      <p>For more information on the Nova command-line client, see the <xref
+          href="http://docs.openstack.org/cli-reference/nova.html" format="html" scope="external"
+          >OpenStack Compute command-line client</xref> guide.</p>
+      <p>For more information on Octavia terminology, see the <xref
+          href="http://docs.octavia.io/review/master/main/glossary.html" format="html"
+          scope="external">OpenStack Octavia Glossary</xref></p>
+    </section>
+  </body>
+</topic>

@@ -1,0 +1,312 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic
+  PUBLIC "-//OASIS//DTD DITA Topic//EN" "http://docs.oasis-open.org/dita/v1.1/OS/dtd/topic.dtd" ><topic xml:lang="en-us" id="topic8875">
+<title>HPE Helion <tm tmtype="reg">OpenStack</tm> 1.1: Troubleshooting Scale-Out Swift</title>
+<prolog>
+<metadata>
+<othermeta name="layout" content="default"/>
+<othermeta name="product-version" content="HPE Helion Openstack"/>
+<othermeta name="product-version" content="HPE Helion Openstack 1.1"/>
+<othermeta name="role" content="Systems Administrator"/>
+<othermeta name="role" content="Cloud Architect"/>
+<othermeta name="role" content="Storage Administrator"/>
+<othermeta name="role" content="Network Administrator"/>
+<othermeta name="role" content="Service Developer"/>
+<othermeta name="role" content="Cloud Administrator"/>
+<othermeta name="role" content="Application Developer"/>
+<othermeta name="role" content="Network Engineer"/>
+<othermeta name="role" content="Paul F"/>
+<othermeta name="product-version1" content="HPE Helion Openstack"/>
+<othermeta name="product-version2" content="HPE Helion Openstack 1.1"/>
+</metadata>
+</prolog>
+<body>
+<p>
+<!--PUBLISHED-->
+ <!--./commercial/GA1/1.1commercial.troubleshooting.swift.md-->
+ <!--permalink: /helion/openstack/1.1/services/troubleshooting/swift/--></p>
+<p>HPE Helion OpenStack is an OpenStack technology coupled with a version of <tm tmtype="reg">Linux</tm> provided by HP. This topic describes all the known issues that you might encounter. To help you resolve these issues, we have provided possible solutions.</p>
+<ul>
+<li>
+<xref type="section" href="#topic8875/S3">Cannot create storage containers using Amazon S3 API</xref>
+</li>
+<li>
+<xref type="section" href="#topic8875/refreshfails">Scale-out nodes : os-refresh-configuration fails on Controller Node</xref>
+</li>
+<li>
+<xref type="section" href="#topic8875/recovery">Recovery when Scale-out nodes of newly added compute node or VSA</xref>
+</li>
+<li>
+<xref type="section" href="#topic8875/ironic">Ironic intermittently set maintenance mode to True during scale-out</xref>
+</li>
+</ul>
+<section id="S3"> <title>Cannot create storage containers using Amazon S3 API</title>
+<!-- DOCS-698 -->
+<p>
+  <b>System Behavior/Message</b>
+</p>
+<p>An attempt to create a bucket fails with "The remote server returned an error: (404) Not Found.".</p>
+<p>
+  <b>Probable Cause</b>
+</p>
+<p>HPE Helion OpenStack does not support Amazon S3 API.</p>
+<p>
+  <b>Resolution</b>
+</p>
+<p>Create containers using the <xref href="1.1commerical.services-object-overview.dita" >Helion OpenStack Object Storage Service</xref> through the Swift APIs or the Horizon dashboard.</p>
+</section>
+<section id="refreshfails"> <title>Scale-out nodes : os-refresh-configuration fails on Controller Nodes</title>
+<p>
+  <b>System Behavior/Message</b>
+</p>
+<p>The os-refresh-config on the controller Nodes fail during scale-out.</p>
+<p>
+  <b>Probable Cause</b>
+</p>
+<p>The controller nodes can fail due to following reasons:</p>
+<ul>
+<li>RabbitMQ clustering</li>
+<li>MySQL clustering</li>
+</ul>
+<p>
+  <b>Resolution</b>
+</p>
+<p>To resolve RabbitMQ cluster issue:</p>
+<ul>
+<li>
+<p>Use the following command and verify the running status of RabbitMQ.</p>
+
+<p>status rabbitmqserver</p>
+</li>
+</ul>
+<p>If RabbitMQ is not running, start RabbitMQ using the <codeph>start rabbitmqserver</codeph> command.</p>
+<ul>
+<li>
+<p>Verify that the <codeph>rabbitmqctl cluster_status</codeph> displays all 3 nodes in <codeph>running_nodes</codeph> and disc. If it does not display one or more nodes in running nodes then restart RabbitMQ and run the following command on the missing nodes:</p>
+
+<p>rabbitmqctl join_cluster &lt;clusternode&gt;</p>
+</li>
+<li>
+<p>If rabbitmqctl cluster_status displays expected output but there is an issue with one or more node(s) for joining RabbitMQ cluster, do the following:</p>
+
+<ol>
+<li>Execute the following commands on all controller
+              nodes:<codeblock><codeph>pkill u rabbitmq
+</codeph></codeblock></li>
+<li>Run <codeph>osrefreshconfig</codeph> command first on the <codeph>cluster_name</codeph>
+                (<codeph>rabbitmqctl cluster_status</codeph> output) and then on the remaining
+              controller nodes.</li>
+</ol>
+</li>
+</ul>
+<p>
+  <b>To resolve MySQL cluster issue</b>
+</p>
+<ol>
+<li>Use the following command and verify the running status of MySQL on the
+            node.<codeblock><codeph>/etc/init.d/mysql status
+</codeph></codeblock><p>If mysql has
+            stopped, restart it.</p></li>
+<li>If MySQL fails to restart, perform the following instructions:</li>
+</ol>
+<ul>
+<li>Run mysqld_safe wsreprecover on all the controller nodes.</li>
+<li>
+<p>Compare the output from all controller nodes for last committed transaction sequence number. For example:</p>
+
+<codeblock><codeph>root@overcloudcecontrollercontroller0defen5afl75f:~#
+mysqld_safe wsreprecover
+sed: -e expression #1, char 25: unknown option to `s'
+sed: -e expression #1, char 24: unknown option to `s'
+141113 01:00:36 mysqld_safe Logging to '/mnt/state/var/log/mysql/error.log'.
+141113 01:00:36 mysqld_safe Starting mysqld daemon with databases from /mnt/state/var
+141113 01:00:36 mysqld_safe Skipping wsreprecover for 1e9d939a6a0711e49c28aa3122
+141113 01:00:36 mysqld_safe Assigning 1e9d939a6a0711e49c28aa31223485e0:220764 to 141113 01:00:38 mysqld_safe mysqld from pid file /var/run/mysqld/mysqld.pid ended 
+</codeph></codeblock>
+
+<p>So the last committed transaction sequence number on this node is 220764.</p>
+</li>
+<li>
+<p>Compare the last committed transaction sequence number across all 3 nodes and bootstrap from the latest node using <codeph>/etc/init.d/mysql bootstrappxc</codeph> or <codeph>/etc/init.d/mysql restart</codeph> and start MySQL on the remaining nodes.</p>
+</li>
+</ul>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="recovery"> <title>Recovery when Scale-out nodes of newly added compute node or VSA</title>
+<p>
+  <b>
+    <i>System Behavior/Message</i>
+  </b>
+</p>
+<p>The newly added compute node or VSA node fails during scale-out.</p>
+<p>
+  <b>Resolution</b>
+</p>
+<p>You must remove a failed compute node before adding a new compute node.</p>
+<p>Perform the following steps to remove a failed compute node:</p>
+<ol>
+<li>Run <codeph>heat stack-list</codeph> on the undercloud node and search for failed stack.</li>
+<li>Delete the failed stack using the following
+          command:<codeblock><codeph># heat stack-delete &lt;stackname or uuid&gt;
+</codeph></codeblock></li>
+<li>List the newly added nova node which is created during
+          scale-out.<codeblock><codeph># nova-list
+</codeph></codeblock></li>
+<li>Execute the following command to delete nova node. Node name and ID is obtained from step
+          3.<codeblock><codeph># nova delete &lt;name or id&gt;
+</codeph></codeblock></li>
+<li>View a newly added node using the following
+          command:<codeblock><codeph># ironic node-list
+</codeph></codeblock></li>
+<li>If newly added node is in <b>ERROR</b> state or it has maintenance as <b>True</b> then remove
+          those node(s) using following
+          command.<codeblock><codeph># ironic node-delete &lt;uuid&gt;, where uuid is the ID of the node
+</codeph></codeblock></li>
+</ol>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="refresh"> <title>Scale-out nodes : os-refresh-config on Controller Nodes Fail</title>
+<p>
+  <b>
+    <i>System Behavior/Message</i>
+  </b>
+</p>
+<p>The os-refresh-config on controller Nodes fail during scale-out.</p>
+<p>
+  <b>
+    <i>Probable Cause</i>
+  </b>
+</p>
+<p>The controller nodes can fail due to following reasons:</p>
+<ul>
+<li>
+<p>wrong user input</p>
+</li>
+<li>
+<p>rabbitmq clustering</p>
+</li>
+<li>
+<p>mysql clustering</p>
+</li>
+</ul>
+<p>
+  <b>Resolution</b>
+</p>
+<p>
+  <b>To resolve rabbitmq cluster issue</b>
+</p>
+<ul>
+<li>
+<p>Use the following command and verify the running status of rabbitmq.</p>
+
+<codeblock><codeph>status rabbitmq-server 
+</codeph></codeblock>
+
+<p>If rabbitmq is not running, start rabbitmq  using <codeph>start rabbitmq-server</codeph> command.</p>
+</li>
+<li>
+<p>Verify that the <codeph>rabbitmqctl cluster_status</codeph> displays all 3 nodes in <codeph>running_nodes</codeph>, disc. If it does not display one or more nodes in running nodes then restart rabbitmq and run the following command on the missing nodes:</p>
+
+<codeblock><codeph>rabbitmqctl join_cluster &lt;clusternode&gt;
+</codeph></codeblock>
+</li>
+<li>
+<p>If <codeph>rabbitmqctl cluster_status</codeph> shows expected output but there is an issue with one or more node(s) for joining rabbitmq cluster, do the following:</p>
+
+<ol>
+<li>Execute the following commands on all controller
+              nodes:<codeblock><codeph>pkill -u rabbitmq  
+</codeph></codeblock></li>
+<li>Run <codeph>os-refresh-config</codeph> command first on the <codeph>cluster_name</codeph>
+              (rabbitmqctl cluster_status output) and on the remaining controller nodes.</li>
+</ol>
+</li>
+</ul>
+<p>
+  <b>Resolve mysql cluster issue</b>
+</p>
+<ol>
+<li>Use the following command and verify the running status of mysql on the
+            node.<codeblock><codeph>/etc/init.d/mysql status
+</codeph></codeblock><p>If mysql has
+            stopped, restart it.</p></li>
+<li>If mysql fails to restart, perform the following instructions:<ul>
+            <li>Run <codeph>mysqld_safe --wsrep-recover</codeph> on all controller nodes.</li>
+            <li>
+              <p>Compare the output from all controller nodes for last committed transaction
+                sequence number. For example:</p>
+              <codeblock><codeph>root@overcloud-ce-controller-controller0-defen5afl75f:~# mysqld_safe --wsrep-recover
+sed: -e expression #1, char 25: unknown option to `s'
+sed: -e expression #1, char 24: unknown option to `s'
+141113 01:00:36 mysqld_safe Logging to '/mnt/state/var/log/mysql/error.log'.
+141113 01:00:36 mysqld_safe Starting mysqld daemon with databases from /mnt/state/var/lib/mysql/
+141113 01:00:36 mysqld_safe Skipping wsrep-recover for 1e9d939a-6a07-11e4-9c28-aa31223485e0:220764 pair
+141113 01:00:36 mysqld_safe Assigning 1e9d939a-6a07-11e4-9c28-aa31223485e0:220764 to wsrep_start_position
+141113 01:00:38 mysqld_safe mysqld from pid file /var/run/mysqld/mysqld.pid ended
+</codeph></codeblock>
+            </li>
+          </ul><p>So the last committed transaction sequence number on this node is 220764.</p><ul>
+            <li>Compare the last committed transaction sequence number across all 3 nodes and
+              bootstrap from the latest node using <codeph>/etc/init.d/mysql bootstrap-pxc</codeph>
+              or <codeph>/etc/init.d/mysql restart</codeph> and start mysql on the remaining
+              nodes.</li>
+          </ul></li>
+</ol>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="ironic"> <title>Ironic intermittently set maintenance mode to True during scale-out</title>
+<p>This issue can happen during the scale-out of the overcloud nodes. The update will fail for one or more nodes. <!-- CORE-2082 --></p>
+<p>
+  <b>System Behavior/Message:</b>
+</p>
+<p>If the update fails, from undercloud node:</p>
+<ol>
+<li>Source the stackrc file:<codeblock><codeph>source stackrc 
+</codeph></codeblock></li>
+<li>Execute the <codeph>nova list</codeph> command to determine which Compute node(s) is in an error
+          state. The node will have a status of
+          ERROR.<codeblock><codeph>nova list
+</codeph></codeblock></li>
+<li>Execute the <codeph>heat stack-list</codeph> command to determine which Heat stack is in an
+          error state. The stack will have a status of
+          <codeph>CREATE_FAILED</codeph>.<codeblock><codeph>heat stack-list
+</codeph></codeblock></li>
+<li>Execute the <codeph>ironic node-list</codeph> command to determine which node(s) is in
+          maintenance mode. The stack will have a maintenance of
+          <codeph>TRUE</codeph>.<codeblock><codeph>ironic node-list
+</codeph></codeblock></li>
+<li>Execute the <codeph>ironic node-show</codeph> command for the node that is node(s) is in
+          maintenance mode. The stack will have a maintenance of
+            <codeph>TRUE</codeph>.<codeblock><codeph>ironic node-show &lt;UUID&gt;
+</codeph></codeblock><p>In
+            the output, check the <codeph>last_error</codeph> field for an error similar to the
+            following:</p><codeblock><codeph>During sync_power_state, max retries exceeded for node 81baacd5-657e-476f-b7ef, node state None does not match expected state
+
+'None'. Updating DB state to 'None' Switching node to maintenance mode. 
+</codeph></codeblock></li>
+</ol>
+<p>
+  <b>Solution</b>
+</p>
+<ol>
+<li>List the stacks using the following
+          command:<codeblock><codeph>heat stack-list
+</codeph></codeblock></li>
+<li>Delete the stack with the failed Nova
+          node.<codeblock><codeph>heat stack-delete &lt;ID of failed node&gt;
+</codeph></codeblock></li>
+<li>Change the node(s) to false for the maintenance option, using the following
+          command:<codeblock><codeph>`ironic node-update &lt;id&gt; replace maintenance=False`
+</codeph></codeblock></li>
+<li>Remove the failed node in maintenance mode using the following
+            command:<codeblock><codeph>nova node-delete &lt;ID of error node&gt;
+</codeph></codeblock><p>You
+            can re-use the node, if needed.</p></li>
+</ol>
+<p>
+  <xref href="#topic8875"> Return to Top </xref>
+</p>
+</section>
+</body>
+</topic>

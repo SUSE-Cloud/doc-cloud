@@ -1,0 +1,454 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="ring-specification">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Understanding Swift Ring Specifications</title>
+  <body>
+    <!--not tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <section id="about"><title>Overview of Ring Management</title>
+      <p>In Swift, the ring is responsible for mapping data on particular disks. There is a separate
+        ring for account databases, container databases, and each object storage policy, but each
+        ring works similarly. The <codeph>swift-ring-builder</codeph> utility is used to build and
+        manage rings. This utility uses a builder file to contain ring information and additional
+        data required to build future rings. In <keyword keyref="kw-hos-phrase"/>, you will use the
+        cloud model to specify how the rings are configured and used. This model is used to
+        automatically invoke the <codeph>swift-ring-builder</codeph> utility as part of the deploy
+        process. (Normally, you will not run the <codeph>swift-ring-builder</codeph> utility
+        directly.)</p>
+      <p>The rings are specified in the input model using the <b>configuration-data</b> key. The
+          <codeph>configuration-data</codeph> in the <codeph>control-planes</codeph> definition is
+        given a name that you will then use in the <codeph>swift_config.yml</codeph> file. If you
+        have several control planes hosting Swift services, the ring specifications can use a shared
+          <codeph>configuration-data</codeph> object, however it is considered best practice to give
+        each Swift instance its own <codeph>configuration-data</codeph> object.
+      </p>
+      <p><b>Ring Specifications in <keyword keyref="kw-hos"/> 2.x and 3.x</b></p>
+      <p>
+        In <keyword keyref="kw-hos"/> 2.x and 3.x, ring specifications were mentioned in the 
+        <codeph>~/helion/my_cloud/definition/data/swift/rings.yml</codeph> file. 
+        <keyword keyref="kw-hos"/> 4.x continues to support ring specifications in that file. 
+        If you upgrade to <keyword keyref="kw-hos"/> 4.x, you do not need to make any changes.
+      </p>
+      
+    </section>
+    <section id="input_model"><title>Ring Specifications in the Input Model</title>
+      <p>In most models, the ring-specification is mentioned in the
+          <codeph>~/helion/my_cloud/definition/data/swift/swift_config.yml</codeph> file. For
+        example:</p>
+      <p>
+        <codeblock>configuration-data:
+  - name: SWIFT-CONFIG-CP1
+    services:
+      - swift
+    data:
+      control_plane_rings:
+        swift-zones:
+          - id: 1
+            server-groups:
+              - AZ1
+          - id: 2
+            server-groups:
+              - AZ2
+          - id: 3
+            server-groups:
+              - AZ3
+        rings:
+          - name: account
+            display-name: Account Ring
+            min-part-hours: 16
+            partition-power: 12
+            replication-policy:
+              replica-count: 3
+
+          - name: container
+            display-name: Container Ring
+            min-part-hours: 16
+            partition-power: 12
+            replication-policy:
+              replica-count: 3
+
+          - name: object-0
+            display-name: General
+            default: yes
+            min-part-hours: 16
+            partition-power: 12
+            replication-policy:
+              replica-count: 3</codeblock>
+      </p>
+      <p>The above sample file shows that the rings are specified using the
+          <codeph>configuration-data</codeph> object <b>SWIFT-CONFIG-CP1</b> and has three rings as
+        follows: </p>
+      <p>
+        <ul id="ul_hl3_q55_dt">
+          <li><b>Account ring</b>: You must always specify a ring called <b>account</b>. The account
+            ring is used by Swift to store metadata about the projects in your system. In Swift, a
+            Keystone project maps to a Swift account. The <codeph>display-name</codeph> is
+            informational and not used. </li>
+          <li><b>Container ring</b>:You must always specify a ring called <b>container</b>. The
+              <codeph>display-name</codeph> is informational and not used.</li>
+          <li><b>Object ring</b>: This ring is also known as a storage policy. You must always
+            specify a ring called <b>object-0</b>. It is possible to have multiple object rings,
+            which is known as <i>storage policies</i>. The <codeph>display-name</codeph> is the name
+            of the storage policy and can be used by users of the Swift system when they create
+            containers. It allows them to specify the storage policy that the container uses. In the
+            example, the storage policy is called <b>General</b>. There are also two aliases for the
+            storage policy name: <codeph>GeneralPolicy</codeph> and
+              <codeph>AnotherAliasForGeneral</codeph>. In this example, you can use
+              <codeph>General</codeph>, <codeph>GeneralPolicy</codeph>, or
+              <codeph>AnotherAliasForGeneral</codeph> to refer to this storage policy. The aliases
+            item is optional. The <codeph>display-name</codeph> is required.</li>
+          <li>
+            <p><b>Min-part-hours, partition-power, replication-policy</b> and <b>replica-count</b>
+              are described in the following section. </p>
+          </li>
+        </ul>
+      </p>
+    </section>
+    <section id="ring_parameters"><title>Replication Ring Parameters</title>
+      <p>The ring parameters for traditional replication rings are defined as follows:</p>
+      <table frame="all" rowsep="1" colsep="1" id="table_mln_2fh_1v">
+        <tgroup cols="2">
+          <colspec colname="c1" colnum="1"/>
+          <colspec colname="c2" colnum="2"/>
+          <thead>
+            <row>
+              <entry>Parameter</entry>
+              <entry>Description</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry><codeph>replica-count</codeph></entry>
+              <entry><p>Defines the number of copies of object created.</p>Use this to control the
+                degree of resiliency or availability. The <codeph>replica-count</codeph> is normally
+                set to <b>3</b> (i.e., Swift will keep three copies of accounts, containers, or
+                objects). As a best practice, you should not decrease the value to lower than 3.
+                And, if you want a higher resiliency, you can increase the value.</entry>
+            </row>
+            <row>
+              <entry><codeph>min-part-hours</codeph></entry>
+              <entry><p>Changes the value used to decide when a given partition can be
+                moved.</p>This is the number of hours that the <codeph>swift-ring-builder</codeph>
+                tool will enforce between ring rebuilds. On a small system, this can be as low as
+                  <b>1</b> (one hour). The value can be different for each ring. <p>In the example
+                  above, the <codeph>swift-ring-builder</codeph> will enforce a minimum of 16 hours
+                  between ring rebuilds. However, this time is system-dependent so you will be
+                  unable to determine the appropriate value for <codeph>min-part-hours</codeph>
+                  until you have more experience with your system.</p><p>A value of 0 (zero) is not
+                  allowed.</p><p>In prior releases, this parameter was called
+                    <codeph>min-part-time</codeph>. The older name is still supported, however do
+                  not specify both <codeph>min-part-hours</codeph> and
+                    <codeph>min-part-time</codeph> in the same files.</p></entry>
+            </row>
+            <row>
+              <entry><codeph>partition-power</codeph></entry>
+              <entry>The optimal value for this parameter is related to the number of disk drives
+                that you allocate to Swift storage. As a best practice, you should use the same
+                drives for both the account and container rings. In this case, the
+                  <codeph>partition-power</codeph> value should be the same. For more information,
+                see <xref href="#ring-specification/selecting-partition-power" format="dita"
+                  >Selecting a Partition Power</xref>.</entry>
+            </row>
+            <row>
+              <entry><codeph>replication-policy</codeph></entry>
+              <entry>Specifies that a ring uses replicated storage. The duplicate copies of the
+                object are created and stored on different disk drives. All replicas are identical.
+                If one is lost or corrupted, the system automatically copies one of the remaining
+                replicas to restore the missing replica.</entry>
+            </row>
+            <row>
+              <entry><codeph>default</codeph></entry>
+              <entry>The default value in the above sample file of ring-specification is set to
+                  <b>yes</b>, which means that the storage policy is enabled to store objects. For
+                more information, see <xref href="storage_policies.dita"/>.</entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </table>
+    </section>
+
+    <!-- DOCS-2670 -->
+    <section id="erasure_coded"><title>Erasure Coded Rings</title>
+      <sectiondiv id="erasure_coded_intro">
+        <p>In <keyword keyref="kw-hos-phrase"/>, Swift supports erasure coded object rings as well
+          as traditional replication rings. Erasure coded rings can be useful for large objects,
+          like backup, video, biotech, i.e. data that is typically written once but read
+          occasionally.</p>
+        <p>Swift erasure coding is a non-core feature, and as such we recommend working with
+          Professional Services to enable the feature, the use cases have been tested, and are
+          suitable for use with erasure coding.</p>
+      </sectiondiv>
+      <p>In the cloud model, a <codeph>ring-specification</codeph> is mentioned in the
+          <codeph>~/helion/my_cloud/definition/data/swift/rings.yml</codeph> file. A typical erasure
+        coded ring in this file looks like this:</p>
+      <codeblock>- name: object-1
+  display-name: EC_ring
+  default: no
+  min-part-hours: 16
+  partition-power: 12
+  erasure-coding-policy:
+    ec-type: jerasure_rs_vand
+    ec-num-data-fragments: 10
+    ec-num-parity-fragments: 4
+    ec-object-segment-size: 1048576</codeblock>
+      <p>The additional parameters are defined as follows:</p>
+      <table frame="all" rowsep="1" colsep="1" id="erasure_coded_table">
+        <tgroup cols="2">
+          <colspec colname="c1" colnum="1"/>
+          <colspec colname="c2" colnum="2"/>
+          <thead>
+            <row>
+              <entry>Parameter</entry>
+              <entry>Description</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>ec-type</entry>
+              <entry>This is the particular erasure policy scheme that is being used. The supported
+                ec_types in <keyword keyref="kw-hos-phrase"/> are: <ul>
+                  <li><codeph>jerasure_rs_vand</codeph> => Vandermonde Reed-Solomon encoding, based
+                    on Jerasure</li>
+                </ul></entry>
+            </row>
+            <row>
+              <entry>erasure-coding-policy</entry>
+              <entry>This line indicates that the object ring will be of type "erasure
+                coding"</entry>
+            </row>
+            <row>
+              <entry>ec-num-data-fragments</entry>
+              <entry>This indicated the number of data fragments for an object in the ring.</entry>
+            </row>
+            <row>
+              <entry>ec-num-parity-fragments</entry>
+              <entry>This indicated the number of parity fragments for an object in the
+                ring.</entry>
+            </row>
+            <row>
+              <entry>ec-object-segment-size</entry>
+              <entry>The amount of data that will be buffered up before feeding a segment into the
+                encoder/decoder. The default value is 1048576.</entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </table>
+      <p>When using an erasure coded ring, the number of devices in the ring must be greater than or
+        equal to the total number of fragments of an object. For example, if you define an erasure
+        coded ring with 10 data fragments and 4 parity fragments, there must be at least 14 (10+4)
+        devices added to the ring.</p>
+      <p>When using erasure codes, for a PUT object to be successful it must store <codeph>ec_ndata
+          + 1</codeph> fragment to achieve quorum. Where the number of data fragments
+          (<codeph>ec_ndata</codeph>) is 10 then at least 11 fragments must be saved for the object
+        PUT to be successful. The 11 fragments must be saved to different drives. To tolerate a
+        single object server going down, say in a system with 3 object servers, each object server
+        must have at least 6 drives assigned to the erasure coded storage policy. So with a single
+        object server down, 12 drives are available between the remaining object servers. This
+        allows an object PUT to save 12 fragments, one more than the minimum to achieve quorum.</p>
+      <p>Unlike replication rings, none of the erasure coded parameters may be edited after the
+        initial creation. Otherwise there is potential for permanent loss of access to the data.</p>
+      <p>On the face of it, you would expect that an erasure coded configuration that uses a data to
+        parity ratio of 10:4, that the data consumed storing the object is 1.4 times the size of the
+        object just like the x3 replication takes x3 times the size of the data when storing the
+        object. However, for erasure coding, this 10:4 ratio is not correct. The efficiency (ie. how
+        much storage is needed to store the object) is very poor for small objects and improves as
+        the object size grows. However, the improvement is not linear. If all of your files are less
+        than 32K in size, erasure coding will take more space to store than the x3 replication.</p>
+    </section>
+
+    <section id="selecting-partition-power">
+      <title>Selecting a Partition Power</title>
+      <p>When storing an object, the object storage system hashes the name. This hash results in a
+        hit on a partition (so a number of different object names result in the same partition
+        number). Generally, the partition is mapped to available disk drives. With a replica count
+        of 3, each partition is mapped to three different disk drives. The hashing algorithm used
+        hashes over a fixed number of partitions. The partition-power attribute determines the
+        number of partitions you have. </p>
+      <p>Partition power is used to distribute the data uniformly across drives in a Swift nodes. It
+        also defines the storage cluster capacity. You must set the partition power value based on
+        the total amount of storage you expect your entire ring to use. </p>
+      <p>You should select a partition power for a given ring that is appropriate to the number of
+        disk drives you allocate to the ring for the following reasons: </p>
+      <ul id="ul_i4b_gv5_dt">
+        <li>If you use a high partition power and have a few disk drives, each disk drive will have
+          thousands of partitions. With too many partitions, audit and other processes in the Object
+          Storage system cannot walk the partitions in a reasonable time and updates will not occur
+          in a timely manner.</li>
+        <li>If you use a low partition power and have many disk drives, you will have tens (or maybe
+          only one) partition on a drive. The Object Storage system does not use size when hashing
+          to a partition - it hashes the name.
+            <!--If sizes and names are randomly distributed, it is normally expected a random, even,  distribution of sizes within a partition. However, this may not happen (i.e., two neighboring partitions may have different sizes). --><p>With
+            many partitions on a drive, a large partition is cancelled out by a smaller partition so
+            the overall drive usage is similar. However, with very small numbers of partitions, the
+            uneven distribution of sizes can be reflected in uneven disk drive usage (so one drive
+            becomes full while a neighboring drive is empty).</p></li>
+      </ul>
+      <p>An ideal number of partitions per drive is 100. If you know the number of drives, select a
+        partition power that will give you approximately 100 partitions per drive. Usually, you
+        install a system with a specific number of drives and add drives as needed. However, you
+        cannot change the value of the partition power. Hence you must select a value that is a
+        compromise between current and planned capacity. </p>
+      <p>
+        <note type="important">If you are installing a small capacity system and you need to grow to
+          a very large capacity but you cannot fit within any of the ranges in the table, please
+          seek help from Professional Services to plan your system.</note>
+      </p>
+      <p>There are additional factors that can help mitigate the fixed nature of the partition
+        power:</p>
+      <ul>
+        <li>Account and container storage represents a small fraction (typically 1 percent) of your
+          object storage needs. Hence, you can select a smaller partition power (relative to object
+          ring partition power) for the account and container rings. </li>
+      </ul>
+      <p>
+        <ul>
+          <li>For object storage, you can add additional storage policies (i.e., another object
+            ring). When you have reached capacity in an existing storage policy, you can add a new
+            storage policy with a higher partition power (because you now have more disk drives in
+            your system). This means that you can install your system using a small partition power
+            appropriate to a small number of initial disk drives. Later, when you have many disk
+            drives, the new storage policy can have a higher value appropriate to the larger number
+            of drives.</li>
+        </ul>
+      </p>
+      <p> However, when you continue to add storage capacity, existing containers will continue to
+        use their original storage policy. Hence, the additional objects must be added to new
+        containers to take advantage of the new storage policy.</p>
+      <p>Use the following table to select an appropriate partition power for each ring. The
+        partition power of a ring cannot be changed, so it is important to select an appropriate
+        value. This table is based on a replica count of 3. If your replica count is different, or
+        you are unable to find your system in the table, then see <xref
+          href="#ring-specification/calculating-number" format="dita">Calculating Numbers of
+          Partitions</xref> for information of selecting a partition power. </p>
+      <p> The table assumes that when you first deploy Swift, you have a small number of drives (the
+        minimum column in the table), and later you add drives. </p>
+      <p>
+        <note>
+          <ul>
+            <li>Use the total number of drives. For example, if you have three servers, each with
+              two drives, the total number of drives is six.</li>
+            <li>The lookup should be done separately for each of the account, container and object
+              rings. Since account and containers represent approximately 1 to 2 percent of object
+              storage, you will probably use fewer drives for the account and container rings (i.e.,
+              you will have fewer proxy, account, and container (PAC) servers) so that your object
+              rings may have a higher partition power.</li>
+            <li>The largest anticipated number of drives imposes a limit in the minimum drives you
+              can have. (For more information, see <xref
+                href="#ring-specification/calculating-number" format="dita">Calculating Numbers of
+                Partitions</xref>.) This means that, if you anticipate significant growth, your
+              initial system can be small, but under a certain limit. For example, if you determine
+              that the maximum number of drives the system will grow to is 40,000, then use a
+              partition power of 17 as listed in the table below. In addition, a minimum of 36
+              drives is required to build the smallest system with this partition power.</li>
+            <li>The table assumes that disk drives are the same size. The actual size of a drive is
+              not significant.</li>
+          </ul>
+        </note>
+      </p>
+      <sectiondiv id="partition-power"><b>Partition Power Matrix</b>
+        <p>
+          <table frame="all" rowsep="1" colsep="1" id="table_fz3_2hg_dt">
+            <tgroup cols="3">
+              <colspec colname="c1" colnum="1"/>
+              <colspec colname="c2" colnum="2"/>
+              <colspec colname="c3" colnum="3"/>
+              <thead>
+                <row>
+                  <entry>Number of drives during deployment (minimum)</entry>
+                  <entry>Number of drives in largest anticipated system (maximum)</entry>
+                  <entry>Recommended partition power</entry>
+                </row>
+              </thead>
+              <tbody>
+                <row>
+                  <entry>6</entry>
+                  <entry>5,000</entry>
+                  <entry>14</entry>
+                </row>
+                <row>
+                  <entry>12</entry>
+                  <entry>10,000</entry>
+                  <entry>15</entry>
+                </row>
+                <row>
+                  <entry>36</entry>
+                  <entry>40,000</entry>
+                  <entry>17</entry>
+                </row>
+                <row>
+                  <entry>72</entry>
+                  <entry>80,000</entry>
+                  <entry>18</entry>
+                </row>
+                <row>
+                  <entry>128</entry>
+                  <entry>160,000</entry>
+                  <entry>19</entry>
+                </row>
+                <row>
+                  <entry>256</entry>
+                  <entry>300,000</entry>
+                  <entry>20</entry>
+                </row>
+                <row>
+                  <entry>512</entry>
+                  <entry>600,000</entry>
+                  <entry>21</entry>
+                </row>
+                <row>
+                  <entry>1024</entry>
+                  <entry>1,200,00</entry>
+                  <entry>22</entry>
+                </row>
+                <row>
+                  <entry>2048</entry>
+                  <entry>2,500,000</entry>
+                  <entry>23</entry>
+                </row>
+                <row>
+                  <entry>5120</entry>
+                  <entry>5,000,000</entry>
+                  <entry>24</entry>
+                </row>
+              </tbody>
+            </tgroup>
+          </table>
+        </p></sectiondiv>
+      <sectiondiv id="calculating-number"><b>Calculating Numbers of Partitions</b>
+        <p>The Object Storage system hashes a given name into a specific partition. For each
+          partition, for a replica count of 3, there are three partition directories. The partition
+          directories are then evenly scattered over all drives. If you are using an erasure coded
+          ring, you can calculate the replica count by adding the data fragments and the parity
+          fragments. Using the erasure coded values in the section above this, you would have a
+          replica count of 14 (10 + 4). You can calculate the number of partition directories as
+          follows:<codeblock>number-partition-directories-per-drive = ( (2 ** partition-power) * replica-count ) / number-of-drives</codeblock></p><p>An
+          ideal number of partition directories per drive is 100. However, the system can operate
+          normally with a wide range of number of partition directories per drive. The table <xref
+            href="#ring-specification/partition-power" format="dita">Partition Power Matrix</xref>
+          is based on the following: </p><ul>
+          <li>A replica count of 3.</li>
+          <li>For a given partition power, the minimum number of drives results in approximately
+            10,000 partition directories per drive. More directories on a drive results in
+            performance issues.</li>
+          <li>For a given partition power, using the maximum number of drives results in
+            approximately 10 partition directories per drive. Using fewer directories per drive
+            results in an uneven distribution of space usage.</li>
+        </ul>It is easy to select an appropriate partition power if your system is a fixed size.
+        Select a value that gives the closest value to 100 partition directories per drive. If your
+        system starts smaller and then grows, the issue is more complicated. The following two
+        techniques may help:<p>
+          <ul>
+            <li>Start with a system that is closer to your final anticipated system size - this
+              means that you can use a high partition power that suits your final system.</li>
+          </ul>
+        </p><ul>
+          <li>You can add additional storage policies as the system grows. These storage policies
+            can have a higher partition power because there will be more drives in a larger system.
+            Note that this does not help account and container rings - storage policies are only
+            applicable to object rings.</li>
+        </ul>
+      </sectiondiv>
+    </section>
+  </body>
+</topic>

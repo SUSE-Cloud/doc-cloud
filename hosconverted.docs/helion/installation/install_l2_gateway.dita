@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="l2gateway">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Installing the L2 Gateway Agent for the Networking
+    Service</title>
+  
+  <body><!--not tested-->    <p conkeyref="HOS-conrefs/applies-to"/>
+    
+    
+    
+    <section>
+      <title>Introduction</title> 
+      
+      <p id="l2_summary">The L2 gateway agent, a non-core feature in <keyword
+        keyref="kw-hos-phrase"/>, is a plug-in to the Neutron networking service that allows two L2
+      networks to be seamlessly connected to create a single L2 broadcast domain. The initial
+      implementation provides for the ability to connect a virtual Neutron VxLAN network to a
+      physical VLAN or flat network using a VTEP-capable HP 5930 switch.</p> </section>
+    
+    
+    <section>To begin L2 gateway agent setup, you need to configure your switch. Here we use an
+          <p><xref
+          href="http://www8.hp.com/us/en/products/networking-switches/product-detail.html?oid=6604154#!tab=models"
+          format="html" scope="external">HPE FlexFabric 5930 Switch Series</xref>
+      switch.</p></section>
+
+    
+    
+    <section><title>Setting up an HP 5930 Switch</title>
+      <p>To set up the switch, follow these steps:</p>
+      
+      <ol>
+      <li> Configure the HP 5930 switch. <p/> Get into system-view:
+          <codeblock>&lt;sysname>system-view  
+[VGP_LCC_EOR_02]</codeblock> Enable l2vpn:
+          <codeblock>l2vpn enable </codeblock>
+        </li>
+        <li>Configure a passive TCP connection for OVSDB; here port 6632 is used:
+          <codeblock>ovsdb server ptcp port 6632</codeblock>
+        </li>
+        <li>Enable the OVSDB server: <codeblock>ovsdb server enable</codeblock>
+        </li>
+        <li>Enable the VTEP process: <codeblock>vtep enable</codeblock>
+        </li>
+        <li>Configure an IP address as the VTEP source IP. For example, here we used
+          10.7.31.1:<codeblock>tunnel global source-address 10.7.31.1</codeblock>
+        </li>
+        <li>Configure 'vtep access port'. In this example, Bridge-Aggregation1 is
+          used:<codeblock>interface Bridge-Aggregation1  
+vtep access port</codeblock>
+        </li>
+        <li>Now the
+      switch configuration is complete. You can dump the OVSDB to see what it looks like. To do so,
+      run ovsdb-client from any Linux machine:
+      <codeblock>[stack@under ~(stackrc)]$ ovsdb-client dump --pretty tcp:10.7.31.1:6632</codeblock>
+      Here is the
+      output:<codeblock outputclass="nomaxheight">Arp_Sources_Local table  
+_uuid locator src_mac  
+----- ------- -------
+
+Arp_Sources_Remote table  
+_uuid locator src_mac  
+----- ------- -------
+
+Global table  
+_uuid                                managers switches  
+------------------------------------ -------- --------------------------------------
+58708319-c85e-44a5-b221-4c2d3cde6004 []       [8f3d25db-f219-443e-9771-1d8e5219b5d9]
+
+Logical_Binding_Stats table  
+_uuid bytes_from_local bytes_to_local packets_from_local packets_to_local  
+----- ---------------- -------------- ------------------ ----------------
+
+Logical_Router table  
+_uuid description name static_routes switch_binding  
+----- ----------- ---- ------------- --------------
+
+Logical_Switch table  
+_uuid description name tunnel_key  
+----- ----------- ---- ----------
+
+Manager table  
+_uuid inactivity_probe is_connected max_backoff other_config status target  
+----- ---------------- ------------ ----------- ------------ ------ ------
+
+Mcast_Macs_Local table  
+MAC _uuid ipaddr locator_set logical_switch  
+--- ----- ------ ----------- --------------
+
+Mcast_Macs_Remote table  
+MAC _uuid ipaddr locator_set logical_switch  
+--- ----- ------ ----------- --------------
+Physical_Locator table  
+_uuid dst_ip encapsulation_type  
+----- ------ ------------------
+
+Physical_Locator_Set table  
+_uuid locators  
+----- --------
+
+Physical_Port table  
+_uuid                                description name                  port_fault_status vlan_bindings vlan_stats  
+------------------------------------ ----------- --------------------- ----------------- ------------- ----------
+28d3da91-7666-492e-9c20-fc960249a7b6 ""          "Bridge-Aggregation1" [UP]              {}            {}
+
+Physical_Switch table  
+_uuid                                description management_ips name             ports                                  switch_fault_status tunnel_ips    tunnels  
+------------------------------------ ----------- -------------- ---------------- -------------------------------------- ------------------- ------------- -------
+8f3d25db-f219-443e-9771-1d8e5219b5d9 ""          []             "VGP_LCC_EOR_02" [28d3da91-7666-492e-9c20-fc960249a7b6] []                  ["10.7.31.1"] []
+
+Tunnel table  
+_uuid bfd_config_local bfd_config_remote bfd_params bfd_status local remote  
+----- ---------------- ----------------- ---------- ---------- ----- ------
+
+Ucast_Macs_Local table  
+MAC _uuid ipaddr locator logical_switch  
+--- ----- ------ ------- --------------
+
+Ucast_Macs_Remote table  
+MAC _uuid ipaddr locator logical_switch
+--- ----- ------ ------- --------------  </codeblock>        </li>
+      </ol>
+    </section>
+    
+    <section><title>Installation of the L2 gateway agent</title><p>You can enable the L2 gateway
+        agent either during installation of <keyword keyref="kw-hos-phrase"/>, while performing an
+        upgrade to <keyword keyref="kw-hos-phrase"/>, or later by running neutron reconfigure on any
+        existing <keyword keyref="kw-hos-phrase"/> installation.</p>L2 Gateway agent installation
+      requires the following steps: <ol>
+        <li>Update the neutron.conf.j2 file to include the L2GatewayPlugin. Open the file in vi:
+          <codeblock>$vi /home/stack/my_cloud/config/neutron/neutron.conf.j2</codeblock> and add the
+          following</li>
+        <li>To enable the L2 gateway, copy the following, beginning with and including the comma (,)
+          <codeblock>,networking_l2gw.services.l2gateway.plugin.L2GatewayPlugin</codeblock> and add
+          it to the end of the service_plugins line neutron.conf.j2 that looks like
+          this:<codeblock>[DEFAULT]
+   ...
+   service_plugins = {{ ovsvapp_service_plugin }}neutron.services.l3_router.l3_router_plugin.L3RouterPlugin,neutron_fwaas.services.firewall.fwaas_plugin.FirewallPlugin,{{ neutron_lbaas_plugin }}neutron_vpnaas.services.vpn.plugin.VPNDriverPlugin</codeblock>
+        </li>
+        <li>Update the input model (in <codeph>control_plane.yml</codeph>) to specify where you want
+          to run the neutron-l2gateway-agent. For example, see the line in bold
+          below:<codeblock>---
+ product:
+ version: 2
+ control-planes:
+ - name: cp
+   region-name: region1
+ failure-zones:
+ - AZ1
+   common-service-components:
+     - logging-producer
+     - monasca-agent
+     - freezer-agent
+     - stunnel
+     - lifecycle-manager-target
+ clusters:
+ - name: cluster1
+   cluster-prefix: c1
+   server-role: ROLE-CONTROL
+   member-count: 2
+   allocation-policy: strict
+ service-components:
+            
+ ... <b>
+ - neutron-l2gateway-agent</b>
+ ... )</codeblock>
+        </li>
+        <li>Update the <codeph>l2gateway_agent.ini.j2</codeph>. For example, here the IP address
+          (10.7.31.1) must be the IP address of your 5930 switch. Now, open the file in vi:
+          <codeblock>$vi /home/stack/my_cloud/config/neutron/l2gateway_agent.ini.j2</codeblock>Then
+          make the
+          changes<codeblock>[ovsdb]
+# (StrOpt) OVSDB server tuples in the format
+# &lt;ovsdb_name>:&lt;ip address>:&lt;port>[,&lt;ovsdb_name>:&lt;ip address>:&lt;port>]
+# - ovsdb_name: a symbolic name that helps identifies keys and certificate files
+# - ip address: the address or dns name for the ovsdb server
+# - port: the port (ssl is supported)
+ovsdb_hosts = hardware_vtep:10.7.31.1:6630</codeblock>
+        </li>
+        <li>If you are not using SSL, comment out the following:
+          <codeblock>#l2_gw_agent_priv_key_base_path={{ neutron_l2gateway_agent_creds_dir }}/keys
+#l2_gw_agent_cert_base_path={{ neutron_l2gateway_agent_creds_dir }}/ca_certs
+#l2_gw_agent_ca_cert_base_path={{ neutron_l2gateway_agent_creds_dir }}/ca_certs</codeblock>
+        </li>
+        <li>If you are using an SSL connection to your switch, leave the following not commented:
+          <codeblock>l2_gw_agent_priv_key_base_path={{ neutron_l2gateway_agent_creds_dir }}/keys
+l2_gw_agent_cert_base_path={{ neutron_l2gateway_agent_creds_dir }}/ca_certs
+l2_gw_agent_ca_cert_base_path={{ neutron_l2gateway_agent_creds_dir }}/ca_certs</codeblock>
+        </li>
+      </ol>
+    </section>
+    <section>
+      <title>Perform standard <keyword keyref="kw-hos"/> installation steps</title></section>
+  </body>
+</topic>

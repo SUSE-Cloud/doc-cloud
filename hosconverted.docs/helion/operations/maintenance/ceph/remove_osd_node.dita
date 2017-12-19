@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="remove_osd_node">
+    <title><ph conkeyref="HOS-conrefs/product-title"/>Removing a Ceph OSD Node</title>
+    <abstract><shortdesc outputclass="hdphidden">Removing a Ceph Object Storage Daemon (OSD) node
+            allows you to remove capacity.</shortdesc>Perform the following steps to remove a Ceph
+        Object Storage Daemon (OSD) node from a cluster:</abstract>
+    <body><!--not tested-->
+        <p conkeyref="HOS-conrefs/applies-to"/>
+        <section id="steps"><title>Removing a Ceph OSD Node</title>
+            <p>
+                <ol>
+                    <li>Log in to the OSD node that you wish to remove.</li>
+                    <li>Use the following command to retrieve and make note of the OSD numbers on
+                        the OSD node to be removed:<codeblock>ceph osd tree</codeblock>A sample of
+                        OSD node is as
+                            follows:<codeblock>$ ceph osd tree
+# id    weight  type name       up/down reweight
+-1      6       root default
+-2      3               host ceph-ccp-ceph0003-mgmt
+0       1                       osd.0   up      1
+3       1                       osd.3   up      1
+6       1                       osd.6   up      1
+<b>-4      3               host ceph-ccp-ceph0001-mgmt
+1       1                       osd.1   up      1
+4       1                       osd.4   up      1
+7       1                       osd.7   up      1</b>
+-3      3               host ceph-ccp-ceph0002-mgmt
+2       1                       osd.2   up      1
+5       1                       osd.5   up      1
+8       1                       osd.8   up      1</codeblock><p>For
+                            example, to remove the OSD node <codeph>ceph-ccp-ceph0001-mgmt</codeph>,
+                            the OSD numbers 1, 4, and 7 are relevant.</p></li>
+                    <li>Log in to the lifecycle manager.</li>
+                    <li>Run the following command to stop the OSDs running on the OSD node to be removed:<codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts ceph-stop.yml --limit &lt;osd_node_to_remove></codeblock>
+                        <p>Replace the <codeph>&lt;osd_node_to_remove></codeph> string with the
+                            hostname of the node that you wish to remove. For example
+                                <codeph>'ceph-ccp-ceph0001-mgmt'</codeph>.</p></li>
+                    <li> Log back in to the OSD node you are removing and run the following command
+                        for each OSD number (obtained from step #2
+                            above):<codeblock>ceph osd out &lt;osd-number> --cluster &lt;ceph_cluster>
+ceph auth del osd.&lt;osd-number> --cluster &lt;ceph_cluster>
+ceph osd crush remove osd.&lt;osd-number> --cluster &lt;ceph_cluster> 
+ceph osd rm &lt;osd-number> --cluster &lt;ceph_cluster></codeblock><note>Replace
+                            the string <codeph>&lt;ceph_cluster></codeph> with the name of your Ceph
+                            cluster (the default cluster name is <b>ceph</b>).</note></li>
+                    <li>From the same OSD node, remove the OSD host from the Ceph CRUSH map by
+                        executing the following
+                            command:<codeblock>ceph osd crush remove &lt;host-name></codeblock><note>
+                            Replace the string <codeph>&lt;host-name></codeph> in the above
+                            command.</note></li>
+                    <li>Log in to the lifecycle manager and remove the OSD host fentry rom the input
+                        model in the <codeph>~/helion/my_cloud/definition/data/servers.yml</codeph>
+                        file.</li>
+                    <li>Check your
+                            <codeph>~/helion/my_cloud/definition/data/control_plane.yml</codeph>
+                        file and ensure that the <codeph>member-count</codeph>,
+                            <codeph>min-count</codeph>, and <codeph>max-count</codeph> values (if
+                        used) represent the number of OSD nodes that will remain after the node is
+                        removed.</li>
+                    <li>Commit your configuration to the <xref
+                            href="../../../installation/using_git.dita">local git repo</xref>, as
+                        follows:
+                        <codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -m "removing OSD node"</codeblock></li>
+                    <li>Run the configuration processor:
+                        <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+                    <li>Update your deployment directory:
+                        <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+                    <li>Remove the OSD node from Cobbler: <codeblock>sudo cobbler system remove --name=&lt;node></codeblock>
+                        <note>If you need to determine the OSD hostname in Cobbler you can use the
+                            command <codeph>sudo cobbler system list</codeph></note></li>
+                    <li>Run the Cobbler deploy playbook:
+                        <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost cobbler-deploy.yml</codeblock></li>
+                    <li>Log in to the OSD node and unmount the data and journal disks. Also, remove
+                        the mount instructions for the same disks from the
+                            <codeph>/etc/fstab</codeph> file.</li>
+                    <li>On the OSD node, remove the OSD service
+                            directory:<codeblock>sudo rm -rf /var/lib/ceph/osd/ceph-{osd-number}</codeblock><p>Example:<codeblock>sudo rm -rf /var/lib/ceph/osd/ceph-1</codeblock></p></li>
+                </ol></p>
+        </section>
+
+        <section id="remove_monitoring"><title>Remove the Ceph OSD Node from Monitoring</title>
+            <p>Once a Ceph OSD node has been removed, any related monitoring alarms will trigger.
+                Take the following additional steps to take to resolve this issue.</p>
+            <p>You will want to SSH to each of the Monasca API servers and edit the
+                    <codeph>/etc/monasca/agent/conf.d/host_alive.yaml</codeph> file and remove
+                references to the Ceph OSD node(s) you removed. This will require
+                    <codeph>sudo</codeph> access.</p>
+            <p>Once you have removed the references on each of your Monasca API servers you then
+                need to restart the monasca-agent on each of those servers with the following
+                command:</p>
+            <codeblock>sudo service monasca-agent restart</codeblock>
+            <p>With the Ceph OSD node references removed from your Monasca API servers and the
+                corrensponding monasca-agents restarted, you can then delete the corresponding
+                alarms to finish this process. To do so, we recommend using the Monasca CLI, which
+                should be installed by default on each of your Monasca API servers:</p>
+            <codeblock>monasca alarm-list --metric-dimensions hostname=&#60;ceph osd node deleted></codeblock>
+            <p>You can then delete the alarm with this command:</p>
+            <codeblock>monasca alarm-delete &#60;alarm ID></codeblock>
+        </section>
+
+    </body>
+</topic>

@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="hugepages">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Configuring Hugepages for DPDK in Neutron
+    Networks</title>
+  <body>
+    <section>
+      <title>Configuring hugepages to enable DPDK</title>
+      <p>In order to take advantge of <xref href="dpdk_ovs.dita#dpdk">DPDK</xref> and its network
+        performance enhancements, new in <keyword keyref="kw-hos-phrase"/>, you must first enable
+        hugepages.</p>
+      <p>With hugepages, physical RAM is reserved at boot time and dedicated to a virtual machine.
+        Only that virtual machine and Open vSwitch can use this specifically allocated RAM. The host
+        OS cannot access it. This memory is contiguous, and because of its larger size, reduces the
+        number of entries in the memory map and number of times it must be read.</p>
+      <p>The hugepage reservation is made in <codeph>/etc/default/grub</codeph>, but this is handled
+        by the lifecycle manager.</p>
+      <p>In addition to hugepages, to use DPDK, CPU isolation is required. This is achieved with the
+        'isolcups' command in <codeph>/etc/default/grub</codeph>, but this is also managed by the
+        lifecycle manager using a new input model file.</p>
+      <p>The two new input model files introduced with this release to help you configure the
+        necessary settings and persist them are:</p>
+      <ul id="ul_er1_pkg_qw">
+        <li>memory_models.yml (for hugepages)</li>
+        <li>cpu_models.yml (for CPU isolation)</li>
+      </ul>
+    </section>
+    <section>
+      <title>memory_models.yml</title>
+      <p>In this file you set your huge page size along with the number of such huge-page
+        allocations.</p><codeblock> ---
+  product:
+    version: 2
+
+  memory-models:
+    - name: COMPUTE-MEMORY-NUMA
+      default-huge-page-size: 1G
+      huge-pages:
+        - size: 1G
+          count: 24
+          numa-node: 0
+        - size: 1G
+          count: 24
+          numa-node: 1
+        - size: 1G
+          count: 48</codeblock>
+    </section>
+    <section>
+      <title>cpu_models.yml</title>
+      <codeblock>---
+  product:
+    version: 2
+
+  cpu-models:
+
+    - name: COMPUTE-CPU
+      assignments:
+       - components:
+           - nova-compute-kvm
+         cpu:
+           - processor-ids: 3-5,12-17
+             role: vm
+
+       - components:
+           - openvswitch
+         cpu:
+           - processor-ids: 0
+             role: eal
+           - processor-ids: 1-2
+             role: pmd</codeblock>
+    </section>
+
+    <section>
+      <title>NUMA memory allocation</title>
+      <p>As mentioned above, the memory used for hugepages is locked down at boot time by an entry
+        in <codeph>/etc/default/grub</codeph>. As an admin, you can specify in the input model how
+        to arrange this memory on NUMA nodes. It can be spread across NUMA nodes or you can specify
+        where you want it. For example, if you have only one NIC, you would probably want all the
+        hugepages memory to be on the NUMA node closest to that NIC.
+        <!-- Input model looks something
+      like:             product:       version: 2              memory-models:              - name:
+      COMPUTE-MEMORY-NUMA       default-huge-page-size: 1G       huge-pages:       - size: 1G
+      count: 24       numa-node: 0       - size: 1G       count: 24       numa-node: 1       - size:
+      1G       count: 48--></p>
+      <p>If you don’t specify the <codeph>numa-node</codeph> settings in the
+          <codeph>memory_models.yml</codeph> input model file and use only the last entry indicating
+        "size: 1G" and "count: 48" then this memory is spread evenly across all NUMA nodes.</p>
+      <p>Also note that the hugepage service runs once at boot time and then goes to an inactive
+        state so you should not expect to see it running. If you decide to make changes to the NUMA
+        memory allocation, you will need to reboot the compute node for the changes to take
+        effect.</p>
+    </section>
+  </body>
+</topic>

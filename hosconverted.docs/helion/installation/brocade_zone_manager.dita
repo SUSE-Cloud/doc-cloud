@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="configuring_brocade_fibre_channel">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Configuring Brocade Fibre Channel Zone
+    Manager</title>
+  <abstract><shortdesc outputclass="hdphidden">Installation and configuration steps for your Brocade
+      Fibre Channel Zone Manager.</shortdesc>
+    <p>Zoning is a fabric-based service in a Storage Area Network (SAN), which enables you to group
+      host and storage nodes that need to communicate. Zoning allows nodes to communicates with each
+      other if they are the member of the same zone.</p>
+    <p><keyword keyref="kw-hos-phrase"/> supports Brocade FC Zone Manager. Block Storage (Cinder)
+      needs to be configured to enable auto-zoning using Brocade FC Zone Manager. The following
+      section describes the procedure to add Brocade Zone Manager configuration to
+        <codeph>cinder.conf.j2.</codeph></p>
+    <p>This page describes the configuration of Brocade Fibre Channel Zone Manager for the block
+      storage.</p></abstract>
+  <body>
+    <p conkeyref="HOS-conrefs/applies-to"/>
+
+    <section>
+      <title>Known Limitations</title>
+      <p>Following are the known limitation for this release:</p>
+      <ul>
+        <li><xref href="https://bugs.launchpad.net/cinder/+bug/1486613" format="html"
+            scope="external"/> - Existing volume detach fails after modifying the zoning_mode=fabric
+          from none. <p>Due to this bug, you cannot change the <codeph>zoning_mode</codeph>
+            post-installation. You must use either a preconfigured zone or auto_zoning with
+            Brocade.</p></li>
+        <li><xref href="https://bugs.launchpad.net/cinder/+bug/1486606" format="html"
+            scope="external"/> - Parallel volume attach to different compute host fails</li>
+        <li>If <keyword keyref="kw-hos-tm"/> is configured to boot from SAN over Fibre Channel, all
+          storage, controller and compute nodes must be zoned and active. In this configuration you
+          should not configure the Block Storage Volume Operations (Cinder) service to use the
+          Brocade Zone Manager. This applies whether you have configured Fibre Channel on a
+          dedicated FC infrastructure or Fibre Channel over Ethernet.<!--DOCS-2985--></li>
+      </ul>
+    </section>
+    <section id="prereqs">
+      <title>Prerequisites</title>
+      <p>
+        <ul id="ul_pfl_bbz_ht">
+          <li><keyword keyref="kw-hos-tm"/> Cloud must be successfully deployed. </li>
+          <li>Brocade switches must be installed in SAN.</li>
+          <li>
+            <p>Block Storage should be configured to use a Fibre Channel Volume Driver that supports
+              Zone Manager. To enable Fibre Channel Zone Manager, you require the following
+                <codeph>cinder.conf.j2</codeph> configuration options. </p>
+          </li>
+        </ul>
+      </p>
+    </section>
+    <section>
+      <title>Configure Brocade Fibre Channel Zone Manager</title>
+      <p>You must modify <codeph>cinder.conf.j2</codeph> to update Brocade Fibre Channel Zone
+        Manager Driver details.</p>
+      <p>Perform the following steps to configure Brocade Fibre Channel Zone Manager:<ol
+          id="ol_dj2_qcz_ht">
+          <li>Login to lifecycle manager.</li>
+          <li>Change the directory as shown below:<codeblock>cd ~/helion</codeblock></li>
+          <li>Edit <codeph>cinder.conf.j2</codeph> file at
+              <codeph>my_cloud/config/cinder/cinder.conf.j2</codeph> to add Brocade Fibre Channel
+            Zone Manager Driver data. <note>
+              <ul id="ul_ghm_zbj_jt">
+                <li>The values entered in step <b>4</b> is an example. You must change the value as
+                  per your requirement/environment.</li>
+                <li> To enable FCZM you must add <codeph>zoning_mode=fabric</codeph> to
+                    [<b>DEFAULT</b>] entry. </li>
+                <li>Brocade driver information is a new section added to the [fc-zone-manager]
+                  section. Fabric switch [<b>Fabric_A</b>] [<b>Fabric_B</b>] information is added in
+                    [<b>device</b>] section for each side of the fabric.</li>
+              </ul>
+            </note></li>
+          <li>Copy the following configuration. The values in FABRIC_A and FABRIC_B are an example.
+              <codeblock>[DEFAULT] 
+zoning_mode=fabric 
+
+[fc-zone-manager] 
+brcd_sb_connector=cinder.zonemanager.drivers.brocade.brcd_fc_zone_client_cli.BrcdFCZoneClientCLI 
+fc_san_lookup_service=cinder.zonemanager.drivers.brocade.brcd_fc_san_lookup_service.BrcdFCSanLookupService 
+zone_driver=cinder.zonemanager.drivers.brocade.brcd_fc_zone_driver.BrcdFCZoneDriver 
+fc_fabric_names=FABRIC_A, FABRIC_B 
+
+[FABRIC_A] 
+fc_fabric_address = 10.10.0.20 
+fc_fabric_user = admin 
+fc_fabric_password = password
+ principal_switch_wwn = 10:00:50:eb:1a:05:c5:5d 
+zoning_policy = initiator-target
+fc_fabric_port = 22
+zone_activate = true 
+zone_name_prefix = FABRIC_A_
+
+[FABRIC_B] 
+fc_fabric_address = 10.10.0.21 
+fc_fabric_user = admin 
+fc_fabric_password = password
+ principal_switch_wwn = 10:00:50:eb:1a:05:c5:5e
+zoning_policy = initiator-target
+fc_fabric_port = 22
+zone_activate = true 
+zone_name_prefix = FABRIC_B_</codeblock><note>Please
+              enter the values which are specific to your environment for FABRIC_A and FABRIC_B.
+            </note></li>
+          <li>Commit your configuration to a <xref href="using_git.dita">local
+              repository</xref>:<codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -m "&lt;commit message>"</codeblock><note>
+              Enter your commit message &lt;commit message></note></li>
+          <li>Run the configuration
+              processor:<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock><note>While
+              executing the above command, you are prompted to enter the encryption key. If you
+              choose not to use one, just press Enter and proceed further.</note></li>
+          <li>Run the following command to create a deployment
+            directory.<codeblock>ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+          <li>Run the following command to configure brocade zone manager.
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts cinder-reconfigure.yml</codeblock></li>
+        </ol></p>
+    </section>
+
+    <section id="post_install"><title>Post-Installation Tasks</title>
+      <p>To verify the brocade zone manager is configured successfully, please refer to:</p>
+      <ul>
+        <li><xref href="verify_block_storage.dita#verify_block_storage/volume_verify">Verify
+            Your Block Storage Configuration</xref></li>
+      </ul>
+    </section>
+
+  </body>
+</topic>

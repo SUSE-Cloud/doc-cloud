@@ -1,0 +1,269 @@
+---
+layout: default
+title: "HP Helion OpenStack&#174; Object Operations Service Overview"
+permalink: /helion/openstack/services/swift/diagnosis-disk-health/hpssacli-orig/
+product: commercial.ga
+product-version1: HP Helion OpenStack
+product-version2: HP Helion OpenStack 1.0
+product-version3: HP Helion OpenStack 1.0.1
+product-version4: HP Helion OpenStack 1.1
+role1: Storage Administrator
+role2: Storage Architect
+authors: Karthik P, Binamra S
+
+---
+
+
+
+<!--UNDER REVISION-->
+
+<script>
+
+function PageRefresh {
+onLoad="window.refresh"
+}
+
+PageRefresh();
+
+</script>
+
+<!--
+<p style="font-size: small;"> <a href=" /helion/openstack/services/object/overview/scale-out-swift/">&#9664; PREV</a> | <a href="/helion/openstack/services/overview/">&#9650; UP</a> | <a href="/helion/openstack/services/overview/"> NEXT &#9654</a> </p>-->
+
+# HP Helion OpenStack&#174;: Diagnosis of disk health using hpssacli utility for HP servers
+
+HP Helion Object Storage (Swift) provides native monitoring of swift services and hardware resources like disk. Disk is a crucial part of swift cluster therefore extended monitoring check is added for HP hardwares. The monitoring solution depends on hpasscli application to fetch various details of hardware to determine its health and publish to Icinga. By default, hpasscli is not bundled with Object Storage (Swift) images because of licensing reason. Also, it does not get installed implicitly as part of swift node deployment. 
+
+You are advised to download and install utility as per procedure mentioned below. If utility is not installed then Icinga dashboard will reflect the various disk parameters as critical.
+
+<!---
+The health of the disk  of the HP servers can be diagnosed using the ***hpsacli*** utility. --->
+
+
+##HP Smart Storage Administrator CLI 2.0.22.0 (HPSSACLI)
+
+The HP Smart Storage Administrator CLI (HPSSACLI) is a command line disk configuration program for Smart Array Controllers.
+
+The ***hpssacli*** utility is deployed onto the servers wherever the disks are to be monitored, usually all Object Storage(Swift), VSA, and Compute nodes. <!---This page explains the collection of diagnostic reports from disks in the servers where the utility has been loaded.--->
+
+This page explains the downloading and installation of **hpssacli** utility.
+
+* [Download the hpssacli debian package into the KVM host](#download)
+
+###Download the hpssacli debian package into the KVM host {#download}
+
+[http://downloads.linux.hp.com/SDR/repo/mcp/pool/non-free/hpssacli-2.0-16.0_amd64.deb](http://downloads.linux.hp.com/SDR/repo/mcp/pool/non-free/hpssacli-2.0-16.0_amd64.deb)
+
+
+###Copy the debian to seed and to the servers where the disks has to be monitored
+
+Use `scp` to copy the utility package on to the servers and install it.
+
+1. Copy the package from KVM host to SEED.
+
+		# scp "hpssacli-2.0-16.0_amd64.deb" root@<IP address of Seed>
+
+2. Copy the package from SEED to Swift node(s) where the disks to be monitored.
+
+		# scp "hpssacli-2.0-16.0_amd64.deb" heat-admin@<IP address of Swift node(s)>
+
+
+3. Log in to the server where the debian is copied and install the package.
+
+		# ssh heat-admin@<IP address of Swift node(s)>
+
+4. Change the directory.
+
+		# cd /home/heat-admin/
+
+	<!---		
+	5. List the files.
+
+		# ls
+	All the files present in that directory will be displayed.
+	--->
+5. Install the following package.
+
+		# dpkg -i hpssacli-2.0-16.0_amd64.deb
+
+
+	**Note**: The diagnostics can be done in the server or from SEED through ssh.
+
+The hpssacli program is now installed. Refer the following section for the collection of the diagnostic report.
+
+This utility is used to monitor the usage of [Object Storage(Swift) disk drive(s)]( /helion/openstack/services/object/swift/disk-drive/). 
+
+
+Once the hpssacli package is installed, swift monitoring (ICINGA) scripts monitor the drives. 
+
+
+(**Optional**) You can also  manually collect the diagnostic reports from disks in the servers as explained in the following sections.
+
+###Manual procedure to collect the diagnostic report
+
+Perform the following steps to manually collect the diagnostic report.
+
+**Using the server controller:**
+<!---
+1. Log in to the server
+
+		# ssh heat-admin@<IP address of machine>
+2. Change the directory
+
+		/home/heat-admin/hp/hpssacli/bld
+--->
+
+1. Enter the following command to determine the controller slot.
+		
+		# sudo hpssacli ctrl all show status
+ 
+	The following sample displays slot details:
+
+		Smart Array P420i in Slot 0 (Embedded)
+		
+		   Controller Status: OK
+		
+		   Cache Status: OK
+		
+		   Battery/Capacitor Status: OK
+
+2. Generate the diagnostic report for a particular slot.
+
+		# sudo hpssacli ctrl slot=(slot number) diag file=<filename.zip>
+	Or <BR>
+		Generate the report for all the slots 
+
+		# sudo hpssacli ctrl all diag file=<filename.zip>
+
+
+	The file will be stored in the selected location.
+
+3. Copy the generated file to the desired location.
+
+4. Extract the file.
+
+
+**Using ssh from Seed:**
+
+<!---
+1. Log in to the server
+
+		ssh heat-admin@<Machine IP address>
+
+2. Change the directory
+
+		/home/heat-admin/hp/hpssacli/bld
+--->
+
+3. Generate the diagnostic report of the particular slot.
+
+		 ssh heat-admin@<Machine IP address> "sudo hpssacli ctrl slot=<slot number> diag file=details_slot_<slot number>.zip"
+
+4. Copy the report from the server to Seed VM.
+
+ 		# scp heat-admin@<Machine IP address>:/home/heat-admin/<filename.zip> 
+
+5. Copy the report <filename.zip> to the KVM_host
+	
+		# scp details_slot_<slot number>.zip ubuntu@<KVM_Host IP address>:
+
+	<!--Enter login credentails ???-->
+
+5. Extract the file.
+
+
+6. Open the `ADUReport.htm` file in the browser. The html page displays complete details of the controller and the health status of the physical disks available in the machine.
+
+	<!-- <image = utility_ADUR-report> -->
+
+7. Generate SmartSSD Wear Gauge Report from either the local server or from the seed:
+
+	* From the local server
+
+		`	# hpssacli ctrl slot=<slot number> diag file=<filename.zip> ssdrpt=on`
+	
+	* From the seed
+
+		`	# ssh heat-admin@<machine IP address> "sudo hpssacli ctrl slot=<slot number> diag file=<filename.zip>`
+
+<!-- **Now retrieve the ssd_report.zip to kvm host using scp from server to analyse.??? is this applicable for seed only??** --> 
+
+The following SmartSSDWearGaugeReport.txt sample file displays the details of the  SSD drives. 
+
+	
+	ADU Version                             2.0.22.0
+	
+	Diagnostic Module Version               8.0.22.0
+	
+	Time Generated                          Tuesday September 16, 2014 12:26:57PM
+	
+	Device Summary:
+	
+	   Smart Array P420i in Embedded Slot
+	
+	Report for Smart Array P420i in Embedded Slot
+	
+	---------------------------------------------
+	
+	Smart Array P420i in Embedded Slot : Internal Drive Cage at Port 2I : Box 2 : Physical Drive (400 GB SAS SSD) 2I:2:6 : SmartSSD Wear Gauge
+	
+	   Status                               OK
+	
+	   Supported                            TRUE
+	
+	   Log Full                             FALSE
+	
+	   Utilization                          0.000000
+	
+	   Power On Hours                       1798
+	
+	   Has Smart Trip SSD Wearout           FALSE
+	
+	Smart Array P420i in Embedded Slot : Internal Drive Cage at Port 2I : Box 2 : Physical Drive (400 GB SAS SSD) 2I:2:7 : SmartSSD Wear Gauge
+	
+	   Status                               OK
+	
+	   Supported                            TRUE
+	
+	   Log Full                             FALSE
+	
+	   Utilization                          0.000000
+	
+	   Power On Hours                       1797
+	
+	   Has Smart Trip SSD Wearout           FALSE
+	
+	Smart Array P420i in Embedded Slot : Internal Drive Cage at Port 2I : Box 2 : Physical Drive (400 GB SAS SSD) 2I:2:8 : SmartSSD Wear Gauge
+	
+	   Status                               OK
+	
+	   Supported                            TRUE
+	
+	   Log Full                             FALSE
+	
+	   Utilization                          0.000000
+	
+	   Power On Hours                       1798
+	
+	   Has Smart Trip SSD Wearout           FALSE
+
+
+
+##Other useful commands
+
+
+- To get the details of the physical disks and also the logical group status on the server
+
+        ssh heat-admin@<machine IP address> "sudo hpssacli ctrl slot=<slot number> show config detail"
+
+- To execute other operations on physical drives
+
+        ssh heat-admin@<machine IP address> "sudo hpssacli help physicaldrive"
+
+- Open the help to explore other options with the utility
+
+        ssh heat-admin@<machine IP address> "sudo hpssacli help"
+ 
+<a href="#top" style="padding:14px 0px 14px 0px; text-decoration: none;"> Return to Top &#8593; </a>
+
+----

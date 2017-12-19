@@ -1,0 +1,736 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic
+  PUBLIC "-//OASIS//DTD DITA Topic//EN" "http://docs.oasis-open.org/dita/v1.1/OS/dtd/topic.dtd" ><topic xml:lang="en-us" id="topic18277">
+<title>HPE Helion <tm tmtype="reg">OpenStack</tm> 1.0: Back Up and Restore</title>
+<prolog>
+<metadata>
+<othermeta name="layout" content="default"/>
+<othermeta name="product-version" content="HPE Helion Openstack"/>
+<othermeta name="product-version" content="HPE Helion Openstack 1.01"/>
+<othermeta name="role" content="System Engineer"/>
+<othermeta name="role" content="Systems Administrator"/>
+<othermeta name="product-version1" content="HPE Helion Openstack"/>
+<othermeta name="product-version2" content="HPE Helion Openstack 1.01"/>
+</metadata>
+</prolog>
+<body>
+<p>
+<!--PUBLISHED-->
+ <!--./commercial/GA1/1.0commercial.backup-restore-GA.md-->
+ <!--permalink: /helion/openstack/backup.restore/--></p>
+<p>
+
+</p>
+<p>The default HPE Helion OpenStack environment consists of a three-node cluster for most of the services plus other services such as RabbitMQ and MySQL. It is resilient to individual node failures as well as network split-brain situations.</p>
+<p>However, as part of your maintenance of the environment, you should create a back up of each component and be prepared to restore any component, should it become necessary.</p>
+<ul>
+<li>
+<p>
+<b>Undercloud.</b> The undercloud is a critical component that runs the centralized Logging, Monitoring, and Orchestration engines for deployment and automated configuration of the overcloud. It also provides a DHCP Server for all nodes of the overcloud.</p>
+
+<p>If the undercloud server fails, it must be rebuilt and restored as soon as possible.</p>
+</li>
+<li>
+<p>
+<b>Overcloud.</b> The overcloud includes two overcloud controllers and one overcloud management controller.</p>
+
+<p>If either of the servers that host the two overcloud controllers fails, the overcloud controller must be rebuilt and reconnected into the cluster as soon as possible.</p>
+
+<p>The management controller is similar to the overcloud controller nodes, but it also executes various additional services, including Compute, Sherpa, Telemetry, Reporting, and Block Storage services. If the server that hosts the overcloud management controller fails, the management controller must be rebuilt and restored as soon as possible.</p>
+</li>
+<li>
+<p>
+<b>Overcloud database</b> The MySQL database or entire cluster on the overcloud Controllers may become corrupted. To prevent data loss, you will need back up and restore capability for the databases.</p>
+</li>
+</ul>
+<p>The following instructions describe how to back up and restore the seed VM, undercloud, and overcloud:</p>
+<ul>
+<li>
+<xref type="section" href="#topic18277/config">Create a configuration file for restoring the seed VM and undercloud</xref>
+</li>
+<li>
+<xref type="section" href="#topic18277/seed">Back up and restore the seed VM</xref>
+</li>
+<li>
+<xref type="section" href="#topic18277/under">Back up and restore the undercloud</xref>
+</li>
+<li>
+<xref type="section" href="#topic18277/over">Back up and restore the overcloud</xref>
+</li>
+<li>
+<xref type="section" href="#topic18277/options">Backup command options</xref>
+</li>
+<li>
+<xref type="section" href="#topic18277/roptions">Restore command options</xref>
+</li>
+<li>
+<xref type="section" href="#topic18277/underpass">Undercloud password issues</xref>
+</li>
+</ul>
+<p>Note that the seed cloud host server is where the seed VM is installed and the installation files are located.</p>
+<p>If you need help, see <xref type="section" href="#topic18277/help">Back up and Restore Script Help</xref>.</p>
+<section id="config"> <title>Create a configuration file for restoring the seed VM and undercloud</title>
+<p>During restore process for the seed VM and undercloud, a configuration file is required. The configuration file contains exported parameters used during the installation.</p>
+<p>Use the following steps to back up the seed VM:</p>
+<ol>
+<li>
+<p>Log in to the seed cloud host.</p>
+</li>
+<li>
+<p>Create a configuration file that contains all of the following information:</p>
+
+<codeblock>
+<codeph>export BRIDGE_INTERFACE=&lt;interface&gt;
+export OVERCLOUD_NTP_SERVER=&lt;ntp.server.ip&gt;
+export UNDERCLOUD_NTP_SERVER=&lt;ntp.server.ip&gt;
+export OVERCLOUD_CODN_HTTP_PROXY=http://&lt;proxy.server.ip&gt;
+export OVERCLOUD_CODN_HTTPS_PROXY=http://&lt;proxy.server.ip&gt;
+export UNDERCLOUD_CODN_HTTP_PROXY=http://&lt;proxy.server.ip&gt;
+export UNDERCLOUD_CODN_HTTPS_PROXY=http://&lt;proxy.server.ip&gt;
+</codeph>
+</codeblock>
+
+<p>Where:</p>
+
+<codeblock>
+<codeph>- BRIDGE_INTERFACE is the name of the device connected to the private network that connects all baremetal nodes. By default `eth0`.
+- OVERCLOUD_NTP_SERVER is the IP address of the NTP server for the overcloud.
+- UNDERCLOUD_NTP_SERVER is the IP address of the NTP server for the undercloud.
+- OVERCLOUD_CODN_HTTP_PROXY is the
+- OVERCLOUD_CODN_HTTPS_PROXY is the
+- UNDERCLOUD_CODN_HTTP_PROXY is the
+- UNDERCLOUD_CODN_HTTPS_PROXY is the
+</codeph>
+</codeblock>
+</li>
+</ol>
+</section>
+<section id="seed"> <title>Back up and restore the seed VM</title>
+<p>The following sections describe how and when to <xref href="#topic18277/seedback" format="dita">back up</xref> and <xref type="section"
+          href="#topic18277/seedrest">restore</xref> the seed VM.</p>
+</section>
+<section id="seedback"> <title>Backing up the seed VM</title>
+<p>You should create a backup from the seed VM when any of the following events happen:</p>
+<ul>
+<li>When the installation process is complete.</li>
+<li>When any change is make in the undercloud from the seed cloud host</li>
+<li>When the undercloud restore process is performed (a new seed VM is created)</li>
+</ul>
+<p>Use the following steps to back up the seed VM:</p>
+<ol>
+<li>
+<p>Log in to the seed VM host.</p>
+</li>
+<li>
+<p>Change to the <codeph>/root/tripleo/tripleo-incubator/scripts/</codeph> directory.</p>
+
+<codeblock>
+<codeph>cd /root/tripleo/tripleo-incubator/scripts/
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Execute the following script:</p>
+
+<codeblock>
+<codeph>./hp_ced_backup.sh --seed -f /root/backup
+</codeph>
+</codeblock>
+
+<p>A message similar to the following displays:</p>
+
+<codeblock>
+<codeph>HPE Helion Community Edition Version Backup Procedure
+
+Destination Host Folder: /root/backup/
+Starting backup procedure for Seed...
+Backup files stored at /root/backup/backup_14-09-02-15-25/seed
+Backup spec file now
+Backup seed.qcow2 now
+Backup ssh keys now
+Backup Seed Finished.
+Backup Procedure Completed
+</codeph>
+</codeblock>
+</li>
+</ol>
+<p>All required files are backed-up to the specified folder:
+    <codeph>/&lt;destination folder&gt;/backup_YY-MM-DD-HH-MM/seed</codeph>
+</p>
+</section>
+<section id="seedrest"> <title>Restoring the seed VM</title>
+<p>You should restore the seed VM when there is any problem with the node, for example:</p>
+<ul>
+<li>If the server where the VM is located fails (from a hardware or software issue).</li>
+<li>If there is any problem with the VM.</li>
+<li>If there is any problem in the operating system level.</li>
+<li>If there is any problem with the installation that cannot be corrected.</li>
+</ul>
+<p>
+  <b>Important: During the restore process the original seed VM will be deleted from the server.</b>
+</p>
+<p>Use the following steps to restore the seed VM:</p>
+<ol>
+<li>
+<p>Log in to the seed cloud host.</p>
+</li>
+<li>
+<p>Create a <xref type="section" href="#topic18277/config">configuration file</xref> with all the parameters exported during the installation of the seed VM (for example: /root/export.prop).</p>
+</li>
+<li>
+<p>Change to the <codeph>/root/tripleo/tripleo-incubator/scripts/</codeph> directory.</p>
+
+<codeblock>
+<codeph>cd /root/tripleo/tripleo-incubator/scripts/
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Execute the following script:</p>
+
+<codeblock>
+<codeph>./hp_ced_restore.sh --seed -f &lt;location of the backup files&gt; -c /root/export.prop
+</codeph>
+</codeblock>
+
+<p>When the process is complete, a message similar to the following displays:</p>
+
+<codeblock>
+<codeph>Restore Seed Finished.
+Restore Procedure Completed
+</codeph>
+</codeblock>
+
+<p>
+<b>Example</b>
+</p>
+
+<codeblock>
+<codeph>root@kvmhost:~/tripleo/tripleo-incubator/scripts# ./hp_ced_restore.sh --seed -f /root/backup/backup_14-09-02-12-32 -c /root/export.prop
+
+HPE Helion Community Edition Version Restore Procedure
+
+Source Host Folder: /root/backup/backup_14-09-02-12-32
+Backup from local host. Local Backup Folder is set to: /root/backup/backup_14-09-02-12-32
+Starting restore procedure for Seed...
+Restore spec file from /root/backup/backup_14-09-02-12-32/seed
+...
+...
+Seed VM created with MAC AB:CD:EF:GH:IJ:LM
+...
+...
+Wait for seed up
+...
+...
+Restore seed finished.
+Restore procedure completed
+</codeph>
+</codeblock>
+</li>
+</ol>
+<p>
+  <xref href="#topic18277"> Return to Top </xref>
+</p>
+</section>
+<section id="under"> <title>Back up and restore the undercloud</title>
+<p>The following sections describe how and when to <xref type="section" href="#topic18277/underback">back up</xref> and <xref type="section" href="#topic18277/underrest">restore</xref> the undercloud.</p>
+</section>
+<section id="underback"> <title>Backing up the undercloud</title>
+<p>You should create a backup from undercloud as soon as the overcloud is deployed and configured the first time.</p>
+<p>Also you should create a backup when any change is made in the overcloud from the undercloud server.</p>
+<p>
+  <b>Important: During the backup process the undercloud server will be unavailable.</b>
+</p>
+<p>Use the following steps to back up the undercloud:</p>
+<p>1.Log in to the seed cloud host.</p>
+<ol>
+<li>
+<p>Change to the <codeph>/root/tripleo/tripleo-incubator/scripts/</codeph> directory:</p>
+
+<codeblock>
+<codeph>cd /root/tripleo/tripleo-incubator/scripts/
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Execute the following script:</p>
+
+<codeblock>
+<codeph>`./hp_ced_backup.sh --undercloud -f &lt;destination folder&gt;`
+</codeph>
+</codeblock>
+
+<p>When the process is complete, a message similar to the following displays:</p>
+
+<codeblock>
+<codeph>Backup undercloud finished.
+Backup procedure completed.
+</codeph>
+</codeblock>
+</li>
+</ol>
+<p>
+  <b>Example</b>
+</p>
+<codeblock>
+  <codeph>    root@kvmhost:~/tripleo/tripleo-incubator/scripts# ./hp_ced_backup.sh --undercloud -f /root/backup/
+
+    HPE Helion Community Edition Version (unknown) Backup Procedure
+
+    Destination Host Folder: /root/backup/
+    Starting of Backup procedure for undercloud...
+    The backup will be written to /root/backup//backup_14-09-03-12-17
+    Temporary folder: /tmp/backup_14-09-03-12-17
+    Backing up seed Files...
+    ...
+    ...
+    Deleting temporary undercloud backup files...
+    Warning: Permanently added '192.0.2.2' (ECDSA) to the list of known hosts.
+    Backup undercloud finished.
+    Backup procedure completed.
+</codeph>
+</codeblock>
+<p>All required files are backed up to the specified folder:</p>
+<codeblock>
+  <codeph>/&lt;destination folder&gt;/backup_YY-MM-DD-HH-MM/uc
+</codeph>
+</codeblock>
+</section>
+<section id="underrest"> <title>Restoring the undercloud</title>
+<p>You should restore the undercloud when there is any problem with the node, for example:</p>
+<ul>
+<li>If the server where the node was located fails (from a hardware or software issue)</li>
+<li>If there is any problem in the OS level</li>
+<li>If there is any problem with the installation that cannot be corrected</li>
+</ul>
+<p>
+  <b>Important:</b>
+</p>
+<ul>
+<li>During the restore of the undercloud, the seed VM will be deployed again. You should <xref type="section" href="#topic18277/seedback">create a new backup from seed</xref> after the undercloud is restored.</li>
+<li>If the resource files are stored locally, the source files must be located in the <codeph>/tmp/</codeph> directory.</li>
+<li>If the admin user password was changed from the original password created during the installation process, see <xref type="section" href="#topic18277/underpass">undercloud password issues</xref> before beginning the restore.</li>
+</ul>
+<p>Use the following steps to restore the undercloud:</p>
+<ol>
+<li>
+<p>Log in to the seed cloud host.</p>
+</li>
+<li>
+<p>Create a <xref type="section" href="#topic18277/config">configuration file</xref> with all the parameters that was exported during before the installation of the undercloud node.</p>
+</li>
+<li>
+<p>Change to the <codeph>/root/tripleo/tripleo-incubator/scripts/</codeph> directory:</p>
+
+<codeblock>
+<codeph>cd /root/tripleo/tripleo-incubator/scripts/
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Create a file called <codeph>baremetal.csv</codeph> and save to the same location where the backup and restore scripts are located.</p>
+
+<p>
+<b>Example</b>
+</p>
+
+<codeblock>
+<codeph>/root/tripleo/tripleo-incubator/scripts
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Edit the <codeph>baremental.csv</codeph> file to include only the line from your initial baremetal installation for your undercloud node. This is the first line in the initial <codeph>baremetal.csv</codeph> file.</p>
+
+<p>
+<b>Example</b>
+</p>
+
+<codeblock>
+<codeph> 78:e7:d1:22:5d:58,administrator,password,192.168.11.1,12,32768,1900
+</codeph>
+</codeblock>
+
+  <p>For more information on the <codeph>baremetal.csv</codeph> file, see the <xref href="1.0commercial.install-GA-prereqs.dita#csv" type="section">Installation Prerequisites</xref>.</p>
+</li>
+<li>
+<p>Execute the following script:</p>
+
+<codeblock>
+<codeph>./hp_ced_restore.sh --undercloud -f &lt;source folder&gt; -c &lt;config file&gt;
+</codeph>
+</codeblock>
+
+<p>When the process is complete, a message similar to the following displays:</p>
+
+<codeblock>
+<codeph>"Restore undercloud finished."
+"Restore procedure completed"
+</codeph>
+</codeblock>
+</li>
+</ol>
+<p>
+  <xref href="#topic18277"> Return to Top </xref>
+</p>
+</section>
+<section id="over"> <title>Back up and restore the overcloud</title>
+<p>The following sections describe how and when to back up and restore the overcloud.</p>
+<p>You can <xref type="section" href="#topic18277/sherpaback">back up</xref> and <xref
+          type="section" href="#topic18277/sherparest">restore</xref> an overcloud server or <xref
+          href="#topic18277/sherpaback2" format="dita">back up</xref> and  <xref
+          href="#topic18277/sherparest2" format="dita">restore</xref> the overcloud database.</p>
+</section>
+<section id="sherpaback"> <title>Backing up an overcloud server</title>
+<p>You should create a backup of the overcloud servers when any Update and Extension is download to the system.</p>
+<p>Use the following steps to back up the overcloud:</p>
+<ol>
+<li>
+<p>Log in to the seed cloud host.</p>
+</li>
+<li>
+<p>Change to the <codeph>/root/tripleo/tripleo-incubator/scripts/</codeph> directory:</p>
+
+<codeblock>
+<codeph>cd /root/tripleo/tripleo-incubator/scripts/
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Execute the following script:</p>
+
+<codeblock>
+<codeph>./hp_ced_backup.sh --overcloud -f &lt;destination folder&gt;
+</codeph>
+</codeblock>
+
+<p>When the process is complete, a message similar to the following displays:</p>
+
+<codeblock>
+<codeph>Backup overcloud finished.
+Backup procedure completed
+</codeph>
+</codeblock>
+
+<p>
+<b>Example</b>
+</p>
+
+<codeblock>
+<codeph>./hp_ced_backup.sh --overcloud -f /root/backup/
+
+HPE Helion Community Edition Version Backup Procedure
+
+Destination Host Folder: /root/backup/
+Starting of Backup procedure for overcloud...
+The backup will be written to /root/backup/backup_14-09-03-12-30
+...
+...
+Deleting temporary overcloud backup files...
+Backup overcloud finished.
+Backup procedure completed
+</codeph>
+</codeblock>
+</li>
+</ol>
+<p>All required files are backed-up to the specified folder:</p>
+<codeblock>
+  <codeph>/&lt;destination folder&gt;/backup_YY-MM-DD-HH-MM/oc
+</codeph>
+</codeblock>
+</section>
+<section id="sherparest"> <title>Restoring the Sherpa overcloud</title>
+<p>Use the following steps to restore the Sherpa overcloud:</p>
+<ol>
+<li>
+<p>Log in to the seed cloud host.</p>
+</li>
+<li>
+<p>Change to the <codeph>/root/tripleo/tripleo-incubator/scripts/</codeph> directory:</p>
+
+<codeblock>
+<codeph>cd /root/tripleo/tripleo-incubator/scripts/
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Execute the following script:</p>
+
+<codeblock>
+<codeph>./hp_ced_restore.sh --overcloud -f &lt;location of the backup files&gt;
+</codeph>
+</codeblock>
+
+<p>When the process is complete, a message similar to the following displays:</p>
+
+<codeblock>
+<codeph>Restore overcloud finished.
+Restore procedure completed
+</codeph>
+</codeblock>
+
+<p>
+<b>Example</b>
+</p>
+
+<codeblock>
+<codeph>./hp_ced_restore.sh --overcloud -f /root/backup/backup_14-09-03-12-30
+
+HPE Helion Community Edition Version Restore Procedure
+
+Source Host Folder: /root/backup/backup_14-09-03-12-30
+Backup from local host. Local Backup Folder is set to: /root/backup/backup_14-09-03-12-30
+Starting restore procedure for overcloud...
+Restore source folder: /root/backup/backup_14-09-03-12-30
+Restore name: backup_14-09-03-12-30
+...
+...
+Restore overcloud finished.
+Restore procedure completed
+</codeph>
+</codeblock>
+</li>
+</ol>
+<p>
+  <xref href="#topic18277"> Return to Top </xref>
+</p>
+</section>
+<section id="sherpaback2"> <title>Backing up the overcloud database</title>
+<p>You should create a backup from the overcloud database on a regular basis as determined by the administrator or your organization's policies.</p>
+<p>Use the following steps to back up the overcloud database:</p>
+<ol>
+<li>
+<p>Log in to the seed cloud host.</p>
+</li>
+<li>
+<p>Change to the <codeph>/root/tripleo/tripleo-incubator/scripts/</codeph> directory:</p>
+
+<codeblock>
+<codeph>cd /root/tripleo/tripleo-incubator/scripts/
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Execute the following script:</p>
+
+<codeblock>
+<codeph>./hp_ced_backup.sh --database -f &lt;destination folder&gt;
+</codeph>
+</codeblock>
+
+<p>When the process is complete, a message similar to the following displays:</p>
+
+<codeblock>
+<codeph>Backup overcloud database finished.
+Backup procedure completed
+</codeph>
+</codeblock>
+
+<p>
+<b>Example</b>
+</p>
+
+<codeblock>
+<codeph>./hp_ced_backup.sh --database -f /root/backup/
+
+HPE Helion Community Edition Version Backup Procedure
+
+Destination Host Folder: /root/backup/
+Starting of Backup procedure for overcloud database...
+The backup will be written to /root/backup/backup_14-09-03-12-46 temporary folder /tmp/backup_14-09-03-12-46
+...
+...
+Deleting temporary overcloud database backup files...
+Backup overcloud database finished.
+Backup procedure completed
+</codeph>
+</codeblock>
+</li>
+</ol>
+<p>All required files are backed-up to the specified folder:</p>
+<codeblock>
+  <codeph>    /&lt;destination folder&gt;/backup_YY-MM-DD-HH-MM/db
+</codeph>
+</codeblock>
+</section>
+<section id="sherparest2"> <title>Restoring the overcloud database</title>
+<p>You should restore the overcloud database when there is any problem with the node, for example:</p>
+<ul>
+<li>If the overcloud server fails (from a hardware or software issues)</li>
+<li>If the database becomes corrupted for any reason</li>
+<li>If an old database needs to be recovered for any reason</li>
+</ul>
+<p>
+  <b>Important:</b>
+</p>
+<ul>
+<li>During the backup process of the overcloud database the server won't be affected.</li>
+<li>Every time that the overcloud database restore procedure is executed a backup of the current database will be created inside each node and will be located at <codeph>/mnt/state/var/lib/mysql_YY-MM-DD-HH-MM</codeph>.</li>
+<li>If any problem happens during the restore, the operator can go and manually bring the MySQL cluster back and execute <codeph>os-refresh-config</codeph> in all the nodes</li>
+</ul>
+<p>Use the following steps to restore the overcloud database:</p>
+<ol>
+<li>
+<p>Log in to the seed cloud host.</p>
+</li>
+<li>
+<p>Change to the <codeph>/root/tripleo/tripleo-incubator/scripts/</codeph> directory.</p>
+
+<codeblock>
+<codeph>cd /root/tripleo/tripleo-incubator/scripts/
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Execute the following script:</p>
+
+<codeblock>
+<codeph>./hp_ced_restore.sh --database -f &lt;location of the backup files&gt;
+</codeph>
+</codeblock>
+
+<p>When the process is complete, a message similar to the following displays:</p>
+
+<codeblock>
+<codeph>Restore overcloud database finished.
+Restore procedure completed
+</codeph>
+</codeblock>
+
+<p>
+<b>Example</b>
+</p>
+
+<codeblock>
+<codeph>./hp_ced_restore.sh --database -f /root/backup/backup_14-09-03-12-46
+
+HPE Helion Community Edition Version Restore Procedure
+
+Source Host Folder: /root/backup/backup_14-09-03-12-46
+Backup from local host. Local Backup Folder is set to: /root/backup/backup_14-09-03-12-46
+Starting restore procedure for overcloud database...
+...
+...
+INFO:os-refresh-config:Completed phase migration
+Restore Procedure Completed
+</codeph>
+</codeblock>
+</li>
+</ol>
+<p>
+  <xref href="#topic18277"> Return to Top </xref>
+</p>
+<!--
+### Rebuilding the Overcloud Management Controller ### {#mgmt}
+
+If the overcloud management controller goes down for a period of time or fails, you need to rebuild the overcloud management controller and any Volume Operation (Cinder) storage volume that were affected. 
+
+During the period that the server is re-building, you can temporarily restart the storage volumes using the following steps:
+
+1.  SSH to the undercloud controllers.
+
+2. Execute the following commands
+
+        os-svc-enable-upstart cinder-volume enable
+        service cinder-volume start
+
+After the management controller is rebuilt, use the following steps below to disable the temporary solution:
+
+1. SSH to the same undercloud controllers where cinder-volume was enable before
+
+2. Execute the following commands
+
+        service cinder-volume stop
+        os-svc-enable-upstart cinder-volume disable
+
+**Important:** After manually enabling and starting the storage volumes on controller0 or controller1, if you run the `os-refresh-config` command, the Volume Operations service stops and is disabled again. You must make sure that you enables the service again.
+-->
+</section>
+<section id="help"> <title>Back up and restore help</title>
+<p>Use the following sections as needed.</p>
+</section>
+<section id="options"> <title>Backup command options</title>
+<p>The following lists all of the command options for the backup script, <codeph>hp_ced_backup.sh</codeph>.</p>
+<codeblock>
+  <codeph>    root@kvmhost:~/tripleo/tripleo-incubator/scripts# ./hp_ced_backup.sh --help
+    HPE Helion Community Edition Version Backup Procedure
+    Usage: hp_ced_backup.sh [options]
+    The Backup tool can back up the following:
+        1. seed
+        2. undercloud
+        3. overcloud
+        4. overcloud Database
+
+    Options:
+        [Required]
+        -S|--seed       - backups seed
+        -U|--undercloud     - backups undercloud
+        -O|--overcloud      - backups overcloud
+        -D|--database       - backups overcloud database
+        -f|--dest-host-folder   - folder path to which to backup
+        [Optional]
+        -H|--dest-host-ip       - ip of host to which to backup
+        -u|--dest-host-user     - username of host to which to backup
+        -i|--identity-file      - selects a file from which the identity (private key) for public key authentication is read
+</codeph>
+</codeblock>
+</section>
+<section id="roptions"> <title>Restore command options</title>
+<p>The following lists all of the command options for the backup script, <codeph>hp_ced_restore.sh</codeph>.</p>
+<codeblock>
+  <codeph>    root@kvmhost:~/tripleo/tripleo-incubator/scripts# ./hp_ced_restore.sh --help
+
+    HPE Helion Community Edition Version Restore Procedure
+
+    Usage: hp_ced_restore.sh [options]
+
+    The Restore tool can restore the following from a previous restore
+        1. seed
+        2. undercloud
+        3. overcloud
+        4. overcloud Database
+
+    Options:
+    [Required]
+        -S|--seed       - restores seed
+        -U|--undercloud     - restores undercloud
+        -O|--overcloud      - restores overcloud
+        -D|--database       - restores overcloud database
+        -f|--source-host-folder     - folder path from which to restore
+    [Optional]
+        -H|--source-host-ip     - ip of host from which to restore
+        -u|--source-host-user   - username of host from which to restore
+        -i|--identity-file      - selects a file from which the identity (private key) for public key authentication is read
+        -c|--config-file        - Installer will source this config file on the host (and on the seed in case undercloud is being restored)
+</codeph>
+</codeblock>
+<p>Other optional options that can be used during the backup/restore process, as:</p>
+<ul>
+<li>Backup/Restore the files in/from a remote server (using option H)</li>
+<li>Backup seed + undercloud + ... all at once using all the parameters at the same time (--seed, --undercloud --overcloud)</li>
+</ul>
+</section>
+<section id="underpass"> <title>Undercloud password issues</title>
+<p>If the admin user password was changed from the original password created during the installation process, you need to update the password in some files before performing the undercloud backup or restore process. If this process has been done and the files contain the correct password, you do not need to edit the files.</p>
+<ol>
+<li>Log in to the seed cloud host.</li>
+<li>SSH to the seed VM</li>
+<li>Open the <codeph>/root/tripleo/tripleo-undercloud-passwords</codeph> file.</li>
+<li>Update the <codeph>UNDERCLOUD_ADMIN_PASSWORD=</codeph> line with the new password and save the file.</li>
+<li>Open the file <codeph>/root/tripleo/ce_env.json</codeph>. </li>
+<li>Update the <codeph>undercloud</codeph> line with the new password and save the file.</li>
+<li>SSH to the undercloud server.</li>
+<li>Open the <codeph>/root/stackrc</codeph> file.</li>
+<li>Update the <codeph>OS_PASSWORD=</codeph> line with the new password and save the file.</li>
+</ol>
+</section>
+<section id="for-more-information"> <title>For more information</title>
+<p>For information on Disaster Recovery (DR) and Business Continuity Planning (BCP) plans, see <xref href="1.1commercial.disaster-recovery.dita" >Disaster Recovery</xref>.</p>
+<p>
+  <xref href="#topic18277"> Return to Top </xref>
+</p>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+</body>
+</topic>

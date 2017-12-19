@@ -1,0 +1,298 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="upgrade_perform_upgrade">
+  <title><ph conkeyref="HOS-conrefs/product-title">Reconfiguring Disk Model of Already Deployed VSA
+    </ph></title>
+  <shortdesc outputclass="hdphidden"> Reconfiguring VSA verbs to add extra disks to already deployed
+    VSA.</shortdesc>
+  <body>
+    <!--tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <p>You can just adding disk to the existing VSA?</p>
+    <section>
+      <title>Overview</title>
+      <p>The <keyword keyref="kw-hos-phrase"/> allows you to add new disk(s) to the deployed VSA
+        using ansible playbook. It leverages the VSA information provided in the input model to
+        determine the VSA disk(s) information. This allows you to attach the disk directly to VSA. </p>
+    </section>
+    <section>
+      <title>Prerequisite</title>
+      <p>Before adding a disk to a deployed VSA, ensure the following:<ol id="ol_fks_klb_zw">
+          <li>Disks are already mounted to each VSA node</li>
+          <li>Only SSD are added to tier 0 (for AO), no check to validate it.</li>
+          <li>Capacity of each added disk is more than 5 GB.</li>
+          <li>Add same number of disks to the VSA nodes of a respective cluster</li>
+        </ol></p>
+    </section>
+    
+    <section id="procedure-to-reconfigure-the-existing-vsa-disk-single-cluster">
+      <title outputclass="headerH">Procedure to Reconfigure the Existing VSA Disk For a Single
+        Cluster</title>
+      <sectiondiv outputclass="insideSection">
+        <p>Perform these steps:<ol id="ol_ksg_smj_yw">
+            <li>Login to lifecycle manager.</li>
+            <li> Edit <codeph>~/helion/my_cloud/definition/data/disks_vsa.yml</codeph> file and add
+              single or multiple disk(s). In the following example, two disks are added under
+              VSA-DISKS model. <b>/dev/sdd</b> disks is added for VSA data disk and <b>/dev/sde</b>
+              is added for
+              vsa-cache.<codeblock>---
+  product:
+    version: 2
+
+  disk-models:
+  - name: VSA-DISKS
+    # Disk model to be used for VSA nodes
+    # /dev/sda_root is used as a Volume Group for /, /var/log, and /var/crash
+    # sda_root is a templated value to align with whatever partition is really used
+    # This value is checked in os config and replaced by the partition actually used
+    # on sda e.g. sda1 or sda5. VSA appliance deployed on a host is expected to consume
+    # ~40 GB of disk space from host root disk for ephemeral storage to run VSA VM
+
+    volume-groups:
+      - name: hlm-vg
+        physical-volumes:
+          - /dev/sda_root
+
+        logical-volumes:
+        # The policy is not to consume 100% of the space of each volume group.
+        # 5% should be left free for snapshots and to allow for some flexibility.
+          - name: root
+            size: 30%
+            fstype: ext4
+            mount: /
+          - name: log
+            size: 45%
+            mount: /var/log
+            fstype: ext4
+            mkfs-opts: -O large_file
+          - name: crash
+            size: 20%
+            mount: /var/crash
+            fstype: ext4
+            mkfs-opts: -O large_file
+        consumer:
+           name: os
+
+    # Disks to be used by VSA
+    # Additional disks can be added if available
+    device-groups:
+      - name: vsa-data
+        consumer:
+          name: vsa
+          usage: data
+        devices:
+          - name: /dev/sdc
+          <b>- name: /dev/sdd</b>
+      - name: vsa-cache
+        consumer:
+          name: vsa
+          usage: adaptive-optimization
+        devices:
+          - name: /dev/sdb
+          <b>- name: /dev/sde</b></codeblock></li>
+            <li>Commit the changes to git:
+              <codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -a -m "&lt;commit message>"</codeblock></li>
+            <li>Run the configuration processor:
+              <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+            <li>Update your deployment directory:
+              <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+            <li>Run disk configuration playbook to add disk(s) to
+                VSA:<codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts vsalm-configure-disk.yml</codeblock><p>This
+                playbook verifies the physical existence of the disk and checks that the total disks
+                count does not exceed the limit, i.e, 7. After successful execution of the playbook,
+                login to <xref
+                  href="../../../installation/configure_vsa.dita#config_vsa/launching-cmc-utility"
+                  format="dita">HPE StoreVirtual Centralized Management Console (CMC) GUI</xref> and
+                proceed futher to add a disk(s).</p></li>
+          </ol></p>
+      </sectiondiv>
+    </section>
+    <section>
+      <title outputclass="headerH">Procedure to Reconfigure the Existing VSA Disk For Multiple
+        Clusters</title>
+      <sectiondiv outputclass="insideSection">
+        <p>Perform these steps:<ol id="ol_qwg_43k_xw">
+            <li>Login to lifecycle manager.</li>
+            <li>Edit <codeph>~/helion/my_cloud/definition/data/server_roles</codeph> file to define
+              the server roles for multiple clusters. Each server role should have own disk model to
+              perform disk reconfigure on one of the cluster(s). For more information on the cluster
+              creation, refer <xref href="create_multiple_vsa_clusters.dita">Create Multiple
+                Clusters</xref>.</li>
+            <li> Edit <codeph>~/helion/my_cloud/definition/data/disks_vsa.yml</codeph> file and add
+              single or multiple disk(s). In the following example, two disks ( <b>/dev/sdd</b> and
+                <b>/dev/sde</b>) are added under VSA-DISKS-2 model. <b>/dev/sdd</b> is added for VSA
+              data and <b>/dev/sde</b> is added for
+              vsa-cache.<codeblock>---
+  product:
+    version: 2
+
+  disk-models:
+  - name: VSA-DISKS
+    # Disk model to be used for VSA nodes
+    # /dev/sda_root is used as a Volume Group for /, /var/log, and /var/crash
+    # sda_root is a templated value to align with whatever partition is really used
+    # This value is checked in os config and replaced by the partition actually used
+    # on sda e.g. sda1 or sda5. VSA appliance deployed on a host is expected to consume
+    # ~40 GB of disk space from host root disk for ephemeral storage to run VSA VM
+
+    volume-groups:
+      - name: hlm-vg
+        physical-volumes:
+          - /dev/sda_root
+
+        logical-volumes:
+        # The policy is not to consume 100% of the space of each volume group.
+        # 5% should be left free for snapshots and to allow for some flexibility.
+          - name: root
+            size: 30%
+            fstype: ext4
+            mount: /
+          - name: log
+            size: 45%
+            mount: /var/log
+            fstype: ext4
+            mkfs-opts: -O large_file
+          - name: crash
+            size: 20%
+            mount: /var/crash
+            fstype: ext4
+            mkfs-opts: -O large_file
+        consumer:
+           name: os
+
+    # Disks to be used by VSA
+    # Additional disks can be added if available
+    device-groups:
+      - name: vsa-data
+        consumer:
+          name: vsa
+          usage: data
+        devices:
+          - name: /dev/sdc
+      - name: vsa-cache
+        consumer:
+          name: vsa
+          usage: adaptive-optimization
+        devices:
+          - name: /dev/sdb
+
+  - name: VSA-DISKS-2
+    # Disk model to be used for VSA nodes
+    # /dev/sda_root is used as a Volume Group for /, /var/log, and /var/crash
+    # sda_root is a templated value to align with whatever partition is really used
+    # This value is checked in os config and replaced by the partition actually used
+    # on sda e.g. sda1 or sda5. VSA appliance deployed on a host is expected to consume
+    # ~40 GB of disk space from host root disk for ephemeral storage to run VSA VM
+
+    volume-groups:
+      - name: hlm-vg
+        physical-volumes:
+          - /dev/sda_root
+
+        logical-volumes:
+        # The policy is not to consume 100% of the space of each volume group.
+        # 5% should be left free for snapshots and to allow for some flexibility.
+          - name: root
+            size: 30%
+            fstype: ext4
+            mount: /
+          - name: log
+            size: 45%
+            mount: /var/log
+            fstype: ext4
+            mkfs-opts: -O large_file
+          - name: crash
+            size: 20%
+            mount: /var/crash
+            fstype: ext4
+            mkfs-opts: -O large_file
+        consumer:
+           name: os
+
+    # Disks to be used by VSA
+    # Additional disks can be added if availiable
+    device-groups:
+      - name: vsa-data
+        consumer:
+          name: vsa
+          usage: data
+        devices:
+          - name: /dev/sdc
+          <b>- name: /dev/sdd</b>
+      - name: vsa-cache
+        consumer:
+          name: vsa
+          usage: adaptive-optimization
+        devices:
+          - name: /dev/sdb
+          <b>- name: /dev/sde</b></codeblock></li>
+            <li>Perform the steps <b>3-6</b> menitoned in <xref
+                href="#upgrade_perform_upgrade/procedure-to-reconfigure-the-existing-vsa-disk-single-cluster"
+                format="dita">Procedure to Reconfigure the Existing VSA Disk for a Single
+                Cluster</xref>.</li>
+          </ol></p>
+      </sectiondiv>
+    </section>
+    <section>
+      <title outputclass="headerH">Centralized Management Console (CMC)</title>
+      <sectiondiv outputclass="insideSection">
+      <p>Perform the following steps to add disk(s):</p>
+      <p>
+        <ol id="ol_qkt_5pj_zw">
+          <li>Launch the CMC utility. See <xref
+                href="../../../installation/configure_vsa.dita#config_vsa/cmc">Launching the CMC
+                utility GUI</xref> for more details.</li>
+          <li>Select the system in the Available Systems pool and click <image
+                href="../../../../media/blockstorage/vsa/plus.png" id="image_uhv_1cq_zw"/> to expand
+              the <b>mg-vsa</b> (VSA node) in which you have added the extra disk in the input
+                  model.<p><image href="../../../../media/blockstorage/vsa/homepage.png"
+                  id="image_lbb_ttj_zw"/></p></li>
+          <li>Click  <image href="../../../../media/blockstorage/vsa/plus.png" id="image_jnh_bcq_zw"/>
+              <b>cluster-vsa</b> to expand. <p><image
+                  href="../../../../media/blockstorage/vsa/cluster_expansion.png"
+                  id="image_njm_szp_zw"/></p></li>
+          <li>Click <image href="../../../../media/blockstorage/vsa/plus.png" id="image_b3n_bcq_zw"/>
+              <b>Storage Systems(3)</b> and <b>VSA-VM-vsa3</b> to expand and select
+                  <b>Storage</b>.<p><image
+                  href="../../../../media/blockstorage/vsa/storage_selection.png"
+                  id="image_tsh_tzp_zw"/></p></li>
+          <li>On the Disk Setup tab, place the cursor in the status <b>Uninitializing</b> in the
+              status column, right click on the status and then select <b>Add Disk to RAID and Set
+                Tiers</b>. The disk(s) which is added in the input model appears in the <b>Disk
+                Setup tab</b>.<p><image
+                  href="../../../../media/blockstorage/vsa/disks_setup_page.png"
+                  id="image_gwz_tzp_zw"/></p></li>
+          <li>Select appropriate disk(s) to RAID and set the desired tier and click
+                  <b>OK</b><p><image
+                  href="../../../../media/blockstorage/vsa/operation_disk_setup.png"
+                  id="image_o1l_vzp_zw"/></p></li>
+          <li>A pop-up box appears. Click <b>Yes</b> to add a disk to RAID.<p><image
+                  href="../../../../media/blockstorage/vsa/pop-up_box.png" id="image_eby_f1q_zw"
+                /></p></li>
+          <li>A warning message is displayed in the screen. Click <b>Yes</b> to proceed.<p><image
+                  href="../../../../media/blockstorage/vsa/warning_1.png" id="image_otr_h1q_zw"
+                /></p></li>
+          <li>Click <b>OK</b> to proceed further.<p><image
+                  href="../../../../media/blockstorage/vsa/warning_2.png" id="image_i1m_31q_zw"
+                /></p><p>The status that appears in the status column will change from
+                  <b>Uninitializing</b> to <b>Active</b>. Now you can see the additional disks added
+                to VSA in a active status.</p><p><image
+                  href="../../../../media/blockstorage/vsa/status_change.png" id="image_uhr_j1q_zw"
+                /></p></li>
+          <li>Repeat the steps from <b>2-9</b> for all the VSA system to which you want to add the
+                disks.<note type="caution">Don't add/ delete a new volume until the status of a
+                newly added disk does not change to <b>Active</b> state.  dont perform any vol
+                lifecycle operations unlti;; the newly added disk gets into the active
+              state.</note></li>
+        </ol>
+      </p>
+      </sectiondiv>
+    </section>
+  </body>
+</topic>

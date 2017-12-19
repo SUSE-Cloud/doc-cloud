@@ -1,0 +1,240 @@
+---
+layout: default
+title: "HP Helion OpenStack&#174; Object Operations Service Overview"
+permalink: /helion/openstack/services/swift/deployment/remove-proxy-node-old/
+product: commercial.ga
+product-version1: HP Helion OpenStack
+product-version2: HP Helion OpenStack 1.0
+product-version3: HP Helion OpenStack 1.0.1
+product-version4: HP Helion OpenStack 1.1
+role1: Storage Administrator
+role2: Storage Architect
+authors: Keshava HP, Binamra S
+
+---
+<!--UNDER REVISION-->
+
+<script>
+
+function PageRefresh {
+onLoad="window.refresh"
+}
+
+PageRefresh();
+
+</script>
+
+<!--
+<p style="font-size: small;"> <a href=" /helion/openstack/services/object/overview/scale-out-swift/">&#9664; PREV</a> | <a href="/helion/openstack/services/overview/">&#9650; UP</a> | <a href="/helion/openstack/services/overview/"> NEXT &#9654</a> </p>-->
+
+# HP Helion OpenStack&#174;: Remove a Proxy Node
+
+It is recommended that you gradually reduce the weight in the ring and change the disk in the Swift cluster to avoid poor performance. 
+
+Scale-out Proxy nodes can only be removed from the cloud after all the disks have been removed from the node.
+
+
+1. [Prerequisites](#prer)
+2. [Identify the disks of the node to be removed](#identify-disk-node-removed)
+3. [Removing disk from the ring](#remove-disk-from-ring)
+4. [Re-balancing the ring](#re-balance-ring)
+5. [Copying the rings to other nodes](#copy-ring)
+6. [Removing the haproxy configuration from each of the Overcloud Controller nodes](#remove-haproxy)
+7. [Remove the scale-out proxy node by removing the corresponding stack](#remove-scale-out-proxy)
+8. [Verify the node removal](#verify-node-removal)
+
+##Prerequisites {#prer}
+
+* HP Helion OpenStack&#174; cloud is successfully deployed.<br>*(Starter Swift nodes are functional by default as they are part of cloud deployment.)*
+* The scale-out Object Ring-1 has been deployed.
+* At least one scale-out proxy node has been deployed.
+* All of the rings generated **must** be preserved, preferably at more than one location. Swift needs these rings to be consistent across all nodes.
+* Take a backup of the rings before any operation.
+
+
+
+##Identify the disks of the node to be removed {#identify-disk-node-removed}
+
+Perform the following steps to identify the disks of the node to be removed:
+
+1. Log in to the undercloud from seed. 
+
+		# ssh heat-admin@<undercloud IP address> 
+		# sudo -i
+
+2. Change the directory to ring builder.
+
+		# cd /root/ring-building
+
+3. Identify the builder file for account and container rings. It will be `account.builder` and `container.builder`.
+
+4. List the disks in the current `account.builder` and `container.builder` files.
+
+		# ringos view-ring -f /root/ring-building/account.builder 
+		# ringos view-ring -f /root/ring-building/container.builder
+
+
+	**Recommendation**:
+
+	Remove drives gradually using a weighted approach to avoid degraded performance of the Swift cluster. The weight will gradually decrease by 25% until it becomes 0%. The initial weight is 75.
+
+
+5. Set the weight of the disk for `account.builder` and `container.builder`files.
+
+    	# ringos set-weight -f account.builder -s d<device> -w <weight>
+    	# ringos set-weight -f container.builder -s d<device> -w <weight>
+
+6. Re-balance the ring.
+
+    	# ringos rebalance-ring -f account.builder
+    	# ringos rebalance-ring -f container.builder
+
+	**Note**: You must wait for the time specified by `min_part_hours` before another re-balance succeeds.
+
+7. List all the Swift nodes.
+
+		# ringos list-swift-nodes -t all
+		
+8. Copy `account.ring.gz`  and  `container.ring.gz` files to all nodes.
+    
+    	# ringos copy-ring -s /root/ring-building/account.ring.gz -n <Swift nodes IP address>
+    	# ringos copy-ring -s /root/ring-building/container.ring.gz -n <Swift nodes IP address>
+	
+	You can also copy the account and container ring files  to all the swift nodes using the following commands:
+
+		# ringos copy-ring -s /root/ring-building/account.ring.gz -n all
+    	# ringos copy-ring -s /root/ring-building/container.ring.gz -n all
+
+
+9. Repeat steps from **5-8** decreasing the weight by 25 each time; set the weight to 50, 25, and finally 0 (w= 50, 25, 0). These steps should be repeated until the weight becomes 0 for each disk.
+
+10. Verify the `account.builder`  and `container.builder` files.
+    	
+		# ringos view-ring -f /root/ring-building/account.builder
+    	# ringos view-ring -f /root/ring-building/container.builder
+
+##Removing disk from the ring {#remove-disk-from-ring}
+
+1. Once weight is set to 0, remove the disk from the ring.
+
+		# ringos remove-disk-from-ring -f account.builder -s d<device>
+		# ringos remove-disk-from-ring -f container.builder -s d<device>
+	
+Repeat this step for each disk of the specific node.
+
+
+##Re-balancing the ring {#re-balance-ring}
+
+1. Re-balance the ring. 
+
+		# ringos rebalance-ring -f container.builder
+		# ringos rebalance-ring -f account.builder
+
+2. Verify the ring content.
+
+		# ringos view-ring -f /root/ring-building/account.builder
+		# ringos view-ring -f /root/ring-building/container.builder
+
+##Copy the rings to other nodes {#copy-ring}
+
+1. List all the Swift nodes.
+
+		# ringos list-swift-nodes -t all
+
+2. Copy `account.ring.gz` and `container.ring.gz` files to all the nodes.
+
+		# ringos copy-ring -s /root/ring-building/account.ring.gz -n <Swift nodes of IP address>
+		# ringos copy-ring -s /root/ring-building/container.ring.gz -n <Swift nodes of IP address>
+
+
+##Remove the haproxy configuration from each of the overcloud Controller nodes {#remove-haproxy}
+
+1. Edit `swift-proxy.cfg` on each of the controller nodes. 
+
+	 	/etc/haproxy/manual/swift-proxy.cfg
+
+2. Remove the following content in the `swift-proxy.cfg` file.
+
+		  listen scale_swift_proxy
+		  bind 192.0.2.21:8080
+		  server <Proxy node hostname> <Proxy nodes IP address of >:8080 check inter 2000 rise 2 fall 5 
+
+	**Note**:You will have the number of "server" lines equal to number of Swift proxies you have setup.
+
+3. Restart HA proxy service on all these nodes.
+
+		# service haproxy restart
+
+##Remove the scale-out proxy node {#remove-scale-out-proxy}
+
+Once the disks are removed from the ring, remove the scale-out proxy node by removing the corresponding stack.
+
+To remove a node:
+
+1. SSH to the undercloud VM:
+
+		ssh root@<IP Address>
+
+2. If using trickle (default):<br>
+   1. Identify the MAC address of the node to be deleted
+
+   2. Identify the ironic 'Node UUID'
+
+			ironic port-list --detail
+
+	3. Identify the nova instance **Instance UUID** associated with the ironic Node UUID and, from that, identify the heat stack associated with the nova instance. 
+
+			ironic node-list
+
+	The following sample displays the name of the instance.
+
+		 ov--ce-soswiftproxy0-SwiftScaleoutProxy0-krsgz5mjtslt
+  	 
+	The stack name displayed in the above sample is:
+
+		ov--ce-soswiftproxy0
+
+3. Delete the stack
+
+		heat stack-delete <stackname>
+
+4. Execute the following command.
+
+		heat stack-list 
+
+5. Execute the following command to delete a node.
+
+		ironic node-delete <ironic_nodeid>
+
+8. 	Mark the node as **deleted** in `baremetal.csv`. Change the **role** from `OvercloudSOSwiftProxy` to `OvercloudSOSwiftProxy:deleted`. 
+    
+	For example:
+
+		E8:39:35:2B:FA:30,administrator,password,10.1.192.46,12,73728,70,OvercloudSOSwiftProxy:,IPMI
+
+    To delete the node change the role of OvercloudSOSwiftProxy in the baremetal.csv file as follows: 
+
+		E8:39:35:2B:FA:30,administrator,password,10.1.192.46,12,73728,70,OvercloudSOSwiftProxy:deleted,IPMI
+	**Note:** Do not delete the line. 
+
+9. Run the installer script.
+
+		bash -x tripleo/tripleo-incubator/scripts/hp_ced_installer.sh --update-overcloud 2>&1 | tee update.log
+
+When you update the cloud the node will be skipped in all the operations.
+
+
+
+##Verify the node removal {#verify-node-removal}
+
+1. Execute the following command:
+	
+		# nova list
+	
+2.	On the seed VM, update the `/root/tripleo/configs/kvm-custom-ips.json` file to reflect new scale number of swift scale-out proxy node. 
+
+		"so_swift_proxy_scale": 2, 
+
+<a href="#top" style="padding:14px 0px 14px 0px; text-decoration: none;"> Return to Top &#8593; </a>
+
+----

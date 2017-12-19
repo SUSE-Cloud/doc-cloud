@@ -1,0 +1,528 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: ready for edit (Nancy)-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="barbican">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Key Management with the Barbican Service</title>
+  <body>
+    <!--not tested-->
+
+
+
+    <ul>
+      <li><xref href="#barbican/overview" format="dita">Barbican service overview</xref></li>
+      <li><xref href="#barbican/installation" format="dita">Installation information</xref>
+        <ul>
+          <li><xref href="#barbican/kmip" format="dita">KMIP plug-in support</xref></li></ul></li>
+          <li><xref href="#barbican/auditing" format="dita">Auditing</xref></li>
+        
+      <!-- TODO UPGRADE Is this only applicable to V3 docs -->  
+      <!--<li><xref href="../upgrade/enable_barbican_for_upgrade.dita#barbicanUpgrade">Enabling Barbican
+          when upgrading</xref> from previous versions of <keyword keyref="kw-hos"/> (separate
+        document)</li>-->
+      <li><xref href="dar.dita#dar">KMIP configuration</xref> (separate document)</li>
+    </ul>
+
+    <section id="overview">
+      <title>Barbican service overview</title>
+      <p>Barbican is an OpenStack key management service offering secure storage, provisioning, and
+        management of key data. The Barbican service provides management of secrets, keys and
+        certificates via multiple storage back ends. The support for various back ends is provided
+        via a plug-in mechanism, a Key Management Interoperability Protocol (KMIP) plug-in for a
+        KMIP-compliant HSM device. Barbican supports symmetric and asymmetric key generation using
+        various algorithms. Cinder, neutron-lbaas v2 and Nova will integrate with Barbican for their
+        encryption key generation and storage. </p>
+      <p>Barbican has two types of core feature sets: </p>
+      <ul>
+        <li>The <i>Barbican component,</i> a WSGI application that exposes a REST API for
+          secrets/containers/orders.</li>
+        <li><i>Barbican workers</i> for asynchronous processing (used for various
+          messaging-event-driven tasks related to certificate generation). </li>
+      </ul>
+    </section>
+    
+    <section id="features">
+      <title>Key features </title> 
+      <p>Following are the major features of the 
+      Barbican key management service: <ul>
+        <li>The ability to encrypt volumes/disks. In an OpenStack context, this means support for
+          encrypting Cinder volumes (volume encryption). Cinder has its own key manager interface
+          (KeyMgr) and can use BarbicanClient as one of its implementations. By default in <keyword
+            keyref="kw-hos-phrase"/>, Cinder uses Barbican as its key manager when Barbican is
+          enabled. KeyMgr encrypts data in the virtualization host before writing data to the remote
+          disk. There are three options available in <keyword keyref="kw-hos"/>
+          <ul>
+            <li>Tenant-based encryption for block volume storage using Barbican for KMS </li>
+            <li>Barbican with KMIP and PKCS11 and external KMS (certified with HPE Atalla ESKM) </li>
+            <li>3PAR StoreServ Data-At-Rest Encryption </li>
+          </ul></li>
+        <li>Storage and retrieval of secrets (passwords) </li>
+        <li>Certificate management for Load Balancer as a Service V2 (previously known as
+          Neutron-LBaaS) </li>
+        <li>Ability to define and manage access policies for key material</li>
+        <li>Administrative functionality, and the ability to control the lifecycle of key material </li>
+        <li>Well-defined auditing ability in OpenStack services around key access and lifecycle
+          events </li>
+        <li>Key management as a service for PaaS application(s) deployed on an OpenStack cloud</li>
+        <li>Ability to effectively scale up key management and make it highly available (handle
+          failover)</li>
+      </ul>
+      <note type="warning" outputclass="noteInline">Do not delete the certificate container associated with your load
+        balancer listeners before deleting the load balancers themselves. If you delete the
+        certificate first, future operations on your load balancers and failover will cease to
+        function.</note>
+      </p>
+    </section>
+    
+    <section id="installation"><title>Installation information</title>
+      <!-- TODO UPGRADE -->
+      <!--The initial preparation for
+      Barbican use looks like this:<p>Upgrade: if you are upgrading to <keyword
+          keyref="kw-hos-phrase"/> from 2.x versions, you need follow these steps after upgrading
+        from 2.x to 3.0:</p>
+      <ol>
+        <li>Enable Barbican via the control-plane.yml definition file. </li>
+        <li>Add Barbican to services that are behind TLS (add TLS support for the Barbican load
+          balancer endpoint).</li>
+        <li> Add Barbican TLS to continue TLS beyond the internal load balancer (add TLS support for
+          Barbican back end).</li>
+        <li>The above TLS changes to the input-model definition and control-plane.yml definition
+          have to be done together. These changes are explained in <xref
+            href="../upgrade/enable_barbican_for_upgrade.dita#barbicanUpgrade"/>. </li>
+        <li>Generate a master key. <note type="danger">Do not change your master key after deploying
+            it to Barbican.</note></li>
+      </ol>-->
+      <p>New installations of <keyword keyref="kw-hos-phrase"/>:</p><ol>
+        <li>No changes are needed for Barbican to be enabled. When installing your cloud, you should
+          use the input-model definitions which already define the necessary Barbican components.
+          When using the pre-defined input model files that come with <keyword
+            keyref="kw-hos-phrase"/>, nothing else needs to be done in those files.</li>
+        <li>Generate a master key. <note type="danger">Do not change your master key after deploying
+            it to Barbican.</note></li>
+        <li>If you do decide to make configuration changes to your clean install of <keyword
+            keyref="kw-hos-phrase"/>, you will need to redeploy the service. Please refer to <xref
+            href="barbican_admin.dita#barbicanAdmin/updating">Updating Barbican</xref> for more
+          details on the available customization options. </li>
+      </ol>
+      <p/>
+      <b>Generating a master key for secret store back ends</b><p>Barbican currently supports
+        databases and KMIP as its secret store back ends. In OpenStack upstream, there are
+        additional back ends available, such as the PKCS11 plug-in and dogtag plug-in, but they are
+        currently not tested or supported by <keyword keyref="kw-hos"/>. </p><p>In <keyword keyref="kw-hos"/>,
+        by default Barbican is configured to use a database as secret (keys) storage back end. This
+        back end encrypts Barbican-managed keys with a project level key (kek (key encryption key))
+        before storing it in the database. Project-level keys are encrypted using a master key. As
+        part of the initial Barbican configuration, you must generate and configure this master
+        key.</p>
+      <ol>
+        <li>Generate the master key using the provided python *generate_kek* script on the lifecycle
+          manager node:
+          <codeblock>python  ~/helion/hos/ansible/roles/KEYMGR-API/templates/generate_kek</codeblock>The
+          master key is generated at stdout from the command above.</li>
+        <li>Set above master key in file:
+          <codeblock>~helion/my_cloud/config/barbican/barbican_deploy_config.yml</codeblock></li>
+        <li>Replace existing *barbican_customer_master_key* value with above generated master key if
+          present.</li>
+        <li>Commit the change to the git repository: <!--cp -r ~/hp-ci/padawan/* ~/helion/my_cloud/definition/-->
+          <codeblock>cd ~/helion
+git add -A
+git commit -m "My config"</codeblock></li>
+        <li>Next, run ready-deployment:
+          <codeblock>cd ~/helion/hos/ansible/
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+        <li>Once the master key is set, continue with your cloud deployment.</li>
+      </ol>
+      <note>For a Barbican deployment with a database back end, the master key needs to be generated
+        and configured before Barbican is deployed for the first time. Once the master key is set,
+        it must not be modified.</note>
+      <note>Changing the master key can result in read errors for existing secrets as those secrets
+        are stored in the database and are encrypted using the previous master key. Once a new
+        master key is used, Barbican will not be able to read those secrets. Also it will not be
+        able to create new secrets within that project as the project key is encrypted using
+        previous master key.</note>
+      <p id="kmip"><b>KMIP plug-in support</b></p><p>Barbican has a KMIP plug-in to store encryption
+        keys (called secrets in Barbican service terminology) in an HSM device using the KMIP
+        protocol. This plug-in has been tested against Atalla ESKM with KMIP server. To enable its
+        support, Barbican needs to be configured with the corresponding plug-in connection details
+        and client certificate information needs to be defined in its configuration. The ESKM KMIP
+        server uses a client certificate to validate a KMIP client connection established by the
+        Barbican server. As part of that KMIP configuration, playbooks provide a mechanism to upload
+        your client certs to nodes hosting the Barbican API server. </p><p>KMIP deployment
+        instructions can be found in <xref href="dar.dita#dar"/></p>
+      <note>The Installation and deployment of the Atalla ESKM or any other HSM devices and
+        dependent components is beyond the scope of this document. Please refer the relevant
+        documentation for your choice of product. For example, you can get more information on
+        Atalla ESKM and related Data Security and Encryption Products at <xref
+          href="http://www8.hp.com/us/en/software-solutions/data-security-encryption" format="html"
+          scope="external"
+          >http://www8.hp.com/us/en/software-solutions/data-security-encryption</xref>. </note>
+      <p id="auditing"><b>Auditing of Barbican events</b></p><p>The Barbican service supports
+        auditing and uses OpenStack <xref href="middleware_auditing.dita#auditing">Audit
+          Middleware</xref> to generate auditing data in Cloud Auditing Data Federation (CADF)
+        format. The <keyword keyref="kw-hos"/> input model has a mechanism to enable / disable auditing on
+        a per-service basis. When Barbican auditing is enabled, it writes audit messages to an audit
+        log file that different from Barbican's own internal logging. The base location of audit log
+        file is driven by common auditing configuration.</p><b>Enabling and disabling
+        auditing</b><p>The auditing of Barbican events can be enabled and disabled thorough the
+        Barbican reconfigure playbook. As part of Barbican's configuration, its audit messages can
+        be directed to a log or to a messaging queue. By default, messages are written to the
+        Barbican log file. Once an architecture-level decision is made with regards to the default
+        consumer of audit events (that is, either the log or messaging), the Barbican service can be
+        configured to use it as the default option when auditing is enabled. </p> Auditing can be
+      disabled or enabled by following these steps on the lifecycle manager node. <ol>
+        <li>Edit the file <codeph>~/helion/my_cloud/definition/cloudConfig.yml.</codeph> Note that
+          all audit-related configuration is defined under the audit-settings section. Please note
+          that you must use valid yaml syntax when specifying values.</li>
+        <li>Any service (including Barbican) that is listed under enabled-services or
+          disabled-services will override the default setting (i.e. default: enabled or default:
+          disabled) To enable auditing, make sure that the Barbican service name is within the
+          enabled-services list of the <codeph>audit-settings</codeph> section or is not present in
+          disabled-services list when default: is set to enabled. <p>Below is the relevant section
+            of <codeph>cloudConfig.yml</codeph>. Note that enabled-services are commented
+          out.</p>The <codeph>default: enabled</codeph> setting applies to all services. If you want
+          to disable (or enable) a few, whichever is the opposite of the default global setting you
+          used) you can do so in a disabled-services (or enabled-services) section below it. Here
+          enabled-services is commented out. You should only have either a default of enabled (or
+          disabled) or a section of disabled (or enabled). In other words, there is no need to
+          repeat the
+          setting.<codeblock>audit-settings:
+    default: enabled
+    #enabled-services:
+    #  - keystone
+    #  - barbican
+    disabled-services:
+       - nova
+       - barbican
+       - keystone
+       - cinder
+       - ceilometer
+       - neutron</codeblock>
+        </li>
+        <li>Once you are satisfied with your settings, copy the files to
+            <codeph>~/helion/my_cloud/definition/</codeph>, and commit the changes in the git
+          repository. For example, if you are using the Entry Scale KVM model, you would copy from
+          ~/helion/examples/entry-scale-kvm-vsa and
+          commit.<codeblock>cp -r ~/helion/examples/entry-scale-kvm-vsa/* ~/helion/my_cloud/definition/
+cd ~/helion
+git add -A
+git commit -m "My config"</codeblock></li>
+        <li>Next you would run the configuration processor and ready-deployment:
+          <codeblock>cd ~/helion/hos/ansible/
+ansible-playbook -i hosts/localhost config-processor-run.yml
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+        <li>Finally, run barbican-reconfigure:
+          <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts barbican-reconfigure.yml</codeblock>
+        </li>
+      </ol>
+    </section>
+
+
+    <section>
+      <title>Barbican key management service bootstrap data</title>
+      <p>When the key management service is installed, some of the Keystone-related initial data is
+        bootstrapped as part of its initial deployment. The data added is primarily around Barbican
+        user, roles, service and endpoint definitions and Barbican role assignments. </p>
+      <p><b>User, Roles and Service/ Endpoint Definitions</b></p>
+      <table frame="all" rowsep="1" colsep="1" id="barb">
+        <tgroup cols="4">
+          <colspec colname="c1" colnum="1"/>
+          <colspec colname="c2" colnum="2"/>
+          <colspec colname="c3" colnum="3"/>
+          <colspec colname="c4" colnum="4"/>
+          <thead>
+            <row>
+              <entry>Type</entry>
+              <entry>Name or key-value pair</entry>
+              <entry>Purpose</entry>
+              <entry>Comments</entry>
+            </row>
+
+          </thead>
+          <tbody>
+            <row>
+              <entry>
+                <p>Keystone User Account</p>
+              </entry>
+              <entry>
+                <p>barbican</p>
+              </entry>
+              <entry>
+                <p>Barbican user account associated with administrative privileges.</p>
+              </entry>
+              <entry>
+                <p>Password is randomly generated and made available in barbican client environment
+                  setup script, <i>barbican.osrc,</i> on the lifecycle manager node.</p>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <p>Keystone User Account</p>
+              </entry>
+              <entry>
+                <p>barbican_service</p>
+              </entry>
+              <entry>
+                <p>Service account used for keystone token validation by barbican service.</p>
+              </entry>
+              <entry>
+                <p>Password is randomly generated and stored in barbican paste configuration i.e.
+                    <i>barbican-api-paste.ini</i>.</p>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <p>Keystone Role</p>
+              </entry>
+              <entry>
+                <p>key-manager:creator</p>
+              </entry>
+              <entry>
+                <p>Barbican specific role which has privilege to create/modify/list keys,
+                  certificates. </p>
+              </entry>
+              <entry>
+                <p>This role has the exact same privileges as defined for '<i>creator</i>' role in
+                  upstream barbican. Referenced in the service policy config file,
+                    <i>policy.json</i>.</p>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <p>Keystone Role</p>
+              </entry>
+              <entry>
+                <p>key-manager:admin</p>
+              </entry>
+              <entry>
+                <p>Barbican specific role that has administrative privileges.</p>
+              </entry>
+              <entry>
+                <p>This role has the exact same privileges as defined for '<i>admin</i>' role in
+                  upstream barbican. Referenced in the service policy config file,
+                    <i>policy.json</i>.</p>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <p>Keystone Role</p>
+              </entry>
+              <entry>
+                <p>key-manager:observer</p>
+              </entry>
+              <entry>
+                <p>Barbican specific role which has privileges limited to read/list of keys,
+                  certificates.</p>
+              </entry>
+              <entry>
+                <p>This role has the exact same privileges as defined for '<i>observer</i>' role in
+                  upstream barbican. Referenced in the service policy config file,
+                    <i>policy.json</i>.</p>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <p>Keystone Role</p>
+              </entry>
+              <entry>
+                <p>key-manager:auditor</p>
+              </entry>
+              <entry>
+                <p>Barbican specific role which has privileges limited to reading metadata of keys,
+                  certificates. This role does not allow reading and listing of actual keys and
+                  certificates.</p>
+              </entry>
+              <entry>
+                <p>This role has the exact same privileges as defined for '<i>auditor</i>' role in
+                  upstream barbican. Referenced in the service policy config file,
+                    <i>policy.json</i>.</p>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <p>Keystone Role</p>
+              </entry>
+              <entry>
+                <p>key-manager:service-admin</p>
+              </entry>
+              <entry>
+                <p>Barbican specific role which has privilege to modify global preferred CA and
+                  modify default project quotas.</p>
+              </entry>
+              <entry>
+                <p>This role has the exact same privileges as defined for
+                    '<i>key-manager:service-admin</i>' role in upstream barbican. Referenced in
+                  service policy config file, <i>policy.json</i>.</p>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <p>Keystone Service</p>
+              </entry>
+              <entry>
+                <p>name: barbican type: key-manager</p>
+              </entry>
+              <entry>
+                <p>Barbican service definition. Service type is <i>key-manager</i>.</p>
+              </entry>
+              <entry>
+                <p> </p>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <p>Keystone Endpoint</p>
+              </entry>
+              <entry>
+                <p>interface: internal region: region1</p>
+              </entry>
+              <entry>
+                <p>Barbican internal endpoint. This is the load-balanced endpoint exposed for
+                  internal service usage.</p>
+              </entry>
+              <entry>
+                <p> </p>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <p>Keystone Endpoint</p>
+              </entry>
+              <entry>
+                <p>interface: public region: region1</p>
+              </entry>
+              <entry>
+                <p>Barbican public endpoint. This is the load-balanced endpoint exposed for
+                  external/public service usage.</p>
+              </entry>
+              <entry>
+                <p> </p>
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </table>
+    </section>
+
+    <section>
+      <table frame="all" rowsep="1" colsep="1" id="barb2">
+        <tgroup cols="4">
+          <colspec colname="c1" colnum="1"/>
+          <colspec colname="c2" colnum="2"/>
+          <colspec colname="c3" colnum="3"/>
+          <colspec colname="c4" colnum="4"/>
+          <thead>
+            <row>
+              <entry>User name</entry>
+              <entry>Project name</entry>
+              <entry>Role name</entry>
+              <entry>Purpose</entry>
+            </row>
+
+          </thead>
+          <tbody>
+            <row>
+              <entry>barbican</entry>
+              <entry>admin</entry>
+              <entry>key-manager:admin</entry>
+              <entry>User is assigned barbican administration privileges on keystone defined
+                  <i>admin</i> project. This allows the user to manage barbican resources associated
+                with that project using barbican CLI setup.</entry>
+            </row>
+            <row>
+              <entry>barbican</entry>
+              <entry>admin</entry>
+              <entry>key-manager:service-admin </entry>
+              <entry>User is assigned barbican service administration privileges on keystone defined
+                  <i>admin</i> project. This role and above role allows the user to have full
+                barbican related administration capabilities</entry>
+            </row>
+            <row>
+              <entry>barbican</entry>
+              <entry>admin</entry>
+              <entry>admin</entry>
+              <entry>User assigned keystone defined administrative role on its <i>admin</i> project.
+                This way customer can continue to use barbican CLI and openstack CLI without need to
+                switch when testing or verifying data.</entry>
+            </row>
+            <row>
+              <entry>admin</entry>
+              <entry>admin</entry>
+              <entry>key-manager:admin</entry>
+              <entry> Keystone defined <i>admin</i> user is given barbican related administrative
+                privileges on keystone defined <i>admin</i> project.</entry>
+            </row>
+            <row>
+              <entry>admin</entry>
+              <entry>admin</entry>
+              <entry>key-manager:service-admin</entry>
+              <entry>In lines of above role assignment, barbican specific service admin role is
+                assigned to allow global preferred CA and quotas modifications.</entry>
+            </row>
+            <row>
+              <entry>barbican_service</entry>
+              <entry>services</entry>
+              <entry>service</entry>
+              <entry>Barbican service account is given <i>service</i> role on <i>services</i>
+                project for token validation. API server uses this for creating scoped service token
+                and then includes it as<i> X-Service-Token</i> when requesting customer/client token
+                validation from keystone.</entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </table>
+    </section>
+   
+
+    <section id="troubleshooting"><title>Known issues and workarounds</title>
+      <ol id="ol_l5z_3x4_tv">
+        <li>Make sure that in your Certificate Signing Request (CSR) 'Common Name' matches the
+            <codeph>barbican_kmip_username</codeph> value defined in
+            <codeph>roles/barbican-common/vars/barbican_deploy_config.yml</codeph>. Otherwise you
+          may see an internal server error message in Barbican for create secret request which does
+          not translate well into this issue.</li>
+        <li>Currently Barbican does not return clear related error with regards to client
+          certificate setup and its connectivity with KMIP server. During secret create request,
+          general "Internal Server Error" is returned when the certificate is invalid or missing any
+          of necessary client certificate data (client certificate, key and CA root
+          certificate).</li>
+        <!--<li>After reconfiguring VIP from TLS to non-TLS , false measurements appear in monitoring.
+          Monasca measurements for http_status checks alternate between '0' and '1' as shown
+          below.</li>-->
+      </ol>
+      
+      <!--<codeblock>stack@padawan-ccp-c1-m1-mgmt:~$ monasca
+        - -os-username monasca measurement-list - -dimensions
+        component=barbican-api,monitored_host_type=vip,api_endpoint=internal - -merge_metrics</codeblock>
+     <codeblock> http_status 2016-02-17T20:17:00
++................+....................+................................+............….+.….….….…...+
+| name        | dimensions | timestamp                | value        | value_meta |
++................+.….…....+....................................+................-+..................+
+| http_status |            | 2016-02-17T20:17:28.000Z |        1.000 |            |
+|             |            | 2016-02-17T20:17:29.000Z |        0.000 |            |
+|             |            | 2016-02-17T20:17:29.000Z |        1.000 |            |
+|             |            | 2016-02-17T20:17:31.000Z |        0.000 |            |
+|             |            | 2016-02-17T20:17:31.000Z |        1.000 |            |
+|             |            | 2016-02-17T20:17:57.000Z |        0.000 |            |
+|             |            | 2016-02-17T20:17:57.000Z |        1.000 |            |
++......................................................................................................+</codeblock>Both
+      URLs (http and https) are being monitored after the non-TLS switch. To remedy this, edit the
+      control plane definition file,
+      <codeph>control_plane.yml</codeph>:<codeblock>~/helion/my_cloud/definition/data/control_plane.yml</codeblock>Make
+      changes to add Barbican service components if not already there, as explained next:-->
+    </section>
+    <!--<section conref="../upgrade/enable_barbican_for_upgrade.dita#barbicanUpgrade/config"/>-->
+    <!--<section>Commit the change in git repository.
+      <codeblock>cd ~/helion
+git add -A
+git commit -m "My config"</codeblock>
+      Then run the
+      config-processor-run and ready-deployment playbooks:
+      <codeblock>cd ~/helion/hos/ansible/ 
+ansible-playbook -i hosts/localhost config-processor-run.yml 
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock>
+      Then run the site.yml
+      playbook:<codeblock>cd ~/scratch/ansible/next/hos/ansible 
+ansible-playbook -i hosts/verb_hosts site.yml</codeblock>
+    </section>-->
+  </body>
+</topic>

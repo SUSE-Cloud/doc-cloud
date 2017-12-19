@@ -1,0 +1,293 @@
+<?xml version="1.0"?>
+<!DOCTYPE section PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN" "http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd" [ <!ENTITY % entities SYSTEM "entities.xml"> %entities; ]><section id="configuring_alarm_definitions">
+   <title>Configuring Alarm Definitions</title>
+        <para>The monasca-api-spec, found here <ulink url="https://github.com/openstack/monasca-api/blob/master/docs/monasca-api-spec.md">https://github.com/openstack/monasca-api/blob/master/docs/monasca-api-spec.md#alarm-definitions-and-alarms</ulink>
+            provides an explanation of Alarm Definitions and Alarms. You can find more information
+            on alarm definition expressions at the following page: <ulink url="https://github.com/openstack/monasca-api/blob/master/docs/monasca-api-spec.md#alarm-definition-expressions">https://github.com/openstack/monasca-api/blob/master/docs/monasca-api-spec.md#alarm-definition-expressions</ulink>.</para>
+
+        <para>When an alarm definition is defined, the monasca-threshold engine will generate an alarm
+            for each unique instance of the match_by metric dimensions found in the metric. This
+            allows a single alarm definition that can dynamically handle the addition of new
+            hosts.</para>
+
+        <para>There are default alarm definitions configured for all "process check" (process.py check)
+            and "HTTP Status" (http_check.py check) metrics in the monasca-default-alarms role. The
+            monasca-default-alarms role is installed as part of the Monasca deployment phase of your
+            cloud's deployment. You do not need to create alarm definitions for these existing
+            checks.</para>
+
+        <para>Third parties should create an alarm definition when they wish to alarm on a custom
+            plugin metric. The alarm definition should only be defined once. Setting a notification
+            method for the alarm definition is recommended but not required. </para>
+
+        <para>The following Ansible modules used for alarm definitions are installed as part of the
+            monasca-alarm-definition role. This process takes place during the Monasca set up phase
+            of your cloud's deployment.</para>
+<itemizedlist id="ul_yds_vs4_qx">
+                <listitem>
+            <para>monasca_alarm_definition</para>
+         </listitem>
+                <listitem>
+            <para>monasca_notification_method</para>
+         </listitem>
+            </itemizedlist>
+
+        
+        <para>The following examples, found in the
+                <literal>~/helion/hos/ansible/roles/monasca-default-alarms</literal> directory,
+            illustrate how Monasca sets up the default alarm definitions.</para>
+
+        
+        <para><emphasis role="bold">monasca_default_method</emphasis></para>
+
+        <para>The monasca-api-spec, found in the following link, provides details about creating a
+            notification <ulink url="https://github.com/openstack/monasca-api/blob/master/docs/monasca-api-spec.md#create-notification-method">
+                https://github.com/openstack/monasca-api/blob/master/docs/monasca-api-spec.md#create-notification-method</ulink></para>
+
+        <para>The following are supported notification types.</para>
+
+        <itemizedlist id="ul_t4b_pt4_qx">
+            <listitem>
+         <para>EMAIL</para>
+
+      </listitem>
+            <listitem>
+         <para>WEBHOOK</para>
+
+      </listitem>
+            <listitem>
+         <para>PAGERDUTY</para>
+
+      </listitem>
+        </itemizedlist>
+        
+        <para>The <literal>keystone_admin_tenant</literal> project is used so that the alarms will show
+            up on the Operations Console UI.</para>
+
+        <para>The following file snippet shows variables from the
+                <literal>~/helion/hos/ansible/roles/monasca-default-alarms/defaults/main.yml</literal>
+            file.</para>
+<screen>---
+notification_address: root@localhost
+notification_name: 'Default Email'
+notification_type: EMAIL
+ 
+monasca_keystone_url: "{{ KEY_API.advertises.vips.private[0].url }}/v3"
+monasca_api_url: "{{ MON_AGN.consumes_MON_API.vips.private[0].url }}/v2.0"
+monasca_keystone_user: "{{ MON_API.consumes_KEY_API.vars.keystone_monasca_user }}"
+monasca_keystone_password: "{{ MON_API.consumes_KEY_API.vars.keystone_monasca_password | quote }}"
+monasca_keystone_project: "{{ KEY_API.vars.keystone_admin_tenant }}"
+ 
+monasca_client_retries: 3
+monasca_client_retry_delay: 2</screen>
+
+        
+        <para>You can specify a single default notification method in the
+                <literal>~/helion/hos/ansible/roles/monasca-default-alarms/tasks/main.yml</literal>
+            file. You can also add or modify the notification type and related details using the Ops
+            Console UI or Monasca CLI.</para>
+
+        <para>The following is a code snippet from the
+                <literal>~/helion/hos/ansible/roles/monasca-default-alarms/tasks/main.yml</literal>
+            file.</para>
+<screen>---
+- name: monasca-default-alarms | main | Setup default notification method
+  monasca_notification_method:
+    name: "{{ notification_name }}"
+    type: "{{ notification_type }}"
+    address: "{{ notification_address }}"
+    keystone_url: "{{ monasca_keystone_url }}"
+    keystone_user: "{{ monasca_keystone_user }}"
+    keystone_password: "{{ monasca_keystone_password }}"
+    keystone_project: "{{ monasca_keystone_project }}"
+    monasca_api_url: "{{ monasca_api_url }}"
+  no_log: True
+  tags:
+    - system_alarms
+    - monasca_alarms
+    - openstack_alarms
+  register: default_notification_result
+  until: not default_notification_result | failed
+  retries: "{{ monasca_client_retries }}"
+  delay: "{{ monasca_client_retry_delay }}"</screen>
+
+        
+        <para><emphasis role="bold">monasca_alarm_definition</emphasis></para>
+
+        <para>In the alarm definition "expression" field, you can specify the metric name and
+            threshold. The "match_by" field is used to create a new alarm for every unique
+            combination of the match_by metric dimensions.</para>
+
+        <para>Find more details on alarm definitions at the Monasca API documentation: (<ulink url="https://github.com/stackforge/monasca-api/blob/master/docs/monasca-api-spec.md#alarm-definitions-and-alarms">https://github.com/openstack/monasca-api/blob/master/docs/monasca-api-spec.md#alarm-definitions-and-alarms</ulink>).</para>
+
+        <para>The following is a code snippet from the
+                <literal>~/helion/hos/ansible/roles/monasca-default-alarms/tasks/main.yml</literal>
+            file.</para>
+<screen>- name: monasca-default-alarms | main | Create Alarm Definitions
+  monasca_alarm_definition:
+    name: "{{ item.name }}"
+    description: "{{ item.description | default('') }}"
+    expression: "{{ item.expression }}"
+    keystone_token: "{{ default_notification_result.keystone_token }}"
+    match_by: "{{ item.match_by | default(['hostname']) }}"
+    monasca_api_url: "{{ default_notification_result.monasca_api_url }}"
+    severity: "{{ item.severity | default('LOW') }}"
+    alarm_actions:
+      - "{{ default_notification_result.notification_method_id }}"
+    ok_actions:
+      - "{{ default_notification_result.notification_method_id }}"
+    undetermined_actions:
+      - "{{ default_notification_result.notification_method_id }}"
+  register: monasca_system_alarms_result
+  until: not monasca_system_alarms_result | failed
+  retries: "{{ monasca_client_retries }}"
+  delay: "{{ monasca_client_retry_delay }}"
+  with_flattened:
+    - monasca_alarm_definitions_system
+    - monasca_alarm_definitions_monasca
+    - monasca_alarm_definitions_openstack
+    - monasca_alarm_definitions_misc_services
+  when: monasca_create_definitions</screen>
+
+        
+        <para>In the following example
+                <literal>~/helion/hos/ansible/roles/monasca-default-alarms/vars/main.yml</literal>
+            Ansible variables file, the alarm definition named <emphasis role="bold">Process Check</emphasis> sets the
+                <emphasis role="bold">match_by</emphasis> variable with the following parameters.</para>
+<itemizedlist id="ul_xj5_vbc_rx">
+                <listitem>
+            <para>process_name</para>
+         </listitem>
+                <listitem>
+            <para>hostname</para>
+         </listitem>
+            </itemizedlist>
+
+        
+        <screen>monasca_alarm_definitions_system:
+  - name: "Host Status"
+    description: "Alarms when the specified host is down or not reachable"
+    severity: "HIGH"
+    expression: "host_alive_status &gt; 0"
+    match_by:
+      - "target_host"
+      - "hostname"
+  - name: "HTTP Status"
+    description: &gt;
+      "Alarms when the specified HTTP endpoint is down or not reachable"
+    severity: "HIGH"
+    expression: "http_status &gt; 0"
+    match_by:
+      - "service"
+      - "component"
+      - "hostname"
+      - "url"
+  - name: "CPU Usage"
+    description: "Alarms when CPU usage is high"
+    expression: "avg(cpu.idle_perc) &lt; 10 times 3"
+  - name: "High CPU IOWait"
+    description: "Alarms when CPU IOWait is high, possible slow disk issue"
+    expression: "avg(cpu.wait_perc) &gt; 40 times 3"
+    match_by:
+      - "hostname"
+  - name: "Disk Inode Usage"
+    description: "Alarms when disk inode usage is high"
+    expression: "disk.inode_used_perc &gt; 90"
+    match_by:
+      - "hostname"
+      - "device"
+    severity: "HIGH"
+  - name: "Disk Usage"
+    description: "Alarms when disk usage is high"
+    expression: "disk.space_used_perc &gt; 90"
+    match_by:
+      - "hostname"
+      - "device"
+    severity: "HIGH"
+  - name: "Memory Usage"
+    description: "Alarms when memory usage is high"
+    severity: "HIGH"
+    expression: "avg(mem.usable_perc) &lt; 10 times 3"
+  - name: "Network Errors"
+    description: &gt;
+      "Alarms when either incoming or outgoing network errors are high"
+    severity: "MEDIUM"
+    expression: "net.in_errors_sec &gt; 5 or net.out_errors_sec &gt; 5"
+  - name: "Process Check"
+    description: "Alarms when the specified process is not running"
+    severity: "HIGH"
+    expression: "process.pid_count &lt; 1"
+    match_by:
+      - "process_name"
+      - "hostname"
+  - name: "Crash Dump Count"
+    description: "Alarms when a crash directory is found"
+    severity: "MEDIUM"
+    expression: "crash.dump_count &gt; 0"
+    match_by:
+      - "hostname"</screen>
+        
+        <para>The preceding configuration would result in the creation of an alarm for each unique
+            metric that matched the following
+            criteria.</para>
+<screen>process.pid_count + process_name + hostname</screen>
+
+        
+        <para><emphasis role="bold">Check that the alarms exist</emphasis></para>
+
+        <para>Begin by using the following commands, including <literal>monasca
+                alarm-definition-list</literal>, to check that the alarm definition
+            exists.</para>
+<screen>source /home/hlmuser/service.osrc
+monasca alarm-definition-list --name &lt;alarm definition name&gt;</screen>
+
+        
+        <para>Then use either of the following commands to check that the alarm has been generated. A
+            status of "OK" indicates a healthy alarm.</para>
+
+        <screen>monasca alarm-list --metric-name &lt;metric name&gt;</screen>
+        <para>Or</para>
+<screen>monasca alarm-list --alarm-definition-id &lt;id from alarm-definition-list&gt;</screen>
+
+        
+        <note>
+         <para> To see CLI options use the <literal>monasca help</literal> command.</para>
+      </note>
+
+        <para><emphasis role="bold">Alarm state upgrade considerations</emphasis></para>
+
+        <para>If the name of a monitoring metric changes or is no longer being sent, existing alarms
+            will show the alarm state as UNDETERMINED. You can update an alarm definition as long as
+            you don't change the <emphasis role="bold">metric name</emphasis> or <emphasis role="bold">dimension name</emphasis> values in the
+                <emphasis role="bold">expression</emphasis> or <emphasis role="bold">match_by</emphasis> fields. If you find that you need to alter
+            either of these values, you must delete the old alarm definitions and create new
+            definitions with the updated values.</para>
+
+        <para>If a metric is never sent, but had a related alarm definition, then no alarms would
+            exist. If you find that no metrics are never sent, then you should remove the related
+            alarm definition.</para>
+
+        <para>When removing an alarm definition, the Ansible module <emphasis role="bold">monasca_alarm_definition</emphasis>
+            supports the state "absent".</para>
+
+        <para>The following file snippet shows an example of how to remove an alarm definition by
+            setting the state to
+            <emphasis role="bold">absent</emphasis>.</para>
+<screen>- name: monasca-pre-upgrade | Remove alarm definitions
+   monasca_alarm_definition:
+     name: "{{ item.name }}"
+     state: "absent"
+     keystone_url: "{{ monasca_keystone_url }}"
+     keystone_user: "{{ monasca_keystone_user }}"
+     keystone_password: "{{ monasca_keystone_password }}"
+     keystone_project: "{{ monasca_keystone_project }}"
+     monasca_api_url: "{{ monasca_api_url }}"
+   with_items:
+     - { name: "Kafka Consumer Lag" }</screen>
+
+        
+        <para>An alarm exists in the OK state when the monasca threshold engine has seen at least one
+            metric associated with the alarm definition and has not exceeded the alarm definition
+            threshold.</para>
+
+    </section>

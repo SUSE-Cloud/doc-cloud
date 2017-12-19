@@ -1,0 +1,455 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="rebootNodes">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Rolling Reboot of the Cloud</title>
+  <abstract><shortdesc outputclass="hdphidden">If you have a planned maintenance and need to bring
+      down your entire cloud and restart services while minimizing downtime, follow the steps here
+      to safely restart your cloud.</shortdesc></abstract>
+  <body>
+    <!--not tested-->
+    <section id="about">
+      <p>If you have a planned maintenance and need to bring down your entire cloud and restart
+        services while minimizing downtime, follow the steps here to safely restart your cloud. If
+        you don't mind your services being down, then another option for planned maintenance can be
+        found at <xref href="reboot_cloud_down.dita"/>.</p>
+    </section>
+
+    <section id="generalOrder">
+      <title>Recommended node reboot order</title>
+      <p>To ensure that rebooted nodes reintegrate into the cluster, the key is having enough time
+        between controller reboots.</p>
+      <p>The recommended way to achieve this is as follows:</p>
+      <ol>
+        <li>Reboot controller nodes one-by-one with a suitable interval in between. If you alternate
+          between controllers and compute nodes you will gain more time between the controller
+          reboots. </li>
+        <li>Reboot of compute nodes (if present in your cloud).</li>
+        <li>Reboot of Swift nodes (if present in your cloud).</li>
+        <li>Reboot of VSA nodes (if present in your cloud)</li>
+        <li>Reboot of Ceph nodes (if present in your cloud).</li>
+        <li>Reboot of ESX nodes (if present in your cloud).</li>
+      </ol>
+    </section>
+
+    <section id="expandCollapse">
+      <sectiondiv outputclass="expandall">Expand All</sectiondiv>
+      <sectiondiv outputclass="collapseall">Collapse All</sectiondiv>
+    </section>
+
+
+
+    <section id="rebootControllers"><title outputclass="headerH">Rebooting controller nodes</title>
+      <sectiondiv outputclass="insideSection">
+        <p><b>Migrate singleton services first</b></p>
+        <note>If you have previously rebooted your lifecycle manager for any reason, ensure that the
+          apache2 service is running before continuing. To start the apache2 service, use this
+          command: <codeblock>sudo systemctl start apache2 </codeblock></note>
+        <p>The first consideration before rebooting any controller nodes is that there are a few
+          services that run as singletons (non-HA), thus they will be unavailable while the
+          controller they run on is down. Typically this is a very small window, but if you want to
+          retain the service during the reboot of that server you should take special action to
+          maintain service, such as migrating the service.</p>
+        <p>For these steps, if your singleton services are running on controller1 and you move them
+          to controller2, then ensure you move them back to controller1 before proceeding to reboot
+          controller2.</p>
+        <p><b>For the <codeph>cinder-volume</codeph> singleton service:</b></p>
+        <p>Execute the following command on each controller node to determine which node is hosting
+          the cinder-volume singleton. It should be running on only one node: </p>
+        <codeblock>ps auxww | grep cinder-volume | grep -v grep</codeblock>
+        <p>Run the <codeph>cinder-migrate-volume.yml</codeph> playbook - details about the Cinder
+          volume and backup migration instructions can be found in <xref
+            href="../blockstorage/managing_cinder_volumebackup_services.dita">Managing Cinder Volume and Backup
+            Services</xref>.</p>
+        <p><b>For the <codeph>nova-consoleauth</codeph> singleton service:</b></p>
+        <p>The <codeph>nova-consoleauth</codeph> component runs by default on the first controller
+          node, that is, the host with <codeph>consoleauth_host_index=0</codeph>. To move it to
+          another controller node before rebooting controller 0, run the ansible playbook
+            <codeph>nova-start.yml</codeph> and pass it the index of the next controller node. For
+          example, to move it to controller 2 (index of 1), run:
+          <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts nova-start.yml --extra-vars "consoleauth_host_index=1"</codeblock></p>
+        <p>After you run this command you may now see two instances of the
+            <codeph>nova-consoleauth</codeph> service, which will show as being in
+            <codeph>disabled</codeph> state, when you run the <codeph>nova service-list</codeph>
+          command. You can then delete the service using these steps.</p>
+        <ol id="ol_hlx_vqs_3x">
+          <li>Obtain the service ID for the duplicated nova-consoleauth
+              service:<codeblock>nova service-list</codeblock><p>Example:<codeblock>$ nova service-list
++----+------------------+---------------------------+----------+----------+-------+----------------------------+-----------------+
+| Id | Binary           | Host                      | Zone     | Status   | State | Updated_at                 | Disabled Reason |
++----+------------------+---------------------------+----------+----------+-------+----------------------------+-----------------+
+| 1  | nova-conductor   | hlm106a-cp1-c1-m1-mgmt    | internal | enabled  | up    | 2016-08-25T12:11:48.000000 | -               |
+| 10 | nova-conductor   | hlm106a-cp1-c1-m3-mgmt    | internal | enabled  | up    | 2016-08-25T12:11:47.000000 | -               |
+| 13 | nova-conductor   | hlm106a-cp1-c1-m2-mgmt    | internal | enabled  | up    | 2016-08-25T12:11:48.000000 | -               |
+| 16 | nova-scheduler   | hlm106a-cp1-c1-m1-mgmt    | internal | enabled  | up    | 2016-08-25T12:11:39.000000 | -               |
+| 19 | nova-scheduler   | hlm106a-cp1-c1-m2-mgmt    | internal | enabled  | up    | 2016-08-25T12:11:41.000000 | -               |
+| 22 | nova-scheduler   | hlm106a-cp1-c1-m3-mgmt    | internal | enabled  | up    | 2016-08-25T12:11:44.000000 | -               |
+| 25 | nova-consoleauth | hlm106a-cp1-c1-m1-mgmt    | internal | enabled  | up    | 2016-08-25T12:11:45.000000 | -               |
+| 49 | nova-compute     | hlm106a-cp1-comp0001-mgmt | nova     | enabled  | up    | 2016-08-25T12:11:48.000000 | -               |
+| 52 | nova-compute     | hlm106a-cp1-comp0002-mgmt | nova     | enabled  | up    | 2016-08-25T12:11:41.000000 | -               |
+| 55 | nova-compute     | hlm106a-cp1-comp0003-mgmt | nova     | enabled  | up    | 2016-08-25T12:11:43.000000 | -               |
+<b>| 70 | nova-consoleauth | hlm106a-cp1-c1-m3-mgmt    | internal | disabled | down  | 2016-08-25T12:10:40.000000 | -               |</b>
++----+------------------+---------------------------+----------+----------+-------+----------------------------+-----------------+</codeblock></p></li>
+          <li>Delete the disabled duplicate service with this command:
+              <codeblock>nova service-delete &lt;service_ID></codeblock><p>Given the example in the
+              previous step, the command could
+            be:</p><codeblock>nova service-delete 70</codeblock></li>
+        </ol>
+        <p><b>For the SNAT namespace singleton service:</b></p>
+        <p>If you reboot the controller node hosting the SNAT namespace service on it, Compute
+          instances without floating IPs will lose network connectivity when that controller is
+          rebooted. To prevent this from happening, you can use these steps to determine which
+          controller node is hosting the SNAT namespace service and migrate it to one of the other
+          controller nodes while that node is rebooted.</p>
+        <ol>
+          <li>Locate the SNAT node where the router is providing the active
+              <codeph>snat_service</codeph>: <ol>
+              <li>From the lifecycle manager, list out your ports to determine which port is serving
+                as the router gateway:
+                <codeblock>source ~/service.osrc
+neutron port-list --device_owner network:router_gateway</codeblock>Example:
+                <codeblock>$ neutron port-list --device_owner network:router_gateway
++--------------------------------------+------+-------------------+-------------------------------------------------------------------------------------+
+| id                                   | name | mac_address       | fixed_ips                                                                           |
++--------------------------------------+------+-------------------+-------------------------------------------------------------------------------------+
+| 287746e6-7d82-4b2c-914c-191954eba342 |      | fa:16:3e:2e:26:ac | {"subnet_id": "f4152001-2500-4ebe-ba9d-a8d6149a50df", "ip_address": "10.247.96.29"} |
++--------------------------------------+------+-------------------+-------------------------------------------------------------------------------------+</codeblock></li>
+              <li>Look at the details of this port to determine what the
+                  <codeph>binding:host_id</codeph> value is, which will point to the host in which
+                the port is bound to:
+                  <codeblock>neutron port-show &lt;port_id></codeblock><p>Example, with the value
+                  you need in
+                  bold:<codeblock>$ neutron port-show 287746e6-7d82-4b2c-914c-191954eba342
++-----------------------+--------------------------------------------------------------------------------------------------------------+
+| Field                 | Value                                                                                                        |
++-----------------------+--------------------------------------------------------------------------------------------------------------+
+| admin_state_up        | True                                                                                                         |
+| allowed_address_pairs |                                                                                                              |
+<b>| binding:host_id       | helion-cp1-c1-m2-mgmt</b>                                                                                        |
+| binding:profile       | {}                                                                                                           |
+| binding:vif_details   | {"port_filter": true, "ovs_hybrid_plug": true}                                                               |
+| binding:vif_type      | ovs                                                                                                          |
+| binding:vnic_type     | normal                                                                                                       |
+| device_id             | e122ea3f-90c5-4662-bf4a-3889f677aacf                                                                         |
+| device_owner          | network:router_gateway                                                                                       |
+| dns_assignment        | {"hostname": "host-10-247-96-29", "ip_address": "10.247.96.29", "fqdn": "host-10-247-96-29.openstacklocal."} |
+| dns_name              |                                                                                                              |
+| extra_dhcp_opts       |                                                                                                              |
+| fixed_ips             | {"subnet_id": "f4152001-2500-4ebe-ba9d-a8d6149a50df", "ip_address": "10.247.96.29"}                          |
+| id                    | 287746e6-7d82-4b2c-914c-191954eba342                                                                         |
+| mac_address           | fa:16:3e:2e:26:ac                                                                                            |
+| name                  |                                                                                                              |
+| network_id            | d3cb12a6-a000-4e3e-82c4-ee04aa169291                                                                         |
+| security_groups       |                                                                                                              |
+| status                | DOWN                                                                                                         |
+| tenant_id             |                                                                                                              |
++-----------------------+--------------------------------------------------------------------------------------------------------------+</codeblock></p><p>In
+                  this example, the <codeph>helion-cp1-c1-m2-mgmt</codeph> is the node hosting the
+                  SNAT namespace service.</p></li>
+            </ol></li>
+          <li>SSH to the node hosting the SNAT namespace service and check the SNAT namespace,
+            specifying the router_id that has the interface with the subnet that you are interested
+              in:<codeblock>ssh &lt;IP_of_SNAT_namespace_host>
+sudo ip netns exec snat-&lt;router_ID> bash</codeblock><p>Example:<codeblock>sudo ip netns exec snat-e122ea3f-90c5-4662-bf4a-3889f677aacf bash</codeblock></p></li>
+          <li>Obtain the ID for the L3 Agent for the node hosting your SNAT
+              namespace:<codeblock>source ~/service.osrc
+neutron agent-list</codeblock><p>Example,
+              with the entry you need given the examples
+            above:</p><codeblock>$ neutron agent-list
++--------------------------------------+----------------------+--------------------------+-------+----------------+---------------------------+
+| id                                   | agent_type           | host                     | alive | admin_state_up | binary                    |
++--------------------------------------+----------------------+--------------------------+-------+----------------+---------------------------+
+| 0126bbbf-5758-4fd0-84a8-7af4d93614b8 | DHCP agent           | helion-cp1-c1-m3-mgmt    | :-)   | True           | neutron-dhcp-agent        |
+| 33dec174-3602-41d5-b7f8-a25fd8ff6341 | Metadata agent       | helion-cp1-c1-m2-mgmt    | :-)   | True           | neutron-metadata-agent    |
+| 3bc28451-c895-437b-999d-fdcff259b016 | L3 agent             | helion-cp1-c1-m1-mgmt    | :-)   | True           | neutron-vpn-agent         |
+| 4af1a941-61c1-4e74-9ec1-961cebd6097b | L3 agent             | helion-cp1-comp0001-mgmt | :-)   | True           | neutron-l3-agent          |
+| 58f01f34-b6ca-4186-ac38-b56ee376ffeb | Loadbalancerv2 agent | helion-cp1-comp0001-mgmt | :-)   | True           | neutron-lbaasv2-agent     |
+| 65bcb3a0-4039-4d9d-911c-5bb790953297 | Open vSwitch agent   | helion-cp1-c1-m1-mgmt    | :-)   | True           | neutron-openvswitch-agent |
+| 6981c0e5-5314-4ccd-bbad-98ace7db7784 | L3 agent             | helion-cp1-c1-m3-mgmt    | :-)   | True           | neutron-vpn-agent         |
+| 7df9fa0b-5f41-411f-a532-591e6db04ff1 | Metadata agent       | helion-cp1-comp0001-mgmt | :-)   | True           | neutron-metadata-agent    |
+| 92880ab4-b47c-436c-976a-a605daa8779a | Metadata agent       | helion-cp1-c1-m1-mgmt    | :-)   | True           | neutron-metadata-agent    |
+<b>| a209c67d-c00f-4a00-b31c-0db30e9ec661 | L3 agent             | helion-cp1-c1-m2-mgmt</b>    | :-)   | True           | neutron-vpn-agent         |
+| a9467f7e-ec62-4134-826f-366292c1f2d0 | DHCP agent           | helion-cp1-c1-m1-mgmt    | :-)   | True           | neutron-dhcp-agent        |
+| b13350df-f61d-40ec-b0a3-c7c647e60f75 | Open vSwitch agent   | helion-cp1-c1-m2-mgmt    | :-)   | True           | neutron-openvswitch-agent |
+| d4c07683-e8b0-4a2b-9d31-b5b0107b0b31 | Open vSwitch agent   | helion-cp1-comp0001-mgmt | :-)   | True           | neutron-openvswitch-agent |
+| e91d7f3f-147f-4ad2-8751-837b936801e3 | Open vSwitch agent   | helion-cp1-c1-m3-mgmt    | :-)   | True           | neutron-openvswitch-agent |
+| f33015c8-f4e4-4505-b19b-5a1915b6e22a | DHCP agent           | helion-cp1-c1-m2-mgmt    | :-)   | True           | neutron-dhcp-agent        |
+| fe43c0e9-f1db-4b67-a474-77936f7acebf | Metadata agent       | helion-cp1-c1-m3-mgmt    | :-)   | True           | neutron-metadata-agent    |
++--------------------------------------+----------------------+--------------------------+-------+----------------+---------------------------+</codeblock></li>
+          <li>Also obtain the ID for the L3 Agent of the node you are going to move the SNAT
+            namespace service to using the same commands as the previous step.</li>
+          <li>Use these commands to move the SNAT namespace service, with the
+              <codeph>qrouter_id</codeph> being the same value as the ID for router:<ol>
+              <li>Remove the L3 Agent for the old host:
+                  <codeblock>neutron l3-agent-router-remove &lt;agent_id_of_snat_namespace_host> &lt;qrouter_uuid></codeblock><p>Example:<codeblock>$ neutron l3-agent-router-remove a209c67d-c00f-4a00-b31c-0db30e9ec661 e122ea3f-90c5-4662-bf4a-3889f677aacf
+Removed router e122ea3f-90c5-4662-bf4a-3889f677aacf from L3 agent</codeblock></p></li>
+              <li>Remove the SNAT namespace:
+                  <codeblock>sudo ip netns delete snat-&lt;router_id></codeblock><p>Example:<codeblock>$ sudo ip netns delete snat-e122ea3f-90c5-4662-bf4a-3889f677aacf</codeblock></p></li>
+              <li>Create a new L3 Agent for the new
+                  host:<codeblock>neutron l3-agent-router-add &lt;agent_id_of_new_snat_namespace_host> &lt;qrouter_uuid></codeblock><p>Example:<codeblock>$ neutron l3-agent-router-add 3bc28451-c895-437b-999d-fdcff259b016 e122ea3f-90c5-4662-bf4a-3889f677aacf
+Added router e122ea3f-90c5-4662-bf4a-3889f677aacf to L3 agent</codeblock></p></li>
+            </ol>Confirm that it's been moved by listing the details of your port from step 1b
+            above, noting the value of <codeph>binding:host_id</codeph> which should be updated to
+            the host you moved your SNAT namespace
+              to:<codeblock>neutron port-show &lt;port_ID></codeblock><p>Example:</p><codeblock>$ neutron port-show 287746e6-7d82-4b2c-914c-191954eba342
++-----------------------+--------------------------------------------------------------------------------------------------------------+
+| Field                 | Value                                                                                                        |
++-----------------------+--------------------------------------------------------------------------------------------------------------+
+| admin_state_up        | True                                                                                                         |
+| allowed_address_pairs |                                                                                                              |
+<b>| binding:host_id       | helion-cp1-c1-m1-mgmt</b>                                                                                        |
+| binding:profile       | {}                                                                                                           |
+| binding:vif_details   | {"port_filter": true, "ovs_hybrid_plug": true}                                                               |
+| binding:vif_type      | ovs                                                                                                          |
+| binding:vnic_type     | normal                                                                                                       |
+| device_id             | e122ea3f-90c5-4662-bf4a-3889f677aacf                                                                         |
+| device_owner          | network:router_gateway                                                                                       |
+| dns_assignment        | {"hostname": "host-10-247-96-29", "ip_address": "10.247.96.29", "fqdn": "host-10-247-96-29.openstacklocal."} |
+| dns_name              |                                                                                                              |
+| extra_dhcp_opts       |                                                                                                              |
+| fixed_ips             | {"subnet_id": "f4152001-2500-4ebe-ba9d-a8d6149a50df", "ip_address": "10.247.96.29"}                          |
+| id                    | 287746e6-7d82-4b2c-914c-191954eba342                                                                         |
+| mac_address           | fa:16:3e:2e:26:ac                                                                                            |
+| name                  |                                                                                                              |
+| network_id            | d3cb12a6-a000-4e3e-82c4-ee04aa169291                                                                         |
+| security_groups       |                                                                                                              |
+| status                | DOWN                                                                                                         |
+| tenant_id             |                                                                                                              |
++-----------------------+--------------------------------------------------------------------------------------------------------------+</codeblock></li>
+        </ol>
+        <p><b>Reboot the controllers</b></p>
+        <p>In order to reboot the controller nodes, you must first retrieve a list of nodes in your
+          cloud running control plane services.</p>
+        <codeblock>for i in $(grep -w cluster-prefix ~/helion/my_cloud/definition/data/control_plane.yml | awk '{print $2}'); do grep $i ~/scratch/ansible/next/hos/ansible/hosts/verb_hosts | grep ansible_ssh_host | awk '{print $1}'; done</codeblock>
+        <p>Then perform the following steps from your lifecycle manager for each of your controller
+          nodes:</p>
+        <ol>
+          <li>If any singleton services are active on this node, they will be unavailable while the
+            node is down. If you want to retain the service during the reboot, you should take
+            special action to maintain the service, such as migrating the service as appropriate as
+            noted above.</li>
+          <li>Stop all services on the controller node that you are rebooting first:
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-stop.yml --limit &lt;controller node></codeblock></li>
+          <li>Reboot the controller node, e.g. run the following command on the controller itself:
+              <codeblock>sudo reboot</codeblock><p>Note that the current node being rebooted could
+              be hosting the lifecycle manager.</p></li>
+          <li>Wait for the controller node to become ssh-able and allow an additional minimum of
+            five minutes for the controller node to settle. Start all services on the controller
+            node:
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-start.yml --limit &lt;controller node></codeblock></li>
+          <li>Verify that the status of all services on that is OK on the controller node:
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-status.yml --limit &lt;controller node></codeblock></li>
+          <li>When above start operation has completed successfully, you may proceed to the next
+            controller node. Ensure that you migrate your singleton services off the node
+            first.</li>
+        </ol>
+        <note>It is important that you not begin the reboot procedure for a new controller node
+          until the reboot of the previous controller node has been completed successfully (i.e. the
+          hlm-status playbook has completed without error). </note>
+        <note>If your system includes VSA nodes, rebooting a controller node will not re-start CMC
+          as it is Java application. You will need to restart it.</note>
+      </sectiondiv>
+    </section>
+
+
+    <section id="rebootCompute"><title outputclass="headerH">Rebooting compute nodes</title>
+      <sectiondiv outputclass="insideSection">
+        <p>To reboot a compute node the following operations will need to be performed:</p>
+        <ul>
+
+          <li>Disable provisioning of the node to take the node offline to prevent further instances
+            being scheduled to the node during the reboot. </li>
+          <li>Identify instances that exist on the compute node, and then either: <ul>
+              <li>Live migrate the instances off the node before actioning the reboot. OR </li>
+              <li>Stop the instances</li>
+            </ul></li>
+          <li>Reboot the node </li>
+          <li>Restart the Nova services </li>
+
+        </ul>
+        <ol>
+          <li>Disable provisioning:
+            <codeblock>nova service-disable --reason "&lt;describe reason>" &lt;node name> nova-compute</codeblock>If
+            the node has existing instances running on it these instances will need to be migrated
+            or stopped prior to re-booting the node.</li>
+          <li> Live migrate existing instances. Identify the instances on the compute node. Note:
+            The following command must be run with nova admin
+            credentials.<codeblock>nova list --host &lt;hostname&gt; --all-tenants</codeblock></li>
+          <li> Migrate or Stop the instances on the compute node. <p> Migrate the instances off the
+              node by running one of the following commands for each of the instances:</p><p>If your
+              instance is booted from a volume and has any number of Cinder volume attached, use the
+              nova live-migration
+            command:</p><codeblock>nova live-migration &lt;instance uuid&gt; [&lt;target compute host&gt;]</codeblock>
+            If your instance has local (ephemeral) disk(s) only, you can use the --block-migrate
+            option:<codeblock>nova live-migration --block-migrate &lt;instance uuid&gt; [&lt;target compute host&gt;]</codeblock>
+            Note: The [&lt;target compute host&gt;] option is optional. If you do not specify a
+            target host then the nova scheduler will choose a node for you.<p>OR</p><p>Stop the
+              instances on the node by running the following command for each of the
+            instances:</p><codeblock>nova stop &lt;instance-uuid&gt;</codeblock></li>
+          <li>Stop all services on the Compute node:
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-stop.yml --limit &lt;compute node></codeblock></li>
+          <li>SSH to your Compute nodes and reboot them: <codeblock>sudo reboot</codeblock><p>The
+              operating system cleanly shuts down services and then automatically reboots. If you
+              want to be very thorough, run your backup jobs just before you reboot.</p></li>
+          <li>Run the hlm-start.yml playbook from the lifecycle manager. If needed, use the
+            bm-power-up.yml playbook to restart the node. Specify just the node(s) you want to start
+            in the 'nodelist' parameter arguments, i.e.
+            nodelist=&lt;node1&gt;[,&lt;node2&gt;][,&lt;node3&gt;].<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost bm-power-up.yml -e nodelist=&lt;compute node></codeblock></li>
+          <li>Execute the <b>hlm-start.yml </b>playbook. Specifying the node(s) you want to start in
+            the 'limit' parameter arguments. This parameter accepts wildcard arguments and also
+            '@&lt;filename>' to process all hosts listed in the file.
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-start.yml --limit &lt;compute node></codeblock></li>
+          <li>Re-enable provisioning on the node:
+            <codeblock>nova service-enable &lt;node-name> nova-compute</codeblock></li>
+          <li> Restart any instances you
+            stopped.<codeblock>nova start &lt;instance-uuid></codeblock></li>
+        </ol>
+      </sectiondiv>
+    </section>
+
+
+
+    <section id="rebootSwift"><title outputclass="headerH">Rebooting Swift nodes</title>
+      <sectiondiv outputclass="insideSection"><p>If your Swift services are on controller node,
+          please follow the controller node reboot instructions above.</p><p id="firstp">For a
+          dedicated Swift PAC cluster or Swift Object resource node: </p>For each Swift host <ol>
+          <li>Stop all services on the Swift node:
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-stop.yml --limit &lt;swift node></codeblock></li>
+          <li>Reboot the Swift node by running the following command on the Swift node itself:
+            <codeblock>sudo reboot</codeblock></li>
+          <li>Wait for the node to become ssh-able and then start all services on the Swift node:
+            <codeblock>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-start.yml --limit &lt;swift node> </codeblock></li>
+        </ol></sectiondiv>
+    </section>
+
+
+    <section id="vsa"><title outputclass="headerH">Rebooting VSA nodes</title><sectiondiv
+        outputclass="insideSection">
+        <p>If your cloud is deployed with VSA, then the reboot sequence will be as follows:</p>
+        <ol>
+          <li>Identify all VSA nodes of a given cluster </li>
+          <li>Pick one of the VSA nodes of the cluster and reboot it manually</li>
+          <li>Check VSA VM's status :
+            <codeblock>ansible-playbook -i hosts/verb_hosts vsa-status.yml --limit &lt;vsa_node name></codeblock></li>
+          <li>Wait for VSA to come up, Check cluster status using CMC ( status should be
+            "normal")</li>
+          <li>Run the following command from your first controller node which will open the HP
+            StoreVirtual Centralized Management Console (CMC) GUI
+            <codeblock>/opt/HP/StoreVirtual/UI/jre/bin/java -jar /opt/HP/StoreVirtual/UI/UI.jar </codeblock></li>
+          <li>To view the cluster status , go to: management group -&gt; click on the respective
+            cluster -&gt; check for status</li>
+          <li>Repeat steps 2-4 for the other remaining nodes of the same VSA cluster. </li>
+          <li>Go to step 1 and repeat all steps for the other clusters.</li>
+        </ol>
+      </sectiondiv>
+    </section>
+
+    <section id="reboot_ceph"><title outputclass="headerH">Rebooting ceph</title>
+      <sectiondiv outputclass="insideSection">
+        <!--Note that Ceph has two components: <ul>
+          <li>monitor nodes</li>
+          <li>OSD nodes</li>
+        </ul> If a monitor is deployed on controller node, then the rebooting sequence of the
+        controller takes precedence over monitor nodes. You should reboot the group of nodes in
+        specified order. For a given group (say controller or compute or VSA or ceph OSD etc),
+        reboot should be done one-by-one, in series. For example, if there are three OSD nodes say
+        OSD1, OSD2, OSD3 then you should reboot OSD1 and then OSD2 and so on.<ol>
+          <li>Controller node (reboot of this will take care of the monitor as well) </li>
+          <li>Compute node </li>
+          <li>Standalone storage or dedicated storage, including: <ul>
+          
+<li>VSA</li>
+<li>Ceph OSD</li>
+<li>Ceph monitor (if deployed on stand alone node). If monitor is deployed on
+  controller node then rebooting sequence of controller takes precedence over monitor
+  nodes.</li>
+            </ul>
+          </li>
+        </ol>More commonly, the monitor is deployed as a standalone; i.e., as separate set of
+        resource nodes. In this case the reboot sequence will be: <ol>
+          <li>Controller node </li>
+          <li>Compute node </li>
+          <li>Ceph monitor node </li>
+          <li>Ceph OSD nodes </li>
+        </ol> -->
+        <p>There are two categories of ceph nodes:</p><ul>
+          <li>monitor nodes</li>
+          <li>OSD nodes</li>
+        </ul><p>Ceph nodes should be rebooted in their position in the overall sequence described in
+          the reboot order section above.</p><p>You should reboot both categories of ceph nodes in
+          the order: monitor nodes, then OSD nodes. All ceph nodes should reboot one-by-one, in
+          series. </p> If a monitor is deployed on controller node, then the rebooting sequence of
+        the controller caters for the monitor nodes, so you need to additionally reboot only the OSD
+        nodes. <p>If the monitor is deployed as a standalone; i.e., as separate set of resource
+          nodes, you should reboot the monitor nodes before rebooting the OSD nodes.</p> For
+        example, if there are three monitor nodes and three OSD nodes say, MON1, MON2 and MON3, with
+        OSD1, OSD2, OSD3, then you should reboot MON1, then MON2 and then MON3 followed by OSD1,
+        then OSD2 and so on In both cases, please ensure that you are serializing the reboot of a
+        given family (monitor or OSD or controller); that is, don't reboot them all at the same
+        time. This will ensure that each service is up and running and there is no impact on the
+        client side. To reboot Ceph nodes, follow the sequence below to safely reboot the entire
+        Ceph cluster: <ol>
+          <li>Reboot a Ceph monitor node in the cluster. </li>
+          <li>Once the monitor node comes up, wait for a minute and then execute the following
+            command:
+            <codeblock>ansible-playbook -i hosts/verb_hosts ceph-status.yml --limit &lt;monitor-hostname></codeblock></li>
+          <li>If the above playbook executes successfully, repeat from step 1 to reboot the next
+            Ceph monitor node in the cluster. </li>
+          <li>Once all the monitor nodes have been rebooted, execute
+            <codeblock>ceph quorum_status </codeblock>on a monitor node and ensure that all the
+            monitors have joined the quorum by observing that in the output, the "quorum_names"
+            section lists all the monitors in the Ceph cluster. </li>
+          <li>Login to the OSD node to be rebooted and execute the following command to avoid the
+            cluster rebalancing itself: <codeblock>ceph osd set noout</codeblock></li>
+          <li>Stop all the OSD services on the current node by executing below command:
+            <codeblock>sudo systemctl stop  ceph-osd@*</codeblock></li>
+          <li>Now reboot the OSD node. </li>
+          <li>Once the OSD node is up, log in and execute the following command and observe that a
+            line similar to "osd.0 192.17.11.7:6801/3824 boot" appears for all the OSDs on the node:
+            <codeblock>ceph -w</codeblock> To quit, this command press Ctrl + C </li>
+          <li>Verify that all the OSDs on this node are 'up' by executing following command (and
+            observing that all the OSDs under the current host are reported as 'up')
+            <codeblock>ceph osd tree</codeblock> If any of the OSDs are reported as 'down', please
+            check the logs for the corresponding OSD (in the
+              <codeph>/var/log/ceph/&lt;cluster-name>-osd.&lt;osd_number>.log</codeph> file) for
+            resolving the issue. </li>
+          <li>Now execute the following command from the re-booted OSD node, to unset the cluster
+            from noout : <codeblock>ceph osd unset noout</codeblock></li>
+          <li>Execute the following playbook from the lifecycle manager node to check the status of
+            the OSDs that have just come up:
+            <codeblock>ansible-playbook -i hosts/verb_hosts ceph-status.yml --limit &lt;OSD-hostname></codeblock></li>
+          <li>If the above playbook does not report any errors, repeat from step 5 for another Ceph
+            OSD node in the cluster. </li>
+          <li>Once the entire cluster is rebooted, execute this command
+            <codeblock>ceph health detail</codeblock> to ensure that you see HEALTH_OK. </li>
+        </ol></sectiondiv>
+    </section>
+
+    <section id="getStatus">
+      <title outputclass="headerH">Get list of status playbooks</title>
+      <sectiondiv outputclass="insideSection"><p>Running the following command will yield a list of
+          status
+        playbooks:</p><codeblock>cd ~/scratch/ansible/next/hos/ansible
+ls *status*</codeblock> Here
+        is the list:
+        <codeblock>stack@helion-control-plane-cluster1-m1-mgmt:~/scratch/ansible/next/hos/ansible$ ls *status*
+bm-power-status.yml    eon-status.yml      heat-status.yml      logging-producer-status.yml  monasca-status.yml      rabbitmq-status.yml
+ceilometer-status.yml  FND-AP2-status.yml  hlm-status.yml       logging-server-status.yml    neutron-status.yml      ceph-status.yml        
+FND-CLU-status.yml     horizon-status.yml  logging-status.yml  nova-status.yml swift-status.yml
+cinder-status.yml      freezer-status.yml  ironic-status.yml    memcached-status.yml         ops-console-status.yml  vsa-status.yml
+cmc-status.yml         glance-status.yml   keystone-status.yml  monasca-agent-status.yml     percona-status.yml      zookeeper-status.yml</codeblock>
+      </sectiondiv>
+    </section>
+
+
+  </body>
+</topic>

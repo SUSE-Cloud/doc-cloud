@@ -1,0 +1,656 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="config_ceph">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Ceph Deployment and Configurations </title>
+  <abstract>
+    <shortdesc outputclass="hdphidden">Installation and configuration steps for your Ceph
+      backend.</shortdesc>
+  </abstract>
+  <body>
+    <!--not tested-->
+    <p conkeyref="HOS-conrefs/applies-to"/>
+    <!--<section id="expandCollapse"> <sectiondiv outputclass="expandall">Expand All Sections</sectiondiv> <sectiondiv outputclass="collapseall">Collapse All Sections</sectiondiv> </section>-->
+    <p>
+      <keyword keyref="kw-hos-tm"/>  <keyword keyref="kw-hos-version"/> Ceph deployment leverages the cloud lifecycle operations
+      supported by Helion lifecycle management. It provides the simplified lifecycle management of
+      critical cluster operations such as service check, upgrade, and reconfiguring service
+      components. This section assumes that you understand cloud input models and highlights only
+      important aspects of cloud input models pertaining to Ceph. We focus on deployment aspects of
+      the <codeph>entry-scale-kvm-ceph</codeph> input model, which is the most widely used
+      configuration. You can see <xref href="alternative_supported_choice.dita#config_ceph"
+        >Alternative Supported Choices</xref> for the deployment of Ceph with various supported
+      options., To ensure the proper deployment and verification of Ceph, it is important to read
+      the topics and perform the steps in order. This section provides insight on how to alter the
+        <codeph>entry-scale-kvm-ceph</codeph> input model to deploy Ceph with various supported
+      options. We recommend that you deploye your supported choice only after evaluating all pros
+      and cons.<ol id="ol_axm_tdq_kw">
+        <li><xref href="#config_ceph/pre-deployment" format="dita">Predeployment</xref><ol
+            id="ol_ycb_13z_jw">
+            <li>Define an OSD Disk Model for an OSD Disk</li>
+            <li>Customize Your Service Configuration</li>
+          </ol></li>
+        <li><xref href="#config_ceph/deploying-ceph" format="dita">Deploying Ceph</xref></li>
+        <li><xref href="#config_ceph/verify-ceph-cluster" format="dita">Verifying Ceph Cluster
+            Status</xref></li>
+      </ol></p>
+    <section>
+      <title id="pre-deployment">Predeployment</title>
+      <p>Before you start deploying the <keyword keyref="kw-hos-tm"/> cloud with Ceph, you must
+        understand the following aspects of Ceph clusters,<ul id="ul_hn5_3vh_gw">
+          <li id="define-osd"><b>Define an OSD Disk Model for an OSD Disk</b><p>This section focus
+              on expressing the storage requirements of an OSD (object-storage daemon) node. OSD
+              nodes have system, data, and journal disks. </p><p>System disks are used for OSD
+              components, logging, and other tasks. The configuration of data and journal disks in
+              important for Ceph deployment. A sample disk model file for the
+                <codeph>entry-scale-kvm-ceph</codeph> cloud is as follows.</p><p>
+              <codeblock>---
+  product:
+    version: 2
+
+  disk-models:
+  - name: OSD-DISKS
+    # Disk model to be used for Ceph OSD nodes
+    # /dev/sda_root is used as a volume group for /, /var/log and /var/crash
+    # sda_root is a templated value to align with whatever partition is really used
+    # This value is checked in os config and replaced by the partition actually used
+    # on sda e.g. sda1 or sda5
+
+    volume-groups:
+      - name: hlm-vg
+        physical-volumes:
+          - /dev/sda_root
+
+        logical-volumes:
+        # The policy is not to consume 100% of the space of each volume group.
+        # 5% should be left free for snapshots and to allow for some flexibility.
+          - name: root
+            size: 30%
+            fstype: ext4
+            mount: /
+          - name: log
+            size: 45%
+            mount: /var/log
+            fstype: ext4
+            mkfs-opts: -O large_file
+          - name: crash
+            size: 20%
+            mount: /var/crash
+            fstype: ext4
+            mkfs-opts: -O large_file
+        consumer:
+           name: os
+
+    # Disks to be used by Ceph
+    # Additional disks can be added if available
+    device-groups:
+      - name: ceph-osd-data-and-journal
+        devices:
+          - name: /dev/sdc
+        consumer:
+           name: ceph
+           attrs:
+             usage: data
+             journal_disk: /dev/sdd
+      - name: ceph-osd-data-and-shared-journal-set-1
+        devices:
+          - name: /dev/sde
+        consumer:
+           name: ceph
+           attrs:
+             usage: data
+             journal_disk: /dev/sdg
+      - name: ceph-osd-data-and-shared-journal-set-2
+        devices:
+          - name: /dev/sdf
+        consumer:
+           name: ceph
+           attrs:
+             usage: data
+             journal_disk: /dev/sdg</codeblock>
+            </p><p>The disk model has the following parameters:</p><p>
+              <table frame="all" rowsep="1" colsep="1" id="ceph1">
+                <tgroup cols="2">
+                  <colspec colname="c1" colnum="1"/>
+                  <colspec colname="c2" colnum="2"/>
+                  <thead>
+                    <row>
+                      <entry>Value</entry>
+                      <entry>Description</entry>
+                    </row>
+                  </thead>
+                  <tbody>
+                    <row>
+                      <entry><b>device-groups</b></entry>
+                      <entry>The name of the device group. There can be several device groups, which
+                        allows different sets of disks to be used for different purposes.</entry>
+                    </row>
+                    <row>
+                      <entry><b>name</b></entry>
+                      <entry>An arbitrary name for the device group. The name must be
+                        unique.</entry>
+                    </row>
+                    <row>
+                      <entry><b>devices</b></entry>
+                      <entry>A list of devices allocated to the device group. A
+                          <codeph>name</codeph> field containing <codeph>/dev/sdb</codeph>,
+                          <codeph>/dev/sdc</codeph>, <codeph>/dev/sde</codeph>, and
+                          <codeph>/dev/sdf</codeph> indicates that the device group is used by
+                        Ceph.</entry>
+                    </row>
+                    <row>
+                      <entry><b>consumer</b></entry>
+                      <entry>The service that uses the device group. A <codeph>name</codeph> field
+                        containing <b>ceph</b> indicates that the device group is used by
+                        Ceph.</entry>
+                    </row>
+                    <row>
+                      <entry><b>attrs</b></entry>
+                      <entry>Attributes associated with the consumer.</entry>
+                    </row>
+                    <row>
+                      <entry><b>usage</b></entry>
+                      <entry>Devices for a particular service can have several uses. In the
+                        preceding sample, the <codeph>usage</codeph> field contains <b>data</b>,
+                        which indicates that the device is used for data storage.</entry>
+                    </row>
+                    <row>
+                      <entry><b>journal_disk</b> [OPTIONAL]</entry>
+                      <entry>The disk to be used for storing journal data. When running multiple
+                        Ceph OSDs on a single node, a journal disk can be shared between OSDs of the
+                          node.<p>If you do not specify this value, Ceph stores the journal on the
+                          OSD's data disk (in a separate partition).</p></entry>
+                    </row>
+                  </tbody>
+                </tgroup>
+              </table>
+            </p><p>The preceding sample file represents the following:<ul id="ul_g4v_m2q_kw">
+                <li>The first disk is used for OS and system purposes.</li>
+                <li>There are three OSD data disks (sdc, sde, and sdf) and two journal disks (sdd
+                  and sdg). This configuration shows that we can share journal disks for multiple
+                  OSDs. It is recommended to use an OSD journal disk for four OSD data disks. See
+                    <i>Usage of Journal Disk</i> for more details.</li>
+                <li>The drive type is not mentioned for the journal or data disks. You can consume
+                  any drive type but we <b>recommend</b> using an SSD (solid-state drive) for the
+                  journal disk.</li>
+              </ul></p><p>Although the preceding model illustrates mixed use of the journal disk, we
+              strongly advise that you keep journal data separate from OSD data, which means that
+              your disk model <b>should not</b> have journal disks shared on the same data disks.
+              For more information, see <i>Usage of Journal Disk</i>.</p><p><b>Usage of Journal
+                Disk</b></p><p><keyword keyref="kw-hos-tm"/>
+              <keyword keyref="kw-hos-version"/> recommends storing the Ceph OSD journal on an SSD
+              and the OSD object data on a separate hard disk drive. SSD drives are costly, so it
+              saves money to use multiple partitions in a single SSD drive for multiple OSD
+              journals. We recommend not more than four or five OSD journals on each SSD disk as a
+              reasonable balance between cost and optimal performance. If you have too many OSD
+              journals on a single SSD, and the journal disk crashes, you might lose your data on
+              those disks. Also, too many journals in a single SSD can negatively affect
+              performance.</p><p>Using an OSD journal as a partition on the data disk itself is
+              supported. However, you might see a significant decline in Ceph performance because
+              each client request to store an object is first written to the journal disk before
+              sending an acknowledgment to the client.</p><p>The Ceph OSD journal size defaults to
+              5120 MB (5 GB) in <keyword keyref="kw-hos-tm"/>
+              <keyword keyref="kw-hos-version"/>. This value can be changed, but it does not apply
+              to any existing journal partitions. It will affect new OSDs created after the journal
+              size is changed (whether the journal is on the same disk or a separate disk than the
+              data disk). To change the journal size, edit the <codeph>osd_journal_size</codeph>
+              parameter in the <codeph>~/helion/my_cloud/config/ceph/settings.yml</codeph>
+              file.</p><p>To summarize: <ol id="ol_sbp_v3z_jw">
+                <li>Use SSD for the journal disk. </li>
+                <li>The ratio of OSD data disks to the journal disk is recommended to 4:1.</li>
+                <li>The default journal partition size is 5 GB, which you can change. Actual journal
+                  size depends upon your disk drive <codeph>rpm</codeph> and expected throughput.
+                  The formula is: OSD journal size = {2 * (expected throughput * filestore max sync
+                  interval)} </li>
+                <li>The journal size for previously configured OSD
+                  disks<!-- (post day zero case) --> does not change even if you change the
+                    <codeph>osd_journal_size</codeph> parameter in the
+                    <codeph>~/helion/my_cloud/config/ceph/settings.yml</codeph> file. If you want to
+                  resize the journal partition of prevously configured OSD disks, you should flush
+                  journal data, remove the OSD from the cluster, and then add it again. </li>
+              </ol></p></li>
+        </ul></p>
+      <p>
+        <ul id="ul_ldl_p5q_kw">
+          <li><b>Customize Your Service Configuration</b><p>You must customize the paramters in the
+              following files:<ul id="ul_crx_hfq_kw">
+                <li>Customize the parameters in the
+                    <codeph>~/helion/my_cloud/config/ceph/settings.yml</codeph> file.<p><keyword
+                      keyref="kw-hos-tm"/> makes it easy to configure service parameters. All common
+                    parameters are available in the
+                      <codeph>~/helion/my_cloud/config/ceph/settings.yml</codeph> file. You can
+                    deploy your cluster without altering any of the parameters but we advise that
+                    you review and understand the parameters before deploying your cluster. The
+                    following link will assist you in the understanding of CEPH placement-groups:
+                      <xref
+                      href="http://docs.ceph.com/docs/master/rados/operations/placement-groups/"
+                      format="html" scope="external"
+                      >http://docs.ceph.com/docs/master/rados/operations/placement-groups/</xref>
+                    The following table provides details about parameters you can change and
+                    descriptions of those parameters.</p><p><b>Core Service Parameters</b></p><p>
+                    <simpletable frame="all" relcolwidth="1.0* 1.0* 1.0* 1.0*"
+                      id="simpletable_ztr_22v_kw">
+                      <sthead>
+                        <stentry>Parameter</stentry>
+                        <stentry>Description</stentry>
+                        <stentry>Default Value</stentry>
+                        <stentry>Recommendation</stentry>
+                      </sthead>
+                      <strow>
+                        <stentry>ceph_cluster</stentry>
+                        <stentry>The name of the Ceph clusters. The default value is Ceph.</stentry>
+                        <stentry>Ceph</stentry>
+                        <stentry>Customize to suit your requirements.</stentry>
+                      </strow>
+                      <strow>
+                        <stentry>ceph_release</stentry>
+                        <stentry>The name of the Ceph release.</stentry>
+                        <stentry>hammer</stentry>
+                        <stentry>Do not change the default value.</stentry>
+                      </strow>
+                      <strow>
+                        <stentry>osd_pool_default_size</stentry>
+                        <stentry>The number of replicas for objects in the pool.</stentry>
+                        <stentry>3</stentry>
+                        <stentry>Do not lower the default value. The value can be increased to the
+                          maximum number of OSD nodes in the environment (increasing it beyond this
+                          limit will cause the cluster to never reach an active+clean
+                          state).</stentry>
+                      </strow>
+                      <strow>
+                        <stentry>osd_pool_default_pg_num</stentry>
+                        <stentry>The default number of placement groups for a pool. This value
+                          changes based on the number of OSDs available.</stentry>
+                        <stentry>128</stentry>
+                        <stentry>The value can be changed based on the number of OSD servers/nodes
+                          in the deployment. Refer to the Ceph PG calculator at <xref
+                            href="http://ceph.com/pgcalc/" format="html" scope="external"
+                            >http://ceph.com/pgcalc/</xref> to customize it.</stentry>
+                      </strow>
+                      <strow>
+                        <stentry>fstype</stentry>
+                        <stentry>Storage filesystem type for OSDs.</stentry>
+                        <stentry>xfs</stentry>
+                        <stentry>Only the xfs file system is certified.</stentry>
+                      </strow>
+                      <strow>
+                        <stentry>zap_data_disk</stentry>
+                        <stentry>Zap partition table and contents of the disk.</stentry>
+                        <stentry>True</stentry>
+                        <stentry>Not recommended to change the default value.</stentry>
+                      </strow>
+                      <strow>
+                        <stentry>persist_mountpoint</stentry>
+                        <stentry>Place to persist OSD data disk mount point.</stentry>
+                        <stentry>fstab</stentry>
+                        <stentry>Not recommended to change the default value (as it ensures that the
+                          OSD data disks are mounted automatically on a system reboot).</stentry>
+                      </strow>
+                      <strow>
+                        <stentry>osd_settle_time</stentry>
+                        <stentry>The time in seconds to wait for after starting/restarting Ceph OSD
+                          services.</stentry>
+                        <stentry>10 seconds</stentry>
+                        <stentry>Increase this value only if the number of OSD servers is more than
+                          three or the servers have a slow network.</stentry>
+                      </strow>
+                      <strow>
+                        <stentry>osd_journal_size</stentry>
+                        <stentry>The size of the journal in megabytes.</stentry>
+                        <stentry>5120</stentry>
+                        <stentry>You can increase this value to achieve optimal use of the journal
+                          disk (if it is shared between multiple OSDs).</stentry>
+                      </strow>
+                      <strow>
+                        <stentry>data_disk_poll_attempts</stentry>
+                        <stentry>The maximum number of attempts before attempting to activate an OSD
+                          for a new disk (default value 5). </stentry>
+                        <stentry>5</stentry>
+                        <stentry>Increase this value only if the OSD data disk drives are
+                          under-performing or slower than expected. Because this parameter and
+                            <codeph>data_disk_poll_interval</codeph> (following) have a combined
+                          effect, we recommend that you consider both while tweaking either of
+                          them.</stentry>
+                      </strow>
+                      <strow>
+                        <stentry>data_disk_poll_interval</stentry>
+                        <stentry>The time interval in seconds to wait between
+                            <codeph>data_disk_poll_attempts</codeph>.</stentry>
+                        <stentry>12</stentry>
+                        <stentry>You can customize this value to suit your requirements. However,
+                          because this parameter and <codeph>data_disk_poll_attempts</codeph>
+                          (preceding) have a combined effect, we recommend that you consider both
+                          while tweaking either of them,</stentry>
+                      </strow>
+                      <strow>
+                        <stentry>osd_max_open_files</stentry>
+                        <stentry>Maximum number of file descriptors for OSD.</stentry>
+                        <stentry>32768</stentry>
+                        <stentry>Do not change the default value.</stentry>
+                      </strow>
+                      <strow>
+                        <stentry>mon_default_dir</stentry>
+                        <stentry>Directory to store monitor data.</stentry>
+                        <stentry><codeph>/var/lib/ceph/mon/&lt;ceph_cluster></codeph></stentry>
+                        <stentry>Do not change the default value.</stentry>
+                      </strow>
+                      <strow>
+                        <stentry>mon_max_open_files</stentry>
+                        <stentry>Maximum number of file descriptors for monitor.</stentry>
+                        <stentry>16384</stentry>
+                        <stentry>Do not change the default value.</stentry>
+                      </strow>
+                      <strow>
+                        <stentry>root_bucket</stentry>
+                        <stentry>Ceph CRUSH map root bucket name.</stentry>
+                        <stentry>default</stentry>
+                        <stentry>Not recommended to change the default value. <p>Changing this value
+                            affects CRUSH map and data placement. If you change the default value
+                            ensure to create a new rule set with a new root bucket and map the Ceph
+                            storage pools to use a new rule set. </p>It is strongly recommended not
+                          to change this value post day-zero deployment. Changing the value after
+                          deployment results in a newly added OSD nodes to go to a newer
+                            <codeph>root_bucket</codeph>. It affects placement of the placement
+                          groups (data) of the storage pools. <p>If you are upgrading cluster(s)
+                            from <keyword keyref="kw-hos-tm"/> 3.0 to <keyword keyref="kw-hos-tm"/>
+                            <keyword keyref="kw-hos-version"/>, you are strongly advice not to
+                            change the default value of <codeph>root_bucket</codeph>. </p></stentry>
+                      </strow>
+                    </simpletable>
+                  </p><p><b>RADOS Gateway (RGW) Parameters</b></p><p>
+                    <table frame="all" rowsep="1" colsep="1" id="table_gc4_c5t_5t">
+                      <tgroup cols="4">
+                        <colspec colname="c1" colnum="1"/>
+                        <colspec colname="c2" colnum="2"/>
+                        <colspec colname="newCol3" colnum="3" colwidth="1*"/>
+                        <colspec colname="newCol4" colnum="4" colwidth="1*"/>
+                        <thead>
+                          <row>
+                            <entry>Parameter</entry>
+                            <entry>Description</entry>
+                            <entry>Default Value</entry>
+                            <entry>Recommendation</entry>
+                          </row>
+                        </thead>
+                        <tbody>
+                          <row>
+                            <entry>radosgw_user</entry>
+                            <entry>The name of the Ceph client user for
+                              <codeph>radosgw</codeph>.</entry>
+                            <entry>gateway</entry>
+                            <entry>Customize to suit your requirements.</entry>
+                          </row>
+                          <row>
+                            <entry>radosgw_admin_email </entry>
+                            <entry>The email address of the server administrator. </entry>
+                            <entry>
+                              <codeph>admin@hpe.com</codeph></entry>
+                            <entry>Update the email address of the server administrator.</entry>
+                          </row>
+                          <row>
+                            <entry>rgw_keystone_service_type</entry>
+                            <entry namest="c2" nameend="newCol4"><p><b>DEPRECATED</b></p>To
+                              configure RADOS Gateway before deployment refer to <xref
+                                href="#config_ceph/configure_service_type" format="dita">Configuring
+                                the service type before deployment</xref>.</entry>
+                          </row>
+                          <row>
+                            <entry>rgw_keystone_accepted_roles </entry>
+                            <entry>Only users having either of the roles listed here will be able to
+                              access the Swift APIs of <codeph>radosgw</codeph>.</entry>
+                            <entry><codeph>admin</codeph>, <i>_member_</i></entry>
+                            <entry>Do not change the default value.</entry>
+                          </row>
+                        </tbody>
+                      </tgroup>
+                    </table>
+                  </p><p>
+                    <note>The default service password for the RADOS Gateway service can be modified
+                      by following the steps documented at<xref
+                        href="../../operations/change_service_passwords.dita#servicePasswords/changing-keystone-credentials-for-rgw"
+                        > Changing RADOS Gateway Credentials</xref>.</note>
+                  </p><p id="configure_service_type"><b>Configuring the RADOS Gateway service type
+                      in the Keystone catalog </b>
+                  </p><p><b>Configuring the service type before deployment</b></p><p><ol
+                      id="ol_lpg_sw5_kx">
+                      <li>You can configure the RADOS Gateway service type in Keystone catalog by
+                        replacing the <codeph>ceph-object-store</codeph> with desired value in
+                          <codeph>~/helion/hos/services/ceph/rgw.yml</codeph> file on the life cycle
+                        manager
+                        node.<codeblock>advertises-to-services:
+     -  service-name: KEY-API
+        entries:
+        -   service-name: ceph-rgw
+            <b>service-type: ceph-object-store</b>
+            service-description: "Ceph Object Storage Service"
+            url-suffix: "/swift/v1"
+</codeblock></li>
+                      <li>After you have modified the <b>service-type</b>, commit the change to the
+                        local git
+                        repository.<codeblock>cd ~/helion
+git checkout site
+git add ~/helion/hos/services/ceph/rgw.yml
+git commit -m "Updating the RADOS Gateway service type"</codeblock></li>
+                      <li>Rerun the configuration
+                        processor.<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+                      <li>Rerun the deployment area preparation
+                        playbooks.<codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</codeblock></li>
+                      <li>Run reconfiguration playbook in deployment
+                        area.<pre>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts keystone-reconfigure.yml</pre></li>
+                    </ol>
+                    <b>Configuring the RADOS Gateway service type after deployment</b>
+                  </p><p>To update the RADOS Gateway service type in a deployed or a running cloud,
+                    you must delete the <codeph>ceph-rgw</codeph> service from the Keystone catalog
+                    and perform the same steps as mentioned in the preceeding section (<xref
+                      href="#config_ceph/configure_service_type" format="dita">Configuring the
+                      service type before deployment</xref>).<ol id="ol_vbc_wt5_kx">
+                      <li>To delete the <codeph>ceph-rgw</codeph> service, you must know the
+                        service-id. Execute the following command from a controller
+                        node.<codeblock>source ~/keystone.osrc
+openstack service list |grep ceph-rgw | awk '{print $2}'
+openstack service delete &lt;service-id></codeblock><p/></li>
+                    </ol></p>
+                  <b>Ceph client parameters</b><table frame="all" rowsep="1" colsep="1"
+                    id="table_fgv_c3m_hw">
+                    <tgroup cols="4">
+                      <colspec colname="c1" colnum="1"/>
+                      <colspec colname="c2" colnum="2"/>
+                      <colspec colname="newCol3" colnum="3" colwidth="1*"/>
+                      <colspec colname="newCol4" colnum="4" colwidth="1*"/>
+                      <thead>
+                        <row>
+                          <entry>Value</entry>
+                          <entry>Description</entry>
+                          <entry>Default Value</entry>
+                          <entry>Recommendation</entry>
+                        </row>
+                      </thead>
+                      <tbody>
+                        <row>
+                          <entry>pg_active_delay_time</entry>
+                          <entry>The delay time for Ceph PGs to come into active state. </entry>
+                          <entry>10</entry>
+                          <entry>You can increase this value if the number of OSD servers/nodes in
+                            the deployment is more than three. Because this parameter and
+                              <b>pg_active_retries</b> (following) have a combined effect, we
+                            recommend that you consider both while tweaking either of them.</entry>
+                        </row>
+                        <row>
+                          <entry>pg_active_retries</entry>
+                          <entry>The number of retries for Ceph placement groups to come into active
+                            state with a duration of <codeph>pg_active_delay_time</codeph> seconds
+                            between entries.</entry>
+                          <entry>5</entry>
+                          <entry>You can customize this value to suit your requirements. However,
+                            because this parameter and <b>pg_active_delay_time</b> (preceding) have
+                            a combined effect, we recommend that you consider both while tweaking
+                            either of them.</entry>
+                        </row>
+                      </tbody>
+                    </tgroup>
+                  </table></li>
+                <li>Customize parameters at
+                    <codeph>~/helion/hos/ansible/roles/_CEP-CMN/defaults/main.yml</codeph>.<p>The
+                    following table provides parameter descriptions. You can edit each parameter in
+                    the <codeph>main.yml</codeph> file.</p><p>
+                    <table frame="all" rowsep="1" colsep="1" id="table_n3k_lrc_5v">
+                      <tgroup cols="2">
+                        <colspec colname="c1" colnum="1"/>
+                        <colspec colname="c2" colnum="2"/>
+                        <thead>
+                          <row>
+                            <entry>Value</entry>
+                            <entry>Description</entry>
+                          </row>
+                        </thead>
+                        <tbody>
+                          <row>
+                            <entry>fsid</entry>
+                            <entry>A unique identifier, File System ID, for the Ceph cluster that
+                              you should generate prior to deploying a cluster (use the
+                                <codeph>uuidgen</codeph> command to generate a new FSID). When set,
+                              this value cannot be changed.</entry>
+                          </row>
+                        </tbody>
+                      </tgroup>
+                    </table>
+                  </p></li>
+              </ul></p></li>
+        </ul>
+      </p>
+    </section>
+    <section>
+      <title id="deploying-ceph">Deploying Ceph</title>
+      <p>To deploy a new <keyword keyref="kw-hos-tm"/> Ceph cloud using the default
+          <codeph>entry-scale-kvm-ceph</codeph> model, follow these
+        steps<!--, starting with <b>Edit Your Ceph Environment Input Files</b>-->. 
+        <note audience="INTERNAL">
+          <p>
+            <ul id="ul_xk2_rz3_sx">
+              <li>In a multi-region cloud, Ceph can be deployed only as a shared service. In other
+                words, Ceph services (Monitor, OSD, and RADOS Gateway servers) should be deployed in
+                the shared control plane (such that those services will run in the same control
+                plane as the Keystone service) ONLY.</li>
+              <li>The non-shared control plane(s) need to ensure that the ceph-monitor service is
+                specified in the <b>service_components</b> section of uses and <b>imports</b>
+                sections of the control plane definition.</li>
+              <li>Ensure that all the regions that need access to Ceph have the shared control plane
+                included.</li>
+            </ul>
+          </p>
+        </note></p>
+      <p><b>Edit Your Ceph Environment Input Files</b></p>
+      <p>Perform the following steps:<ol id="ol_ipw_lfc_2w">
+          <li>Log in to the lifecycle manager.</li>
+          <li>Copy the example configuration files into the required setup directory and edit them
+            to contain the details of your environment:
+              <codeblock>cp -r ~/helion/examples/entry-scale-kvm-ceph/* ~/helion/my_cloud/definition/</codeblock><p>Enter
+              your environment information into the configuration files in the
+                <codeph>~/helion/my_cloud/definition</codeph> directory.</p><p>You can find details
+              of how to do this at <xref
+                href="../../architecture/input_model/input_model.dita#input_model">Input
+                Model</xref>.</p></li>
+          <li>Edit the <codeph>~/helion/my_cloud/definition/data/servers.yml</codeph> file and enter
+            details. If you are using alternative RADOS Gateway deployments, see <xref
+              href="alternative_supported_choice.dita#config_ceph">Alternative Supported
+              Choice</xref> before editing the <codeph>servers.yml</codeph>
+              file.<codeblock> # Ceph OSD Nodes
+    - id: osd1
+      ip-addr: 192.168.10.9
+      role: OSD-ROLE
+      server-group: RACK1
+      nic-mapping: MY-2PORT-SERVER
+      mac-addr: "8b:f6:9e:ca:3b:78"
+      ilo-ip: 192.168.9.9
+      ilo-password: password
+      ilo-user: admin 
+    
+    - id: osd2
+      ip-addr: 192.168.10.10
+      role: OSD-ROLE
+      server-group: RACK2
+      nic-mapping: MY-2PORT-SERVER
+      mac-addr: "8b:f6:9e:ca:3b:79"
+      ilo-ip: 192.168.9.10
+      ilo-password: password
+      ilo-user: admin 
+ 
+    - id: osd3
+      ip-addr: 192.168.10.11
+      role: OSD-ROLE
+      server-group: RACK3
+      nic-mapping: MY-2PORT-SERVER
+      mac-addr: "8b:f6:9e:ca:3b:7a"
+      ilo-ip: 192.168.9.11
+      ilo-password: password
+      ilo-user: admin 
+
+# Ceph RGW Nodes 
+   - id: rgw1 
+     ip-addr: 192.168.10.12 
+     role: RGW-ROLE 
+     server-group: RACK1 
+     nic-mapping: MY-2PORT-SERVER 
+     mac-addr: "8b:f6:9e:ca:3b:62" 
+     ilo-ip: 192.168.9.12 
+     ilo-password: password 
+     ilo-user: admin 
+
+   - id: rgw2 
+     ip-addr: 192.168.10.13 
+     role: RGW-ROLE 
+     server-group: RACK2 
+     nic-mapping: MY-2PORT-SERVER 
+     mac-addr: "8b:f6:9e:ca:3b:63" 
+     ilo-ip: 192.168.9.13 
+     ilo-password: password 
+     ilo-user: admin </codeblock><p>The
+              preceding sample file contains three OSD nodes and two RADOS Gateway nodes.</p></li>
+          <li>Edit the <codeph>~/helion/my_cloud/definition/data/disks_osd.yml</codeph> file to
+            align the disk model to fit the server specification in your environment. For details on
+            disk models, refer to <xref href="#config_ceph/define-osd" format="dita">disk
+              model</xref>.<p>Ceph service configuration parameters can be modified as described in
+              the preceding <b>Predeployment</b> section.</p></li>
+          <li>Commit your configuration to the <xref href="../using_git.dita">local git
+              repo</xref>:
+            <codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -m "My config or other commit message"</codeblock></li>
+          <li> After you set up your configuration files, continue with the installation procedure
+            from <xref href="../installing_kvm.dita#install_kvm/provision">Provision Your Baremetal
+              Nodes</xref> . <p>
+              <note>For any troubleshooting information regarding the OSD node failure, see <xref
+                  href="../../operations/troubleshooting/ts_ceph.dita#troubleshooting_ceph">Ceph
+                  Storage Troubleshooting</xref>.</note>
+            </p></li>
+        </ol></p>
+    </section>
+    <section>
+      <title id="verify-ceph-cluster">Verifying Ceph Cluster Status</title>
+      <p>If you have deployed RADOS Gateway with core Ceph, then you need to ensure that all service
+        components including RADOS Gateway are functioning as expected.</p>
+      <p><b>Verify Core Ceph</b></p>
+      <p>Perform the following steps to check the status of the Ceph cluster:<ol id="ol_knp_2z2_2w">
+          <li>Log in to the monitor node.</li>
+          <li>Execute the following command and make sure that the result is HEALTH_OK or
+              HEALTH_WARN:<codeblock>$ ceph health</codeblock><p>Optionally, you can also set up the
+              lifecycle manager as a Ceph client node (refer to <xref
+                href="usage_ceph_storage_helion.dita#ceph_storage_usage/setup-deployer-node">Set Up the
+                Lifecycle Manager as a Ceph Client</xref>) and execute the preceding command from
+              the lifecycle manager.</p></li>
+        </ol></p>
+    </section>
+    <p><b>Verify RADOS Gateway</b></p>
+    <p>To make sure that a Keystone user can access RADOS Gateway using Swift, perform the following
+        steps:<ol id="ol_ldl_nhl_lw">
+        <li>Log in to a controller node.</li>
+        <li>Source the <codeph>service.osrc</codeph>
+          file:<codeblock>source ~/service.osrc</codeblock></li>
+        <li>Execute the following command to generate a list of the containers associated with the
+            user:<codeblock>swift --os-service-type ceph-object-store list</codeblock><p>If the
+            containers are listed, this indicates that RADOS Gateway is accessible. </p></li>
+      </ol></p>
+  </body>
+</topic>

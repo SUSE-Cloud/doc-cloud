@@ -1,0 +1,297 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="install_esx">
+  <title><ph conkeyref="HOS-conrefs/product-title"/>Installation for Helion Entry Scale ESX, KVM
+    with VSA Model</title>
+  <body>
+    <section id="Configure">
+      <title>Prepare and Deploy Cloud Controllers</title>
+      <ol id="ol_c1w_pfl_ft">
+        <li>Setup your configuration files, as follows: <ol id="ol_sgn_tqy_2x">
+            <li>Copy the example configuration files into the required setup directory and edit them
+              as required:
+                <codeblock>cp -r ~/helion/examples/entry-scale-esx-kvm-vsa/* ~/helion/my_cloud/definition/</codeblock><p>See
+                a sample set of configuration files in the
+                  <codeph>~/helion/examples/entry-scale-esx-kvm-vsa</codeph> directory. The
+                accompanying README.md file explains the contents of each of the configuration
+                files. </p></li>
+            <li>Begin inputting your environment information into the configuration files in the
+                <codeph> ~/helion/my_cloud/definition</codeph> directory. <p>
+                <note>If you want to use a dedicated deployer node in your ESX deployment, add
+                    <b>eon-client</b> service-component, to manage vCenter via EON operation from
+                  the deployer node, in the <codeph>control_plane.yml</codeph> file as shown in the
+                  following example. </note>
+                <codeblock> clusters:
+        - name: cluster0
+          cluster-prefix: c0
+          server-role: HLM-ROLE
+          service-components:
+            - lifecycle-manager
+            - <b>eon-client</b> 
+            ...</codeblock>
+              </p></li>
+          </ol></li>
+        <li>Commit your cloud deploy configuration to the <xref href="../using_git.dita"> local git
+            repo</xref>, as follows: <codeblock>cd ~/helion/hos/ansible
+git add -A
+git commit -m "My config or other commit message"</codeblock>
+          <note>This step needs to be repeated any time you make changes to your configuration files
+            before you move onto the following steps. See <xref href="../using_git.dita">Using Git
+              for Configuration Management</xref> for more information.</note></li>
+      </ol>
+    </section>
+    <p>Then you need to run the following commands to complete your configuration. These commands
+      also verify your configuration.</p>
+    <ol id="ol_og4_jy4_st">
+      <li>Run the following playbook which confirms that there is iLo connectivity for each of your
+        nodes so that they are accessible to be re-imaged in a later step:
+        <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost bm-power-status.yml</codeblock></li>
+      <li>Run the configuration processor, as follows:
+        <codeblock>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</codeblock></li>
+    </ol>
+    <p>If you receive an error during either of these steps then there is an issue with one or more
+      of your configuration files. We recommend that you verify that all of the information in each
+      of your configuration files is correct for your environment and then commit those changes to
+      git using the instructions above.</p>
+
+    <section conref="../installing_kvm.dita#install_kvm/provision"/>
+    <section conref="../installing_kvm.dita#install_kvm/config_processor"/>
+    <section conref="../installing_kvm.dita#install_kvm/deploy"/>
+    <section id="prepAndDeploy">
+      <title>Prepare and Deploy ESX Computes and OVSvAPPs </title>
+      <p>The following sections describe the procedure to install and configure ESX compute and
+        OVSvAPPs on vCenter.</p>
+      <ul id="ul_lns_fjl_ft">
+        <li><xref href="#install_esx/deploy_template" format="dita">Deploy Helion Linux Shell VM
+            Template</xref></li>
+        <li><xref href="#install_esx/prepare_esx_cloud_deployment" format="dita">Preparation for ESX
+            Cloud Deployment</xref></li>
+      </ul>
+    </section>
+    <section id="deploy_template"><b>Deploy Helion Linux Shell VM Template</b><p>The first step in
+        deploying the ESX compute proxy and OVSvAPPs is to create a VM template that will make it
+        easier to deploy the ESX compute proxy for each Cluster and OVSvAPPs on each ESX server.
+        </p><p>Perform the following steps to deploy a template:<ol id="ol_qdt_ljs_ft">
+          <li>Import the <codeph>hlm-shell-vm.ova</codeph> in the vCenter using the vSphere client.
+            The <codeph>hlm-shell-vm.ova</codeph> template available in the following
+            location:<codeblock>location /media/cdrom/hos/ hlm-shell-vm.ova</codeblock></li>
+          <li>In the vSphere Client, click <b>File</b> and then click <b>Deploy OVF
+            Template</b></li>
+          <li>Follow the instructions in the wizard to specify the data center, cluster, and node to
+            install. Refer to the VMWare vSphere documentation as needed.</li>
+        </ol></p></section>
+    <section id="prepare_esx_cloud_deployment"><b>Preparation for ESX Cloud Deployment</b><p>This
+        section describes the procedures to prepare and deploy the ESX computes and OVSvAPPs for
+        deployment. </p><p>
+        <ol id="ol_xpc_zqs_ft">
+          <li>Login to the lifecycle manager.</li>
+          <li>Source <codeph>service.osrc</codeph>.</li>
+          <li><xref href="#install_esx/register-vcenter" format="dita">Register a vCenter
+              Server</xref></li>
+          <li><xref href="#install_esx/activate-cluster" format="dita">Activate Clusters</xref><ol
+              id="ol_isb_wcc_vt">
+              <li><xref href="#install_esx/modify-volume-config" format="dita">Modify the Volume
+                  Configuration File</xref></li>
+              <li><xref href="#install_esx/commit-your-cloud" format="dita">Commit your Cloud
+                  Definition</xref></li>
+              <li><xref href="#install_esx/deploy-compute-proxy-ovsvapps" format="dita">Deploy ESX
+                  Compute Proxy and OVSvApps</xref></li>
+            </ol></li>
+        </ol>
+      </p></section>
+    <p><b>Manage vCenters and Clusters</b></p>
+    <p>The following section describes the detailed procedure on managing the vCenters and
+      clusters.</p>
+    <p id="register-vcenter"><b>Register a vCenter Server</b></p>
+    <p>vCenter provides centralized management of virtual host and virtual machines from a single
+        console.<ol id="ol_xdj_5js_ft">
+        <li>Add a vCenter using EON python
+            client.<codeblock># eon resource-manager-add [--name &lt;RESOURCE_MANAGER_NAME>] --ip-address &lt;RESOURCE_MANAGER_IP_ADDR> --username &lt;RESOURCE_MANAGER_USERNAME> --password &lt;RESOURCE_MANAGER_PASSWORD> [--port &lt;RESOURCE_MANAGER_PORT>] --type &lt;RESOURCE_MANAGER_TYPE></codeblock><p>where:
+              <ul id="ul_bp3_yjs_ft">
+              <li>Resource Manager Name - the identical name of the vCenter server.</li>
+              <li>Resource Manager IP address - the IP address of the vCenter server.</li>
+              <li>Resource Manager Username - the admin privilege username for the vCenter.</li>
+              <li>Resource Manager Password - the password for the above username.</li>
+              <li>Resource Manager Port - the vCenter server port. By default it is 443.</li>
+              <li> Resource Manager Type - specify <codeph>vcenter</codeph>.<note type="important"
+                  >Please do not change the vCenter Port unless you are certain it is required to do
+                  so.</note></li>
+            </ul></p><p><b>Sample
+            Output:</b><codeblock><codeph># eon resource-manager-add --name vc01 --ip-address 10.1.200.38 --username administrator@vsphere.local --password init123# --port 443 --type vcenter</codeph>
++-------------+--------------------------------------+
+| Property    | Value                                |
++-------------+--------------------------------------+
+| ID          | BC9DED4E-1639-481D-B190-2B54A2BF5674 |
+| IPv4Address | 10.1.200.38                          |
+| Name        | vc01                                 |
+| Password    | &lt;SANITIZED>                          |
+| Port        | 443                                  |
+| Type        | vcenter                              |
+| Username    | administrator@vsphere.local          |
++-------------+--------------------------------------+</codeblock></p></li>
+      </ol></p>
+    <section><b>Show vCenter</b><ol id="ol_wh5_rsb_lt">
+        <li>Show vCenter using EON python client.
+              <codeblock># eon resource-manager-show &lt;RESOURCE_MANAGER_ID></codeblock><p><b>Sample
+              Output:</b><codeblock><codeph># eon resource-manager-show BC9DED4E-1639-481D-B190-2B54A2BF5674</codeph>
++-------------+--------------------------------------+
+| Property    | Value                                |
++-------------+--------------------------------------+
+| Clusters    | Cluster1, virtClust, Cluster2        |
+| Datacenters | DC1, DC2                             |
+| ID          | BC9DED4E-1639-481D-B190-2B54A2BF5674 |
+| IPv4Address | 10.1.200.38                          |
+| Name        | vc01                                 |
+| Password    | &lt;SANITIZED>                          |
+| Port        | 443                                  |
+| Type        | vcenter                              |
+| Username    | administrator@vsphere.local          |
++-------------+--------------------------------------+</codeblock></p></li>
+      </ol></section>
+    <section id="register-network"><b>Create and edit an activation template</b>
+      <p>This involves getting a sample network information template and modifying the details of
+        the template. You will use the template to register the cloud network configuration for the
+        vCenter.</p><p>
+        <ol>
+          <li>Execute the following command to generate a sample activation
+                template:<codeblock>eon get-activation-template [--filename &lt;ACTIVATION_JSON_NAME>] --type &lt;RESOURCE_TYPE></codeblock><p><b>Sample
+                Output:</b></p><p>
+              <codeblock>eon get-activation-template --filename activationtemplate.json --type esxcluster
+---------------------------------------------------------------
+Saved the sample network file in /home/user/activationtemplate.json
+---------------------------------------------------------------</codeblock>
+            </p></li>
+          <li>Change to the <codeph>/home/user/</codeph>
+            directory:<codeblock>cd /home/user/</codeblock></li>
+          <li>Modify the template (json file) as per your environment. See <xref
+              href="../install_entryscale_esx_kvm_vsa_template_json.dita#topic4797cgikdjm">Sample
+              activationtemplate.json File for Helion Entry Scale ESX, KVM with VSA
+            Model</xref>.</li>
+        </ol>
+      </p><p/></section>
+    <section id="activate-cluster"><b>Activate Clusters</b><p>This involves using the activation
+        template to register the cloud network configuration for the vCenter.</p>
+      <p>This process spawns one compute proxy VM per cluster and one OVSvApp VM per host and
+        configures the networking as defined in the JSON template. This process also updates the
+        input model with the service VM details and triggers the ansible playbooks on the new
+        nodes.</p>
+      <ol id="ol_tbr_4l4_vv">
+        <li>Activate the cluster for the selected
+            vCenter.<codeblock># eon resource-activate &lt;RESOURCE_ID> --config-json /home/user/&lt;ACTIVATION_JSON_NAME></codeblock><note>:
+            Activating the first cluster in a datacenter requires you to provide an activation
+            template JSON. For subsequent cluster activations, you can provide a new activation
+            template or leave the --config-json empty to use the same template.</note></li>
+        <li>Execute the following command to view the status of the
+            cluster:<codeblock>eon resource-list
++--------------------------------------+-----------+-------------+--------------------------------------+------------+-------+------------+------------+
+| ID                                   | Name      | Moid        | Resource Manager ID                  | IP Address | Port  | Type       | State      |
++--------------------------------------+-----------+-------------+--------------------------------------+------------+-------+------------+------------+
+| 1228fce5-df5d-445c-834e-ae633ac7e426 | Cluster2  | domain-c184 | BC9DED4E-1639-481D-B190-2B54A2BF5674 | UNSET      | UNSET | esxcluster | imported   |
+| 469710f6-e9f2-48a4-aace-1f00cbd60487 | virtClust | domain-c943 | BC9DED4E-1639-481D-B190-2B54A2BF5674 | UNSET      | UNSET | esxcluster | activated  |
+| a3003a32-6e3a-4d89-a072-ec64a4247fb0 | Cluster1  | domain-c21  | BC9DED4E-1639-481D-B190-2B54A2BF5674 | UNSET      | UNSET | esxcluster | imported   |
++--------------------------------------+-----------+-------------+--------------------------------------+------------+-------+------------+------------+</codeblock><p>When
+            the state is <codeph>activated</codeph>, the input model is updated with the service VM
+            details, a git commit has been performed and the required playbooks have completed
+            successfully.</p></li>
+      </ol></section>
+    <section id="modify-volume-config"><b>Modify the Volume Configuration File</b>
+      <p>Once the cluster is activated you must configure the volume.</p><p>Perform the following
+        steps to modify the volume configuration files:</p><ol id="ol_bhx_n5p_st">
+        <li>Change the directory. The <codeph>cinder.conf.j2</codeph> is present in following
+          directories
+            :<codeblock>cd /home/stack/helion/hos/ansible/roles/_CND-CMN/templates</codeblock><p>OR<codeblock>cd /home/stack/helion/my_cloud/config/cinder</codeblock></p><p>It
+            is recommended to modify the <codeph>cinder.conf.j2</codeph> available in
+              <codeph>/home/stack/helion/my_cloud/config/cinder</codeph></p></li>
+        <li>Modify the <codeph>cinder.conf.j2</codeph> as follows:
+          <codeblock># Configure the enabled backends
+enabled_backends=&lt;unique-section-name>
+
+# Start of section for VMDK block storage
+#
+# If you have configured VMDK Block storage for cinder you must
+# uncomment this section, and replace all strings in angle brackets
+# with the correct values for vCenter you have configured. You
+# must also add the section name to the list of values in the
+# 'enabled_backends' variable above. You must provide unique section
+# each time you configure a new backend.
+
+#[&lt;unique-section-name>]
+#vmware_api_retry_count = 10
+#vmware_tmp_dir = /tmp
+#vmware_image_transfer_timeout_secs = 7200
+#vmware_task_poll_interval = 0.5
+#vmware_max_objects_retrieval = 100
+#vmware_volume_folder = cinder-volumes
+#volume_driver = cinder.volume.drivers.vmware.vmdk.VMwareVcVmdkDriver
+#vmware_host_ip = &lt;ip_address_of_vcenter>
+#vmware_host_username = &lt;vcenter_username>
+#vmware_host_password = &lt;password>
+#
+#volume_backend_name = &lt;vmdk-backend-name>
+#
+# End of section for VMDK block storage</codeblock></li>
+      </ol></section>
+    <section id="commit-your-cloud"><b>Commit your Cloud Definition</b>
+      <p>
+        <ol>
+          <li> Add the cloud deployment definition to git
+            :<codeblock>cd /home/stack/helion/hos/ansible;
+git add -A;
+git commit -m 'Adding ESX Configurations or other commit message';</codeblock></li>
+          <li>Prepare your environment for deployment:
+            <codeblock>ansible-playbook -i hosts/localhost config-processor-run.yml;
+ansible-playbook -i hosts/localhost ready-deployment.yml;
+cd /home/stack/scratch/ansible/next/hos/ansible;</codeblock></li>
+        </ol>
+      </p></section>
+    <section id="deploy-compute-proxy-ovsvapps"><b>Configuring VMDK block storage</b><p>Execute the
+        following command to configure VMDK block
+        storage:<codeblock>ansible-playbook -i hosts/verb_hosts cinder-reconfigure.yml</codeblock></p><!--The variable <b>esx-ovsvapp</b> and <b>esx-compute</b> must be taken from the <b>name</b> key in the <codeph>resource-nodes</codeph> section in the <codeph>data/control_plane.yml</codeph> file (<codeph>/home/stack/helion/my_cloud/definition/data/control_plane.yml</codeph>) removed as per Satya's comment. --><p>
+        If there are more backends (like VSA) defined, you must create and use specific volume type
+        to ensure that volume is created in ESX, as shown
+        below:<codeblock># cinder type-create "ESX VMDK Storage"
+...
+# cinder type-key "ESX VMDK Storage" set volume_backend_name=&lt;name of VMDK backend selected during installation>
+...
+# cinder create --volume-type "ESX VMDK Storage" 1
+...</codeblock></p></section>
+    <section>
+      <title>Validate the block storage</title>
+      <p>You can validate that the VMDK block storage is added to the cloud successfully using the
+        following
+        command:<codeblock># cinder service-list</codeblock><codeblock>+------------------+-------------------------+------+---------+-------+----------------------------+-----------------+
+|      Binary      |           Host          | Zone |  Status | State |         Updated_at         | Disabled Reason |
++------------------+-------------------------+------+---------+-------+----------------------------+-----------------+
+|  cinder-backup   |    ha-volume-manager    | nova | enabled |   up  | 2016-06-14T08:44:51.000000 |        -        |
+| cinder-scheduler |    ha-volume-manager    | nova | enabled |  down | 2016-06-13T08:47:07.000000 |        -        |
+| cinder-scheduler |    ha-volume-manager    | nova | enabled |   up  | 2016-06-14T08:44:57.000000 |        -        |
+|  cinder-volume   |    ha-volume-manager    | nova | enabled |  down | 2016-06-13T07:36:41.000000 |        -        |
+|  cinder-volume   | ha-volume-manager@vmdk1 | nova | enabled |   up  | 2016-06-14T08:44:55.000000 |        -        |
+|  cinder-volume   |  ha-volume-manager@vsa1 | nova | enabled |   up  | 2016-06-14T08:44:50.000000 |        -        |
++------------------+-------------------------+------+---------+-------+----------------------------+-----------------+</codeblock></p>
+    </section>
+    <section id="verify">
+      <title>Validate the compute</title>
+      <p>You can validate that the ESX compute cluster is added to the cloud successfully using the
+        following command:</p>
+      <p>
+        <codeblock>#  nova service-list</codeblock>
+        <codeblock>+-----+------------------+------------------------------+----------+---------+-------+----------------------------+-----------------+
+| Id  | Binary           | Host                         | Zone     | Status  | State | Updated_at                 | Disabled Reason |
++-----+------------------+------------------------------+----------+---------+-------+----------------------------+-----------------+
+| 3   | nova-conductor   | esxhos-joh-core-m1-mgmt      | internal | enabled | up    | 2016-03-30T12:57:47.000000 | -               |
+| 63  | nova-scheduler   | esxhos-joh-core-m1-mgmt      | internal | enabled | up    | 2016-03-30T12:57:43.000000 | -               |
+| 66  | nova-conductor   | esxhos-joh-core-m2-mgmt      | internal | enabled | up    | 2016-03-30T12:57:48.000000 | -               |
+| 111 | nova-conductor   | esxhos-joh-core-m3-mgmt      | internal | enabled | up    | 2016-03-30T12:57:41.000000 | -               |
+| 129 | nova-scheduler   | esxhos-joh-core-m3-mgmt      | internal | enabled | up    | 2016-03-30T12:57:41.000000 | -               |
+| 132 | nova-consoleauth | esxhos-joh-core-m1-mgmt      | internal | enabled | up    | 2016-03-30T12:57:44.000000 | -               |
+| 135 | nova-scheduler   | esxhos-joh-core-m2-mgmt      | internal | enabled | up    | 2016-03-30T12:57:47.000000 | -               |
+| 138 | nova-compute     | esxhos-joh-esx-comp0001-mgmt | nova     | enabled | up    | 2016-03-30T12:57:41.000000 | -               |
++-----+------------------+------------------------------+----------+---------+-------+----------------------------+-----------------+</codeblock>
+      </p>
+    </section>
+  </body>
+</topic>

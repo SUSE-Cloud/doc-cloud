@@ -1,0 +1,525 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Edit status: not edited-->
+<!DOCTYPE topic
+  PUBLIC "-//OASIS//DTD DITA Topic//EN" "http://docs.oasis-open.org/dita/v1.1/OS/dtd/topic.dtd"><topic xml:lang="en-us" id="topic13781">
+<title>HPE Helion <tm tmtype="reg">OpenStack</tm> 1.1: Flexible Control Plane Installation</title>
+<prolog>
+<metadata>
+<othermeta name="layout" content="default"/>
+<othermeta name="product-version" content="HPE Helion Openstack"/>
+<othermeta name="product-version" content="HPE Helion Openstack 1.1"/>
+<othermeta name="role" content="Systems Administrator"/>
+<othermeta name="role" content="Cloud Architect"/>
+<othermeta name="role" content="Storage Administrator"/>
+<othermeta name="role" content="Network Administrator"/>
+<othermeta name="role" content="Service Developer"/>
+<othermeta name="role" content="Cloud Administrator"/>
+<othermeta name="role" content="Application Developer"/>
+<othermeta name="role" content="Network Engineer"/>
+<othermeta name="role" content="Geraldine K,"/>
+<othermeta name="product-version1" content="HPE Helion Openstack"/>
+<othermeta name="product-version2" content="HPE Helion Openstack 1.1"/>
+</metadata>
+</prolog>
+<body>
+
+<!--PUBLISHED-->
+ <!--./commercial/GA1/1.1commerical.flexible-control-pane-installation.md-->
+ <!--permalink: /helion/openstack/1.1/flexiblecontrol/install/-->
+
+
+<p>As you can see in the <xref href="1.1commerical.flexible-control-pane-overview.dita">overview</xref> 
+  of the documentation for 1.0, HPE Helion Openstack Flexible Control Plane (FCP) allows you to deploy the control plane in a virtual environment, reducing the control plane footprint to just three servers for proof of concept, evaluation, and exploration of HPE Helion Openstack features.</p>
+    <note>As of HPE Helion OpenStack 1.1.1, FCP is in an experimental phase and we do not recommend
+      you use FCP in your production environment. We recommend that you test FCP in your test
+      environment, for small-scale clouds of up to eight compute nodes.</note>
+<p>For additional information about FCP, contact the HPE Helion Support Center.</p>
+<p>The overview covered the <xref href="1.1commerical.flexible-control-pane-overview.dita">prerequisites</xref>. Now we will walk through the installation.</p>
+<p>This page contains:</p>
+<ul>
+<li>
+<xref type="section" href="#topic13781/instruct">Step-by-step Installation Instructions</xref>
+</li>
+<li>
+<xref type="section" href="#topic13781/postinstall">Post-Installation Steps</xref>
+</li>
+<li>
+<xref type="section" href="#topic13781/addnodes">Adding the Overcloud Nodes</xref>
+</li>
+<li>
+<xref type="section" href="#topic13781/knownissues">Known Issues and Resolutions</xref>
+</li>
+</ul>
+<section id="before-you-begin"> <title>Before You Begin</title>
+<p>Before you can install Helion OpenStack using the FCP approach, you will need to:</p>
+<ul>
+<li>
+  <xref href="1.1commerical.flexible-control-pane-overview.dita#topic6925/prereq" type="section">Review prerequisites and configure the infrastructure</xref> accordingly</li>
+<li>
+<xref href="1.1commerical.flexible-control-pane-overview.dita#configfiles" type="section">Create configuration files</xref>
+</li>
+<li>
+<xref href="1.1commerical.flexible-control-pane-overview.dita#kvmsetup" type="section">Set up KVM hosts</xref>
+</li>
+<li>Deploy an HPE Helion cloud</li>
+</ul>
+</section>
+<section id="instruct"> <title>Step-by-step Installation Instructions</title>
+<ol>
+<li>
+<p>The installer will create a bridge on each host and a port for the external device will be added to the bridge. The installer will also move the IP address of the external device to the bridge device.
+This creates a baremetal network through which the virtual machines will communicate with each other and with the real baremetal systems.</p>
+
+<p>If the system running the installer and seed VM does <i>not</i> use the external device name eth0, then determine the device name <i>before</i> running the next step and</p>
+
+<codeblock>
+<codeph>$ export BRIDGE_INTERFACE=&lt;devicename&gt;
+For example: 
+$ export BRIDGE_INTERFACE=em1
+or
+$ export BRIDGE_INTERFACE=eth5
+</codeph>
+</codeblock>
+
+<p>In the same manner, establish the value of BRIDGE_INTERFACE for each remote host (see below).</p>
+</li>
+<li>
+<p>Set up the remote hosts. You must set up each remote host identified in your vm-plan file.</p>
+
+<p>a. Use an existing user or create a new user on <i>each</i> remote host to run the virtual machines. The user must have sufficient privileges to launch virtual machines using libvirt, for example, as a member of the 'libvirtd' group.</p>
+
+<p>This user is denoted &lt;kvmuser&gt; below and the host is denoted &lt;hvmhost&gt;.</p>
+
+<p>b. Create a virtual power key on the seed's host. As root, run this command on the seed's host:</p>
+
+<codeblock>
+<codeph>export HP_VM_MODE=hybrid
+$ bash /root/work/tripleo/tripleo-incubator/scripts/hp_ced_host_manager.sh --local-setup --vm-plan vm-plan
+</codeph>
+</codeblock>
+
+<p>This command will perform all prerequisite system checks and create a Secure Shell (SSH) key that can be used for virtual power operations between hosts, if a key does not previously exist.</p>
+
+<p>c. Append the key to the &lt;kvmuser&gt;'s authorized_keys file on <i>each</i> remote host.</p>
+
+<p>As root:</p>
+
+<codeblock>
+<codeph> $ scp /root/.ssh/id_rsa_virt_power.pub &lt;kvmuser&gt;@&lt;kvmhost&gt;:
+ $ ssh &lt;kvmuser&gt;@&lt;kvmhost&gt;
+ $ cat id_rsa_virt_power.pub &gt;&gt; ~&lt;kvmuser&gt;/.ssh/authorized_keys
+ $ chmod 600 ~&lt;kvmuser&gt;/.ssh/authorized_keys
+</codeph>
+</codeblock>
+
+<p>d. Copy hp_ced_host_manager.sh to <i>each</i> remote host.</p>
+
+<codeblock>
+<codeph>For example: $ scp /root/work/tripleo/tripleo-incubator/scripts/hp_ced_host_manager.sh \
+     &lt;kvmuser&gt;@&lt;kvmhost&gt;:hp_ced_host_manager.sh
+</codeph>
+</codeblock>
+
+<p>e. Copy hp_ced_ensure_host_bridge.sh to <i>each</i> remote host.</p>
+
+<codeblock>
+<codeph>For example: $ scp /root/work/tripleo/tripleo-incubator/scripts/hp_ced_ensure_host_bridge.sh \
+     &lt;kvmuser&gt;@&lt;kvmhost&gt;:hp_ced_ensure_host_bridge.sh
+</codeph>
+</codeblock>
+
+<p>f. As root on <i>each</i> remote host, run:</p>
+
+<codeblock>
+<codeph>export BRIDGE_INTERFACE=&lt;devicename&gt;
+bash -x ~&lt;kvmuser&gt;/hp_ced_host_manager.sh --remote-setup
+</codeph>
+</codeblock>
+
+  <p>g. Create the <i>overcloud-config.json</i> file with the following contents. For definitions of the variables used and suggested values refer to the list of available <xref href="1.1commercial.install-GA-JSON.dita">environment variables</xref>.</p>
+
+<codeblock>
+<codeph> {
+    "cloud_type": "KVM",
+    "vsa_scale": 0,
+    "vsa_ao_scale": 0,
+    "so_swift_storage_scale": 0,
+    "so_swift_proxy_scale": 0,
+    "compute_scale": 4,
+    "bridge_interface": "em1",
+    "virtual_interface": "eth0",
+    "fixed_range_cidr": "172.0.100.0/24",
+    "control_virtual_router_id": "209",
+    "baremetal": {
+        "network_seed_ip": "192.168.130.3",
+        "network_cidr": "192.168.130.0/24",
+        "network_gateway": "192.168.130.1",
+        "network_seed_range_start": "192.168.130.4",
+        "network_seed_range_end": "192.168.130.22",
+        "network_undercloud_range_start": "192.168.130.23",
+        "network_undercloud_range_end": "192.168.130.126"
+    },
+  "neutron": {
+        "overcloud_public_interface": "vlan331",
+        "public_interface_raw_device": "eth0",
+        "undercloud_public_interface": "eth0"
+    },
+    "dns": {
+        "seed_server": "16.110.135.123",
+        "overcloud_server": "16.110.135.123",
+        "undercloud_server": "16.110.135.123"
+    },
+    "ntp": {
+        "overcloud_server": "16.110.135.123",
+        "undercloud_server": "16.110.135.123",
+        "seed_server": "16.110.135.123"
+    },
+"floating_ip": {
+        "start": "192.168.131.2",
+        "end": "192.168.131.245",
+        "cidr": "192.168.131.0/24"
+    },
+    "svc": {
+        "interface": "vlan332",
+        "interface_default_route": "192.168.132.1",
+        "allocate_start": "192.168.132.2",
+        "allocate_end": "192.168.132.250",
+        "allocate_cidr": "192.168.132.0/24",
+        "overcloud_bridge_mappings": "svcnet1:br-svc",
+        "overcloud_flat_networks": "svcnet1",
+        "customer_router_ip": "10.23.69.129"
+    },
+  "codn": {
+        "undercloud_http_proxy": "http://16.85.175.150:8080",
+        "undercloud_https_proxy": "http://16.85.175.150:8080",
+        "overcloud_http_proxy": "http://16.85.175.150:8080",
+        "overcloud_https_proxy": "http://16.85.175.150:8080"
+    }
+}
+</codeph>
+</codeblock>
+
+<p>h. Load the configuration file</p>
+
+<codeblock>
+<codeph>source /root/tripleo/tripleo-incubator/scripts/hp_ced_load_config.sh overcloud-config.json
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Start the seed.</p>
+
+<p>This will also launch the remote virtual machines.
+You must execute this command as root on the seed's host.</p>
+
+<codeblock>
+<codeph>export BRIDGE_INTERFACE=&lt;devicename&gt;
+export HP_VM_MODE=hybrid
+bash -x /root/work/tripleo/tripleo-incubator/scripts/hp_ced_host_manager.sh \
+      --create-seed --vm-plan &lt;vm-plan-filename&gt;
+</codeph>
+</codeblock>
+
+<p>If the seed startup is successful, a message similar to this appears:</p>
+
+<p>"Tue Jan  6 11:58:04 GMT 2015 --- completed setup seed"</p>
+</li>
+<li>
+<p>Build the cloud (all of the following commands should be run from /root):</p>
+
+<p>a. Login to the seed:</p>
+
+<codeblock>
+<codeph>$ ssh root@192.0.2.1
+</codeph>
+</codeblock>
+
+<p>b. Update the file called '/root/baremetal.csv' in the following format:</p>
+
+<codeblock>
+<codeph>&lt;mac_address&gt;,&lt;user&gt;,&lt;password&gt;,&lt;ip_address&gt;,&lt;no_of_cpus&gt;,&lt;memory_MB&gt;,&lt;diskspace_GiB&gt;,&lt;role&gt;,&lt;power_managemenment&gt;
+</codeph>
+</codeblock>
+
+<p>The VMs you have pre-provisioned should already be present in this file so you need to add the details of the physical hardware you want to add to the system.</p>
+
+<p>For more information, see <xref href="1.1commercial.install-GA-CSV.dita">Create the baremetal.csv File for Installation</xref>.</p>
+
+<p>c. Load the configuration file</p>
+
+<codeblock>
+<codeph>source /root/tripleo/tripleo-incubator/scripts/hp_ced_load_config.sh overcloud-config.json</codeph>
+</codeblock>
+
+<p>d. Run the second stage, that is, configure under and overclouds. Export all relevant environment variables,</p>
+
+<codeblock>
+<codeph>$ bash -x /root/tripleo/tripleo-incubator/scripts/hp_ced_installer.sh
+</codeph>
+</codeblock>
+
+<p>
+<b>Important:</b> As these are hybrid systems comprising real hardware and virtual machines, your compute systems may not use the same networking configuration as your virtual machines:</p>
+
+<codeblock>
+<codeph>hypervisor.public_interface   
+</codeph>
+</codeblock>
+
+<p>Set the value of this variable so it has the same name as the interface that carries the neutron external traffic on your overcloud compute nodes. If you do not specify the value of this variable, the default value is <codeph>eth0</codeph>.</p>
+
+<p>For more information about creating an optional second network, see <xref href="1.1commercial.install-GA-JSON.dita">Editing the Installation Configuration JSON File</xref> for more information.</p>
+
+<codeblock>
+<codeph>The following example shows how to set up the optional second network using "vlan331" and use eth0 on all control nodes, while using a different physical NIC (for example, eth1) on compute nodes.
+
+"neutron": {
+    "overcloud_public_interface": "vlan331",
+    "public_interface_raw_device": "eth0",
+ },
+ "hypervisor": {
+     "public_interface": "vlan331",
+}
+</codeph>
+</codeblock>
+
+<p>e. As of HPE Helion Openstack 1.1.1, you may also need to set <codeph>hypervisor.public_interface_raw_device</codeph>.</p>
+
+<codeblock>
+<codeph>Example:
+ },
+ "hypervisor": {
+     "public_interface": "vlan331",
+     "public_interface_raw_device": "eth1"
+}
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Wait for the completion of the installer script to display a message similar to the following:</p>
+
+<codeblock>
+<codeph>HPE - completed - Tue Oct 23 16:20:20 UTC 2014
+</codeph>
+</codeblock>
+</li>
+</ol>
+</section>
+<section id="postinstall"> <title>Post-Installation Steps</title>
+<ul>
+<li>
+<xref href="1.1commercial.install-GA-kvm.dita">Verify the installation</xref>
+</li>
+<li>Configure Block Storage
+
+<ul>
+<li>
+<xref href="1.1commercial.-vsa-overview.dita">For VSA</xref>
+</li>
+<li>
+<xref href="1.1commercial.install-3par.dita">For 3PAR</xref>
+</li>
+</ul>
+</li>
+</ul>
+</section>
+<section id="addnodes"> <title>Adding Additional Overcloud Compute Nodes</title>
+  <p>For more information, see: <xref href="1.1commerical.flexible-control-pane-overview.dita#add-remove-replace-nodes" type="section">Add, remove and replace nodes</xref>.</p>
+</section>
+<section id="knownissues"> <title>Known Issues and Resolutions</title>
+</section>
+<section id="after-the-reboot-of-the-compute-node-new-fips-associated-to-the-instance-are-not-accessible"> <title>After the reboot of the compute node, new FIPs associated to the instance are not accessible</title>
+<p>
+  <b>System Behavior</b>
+</p>
+<p>After updating the cloud, any new FIP being allocated to and associated with an existing or new VM is not accessible.</p>
+<p>
+  <b>Possible Resolution</b>
+</p>
+<p>Currently, the issue can be resolved by deleting the link being added where it is giving an error.</p>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="after-the-reboot-of-compute-nodes-the-instance-goes-into-error-state"> <title>After the  reboot of compute nodes, the instance goes into error state</title>
+<p>
+  <b>System Behavior</b>
+</p>
+<p>After the reboot of compute nodes which have instances running, two issues are noticed:</p>
+<p>Issue 1</p>
+<codeblock>
+  <codeph>error: Failed to start domain instance-0000020d
+error: unsupported configuration: Domain requires KVM, but it is not available. 
+</codeph>
+</codeblock>
+<p>Check that virtualization is enabled in the host BIOS and that host configuration is set up to load the KVM modules.</p>
+<p>Issue 2</p>
+<codeblock>
+  <codeph>error: failed to connect to the hypervisor
+error: no valid connection
+error: Failed to connect socket to '/var/run/libvirt/libvirt-sock': No such file or directory.
+</codeph>
+</codeblock>
+<p>
+  <b>Possible Resolution</b>
+</p>
+<p>Issue 1: Manual steps to recover</p>
+<codeblock>
+  <codeph>lsmod | grep kvm
+</codeph>
+</codeblock>
+<p>If there is no output, issue the following commands:</p>
+<codeblock>
+  <codeph>modprobe -v kvm 
+modprobe -v kvm_intel
+service libvirt-bin restart
+</codeph>
+</codeblock>
+<p>Issue 2: Manual steps to recover</p>
+<codeblock>
+  <codeph>pkill -ulibvirt-qemu
+reboot
+</codeph>
+</codeblock>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="a-few-vms-with-two-interfaces-pvt-and-svc-lost-network-plumbing-on-compute-node-post-update"> <title>A few VMs with two interfaces (pvt and svc) lost network plumbing on compute node (post update)</title>
+<p>
+  <b>System Behavior</b>
+</p>
+<p>After updating, the VM guest is not accessible on its SVC interface.</p>
+<p>
+  <b>Possible Resolution</b>
+</p>
+<p>No Resolution</p>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="environment-may-be-unstable-upon-rebooting-of-overcloud-controllers"> <title>Environment may be unstable upon rebooting of overcloud controllers</title>
+<p>
+  <b>System Behavior</b>
+</p>
+<p>Environment may be unstable for some time when overcloud controllers are rebooted.</p>
+<p>
+  <b>Probable Cause</b>
+</p>
+<p>On the overcloud controller reboot scenario the cloud takes some time to stabilize.</p>
+<p>
+  <b>Possible Resolution</b>
+</p>
+<p>If overcloud controllers are rebooted, you must wait for some time for the cloud to become stable. Verify basic cloud functionality before proceeding further.</p>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="if-the-kvm-environment-is-rebooted-the-instances-in-the-spawned-state-cannot-be-reached-via-ping"> <title>If the KVM environment is rebooted, the  instances in the  spawned state cannot be reached via ping</title>
+<p>
+  <b>System Behavior</b>
+</p>
+<p>In the case of an entire KVM environment reboot, previously spawned instances may not be reachable via the ping command.</p>
+<p>
+  <b>Possible Resolution</b>
+</p>
+<p>Hard reboot the spawned instance from the Horizon dashboard to make it reachable.</p>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="a-seed-cloud-host-has-been-rebooted-but-the-vms-hosting-the-control-plane-did-not-start-automatically"> <title>A seed cloud host has been rebooted but the VMs hosting the control plane did not start automatically</title>
+<p>
+  <b>System Behavior</b>
+</p>
+<p>A seed cloud host has been rebooted but the VMs hosting the control plane did not start automatically.</p>
+<p>
+  <b>Probable Cause</b>
+</p>
+<p>The seed cloud host responsible for hosting the seed node has been rebooted. This requires manually restarting the VMs.</p>
+<p>
+  <b>Possible Resolution</b>
+</p>
+<p>
+  <b>Restart the VMs on the seed's KVM host</b>
+</p>
+<ol>
+<li>
+<p>Recover the seed by running the appropriate <codeph>hp_ced_host_manager.sh</codeph> command with the --boot-seed argument.</p>
+
+<p>For example:
+<codeph>SEED_NTP_SERVER=12.12.12.12 bash -x ~root/tripleo/tripleo-incubator/scripts/hp_ced_host_manager.sh --boot-seed</codeph>
+For example, use the same <codeph>hp_ced_host_manager.sh</codeph> used during installation but substitute '--create-seed'.</p>
+</li>
+<li>
+<p>After the seed has booted, ensure that networking works correctly by logging into the seed's IP address, for example, 192.0.2.1.</p>
+</li>
+<li>
+<p>Once the seed is booted and working as expected, use virsh commands to start the other VMs.</p>
+
+<p>For example:</p>
+
+<codeblock>
+<codeph>virsh start baremetal_0
+
+virsh start baremetal_3
+</codeph>
+</codeblock>
+</li>
+</ol>
+<p>
+  <b>Restart the VMs on a KVM host not running the seed</b>
+</p>
+<ol>
+<li>
+<p>Use the virsh command to start the VMs.</p>
+
+<p>For example:</p>
+
+<codeblock>
+<codeph>virsh start baremetal_1
+
+virsh start baremetal_4
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Verify that the networking works by logging into all nodes after they have been booted.</p>
+
+<p>For more information on networking issues, see <xref href="1.1commercial.troubleshooting.dita">Troubleshooting</xref>.</p>
+</li>
+</ol>
+<!-- ===================== horizontal rule ===================== -->
+</section>
+<section id="the-seed-cloud-host-cannot-be-reached-after-it-is-rebooted"> <title>The seed cloud host cannot be reached after it is rebooted</title>
+<p>
+  <b>System Behavior</b>
+</p>
+<p>After the seed cloud host is rebooted, the networking setup does not persist and the seed cloud host cannot be reached.</p>
+<p>
+  <b>Probable Cause</b>
+</p>
+<p>The networking setup on the FCP seed cloud host must be set up in a particular way. Otherwise, the seed cloud host cannot be reached after it is rebooted.</p>
+<p>
+  <b>Possible Resolution</b>
+</p>
+<p>Change the network configuration in the interfaces file to a configuration that supports persisting the network setup.</p>
+<p>
+  <b>On Ubuntu/Debian systems:</b>
+</p>
+<ul>
+<li>
+<p>Define the primary interface in its own configuration file in <codeph>etc/network/interfaces.d/.</codeph>
+</p>
+
+<codeblock>
+<codeph>For example: etc/network/interfaces.d/eth2.cfg 
+</codeph>
+</codeblock>
+</li>
+<li>
+<p>Alternatively, define the primary interface in <codeph>/etc/network/interfaces</codeph> and format the file so it has a line separator between each interface definition.  (See man files for an example.)</p>
+</li>
+</ul>
+<p>
+  <b>On CentOS systems:</b>
+</p>
+<ul>
+<li>Ensure that every interface is defined in its on <codeph>ifcfg-&lt;interface&gt;</codeph> file within <codeph>/etc/sysconfig/network-scripts/</codeph>
+</li>
+</ul>
+<!-- ===================== horizontal rule ===================== -->
+<p>Return to the <xref href="1.1commerical.flexible-control-pane-overview.dita">architectural and configuration files overview</xref> information.</p>
+</section>
+</body>
+</topic>
