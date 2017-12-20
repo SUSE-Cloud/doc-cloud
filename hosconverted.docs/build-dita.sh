@@ -1,7 +1,7 @@
 #!/bin/bash
 # Random dita build stuff
 
-if [[ -f $1 ]]; then
+if [[ ! -f $1 ]]; then
   echo "Does input file exist?"
   exit 1
 fi
