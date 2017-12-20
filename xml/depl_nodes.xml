@@ -879,7 +879,97 @@ getent group postgres | cut -d: -f3</screen>
     </para>
    </warning>
   </sect2>
+
+  <sect2 xml:id="sec.depl.ostack.db.mariadb">
+    <title>Deploying &mariadb;</title>
+    <para>Instead of the default &postgres; database back end, it is also
+    possible to use &mariadb;.</para>
+
+    <note>
+      <title>&mariadb; and HA</title>
+      <para>
+	&mariadb; back end features full HA support based on the Galera
+	clustering technology. The HA setup requires an odd number of
+	nodes. The recommended number of nodes is 3.
+      </para>
+    </note>
+
+  <figure>
+   <title>&mariadb; Configuration</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="depl_barclamp_database_mariadb.png" width="100%" format="png"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="depl_barclamp_database_mariadb.png" width="75%" format="png"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+
+    <para>
+      The following configuration settings are available via the <guimenu>Database</guimenu> &barcl;
+      graphical interface:
+    </para>
+    <variablelist>
+      <varlistentry>
+	<term>
+	  Datadir
+	</term>
+	<listitem>
+	  <para>
+	    Path to a directory for storing database data.
+	  </para>
+	</listitem>
+      </varlistentry>
+      <varlistentry>
+	<term>
+	  Maximum Number of Simultaneous Connections
+	</term>
+	<listitem>
+	  <para>
+	    The maximum number of simultaneous client connections.
+	  </para>
+	</listitem>
+      </varlistentry>
+      <varlistentry>
+	<term>
+	  Number of days after the binary logs can be automatically removed
+	</term>
+	<listitem>
+	  <para>
+	    A period after which the binary logs are removed.
+	  </para>
+	</listitem>
+      </varlistentry>
+            <varlistentry>
+	<term>
+	  Slow Query Logging
+	</term>
+	<listitem>
+	  <para>
+	    When enabled, all queries that take longer than usual to execute
+	    are logged to a separate log file (by default, it's
+	    <filename>/var/log/mysql/mysql_slow.log</filename>). This can be
+	    useful for debugging.
+	  </para>
+	</listitem>
+      </varlistentry>
+    </variablelist>
+
+    <warning>
+      <title>&mariadb; Deployment Restriction</title>
+      <para>
+	When &mariadb; is used as the database back end, the <guimenu>monasca-server</guimenu>
+	role cannot be deployed to the node with the
+	<guimenu>database-server</guimenu> role. These two roles cannot
+	coexist due to the fact that
+	&o_monitor; uses its own &mariadb; instance.
+      </para>
+    </warning>
+
+  </sect2>
  </sect1>
+
  <sect1 xml:id="sec.depl.ostack.rabbit">
   <title>Deploying RabbitMQ</title>
 
@@ -2428,7 +2518,7 @@ and admins can see the available options in the barclamp -->
       If you wish to enable caching, re-enable it in a custom Nova
       configuration file, for example
       <filename>/etc/nova/nova.conf.d/100-nova.conf</filename>. This sets the
-      the interval to four minutes:
+      interval to four minutes:
      </para>
 <screen>image_cache_manager_interval = 2400</screen>
      <para>
@@ -3025,12 +3115,9 @@ host1:/srv/nfs/share1 /mnt/nfs/share1 -o rsize=8192,wsize=8192,timeo=14,intr
    </note>
    <para>
     In combination with &ceph; or a network storage solution, deploying
-    &o_blockstore; in a cluster minimizes the potential downtime. If using
-    &ceph; or a network storage is not an option, you need to set up a shared
-    storage directory (for example, with NFS), mount it on all cinder volume
-    nodes, and use the <guimenu>Local File</guimenu> back-end with this shared
-    directory. Using <guimenu>Raw Devices</guimenu> is not an option, since
-    local disks cannot be shared.
+    &o_blockstore; in a cluster minimizes the potential downtime. For <guimenu>cinder-volume</guimenu> to
+    be applicable to a cluster, the role needs all &o_blockstore; backends to be configured for non-local storage. If you are using local volumes or raw devices
+    in any of your volume backends, you cannot apply <guimenu>cinder-volume</guimenu> to a cluster.
    </para>
   </sect2>
  </sect1>
@@ -3104,6 +3191,20 @@ host1:/srv/nfs/share1 /mnt/nfs/share1 -o rsize=8192,wsize=8192,timeo=14,intr
        specify the <guimenu>Cisco Switch Credentials</guimenu>. See
        <xref
        linkend="app.deploy.cisco"/> for details.
+      </para>
+     </formalpara>
+     <formalpara>
+      <title><guimenu>vmware_dvs</guimenu></title>
+      <para>
+       vmware_dvs driver makes it possible to use &o_netw; for networking in a
+       VMware-based environment. Choosing <guimenu>vmware_dvs</guimenu>,
+       automatically selects the required <guimenu>openswitch</guimenu>, <guimenu>vxlan</guimenu>, and
+       <guimenu>vlan</guimenu> drivers. In the <guimenu>Raw</guimenu> view,
+       it is also possible to configure two additional attributes:
+       <guimenu>clean_on_start</guimenu> (clean up the DVS portgroups on the
+       target vCenter Servers when neutron-server is restarted) and
+       <guimenu>precreate_networks</guimenu> (create DVS portgroups
+       corresponding to networks in advance, rather than when virtual machines are attached to these networks).
       </para>
      </formalpara>
     </listitem>
@@ -3463,6 +3564,175 @@ host1:/srv/nfs/share1 /mnt/nfs/share1 -o rsize=8192,wsize=8192,timeo=14,intr
     dedicated cluster solely for the <guimenu>neutron-network</guimenu> role.
    </para>
   </sect2>
+  <sect2 xml:id="sec.setup.multi.ext.networks">
+  <title>Setting Up Multiple External Networks</title>
+
+  <para>
+   This section shows you how to create external networks on &cloud;.
+  </para>
+
+  <sect3 xml:id="sec.config.multi.ext.networks">
+   <title>New Network Configurations</title>
+   <procedure>
+    <step>
+     <para>
+      If you have not yet deployed &crow;, add the following configuration to
+      <filename>/etc/crowbar/network.json</filename>
+      to set up an external network, using the name of your new network, VLAN
+      ID, and network addresses. If you have already deployed &crow;, then add
+      this configuration to the <guimenu>Raw</guimenu> view of the Network &Barcl;.
+     </para>
+<screen>"<replaceable>public2</replaceable>": {
+          "conduit": "intf1",
+          "vlan": <replaceable>600</replaceable>,
+          "use_vlan": true,
+          "add_bridge": false,
+          "subnet": "<replaceable>192.168.135.128</replaceable>",
+          "netmask": "<replaceable>255.255.255.128</replaceable>",
+          "broadcast": "<replaceable>192.168.135.255</replaceable>",
+          "ranges": {
+            "host": { "start": "<replaceable>192.168.135.129</replaceable>",
+               "end": "<replaceable>192.168.135.254</replaceable>" }
+          }
+    },</screen>
+    </step>
+    <step>
+     <para>
+      Modify the <parameter>additional_external_networks</parameter> in the
+      <guimenu>Raw</guimenu> view of the &o_netw; &Barcl; with the name of your
+      new external network.
+     </para>
+     </step>
+     <step>
+     <para>
+       Apply both barclamps, and it may also be necessary to re-apply the &o_comp;
+       &Barcl;.
+   </para>
+    </step>
+    <step>
+    <para>
+      Then follow the steps in the next section to create the new external network.
+    </para>
+    </step>
+   </procedure>
+  </sect3>
+
+  <sect3 xml:id="sec.confignet">
+   <title>Create the New External Network</title>
+   <para>
+    The following steps add the network settings, including IP address pools,
+    gateway, routing, and virtual switches to your new network.
+   </para>
+   <procedure xml:id="pro.confignet">
+    <step>
+     <para>
+      Set up interface mapping using either Open vSwitch (OVS) or Linuxbridge.
+      For Open vSwitch run the following command:
+     </para>
+<screen>sudo neutron net-create <replaceable>public2</replaceable>: --provider:network_type flat \
+ --provider:physical_network <replaceable>public2</replaceable>: --router:external=True</screen>
+     <para>
+      For Linuxbridge run the following command:
+     </para>
+<screen> sudo neutron net-create --router:external True --provider:physical_network physnet1 \
+ --provider:network_type vlan --provider:segmentation_id <replaceable>600</replaceable></screen>
+    </step>
+    <step>
+     <para>
+      If a different network is used then &crow; will create a new interface
+      mapping. Then you can use a flat network:
+     </para>
+<screen>
+sudo neutron net-create <replaceable>public2</replaceable> --provider:network_type flat \
+ --provider:physical_network <replaceable>public2</replaceable> --router:external=True
+</screen>
+    </step>
+    <step>
+     <para>
+      Create a subnet:
+     </para>
+<screen>sudo neutron subnet-create --name <replaceable>public2</replaceable> --allocation-pool \
+ start=<replaceable>192.168.135.2</replaceable>,end=<replaceable>192.168.135.127</replaceable> --gateway <replaceable>192.168.135.1</replaceable> <replaceable>public2</replaceable> \
+ <replaceable>192.168.135.0/24</replaceable> --enable_dhcp False</screen>
+    </step>
+    <step>
+     <para>
+      Create a router, <replaceable>router2</replaceable>:
+     </para>
+<screen>sudo neutron router-create <replaceable>router2</replaceable></screen>
+    </step>
+    <step>
+     <para>
+      Connect <replaceable>router2</replaceable> to the new external network:
+     </para>
+<screen>sudo neutron router-gateway-set <replaceable>router2</replaceable>  <replaceable>public2</replaceable></screen>
+    </step>
+    <step>
+     <para>
+      Create a new private network and connect it to
+      <replaceable>router2</replaceable>
+     </para>
+<screen>sudo neutron net-create priv-net
+sudo neutron subnet-create priv-net --gateway <replaceable>10.10.10.1 10.10.10.0/24</replaceable> \
+ --name priv-net-sub
+sudo neutron router-interface-add <replaceable>router2</replaceable> priv-net-sub</screen>
+    </step>
+    <step>
+     <para>
+      Boot a VM on priv-net-sub and set a security group that allows SSH.
+     </para>
+    </step>
+    <step>
+     <para>
+      Assign a floating IP address to the VM, this time from network
+      <replaceable>public2</replaceable>.
+     </para>
+    </step>
+    <step>
+     <para>
+      From the node verify that SSH is working by opening an SSH session to the
+      VM.
+     </para>
+    </step>
+   </procedure>
+  </sect3>
+
+  <sect3 xml:id="sec.howbridges">
+   <title>How the Network Bridges are Created</title>
+   <para>
+    For OVS, a new bridge will be created by &crow;, in this case
+    <literal>br-public2</literal>. In the bridge mapping the new network will
+    be assigned to the bridge. The interface specified in
+    <filename>/etc/crowbar/network.json</filename> (in this case eth0.600) will
+    be plugged into <literal>br-public2</literal>. The new public network can
+    be created in &o_netw; using the new public network name as
+    <parameter>provider:physical_network</parameter>.
+   </para>
+   <para>
+    For Linuxbridge, &crow; will check the interface associated with
+    <replaceable>public2</replaceable> . If this is the same as physnet1 no
+    interface mapping will be created. The new public network can be created in
+    &o_netw; using physnet1 as physical network and specifying the correct VLAN
+    ID:
+   </para>
+<screen>sudo neutron net-create <replaceable>public2</replaceable> --router:external True \
+ --provider:physical_network physnet1 --provider:network_type vlan \
+ --provider:segmentation_id <replaceable>600</replaceable>
+</screen>
+   <para>
+    A bridge named <varname>brq-NET_ID</varname> will be created and the
+    interface specified in <filename>/etc/crowbar/network.json</filename> will
+    be plugged into it. If a new interface is associated in
+    <filename>/etc/crowbar/network.json</filename> with
+    <replaceable>public2</replaceable> then &crow; will add a new interface
+    mapping and the second public network can be created using
+    <replaceable>public2</replaceable> as the physical network :
+   </para>
+<screen>sudo neutron net-create <replaceable>public2</replaceable> --provider:network_type flat \
+ --provider:physical_network <replaceable>public2</replaceable> --router:external=True</screen>
+  </sect3>
+ </sect2>
+
  </sect1>
  <sect1 xml:id="sec.depl.ostack.nova">
   <title>Deploying &o_comp;</title>
@@ -3513,7 +3783,6 @@ host1:/srv/nfs/share1 /mnt/nfs/share1 -o rsize=8192,wsize=8192,timeo=14,intr
       Set the <quote>overcommit ratio</quote> for virtual disks for &vmguest;s
       on the &compnode;s. A ratio of <literal>1.0</literal> means no
       overcommitment.
-      <remark condition="accuracy">2017-01-02 - dpopov: DEVS FIXME Check whether this is correct.</remark>
      </para>
     </listitem>
    </varlistentry>
@@ -3549,6 +3818,17 @@ host1:/srv/nfs/share1 /mnt/nfs/share1 -o rsize=8192,wsize=8192,timeo=14,intr
        the admin network when enabling this option.
       </para>
      </warning>
+
+     <tip>
+      <title>Specifying Network for Live Migration</title>
+      <para>
+	It is possible to change a network to live migrate images. This is
+	done in the raw view of the &o_comp; &barcl;. In the <property>migration</property> section, change
+	the <varname>network</varname> attribute to the appropriate value (for
+	example, <property>storage</property> for &ceph;).
+      </para>
+     </tip>
+
     </listitem>
    </varlistentry>
    <varlistentry>
@@ -3857,9 +4137,6 @@ host1:/srv/nfs/share1 /mnt/nfs/share1 -o rsize=8192,wsize=8192,timeo=14,intr
      <note>
       <title>Re-assigning Hypervisors</title>
       <para>
-       <remark condition="clarity">
-        2013-08-05 - fs: Is this true?
-       </remark>
        Existing <literal>nova-compute-*</literal> nodes can be changed in a
        production &cloud; without service interruption. You need to
        <quote>evacuate</quote>
@@ -3900,6 +4177,31 @@ host1:/srv/nfs/share1 /mnt/nfs/share1 -o rsize=8192,wsize=8192,timeo=14,intr
    </mediaobject>
   </figure>
 
+  <para>
+    When deploying a <guimenu>nova-compute-vmware</guimenu> node with the
+    <guimenu>vmware_dvs</guimenu> ML2 driver enabled in the &o_netw; &barcl;, the following
+    new attributes are also available in the <guimenu>vcenter</guimenu> section of the
+    <guimenu>Raw</guimenu> mode:<guimenu>dvs_name</guimenu> (the name of the
+    DVS switch configured on the target vCenter cluster) and
+    <guimenu>dvs_security_groups</guimenu> (enable or disable implementing
+    security groups through DVS traffic rules).
+  </para>
+
+  <para>
+    It is important to specify the correct he <guimenu>dvs_name</guimenu>
+    value, as the &barcl; expects the  DVS switch to be preconfigured on the
+    target VMware vCenter cluster.
+  </para>
+
+  <warning>
+    <title>vmware_dvs must be enabled</title>
+    <para>
+      Deploying <guimenu>nova-compute-vmware</guimenu> nodes will not result in
+      a functional cloud setup if the <guimenu>vmware_dvs</guimenu> ML2 plugin
+      is not enabled in the &o_netw; &barcl;.
+     </para>
+    </warning>
+    
   <sect2 xml:id="sec.depl.ostack.nova.ha">
    <title>&haSetup; for &o_comp;</title>
    <para>
@@ -5406,7 +5708,7 @@ host1:/srv/nfs/share1 /mnt/nfs/share1 -o rsize=8192,wsize=8192,timeo=14,intr
    Accessing the <guimenu>Raw</guimenu> interface is not required for
    day-to-day operation. But as not all &o_monitor; settings are exposed in the
    &barcl; graphical interface (for example, various performance turnables), it
-   is recommended to configure &o_monitor; in the the <guimenu>Raw</guimenu>
+   is recommended to configure &o_monitor; in the <guimenu>Raw</guimenu>
    mode. Below are the options that can be configured via the
    <guimenu>Raw</guimenu> interface of the &o_monitor; &barcl;.
   </para>
@@ -5488,7 +5790,7 @@ host1:/srv/nfs/share1 /mnt/nfs/share1 -o rsize=8192,wsize=8192,timeo=14,intr
      <para>
       Number of simultaneous collector threads to run. This refers to the
       maximum number of different collector plug-ins (for example,
-      <literal>http_check</literal>) that are allowed run simultaneously. The
+      <literal>http_check</literal>) that are allowed to run simultaneously. The
       default value <literal>1</literal> means that plug-ins are run
       sequentially.
      </para>
@@ -5761,7 +6063,7 @@ monasca-installer on the &crow; node</guimenu>
      <para>
       For an overview of all supported values, see
       <link
-         xlink:href="https://docs.influxdata.com/influxdb/v0.9/query_language/database_management/#create-retention-policies-with-create-retention-policy"></link>.
+         xlink:href="https://docs.influxdata.com/influxdb/v1.1/query_language/database_management/#create-retention-policies-with-create-retention-policy"></link>.
      </para>
 <!--taroth/dpopov 2017-05-15: as the installation chapter has been removed
        from both SOC Monitoring Operator Guides, there's no internal information
@@ -7150,5 +7452,272 @@ Apply the &barcl; to a Control Node.
     </tbody>
    </tgroup>
   </informaltable>
+ </sect1>
+ <sect1 xml:id="sec.deploy.crowbatch.description">
+  <title>Crowbar Batch Command</title>
+
+  <para>
+   This is the documentation for the <command>crowbar batch</command>
+   subcommand.
+  </para>
+
+  <para>
+   <command>crowbar batch</command> provides a quick way of creating, updating,
+   and applying &crow; proposals. It can be used to:
+  </para>
+
+  <itemizedlist mark="bullet" spacing="normal">
+   <listitem>
+    <para>
+     Accurately capture the configuration of an existing &crow; environment.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Drive &crow; to build a complete new environment from scratch.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Capture one &cloud; environment and then reproduce it on another set of
+     hardware (provided hardware and network configuration match to an
+     appropriate extent).
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Automatically update existing proposals.
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   As the name suggests, <command>crowbar batch</command> is intended to be run
+   in <quote>batch mode</quote> that is mostly unattended. It has two modes of
+   operation:
+  </para>
+
+  <variablelist>
+   <varlistentry>
+    <term>crowbar batch export
+    </term>
+    <listitem>
+     <para>
+      Exports a YAML file which describes existing proposals and how their
+      parameters deviate from the default proposal values for that &barcl;.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>crowbar batch build
+    </term>
+    <listitem>
+     <para>
+      Imports a YAML file in the same format as above. Uses it to build new
+      proposals if they do not yet exist. Updates the existing proposals so
+      that their parameters match those given in the YAML file.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+  <sect2 xml:id="sec.deploy.crowbatch.yaml">
+   <title>YAML file format</title>
+   <para>
+    Here is an example YAML file. At the top-level there is a proposals array,
+    each entry of which is a hash representing a proposal:
+   </para>
+<screen>proposals:
+- barclamp: provisioner
+  # Proposal name defaults to 'default'.
+  attributes:
+    shell_prompt: USER@ALIAS:CWD SUFFIX
+- barclamp: database
+  # Default attributes are good enough, so we just need to assign
+  # nodes to roles:
+  deployment:
+    elements:
+      database-server:
+        - "@@controller1@@"
+- barclamp: rabbitmq
+  deployment:
+    elements:
+      rabbitmq-server:
+        - "@@controller1@@"</screen>
+   <note>
+    <title>Reserved Indicators in YAML</title>
+    <para>
+     Note that the characters <literal>@</literal> and <literal>`</literal> are
+     reserved indicators in YAML. They can appear anywhere in a string
+     <emphasis>except at the beginning</emphasis>. Therefore a string such as
+     <literal>@@controller1@@</literal> needs to be quoted using double quotes.
+    </para>
+   </note>
+  </sect2>
+
+  <sect2 xml:id="sec.deploy.crowbatch.yaml.attributes">
+   <title>Top-level proposal attributes</title>
+   <variablelist>
+    <varlistentry>
+     <term>barclamp
+     </term>
+     <listitem>
+      <para>
+       Name of the &barcl; for this proposal (required).
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>name
+     </term>
+     <listitem>
+      <para>
+       Name of this proposal (optional; default is <literal>default</literal>).
+       In <command>build</command> mode, if the proposal does not already
+       exist, it will be created.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>attributes
+     </term>
+     <listitem>
+      <para>
+       An optional nested hash containing any attributes for this proposal
+       which deviate from the defaults for the &barcl;.
+      </para>
+      <para>
+       In <command>export</command> mode, any attributes set to the default
+       values are excluded to keep the YAML as short and readable as possible.
+      </para>
+      <para>
+       In <command>build</command> mode, these attributes are deep-merged with
+       the current values for the proposal. If the proposal did not already
+       exist, batch build will create it first. The attributes are merged with
+       the default values for the &barcl;'s proposal.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>wipe_attributes
+     </term>
+     <listitem>
+      <para>
+       An optional array of paths to nested attributes which should be removed
+       from the proposal.
+      </para>
+      <para>
+       Each path is a period-delimited sequence of attributes; for example
+       <literal>pacemaker.stonith.sbd.nodes</literal> would remove all SBD
+       nodes from the proposal if it already exists. If a path segment contains
+       a period, it should be escaped with a backslash, for example
+       <literal>segment-one.segment\.two.segment_three</literal>.
+      </para>
+      <para>
+       This removal occurs before the deep merge described above.
+<!--For
+       example, a batch build with a YAML file which includes
+       <literal>pacemaker.stonith.sbd.nodes</literal> in
+       <literal>wipe_attributes</literal> of a pacemaker &barcl; proposal
+       would ensure that at the end of the run, only SBD nodes listed in the
+       attributes sibling hash would be used. -->
+       For example, think of a YAML file which includes a Pacemaker &barcl;
+       proposal where the <literal>wipe_attributes</literal> entry contains
+       <literal>pacemaker.stonith.sbd.nodes</literal>. A batch build with this
+       YAML file ensures that only SBD nodes listed in the <literal>attributes
+       sibling</literal> hash are used at the end of the run. In contrast,
+       without the <literal>wipe_attributes</literal> entry, the given SBD
+       nodes would be appended to any SBD nodes already defined in the
+       proposal.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>deployment
+     </term>
+     <listitem>
+      <para>
+       A nested hash defining how and where this proposal should be deployed.
+      </para>
+      <para>
+       In <command>build</command> mode, this hash is deep-merged in the same
+       way as the attributes hash, except that the array of elements for each
+       &chef; role is reset to the empty list before the deep merge. This
+       behavior may change in the future.
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+
+  <sect2 xml:id="sec.deploy.crowbatch.yaml.subst">
+   <title>Node Alias Substitutions</title>
+   <para>
+    A string like <literal>@@<replaceable>node</replaceable>@@</literal> (where
+    <replaceable>node</replaceable> is a node alias) will be substituted for
+    the name of that node, no matter where the string appears in the YAML file.
+    For example, if <literal>controller1</literal> is a &crow; alias for node
+    <literal>d52-54-02-77-77-02.mycloud.com</literal>, then
+    <literal>@@controller1@@</literal> will be substituted for that host name.
+    This allows YAML files to be reused across environments.
+   </para>
+  </sect2>
+
+  <sect2 xml:id="sec.deploy.crowbatch.options">
+   <title>Options</title>
+   <para>
+    In addition to the standard options available to every
+    <command>crowbar</command> subcommand (run <command>crowbar batch
+    --help</command> for a full list), there are some extra options
+    specifically for <command>crowbar batch</command>:
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>--include &lt;barclamp[.proposal]&gt;
+    </term>
+     <listitem>
+      <para>
+       Only include the &barcl; / proposals given.
+      </para>
+      <para>
+       This option can be repeated multiple times. The inclusion value can
+       either be the name of a &barcl; (for example,
+       <literal>pacemaker</literal>) or a specifically named proposal within
+       the &barcl; (for example, <literal>pacemaker.network_cluster</literal>).
+      </para>
+      <para>
+       If it is specified, then only the &barcl; / proposals specified are
+       included in the build or export operation, and all others are ignored.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>--exclude &lt;barclamp[.proposal]&gt;
+    </term>
+     <listitem>
+      <para>
+       This option can be repeated multiple times. The exclusion value is the
+       same format as for <option>--include</option>. The &barcl;s / proposals
+       specified are excluded from the build or export operation.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>--timeout &lt;seconds&gt;
+    </term>
+     <listitem>
+      <para>
+       Change the timeout for &crow; API calls.
+      </para>
+      <para>
+       As &chef;'s run lists grow, some of the later &ostack; &barcl; proposals
+       (for example &o_comp;, &o_dash;, or &o_orch;) can take over 5 or even 10
+       minutes to apply. Therefore you may need to increase this timeout to 900
+       seconds in some circumstances.
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
  </sect1>
 </chapter>
