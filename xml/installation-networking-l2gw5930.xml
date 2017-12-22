@@ -1,0 +1,535 @@
+<?xml version="1.0"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="l2gw5930"><title><emphasis role="bold">Installing the L2 Gateway Agent for the
+      Networking Service</emphasis></title>
+    <bridgehead  renderas="sect4">Introduction</bridgehead><para>The L2 gateway is a service plug-in to the Neutron networking service that
+        allows two L2 networks to be seamlessly connected to create a single L2 broadcast domain.
+        The initial implementation provides for the ability to connect a virtual Neutron VxLAN
+        network to a physical VLAN using a VTEP-capable HPE 5930 switch. The L2 gateway is to be
+        enabled only for VxLAN deployments.</para>
+<para>To begin L2 gateway agent setup, you need to configure your switch. These instructions use
+        an <link xlink:href="http://www8.hp.com/us/en/products/networking-switches/product-detail.html?oid=6604154#!tab=models">HPE FlexFabric 5930 Switch Series</link>
+        switch.</para>
+
+    <itemizedlist>
+        <listitem><para>Use case</para>
+</listitem>
+        <listitem><para><link xlink:href="#l2gw5930/topology">Sample network topology</link></para>
+</listitem>
+        <listitem><para><link xlink:href="#l2gw5930/networks">Networks</link></para>
+</listitem>
+        <listitem><para><link xlink:href="#l2gw5930/switchConfig">HPE 5930 Switch
+          Configuration</link></para>
+</listitem>
+        <listitem><para><link xlink:href="#l2gw5930/enabling">Enabling and configuring L2 gateway
+            agent</link></para>
+</listitem>
+        <listitem><para><link xlink:href="#l2gw5930/routing">Routing between software and hardware VTEP
+            networks</link></para>
+</listitem>
+        <listitem><para><link xlink:href="#l2gw5930/connecting">Connecting baremetal server to HPE 5930
+            switch</link></para>
+</listitem>
+        <listitem><para><link xlink:href="#l2gw5930/baremetalConfig">Configuration on baremetal server
+            to receive tagged packets from the switch</link></para>
+</listitem>
+        <listitem><para><link xlink:href="#l2gw5930/NICbonding">NIC bonding and IRF
+          configuration</link></para>
+</listitem>
+        <listitem><para><link xlink:href="#l2gw5930/scale">Scale numbers tested</link></para>
+</listitem>
+        <listitem><para><link xlink:href="#l2gw5930/commands">L2 gateway commands</link></para>
+</listitem>
+      </itemizedlist>
+    <bridgehead  renderas="sect4">Sample network topology (for illustration purposes)</bridgehead><para>When viewing the following network diagram, assume that the
+        blue VNET has been created by the tenant and has been assigned a segmentation ID of 1000
+        (VNI 1000). The Cloud Admin is now connecting physical servers to this VNET.</para>
+<para>Assume also that the blue L2 Gateway is created and points to
+        the HW VTEPS, the physical ports, the VLAN, and if it is an access or trunk port (tagged or
+        untagged)</para>
+<mediaobject xml:id="fig1"><imageobject role="fo"><imagedata fileref="..-media-networking-l2gateway5930-new.png" width="75%" format="PNG"/></imageobject><imageobject role="html"><imagedata fileref="..-media-networking-l2gateway5930-new.png"/></imageobject></mediaobject>
+<para>
+      Figure 1
+    </para>
+
+    <bridgehead  renderas="sect4">Networks</bridgehead><para>The following diagram illustrates an example network configuration.</para>
+<mediaobject xml:id="fig2"><imageobject role="fo"><imagedata fileref="..-media-networking-l2gateway5930-2-new.png" width="75%" format="PNG"/></imageobject><imageobject role="html"><imagedata fileref="..-media-networking-l2gateway5930-2-new.png"/></imageobject></mediaobject>
+<para>
+      Figure 2 </para>
+<para>An L2 gateway is useful in extending virtual networks (VxLAN) in a cloud onto
+        physical VLAN networks. The L2 gateway switch converts VxLAN packets into VLAN packets and
+        back again, as shown in the following diagram. This topic assumes a VxLAN deployment.</para>
+<mediaobject xml:id="fig3"><imageobject role="fo"><imagedata fileref="..-media-networking-l2gateway5930-3-new.png" width="75%" format="PNG"/></imageobject><imageobject role="html"><imagedata fileref="..-media-networking-l2gateway5930-3-new.png"/></imageobject></mediaobject>
+<para>Figure 3 </para>
+<itemizedlist>
+        <listitem><para>Management Network: 10.10.85.0/24</para>
+</listitem>
+        <listitem><para>Data Network: 10.1.1.0/24</para>
+</listitem>
+        <listitem><para>Tenant VM Network: 10.10.10.0/24</para>
+</listitem>
+      </itemizedlist><para> Note: These IP ranges are used in the topology shown in the diagram for illustration
+      only. </para>
+
+    <bridgehead  renderas="sect4"> HPE 5930 switch configuration</bridgehead><orderedlist>
+        <listitem><para> Telnet to the 5930 switch and provide your username and password. </para>
+</listitem>
+        <listitem><para> Go into system view: </para>
+<screen>system-view</screen></listitem>
+        <listitem><para> Create the required VLANs and VLAN ranges:
+          </para>
+<screen>vlan 103
+vlan 83
+vlan 183
+vlan 1261 to 1270</screen></listitem>
+        <listitem><para> Assign an IP address to VLAN 103. This is used as a data path network for VxLAN
+          traffic. </para>
+<screen>interface vlan 103
+ip address 10.1.1.10 255.255.255.0</screen></listitem>
+        <listitem><para> Assign an IP address to VLAN 83. This is used as a hardware VTEP network.
+            </para>
+<screen>interface vlan 83
+ip address 10.10.83.3 255.255.255.0</screen><para>The 5930
+            switch has a fortygigE1/0/5 interface to which a splitter cable is connected that splits
+            the network it into four tengigEthernet (tengigEthernet1/0/5:1 to tengigEthernet1/0/5:4)
+            interfaces:</para>
+<itemizedlist>
+            <listitem><para>engigEthernet1/0/5:1 and tengigEthernet1/0/5:2 are connected to the compute node.
+              This is required just to bring the interface up. In other words, in order to have the
+              HPE 5930 switch work as a router, there should be at least one interface of that
+              particular VLAN up. Alternatively, the interface can be connected to any host or
+              network element. </para>
+</listitem>
+            <listitem><para>tengigEthernet1/0/5:3 is connected to a baremetal server.</para>
+</listitem>
+            <listitem><para> tengigEthernet1/0/5:4 is connected to controller 3, as shown in <link xlink:href="#l2gw5930/fig2">Figure 2</link>.</para>
+</listitem>
+          </itemizedlist><para>The switch’s fortygigE1/0/6 interface to which the splitter cable is connected
+            splits it into four tengigEthernet (tengigEthernet1/0/6:1 to tengigEthernet1/0/6:4)
+            interfaces:</para>
+<itemizedlist>
+            <listitem><para>tengigEthernet1/0/6:1 is connected to controller 2</para>
+</listitem>
+            <listitem><para> tengigEthernet1/0/6:2 is connected to controller 1 </para>
+<para>
+              Note: 6:3 and 6:4 are not used although they are available.
+            </para>
+</listitem>
+          </itemizedlist></listitem>
+        <listitem><para>Split the fortygigE 1/0/5 interface into tengig
+          interfaces:</para>
+<screen>interface fortygigE 1/0/5
+using tengig
+The interface FortyGigE1/0/5 will be deleted. Continue? [Y/N]: y</screen></listitem>
+        <listitem><para> Configure the Ten-GigabitEthernet1/0/5:1
+            interface:</para>
+<screen>interface Ten-GigabitEthernet1/0/5:1
+port link-type trunk
+port trunk permit vlan 83</screen></listitem>
+      </orderedlist>
+    
+    <bridgehead  renderas="sect4">Configuring the provider data path network</bridgehead><orderedlist>
+        <listitem><para>Configure the Ten-GigabitEthernet1/0/5:2
+          interface:</para>
+<screen>interface Ten-GigabitEthernet1/0/5:2
+port link-type trunk
+port trunk permit vlan 103
+port trunk permit vlan 1261 to 1270
+port trunk pvid vlan 103  </screen></listitem>
+        <listitem><para>Configure the Ten-GigabitEthernet1/0/5:4
+          interface:</para>
+<screen>interface Ten-GigabitEthernet1/0/5:4
+port link-type trunk
+port trunk permit vlan 103
+port trunk permit vlan 1261 to 1270
+port trunk pvid vlan 103</screen></listitem>
+        <listitem><para>Configure the Ten-GigabitEthernet1/0/5:3
+          interface:</para>
+<screen>interface Ten-GigabitEthernet1/0/5:3
+port link-type trunk
+port trunk permit vlan 183
+vtep access port</screen></listitem>
+        <listitem><para>Split the fortygigE 1/0/6 interface into tengig
+            interfaces:</para>
+<screen>interface fortygigE 1/0/6
+using tengig
+The interface FortyGigE1/0/6 will be deleted. Continue? [Y/N]: y</screen></listitem>
+        <listitem><para>Configure the Ten-GigabitEthernet1/0/6:1
+          interface:</para>
+<screen>interface Ten-GigabitEthernet1/0/6:1
+port link-type trunk
+port trunk permit vlan 103
+port trunk permit vlan 1261 to 1270
+port trunk pvid vlan 103</screen></listitem>
+        <listitem><para>Configure the Ten-GigabitEthernet1/0/6:2
+          interface:</para>
+<screen>interface Ten-GigabitEthernet1/0/6:2
+port link-type trunk
+port trunk permit vlan 103
+port trunk permit vlan 1261 to 1270
+port trunk pvid vlan 103</screen></listitem>
+        <listitem><para>Enable l2vpn: </para>
+<screen>l2vpn enable</screen></listitem>
+        <listitem><para>Configure a passive TCP connection for OVSDB on port 6632:
+          </para>
+<screen>ovsdb server ptcp port 6632</screen></listitem>
+        <listitem><para>Enable OVSDB server:</para>
+<screen>ovsdb server enable</screen></listitem>
+        <listitem><para>Enable a VTEP process:</para>
+<screen>vtep enable</screen></listitem>
+        <listitem><para>Configure 10.10.83.3 as the VTEP source IP. This acts as a hardware VTEP
+          IP.</para>
+<screen>tunnel global source-address 10.10.83.3</screen></listitem>
+        <listitem><para>Configure the VTEP access
+          port:</para>
+<screen>interface Ten-GigabitEthernet1/0/5:3
+vtep access port</screen></listitem>
+        <listitem><para>Disable VxLAN tunnel
+          mac-learning:</para>
+<screen>vxlan tunnel mac-learning disable</screen></listitem>
+        <listitem><para>Display the current configuration of the 5930 switch and verify the
+          configuration:</para>
+<screen>display current-configuration</screen></listitem>
+      </orderedlist><para> After switch configuration is complete, you can dump OVSDB to see the entries.</para>
+<orderedlist>
+        <listitem><para> Run the ovsdb-client from any Linux machine reachable by the switch:
+          </para>
+<screen>ovsdb-client dump --pretty tcp:10.10.85.10:6632
+
+sdn@small-hLinux:~$ ovsdb-client dump --pretty tcp:10.10.85.10:6632
+Arp_Sources_Local table
+_uuid locator src_mac
+----- ------- -------
+
+Arp_Sources_Remote table
+_uuid locator src_mac
+----- ------- -------
+
+Global table
+_uuid                                managers switches
+------------------------------------ -------- --------------------------------------
+2c891edc-439b-4144-84d9-fa4cd88092bf []       [f5f4b43b-40bc-4640-b580-d4b12011f688]
+
+Logical_Binding_Stats table
+_uuid bytes_from_local bytes_to_local packets_from_local packets_to_local
+----- ---------------- -------------- ------------------ ----------------
+
+Logical_Router table
+_uuid description name static_routes switch_binding
+----- ----------- ---- ------------- --------------
+
+Logical_Switch table
+_uuid description name tunnel_key
+----- ----------- ---- ----------
+
+Manager table
+_uuid inactivity_probe is_connected max_backoff other_config status target
+----- ---------------- ------------ ----------- ------------ ------ ------
+
+Mcast_Macs_Local table
+MAC _uuid ipaddr locator_set logical_switch
+--- ----- ------ ----------- --------------
+
+Mcast_Macs_Remote table
+MAC _uuid ipaddr locator_set logical_switch
+--- ----- ------ ----------- --------------
+
+Physical_Locator table
+_uuid dst_ip encapsulation_type
+----- ------ ------------------
+
+Physical_Locator_Set table
+_uuid locators
+----- --------
+
+Physical_Port table
+_uuid                                description name                         port_fault_status vlan_bindings vlan_stats
+------------------------------------ ----------- ---------------------------- ----------------- ------------- ----------
+fda90870-656c-479b-91ee-852b70e2007e ""          "Ten-GigabitEthernet1/0/5:3" [UP]              {}            {}
+
+Physical_Switch table
+_uuid                                description management_ips name       ports                                  switch_fault_status tunnel_ips     tunnels
+------------------------------------ ----------- -------------- ---------- -------------------------------------- ------------------- -------------- -------
+f5f4b43b-40bc-4640-b580-d4b12011f688 ""          []             "L2GTWY02" [fda90870-656c-479b-91ee-852b70e2007e] []                  ["10.10.83.3"] []
+
+Tunnel table
+_uuid bfd_config_local bfd_config_remote bfd_params bfd_status local remote
+----- ---------------- ----------------- ---------- ---------- ----- ------
+
+Ucast_Macs_Local table
+MAC _uuid ipaddr locator logical_switch
+--- ----- ------ ------- --------------
+
+Ucast_Macs_Remote table
+MAC _uuid ipaddr locator logical_switch
+--- ----- ------ ------- --------------</screen></listitem>
+      </orderedlist>
+    <bridgehead  renderas="sect4">Enabling and configuring the L2 gateway agent</bridgehead><orderedlist>
+        <listitem><para>Update the input model (in <literal>control_plane.yml</literal>) to specify where you want
+          to run the neutron-l2gateway-agent. For example, see the line in bold in the following
+          yml:
+          </para>
+<screen>---
+ product:
+ version: 2
+ control-planes:
+ - name: cp
+   region-name: region1
+ failure-zones:
+ - AZ1
+   common-service-components:
+     - logging-producer
+     - monasca-agent
+     - freezer-agent
+     - stunnel
+     - lifecycle-manager-target
+ clusters:
+ - name: cluster1
+   cluster-prefix: c1
+   server-role: ROLE-CONTROLLER
+   member-count: 2
+   allocation-policy: strict
+ service-components:
+            
+ ... 
+ <emphasis role="bold">- neutron-l2gateway-agent</emphasis>
+ ... )</screen></listitem>
+        <listitem><para>Update <literal>l2gateway_agent.ini.j2</literal>. For example, here the IP address
+          (10.10.85.10) must be the management IP address of your 5930 switch. Open the file in vi:
+          </para>
+<screen>$vi /home/stack/my_cloud/config/neutron/l2gateway_agent.ini.j2</screen></listitem>
+        <listitem><para>Then make the
+          changes:</para>
+<screen>[ovsdb]
+# (StrOpt) OVSDB server tuples in the format
+# &lt;ovsdb_name&gt;:&lt;ip address&gt;:&lt;port&gt;[,&lt;ovsdb_name&gt;:&lt;ip address&gt;:&lt;port&gt;]
+# - ovsdb_name: a symbolic name that helps identifies keys and certificate files
+# - ip address: the address or dns name for the ovsdb server
+# - port: the port (ssl is supported)
+ovsdb_hosts = hardware_vtep:10.10.85.10:6632</screen></listitem>
+        <listitem><para>By default, the L2 gateway agent initiates a connection to OVSDB servers running on the
+          L2 gateway switches. Set the attribute <literal>enable_manager</literal> to <literal>True
+          </literal>if you want to change this behavior (to make L2 gateway switches initiate a
+          connection to the L2 gateway agent). In this case, it is assumed that the Manager table in
+          the OVSDB hardware_vtep schema on the L2 gateway switch has been populated with the
+          management IP address of the L2 gateway agent and the port.
+          </para>
+<screen>#enable_manager = False
+#connection can be initiated by the ovsdb server.
+#By default 'enable_manager' value is False, turn on the variable to True
+#to initiate the connection from ovsdb server to l2gw agent.</screen></listitem>
+        <listitem><para>If the port that is configured with <literal>enable_manager = True</literal> is any port
+          other than 6632, update the <literal>2.0/services/neutron/l2gateway-agent.yml</literal>
+          input model file with that port
+          number:</para>
+<screen>endpoints:
+    - port: '6632'
+      roles:
+      - ovsdb-server</screen></listitem>
+        <listitem><para>Note: The following command can be used to set the Manager table on the switch from a
+          remote system:</para>
+<screen>sudo vtep-ctl --db=tcp:10.10.85.10:6632 set-manager tcp:10.10.85.130:6632</screen>
+</listitem>
+        <listitem><para>For SSL communication, the command is:
+          </para>
+<screen>sudo vtep-ctl --db=tcp:10.10.85.10:6632 set-manager ssl:10.10.85.130:6632</screen><para>where
+            <emphasis role="bold">10.10.85.10</emphasis> is the management IP address of the L2 gateway switch and
+            <emphasis role="bold">10.10.85.130</emphasis> is the management IP of the host on which the L2 gateway agent
+            runs.</para>
+<para>Therefore, in the above topology, this command has to be repeated for
+              <emphasis role="bold">10.10.85.131</emphasis> and <emphasis role="bold">10.10.85.132</emphasis>.</para>
+</listitem>
+        <listitem><para>If you are not using SSL, comment out the following:
+          </para>
+<screen>#l2_gw_agent_priv_key_base_path={{ neutron_l2gateway_agent_creds_dir }}/keys
+#l2_gw_agent_cert_base_path={{ neutron_l2gateway_agent_creds_dir }}/certs
+#l2_gw_agent_ca_cert_base_path={{ neutron_l2gateway_agent_creds_dir }}/ca_certs</screen></listitem>
+        <listitem><para>If you are using SSL, then rather than commenting out the attributes, specify the
+          directory path of the private key, the certificate, and the CA cert that the agent should
+          use to communicate with the L2 gateway switch which has the OVSDB server enabled for SSL
+          communication. </para>
+<para>Make sure that the directory path of the files is given permissions 755,
+            and the files’ owner is root and the group is root with 644
+              permissions.</para>
+<para><emphasis role="bold">Private key:</emphasis> The name should be the same as the symbolic
+            name used above in ovsdb_hosts attribute. The extension of the file should be ".key".
+            With respect to the above example, the filename will be
+              hardware_vtep.key</para>
+<para><emphasis role="bold">Certificate</emphasis> The name should be the same as the symbolic
+            name used above in ovsdb_hosts attribute. The extension of the file should be “.cert”.
+            With respect to the above example, the filename will be hardware_vtep.cert</para>
+<para><emphasis role="bold">CA
+              certificate</emphasis> The name should be the same as the symbolic name used above in
+            ovsdb_hosts attribute. The extension of the file should be “.ca_cert”. With respect to
+            the above example, the filename will be hardware_vtep.ca_cert</para>
+</listitem>
+        <listitem><para>To enable the HPE 5930 switch for SSL communication, execute the following commands:
+          </para>
+<screen>undo ovsdb server ptcp
+undo ovsdb server enable
+ovsdb server ca-certificate flash:/cacert.pem bootstrap
+ovsdb server certificate flash:/sc-cert.pem
+ovsdb server private-key flash:/sc-privkey.pem
+ovsdb server pssl port 6632
+ovsdb server enable</screen></listitem>
+        <listitem><para>Data from the OVSDB sever with SSL can be viewed using the following command:</para>
+<screen>ovsdb-client -C &lt;ca-cert.pem&gt; -p &lt;client-private-key.pem&gt; -c &lt;client-cert.pem&gt; dump ssl:10.10.85.10:6632</screen>
+</listitem>
+      </orderedlist>
+    <bridgehead  renderas="sect4">Routing between software and hardware</bridgehead><para><emphasis role="bold">VTEP networks</emphasis></para>
+<para>In order to allow L2 gateway switches to send VxLAN packets over the correct tunnels
+        destined for the compute node and controller node VTEPs, you must ensure that the cloud VTEP
+        (compute and controller) IP addresses are in different network/subnet from that of the L2
+        gateway switches. You must also create a route between these two networks. This is explained
+        below.</para>
+<orderedlist>
+        <listitem><para>In the following example of the input model file <literal>networks.yml</literal>, the
+          GUEST-NET represents the cloud data VxLAN network. REMOTE-NET is the network that
+          represents the hardware VTEP network.
+          </para>
+<screen>#networks.yml
+ networks:
+    - name: GUEST-NET
+      vlanid: 103
+      tagged-vlan: false
+      cidr: 10.1.1.0/24
+      gateway-ip: 10.1.1.10
+      network-group: GUEST
+
+    - name: REMOTE-NET
+      vlanid: 183
+      tagged-vlan: false
+      cidr: 10.10.83.0/24
+      gateway-ip: 10.10.83.3
+      network-group: REMOTE</screen></listitem>
+        <listitem><para>The route must be configured between the two networks in the
+            <literal>network-groups.yml</literal> input model file:
+              </para>
+<screen>#network_groups.yml
+ network-groups:
+    - name: REMOTE
+      routes:
+        - GUEST
+
+    - name: GUEST
+      hostname-suffix: guest
+      tags:
+        - neutron.networks.vxlan:
+            tenant-vxlan-id-range: "1:5000"
+      routes:
+        - REMOTE</screen><para><emphasis role="bold">Note
+              that the IP route is configured on the compute node. Per this route, the HPE 5930 acts
+              as a gateway that routes between the two networks.</emphasis></para>
+</listitem>
+        <listitem><para>On the compute node, it looks like this:
+          </para>
+<screen>stack@padawan-cp1-comp0001-mgmt:~$ sudo ip route
+10.10.83.0/24 via 10.1.1.10 dev eth4</screen></listitem>
+        <listitem><para>Run the following Ansible playbooks to apply the changes. </para>
+<para>config-processor-run.yml:</para>
+<screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</screen>
+<para>
+            ready-deployment.yml:</para>
+<screen>ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+<para>
+            hlm-reconfigure.yml:</para>
+<screen>cd ~/scratch/ansible/next/hos/ansible/
+ansible-playbook -i hosts/verb_hosts hlm-reconfigure.yml</screen>
+</listitem>
+      </orderedlist><para><emphasis role="bold">Notes: </emphasis></para>
+<orderedlist>
+        <listitem><para>Make sure that the controller cluster is able to reach the management IP address of the
+          L2 gateway switch. Otherwise, the L2 gateway agents running on the controllers will not be
+          able to reach the gateway switches. </para>
+</listitem>
+        <listitem><para>Make sure that the interface on the baremetal server connected to the 5930 switch is
+          tagged (this is explained shortly). </para>
+</listitem>
+      </orderedlist>
+    <bridgehead  renderas="sect4">Connecting a baremetal server to the HPE 5930
+        switch</bridgehead><para>As Ubuntu (baremetal server) is not aware of tagged packets, it is not
+        possible for a virtual machine to communicate with a baremetal box.</para>
+<para>You (the
+        administrator) must manually perform configuration changes to the interface in the HPE 5930
+        switch to which the baremetal server is connected so that the switch can send untagged
+        packets. Either one of the following command sets can be used to do
+        so:</para>
+<screen >Interface &lt;interface number&gt;
+service-instance &lt;service-instance id&gt;
+encapsulation untagged
+xconnect vsi &lt;vsi-name&gt;</screen><para>Or:</para>
+<screen >Interface &lt;interface number&gt;
+service-instance &lt;service-instance id&gt;
+encapsulation s-vid &lt;vlan-id&gt;
+xconnect vsi &lt;vsi-name&gt; access-mode ethernet</screen><para>There
+        are two ways of configuring the baremetal server to communicate with virtual machines. If
+        the switch sends tagged traffic, then the baremetal server should be able to receive the
+        tagged traffic.</para>
+
+    <bridgehead  renderas="sect4">Configuration on a baremetal server</bridgehead><para><emphasis role="bold"> To receive tagged packets from the switch</emphasis></para>
+<para>If the configuration changes mentioned previously are not made on the switch to send
+        untagged traffic to the baremetal server, then the following changes are required on the
+        baremetal server so that it can receive tagged traffic from the switch.</para>
+<para>Bare metal Management ip: 10.10.85.129 on interface em1 Switch 5930 is connected to
+        baremetal on eth1 Need to set the IP address into tagged interface of eth1</para>
+<orderedlist>
+        <listitem><para>create tagged (VLAN 183) interface </para>
+<screen>vconfig add eth1 183</screen></listitem>
+        <listitem><para> Assign the IP address (10.10.10.129) to eth1.183 tagged interface ( IP from the subnet
+          10.10.10.0/24 as VM(10.10.10.4) spawned in Compute node belongs to this subnet).
+          </para>
+<screen>ifconfig eth1.183 10.10.10.129/24</screen></listitem>
+      </orderedlist>
+    <formalpara xml:id="NICbonding"><title>NIC bonding and IRF configuration</title><para><xref linkend="configobj_interfacemodels"/><link xlink:href="http://h20564.www2.hpe.com/hpsc/doc/public/display?docId=c04567141">HPE FlexFabric 5930 Switch Series configuraton guide</link></para>
+</formalpara>
+    <bridgehead  renderas="sect4">Scale numbers tested</bridgehead><itemizedlist>
+        <listitem><para> Number of neutron port MACs tested on a single switch: 4000 </para>
+</listitem>
+        <listitem><para>Number of HPE 5930 switches tested: 2 </para>
+</listitem>
+        <listitem><para>Number of baremetal connected to a single HPE 5930 switch: 100 </para>
+</listitem>
+        <listitem><para>Number of L2 gateway connections to different networks: 800 </para>
+</listitem>
+      </itemizedlist>
+    <bridgehead  renderas="sect4">L2 gateway commands</bridgehead><para>
+     
+       These commands are not part of the L2 gateway deployment.
+      They are to be executed after L2 gateway is deployed. </para>
+<orderedlist>
+        <listitem><para> Create Network </para>
+<screen>neutron net-create net1</screen></listitem>
+        <listitem><para> Create Subnet </para>
+<screen>neutron subnet-create net1 10.10.10.0/24</screen></listitem>
+        <listitem><para>Boot a tenant VM ( nova boot –image &lt;Image-id&gt; --flavor 2 –nic net-id=&lt;net_id&gt;
+          &lt;VM name&gt;)
+          </para>
+<screen>nova boot --image 1f3cd49d-9239-49cf-8736-76bac5360489 --flavor 2 --nic net-id=4f6c58b6-0acc-4e93-bb4c-439b38c27a23 VM</screen><para>
+          Assume the VM was assigned the IP address 10.10.10.4 </para>
+</listitem>
+        <listitem><para>Create the L2 gateway filling in your information
+          here:</para>
+<screen>neutron l2-gateway-create --device name="&lt;switch name&gt;",interface_names="&lt;interface_name&gt;"  &lt;gateway-name&gt;</screen><para>
+          For this
+          example:</para>
+<screen>neutron l2-gateway-create --device name="L2GTWY02",interface_names="Ten-GigabitEthernet1/0/5:3" gw1</screen><para>Ping
+          from the VM (10.10.10.4) to baremetal server and from baremetal server (10.10.10.129) to
+          the VM Ping should not work as there is no gateway connection created yet. </para>
+</listitem>
+        <listitem><para>Create l2 gateway Connection
+          </para>
+<screen>neutron l2-gateway-connection-create gw1 net1 --segmentation-id 183</screen></listitem>
+        <listitem><para>Ping from VM (10.10.10.4) to baremetal and from baremetal (10.10.10.129) to VM Ping
+          should work. </para>
+</listitem>
+        <listitem><para>Delete l2 gateway Connection
+          </para>
+<screen>neutron l2-gateway-connection-delete &lt;gateway id/gateway_name&gt;</screen></listitem>
+        <listitem><para>Ping from the VM (10.10.10.4) to baremetal and from baremetal (10.10.10.129) to the VM.
+          Ping should not work as l2 gateway connection was deleted.</para>
+</listitem>
+      </orderedlist>
+  </section>
