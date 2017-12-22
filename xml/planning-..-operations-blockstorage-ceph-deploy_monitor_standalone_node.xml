@@ -1,0 +1,478 @@
+<?xml version="1.0"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<!---->
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="topic_ah5_4yx_qt"><title>Deploying Ceph Monitor Services on Dedicated
+        Resource Nodes</title>
+        
+        
+        <para>In the [[[kw-hos-phrase]]] example configurations, the Ceph monitor service
+            is installed on the controller nodes by default. If you wish to break these out into
+            their own cluster then you can do so by modifying the input model to form a separate
+                cluster.</para>
+<important><para>If you want to deploy the monitor service as a
+                dedicated resource node, then you must decide prior to the deployment of Ceph.
+                    [[[kw-hos-phrase]]] does not support deployment transition. Once
+                Ceph is deployed, you cannot migrate the monitor service from controller to
+                dedicated resource nodes. </para>
+</important>
+
+        <bridgehead  renderas="sect4">Prerequisite</bridgehead><para>The lifecycle manager must be set up before starting Ceph deployment. For more
+                details on the installation of the lifecycle manager, see <citetitle>FIXME: broken external xref</citetitle>.</para>
+
+        <bridgehead  renderas="sect4">To Install the Ceph Monitor Service on Dedicated Resource
+                Nodes</bridgehead><para>Perform the following procedure to install the Ceph monitor on dedicated nodes. Note
+                that Ceph requires at least 3 monitoring servers to form a cluster in case of node
+                failure.</para>
+<orderedlist>
+                <listitem><para>Log in to the lifecycle manager.</para>
+</listitem>
+                <listitem><para>You will use the <literal>entry-scale-kvm-ceph</literal> example configuration as
+                    the base for these steps. Copy the example configuration files into the required
+                    setup directory before beginning the edit process:
+                    </para>
+<screen>cp -r ~/helion/examples/entry-scale-kvm-ceph/* ~/helion/my_cloud/definition/</screen></listitem>
+                <listitem><para>Make the following edits to the
+                        <literal>~/helion/my_cloud/definition/data/control_plane.yml</literal> file: </para>
+<orderedlist>
+                        <listitem><para>Remove the reference to <literal>- ceph-monitor</literal> under the
+                                <literal>service-components</literal> section for your control plane
+                            cluster.</para>
+</listitem>
+                        <listitem><para>Add the details for your Ceph monitoring cluster. It is shown as the
+              bolded portion in the example below, we added the rest to show the proper positioning: </para>
+<screen>clusters:
+  - name: cluster1
+    cluster-prefix: c1
+    server-role: CONTROLLER-ROLE
+    member-count: 3
+    allocation-policy: strict
+    service-components:
+      - lifecycle-manager
+      - ntp-server
+      ...
+                                    
+  <emphasis role="bold">- name: ceph-mon
+    cluster-prefix: ceph-mon
+    server-role: CEP-MON-ROLE
+    min-count: 3
+    allocation-policy: strict
+    service-components:
+      - ntp-client
+      - ceph-monitor</emphasis>
+    
+  - name: rgw
+    cluster-prefix: rgw
+    server-role: RGW-ROLE
+    ...</screen><note><para>The indentation in the file is important to review the file to ensure it matches
+                before continuing on.</para>
+</note></listitem>
+                    </orderedlist></listitem>
+                <listitem><para>Edit the <literal>~/helion/my_cloud/definition/data/servers.yml</literal> file to
+          define all of the Ceph monitor nodes in the cluster. Here is an example, you will want to
+          edit the values to match your
+          environment:</para>
+<screen># Ceph Monitor Nodes
+- id: ceph-mon1
+  ip-addr: 10.13.111.141
+  server-group: RACK1
+  role: CEP-MON-ROLE
+  nic-mapping: MY-4PORT-SERVER
+  mac-addr: "f0:92:1c:05:69:10"
+  ilo-ip: 10.12.8.217
+  ilo-password: password
+  ilo-user: admin
+
+- id: ceph-mon2
+  ip-addr: 10.13.111.142
+  server-group: RACK2
+  role: CEP-MON-ROLE
+  nic-mapping: MY-4PORT-SERVER
+  mac-addr: "83:92:1c:55:69:b0"
+  ilo-ip: 10.12.8.218
+  ilo-password: password
+  ilo-user: admin
+
+- id: ceph-mon3
+  ip-addr: 10.13.111.143
+  server-group: RACK3
+  role: CEP-MON-ROLE
+  nic-mapping: MY-4PORT-SERVER
+  mac-addr: "d9:92:1c:25:69:e0"
+  ilo-ip: 10.12.8.219
+  ilo-password: password
+  ilo-user: admin
+
+# Ceph RGW Nodes
+- id: rgw1
+  ...</screen></listitem>
+                <listitem><para>Edit the <literal>~/helion/my_cloud/definition/data/net_interfaces.yml</literal>
+          file to define a new network interface set for your Ceph monitors. You can copy the
+            <literal>RGW-INTERFACES</literal> model as a base and then edit it to match your
+          environment: </para>
+<para><emphasis role="bold">Three-network Ceph example:</emphasis></para>
+<screen>interface-models:
+      # Edit the device names and bond options
+      # to match your environment
+      #
+    - name: CONTROLLER-INTERFACES
+      network-interfaces:
+    ## This bonded interface is used by the controller 
+    ## nodes for cloud management traffic.
+        - name: BOND0
+          device:
+             name: bond0
+          bond-data:
+             options:
+                mode: active-backup
+                miimon: 200
+                primary: hed1
+             provider: linux
+             devices:
+                - name: hed1
+                - name: hed2
+            network-groups:
+            - EXTERNAL-API
+            - EXTERNAL-VM
+            - GUEST
+            - MANAGEMENT
+    ## This interface is used to connect the controller
+    ## node to the Ceph nodes so that any Ceph client
+    ## like cinder-volume can route data directly to
+    ## Ceph over thisinterface.
+        - name: HETH3
+          device:
+            name: hed3
+          forced-network-groups:
+            - OSD-CLIENT
+
+    - name: COMPUTE-INTERFACES
+      network-interfaces:
+        - name: HETH3
+          device:
+              name: hed3
+          network-groups:
+            - EXTERNAL-VM
+            - GUEST
+            - MANAGEMENT
+      ## This interface is used to connect the compute node
+      ## to the Ceph cluster so that a workload VM can route
+      ## data traffic to the Ceph cluster over thisinterface.
+        - name: HETH4
+          device:
+              name: hed4
+          forced-network-groups:
+            - OSD-CLIENT
+
+    - name: CEP-MON-INTERFACES
+      network-interfaces:
+      ## This defines the interface used for management
+      ## traffic like logging, monitoring, etc.
+        - name: BOND0
+          device:
+              name: bond0
+          bond-data:
+              options:
+                  mode: active-backup
+                  miimon: 200
+                  primary: hed1
+              provider: linux
+              devices:
+                - name: hed1
+                - name: hed2
+          network-groups:
+            - MANAGEMENT
+      ## This interface is used to connect the client
+      ## node to the Ceph nodes so that any Ceph client
+      ## like cinder-volume can route data directly to
+      ## Ceph over thisinterface.
+        - name: HETH3
+          device:
+              name: hed3
+          forced-network-groups:
+            - OSD-CLIENT
+
+    - name: OSD-INTERFACES
+      network-interfaces:
+      ## This defines the interface used for management
+      ## traffic like logging, monitoring, etc.
+        - name: BOND0
+          device:
+              name: bond0
+          bond-data:
+              options:
+                  mode: active-backup
+                  miimon: 200
+                  primary: hed1
+              provider: linux
+              devices:
+                - name: hed1
+                - name: hed2
+          network-groups:
+            - MANAGEMENT
+      ## This defines the interface used for client
+      ## or data traffic.
+        - name: HETH3
+          device:
+              name: hed3
+          network-groups:
+            - OSD-CLIENT
+      ## This defines the interface used for internal
+      ## cluster communication among OSD nodes.
+        - name: HETH4
+          device:
+              name: hed4
+          network-groups:
+            - OSD-INTERNAL</screen><para><emphasis role="bold">Two-network Ceph example:</emphasis></para>
+<screen>interface-models:
+      # Edit the device names and bond options
+      # to match your environment
+      #
+    - name: CONTROLLER-INTERFACES
+      network-interfaces:
+    ## This bonded interface is used by the controller 
+    ## nodes for cloud management traffic.
+    ## The same interface is also used to connect the client
+    ## node to the Ceph nodes so that any Ceph client
+    ## like cinder-volume can route data directly to
+    ## Ceph over thisinterface.
+        - name: BOND0
+          device:
+             name: bond0
+          bond-data:
+             options:
+                mode: active-backup
+                miimon: 200
+                primary: hed1
+             provider: linux
+             devices:
+                - name: hed1
+                - name: hed2
+            network-groups:
+            - EXTERNAL-API
+            - EXTERNAL-VM
+            - GUEST
+            - MANAGEMENT
+
+    - name: COMPUTE-INTERFACES
+      network-interfaces:
+      ## The same interface is also used to connect the compute node
+      ## to the Ceph cluster so that a workload VM can route
+      ## data traffic to the Ceph cluster over thisinterface.
+        - name: HETH3
+          device:
+              name: hed3
+          network-groups:
+            - EXTERNAL-VM
+            - GUEST
+            - MANAGEMENT
+
+    - name: CEP-MON-INTERFACES
+      network-interfaces:
+      ## This defines the interface used for management
+      ## traffic like logging, monitoring, etc.
+      ## The same interface is also used to connect the client
+      ## node to the Ceph nodes so that any Ceph client
+      ## like cinder-volume can route data directly to
+      ## Ceph over thisinterface.
+        - name: BOND0
+          device:
+              name: bond0
+          bond-data:
+              options:
+                  mode: active-backup
+                  miimon: 200
+                  primary: hed1
+              provider: linux
+              devices:
+                - name: hed1
+                - name: hed2
+          network-groups:
+            - MANAGEMENT
+
+    - name: OSD-INTERFACES
+      network-interfaces:
+      ## This defines the interface used for management
+      ## traffic like logging, monitoring, etc.
+      ## The same interface is also used for client
+      ## or data traffic.
+        - name: BOND0
+          device:
+              name: bond0
+          bond-data:
+              options:
+                  mode: active-backup
+                  miimon: 200
+                  primary: hed1
+              provider: linux
+              devices:
+                - name: hed1
+                - name: hed2
+          network-groups:
+            - MANAGEMENT
+      ## This defines the interface used for internal
+      ## cluster communication among OSD nodes.
+        - name: HETH4
+          device:
+              name: hed4
+          network-groups:
+            - OSD-INTERNAL</screen><para><emphasis role="bold">Single-network Ceph example:</emphasis></para>
+<screen>interface-models:
+      # Edit the device names and bond options
+      # to match your environment
+      #
+    - name: CONTROLLER-INTERFACES
+      network-interfaces:
+    ## This bonded interface is used by the controller 
+    ## nodes for cloud management traffic.
+    ## The same interface is also used to connect the client
+    ## node to the Ceph nodes so that any Ceph client
+    ## like cinder-volume can route data directly to
+    ## Ceph over thisinterface.
+        - name: BOND0
+          device:
+             name: bond0
+          bond-data:
+             options:
+                mode: active-backup
+                miimon: 200
+                primary: hed1
+             provider: linux
+             devices:
+                - name: hed1
+                - name: hed2
+            network-groups:
+            - EXTERNAL-API
+            - EXTERNAL-VM
+            - GUEST
+            - MANAGEMENT
+
+    - name: COMPUTE-INTERFACES
+    ## This interface is also used to connect the compute node
+    ## to the Ceph cluster so that a workload VM can route
+    ## data traffic to the Ceph cluster over thisinterface.
+      network-interfaces:
+        - name: HETH3
+          device:
+              name: hed3
+          network-groups:
+            - EXTERNAL-VM
+            - GUEST
+            - MANAGEMENT
+
+    - name: CEP-MON-INTERFACES
+      network-interfaces:
+      ## This defines the interface used for management
+      ## traffic like logging, monitoring, etc.
+      ## The same interface is also used to connect the client
+      ## node to the Ceph nodes so that any Ceph client
+      ## like cinder-volume can route data directly to
+      ## Ceph over thisinterface.
+        - name: BOND0
+          device:
+              name: bond0
+          bond-data:
+              options:
+                  mode: active-backup
+                  miimon: 200
+                  primary: hed1
+              provider: linux
+              devices:
+                - name: hed1
+                - name: hed2
+          network-groups:
+            - MANAGEMENT
+
+    - name: OSD-INTERFACES
+      network-interfaces:
+      ## This defines the interface used for management
+      ## traffic like logging, monitoring, etc.
+      ## The same interface is also used for internal cluster
+      ## communication among the OSD nodes.
+      ## The same interface is also used for internal
+      ## cluster communication among OSD nodes.
+        - name: BOND0
+          device:
+              name: bond0
+          bond-data:
+              options:
+                  mode: active-backup
+                  miimon: 200
+                  primary: hed1
+              provider: linux
+              devices:
+                - name: hed1
+                - name: hed2
+          network-groups:
+            - MANAGEMENT</screen></listitem>
+                <listitem><para>Create a new file named <literal>disks_ceph_monitor.yml</literal> in the
+            <literal>~/helion/my_cloud/definition/data/</literal> directory which will define the disk
+          model for your Ceph monitors. You can use the <literal>disks_rgw.yml</literal> file as a
+          base and then edit to match your environment:
+          </para>
+<screen>disk-models:
+- name: CEP-MON-DISKS
+  # Disk model to be used for Ceph monitor nodes
+  # /dev/sda_root is used as a volume group for /, /var/log and /var/crash
+  # sda_root is a templated value to align with whatever partition is really used
+  # This value is checked in os config and replaced by the partition actually used
+  # on sda e.g. sda1 or sda5
+                            
+  volume-groups:
+    - name: hlm-vg
+      physical-volumes:
+        - /dev/sda_root
+                            
+      logical-volumes:
+      # The policy is not to consume 100% of the space of each volume group.
+      # 5% should be left free for snapshots and to allow for some flexibility.
+        - name: root
+          size: 30%
+          fstype: ext4
+          mount: /
+        - name: log
+          size: 45%
+          mount: /var/log
+          fstype: ext4
+          mkfs-opts: -O large_file
+        - name: crash
+          size: 20%
+          mount: /var/crash
+          fstype: ext4
+          mkfs-opts: -O large_file
+      consumer:
+         name: os</screen></listitem>
+                <listitem><para>Edit the <literal>~/helion/my_cloud/definition/data/server_roles.yml</literal>
+                    file to define a new server role for your Ceph monitors:
+                    </para>
+<screen>- name: CEP-MON-ROLE
+  interface-model: CEP-MON-INTERFACES
+  disk-model: CEP-MON-DISKS</screen></listitem>
+                <listitem><para>Commit your
+                    configuration:</para>
+<screen>cd ~/helion/hos/ansible
+git add -A
+git commit -m "adding dedicated Ceph monitor cluster"</screen></listitem>
+                <listitem><para>Run the following playbook to add your nodes into Cobbler:
+                    </para>
+<screen>cd ~/helion/hos/ansible/
+ansible-playbook -i hosts/localhost cobbler-deploy.yml</screen></listitem>
+                <listitem><para>To reimage all the nodes using PXE, run the following playbook:
+                    </para>
+<screen>cd ~/helion/hos/ansible/
+ansible-playbook -i hosts/localhost bm-reimage.yml</screen></listitem>
+                <listitem><para>Run the configuration processor:
+                    </para>
+<screen>cd ~/helion/hos/ansible/
+ansible-playbook -i hosts/localhost config-processor-run.yml</screen></listitem>
+                <listitem><para>Update your deployment directory with this playbook:
+                    </para>
+<screen>cd ~/helion/hos/ansible/
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen></listitem>
+                <listitem><para>Deploy these changes:
+                    </para>
+<screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts site.yml</screen></listitem>
+            </orderedlist>
+    </section>

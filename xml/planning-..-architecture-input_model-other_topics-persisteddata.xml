@@ -1,0 +1,251 @@
+<?xml version="1.0"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<!---->
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="persisteddata"><title>Persisted Data</title>
+        
+        
+
+
+
+    <para>The configuration processor makes allocation decisions on servers and IP addresses which it needs to remember
+         between successive runs so that if new servers are added to the input model
+        they don’t disrupt the previously deployed allocations.</para>
+
+    <para>To allow users to make multiple iterations of the input model before deployment 
+        [[[kw-hos]]] will only persist data when the administrator confirms that they are about to
+        deploy the results via the "ready-deployment" operation. To understand this better, consider
+        the following example:</para>
+
+    <para>Imagine you have completed your [[[kw-hos]]] deployment with servers A, B, and C
+        and you want to add two new compute nodes by adding servers D and E to the input model.</para>
+
+    <para>When you add these to the input model and re-run the configuration processor it will read
+        the persisted data for A, B, and C and allocate D and E as new servers. The configuration
+        processor now has allocation data for A, B, C, D, and E -- which it keeps in a staging area
+        (actually a special branch in git) until we get confirmation that the configuration
+        processor has done what you intended and you are ready to deploy the revised
+        configuration.</para>
+
+    <para>If you notice that the role of E is wrong and it became a Swift node instead of a Nova node
+        you need to be able to change the input model and re-run the configuration processor. This
+        is fine because the allocations of D and E have not been confirmed, and so the configuration
+        processor will re-read the data about A, B, C and re-allocate D and E now to the correct
+        clusters, updating the persisted data in the staging area.</para>
+
+    <para>You can loop though this as many times as needed. Each time, the configuration processor is
+        processing the deltas to what is deployed, not the results of the previous run. When you are
+        ready to use the results of the configuration processor, you run
+        <literal>ready-deployment.yml</literal> which commits the data in the staging area into the
+        persisted data. The next run of the configuration processor will then start from the
+        persisted data for A, B, C, D, and E.</para>
+
+
+
+<bridgehead  renderas="sect4">Persisted Server Allocations</bridgehead><para>Server allocations are persisted by the administrator-defined server ID (see ), and include the control plane,
+        cluster/resource name, and ordinal within the cluster or resource group.</para>
+<para>To guard against data loss, the configuration processor persists server allocations even
+        when the server ID no longer exists in the input model -- for example, if a server was
+        removed accidentally and the configuration processor allocated a new server to the same
+        ordinal, then it would be very difficult to recover from that situation.</para>
+<para>The following example illustrates the behavior:</para>
+<para>A cloud is deployed with four servers with IDs of A, B, C, and D that can all be used in a
+        resource group with <literal>min-size=0</literal> and <literal>max-size=3</literal>. At the end
+        of this deployment they persisted state is as follows:</para>
+<informaltable xml:id="persist_exam_1" colsep="1" rowsep="1"><tgroup cols="6">
+                <colspec colname="c1" colnum="1"/>
+                <colspec colname="c2" colnum="2"/>
+                <colspec colname="c3" colnum="3"/>
+                <colspec colname="c4" colnum="4"/>
+                <colspec colname="c5" colnum="5"/>
+                <colspec colname="c6" colnum="6"/>
+                <thead>
+                    <row>
+                        <entry>ID</entry>
+                        <entry>Control Plane</entry>
+                        <entry>Resource Group</entry>
+                        <entry>Ordinal</entry>
+                        <entry>State</entry>
+                        <entry>Deployed As</entry>
+                    </row>
+                </thead>
+                <tbody>
+                    <row>
+                        <entry>A</entry>
+                        <entry>ccp</entry>
+                        <entry>compute</entry>
+                        <entry>1</entry>
+                        <entry>Allocated</entry>
+                        <entry>mycloud-ccp-comp0001</entry>
+                    </row>
+                    <row>
+                        <entry>B</entry>
+                        <entry>ccp</entry>
+                        <entry>compute</entry>
+                        <entry>2</entry>
+                        <entry>Allocated</entry>
+                        <entry>mycloud-ccp-comp0002</entry>
+                    </row>
+                    <row>
+                        <entry>C</entry>
+                        <entry>ccp</entry>
+                        <entry>compute</entry>
+                        <entry>3</entry>
+                        <entry>Allocated</entry>
+                        <entry>mycloud-ccp-comp0003</entry>
+                    </row>
+                    <row>
+                        <entry>D</entry>
+                        <entry/>
+                        <entry/>
+                        <entry/>
+                        <entry>Available</entry>
+                        <entry/>
+                    </row>
+                </tbody>
+            </tgroup></informaltable>
+<para>(In this example server D has not been allocated because the group is at its max size, and
+        there are no other groups that required this server)</para>
+<para>If server B is removed from the input model and the configuration processor is re-run, the
+        state is changed to:</para>
+<informaltable xml:id="persist_exam_2" colsep="1" rowsep="1"><tgroup cols="6">
+                <colspec colname="c1" colnum="1"/>
+                <colspec colname="c2" colnum="2"/>
+                <colspec colname="c3" colnum="3"/>
+                <colspec colname="c4" colnum="4"/>
+                <colspec colname="c5" colnum="5"/>
+                <colspec colname="c6" colnum="6"/>
+                <thead>
+                    <row>
+                        <entry>ID</entry>
+                        <entry>Control Plane</entry>
+                        <entry>Resource Group</entry>
+                        <entry>Ordinal</entry>
+                        <entry>State</entry>
+                        <entry>Deployed As</entry>
+                    </row>
+                </thead>
+                <tbody>
+                    <row>
+                        <entry>A</entry>
+                        <entry>ccp</entry>
+                        <entry>compute</entry>
+                        <entry>1</entry>
+                        <entry>Allocated</entry>
+                        <entry>mycloud-ccp-comp0001</entry>
+                    </row>
+                    <row>
+                        <entry>B</entry>
+                        <entry>ccp</entry>
+                        <entry>compute</entry>
+                        <entry>2</entry>
+                        <entry>Deleted</entry>
+                        <entry/>
+                    </row>
+                    <row>
+                        <entry>C</entry>
+                        <entry>ccp</entry>
+                        <entry>compute</entry>
+                        <entry>3</entry>
+                        <entry>Allocated</entry>
+                        <entry>mycloud-ccp-comp0003</entry>
+                    </row>
+                    <row>
+                        <entry>D</entry>
+                        <entry>ccp</entry>
+                        <entry>compute</entry>
+                        <entry>4</entry>
+                        <entry>Allocated</entry>
+                        <entry>mycloud-ccp-comp0004</entry>
+                    </row>
+                </tbody>
+            </tgroup></informaltable>
+<para>The details associated with server B are still retained, but the configuration processor
+        will not generate any deployment data for this server. Server D has been added to the group
+        to meet the minimum size requirement but has been given a different ordinal and hence will
+        get different names and IP addresses than were given to server B.</para>
+<para>If server B is added back into the input model the resulting state will be:</para>
+<informaltable xml:id="persist_exam_3" colsep="1" rowsep="1"><tgroup cols="6">
+                <colspec colname="c1" colnum="1"/>
+                <colspec colname="c2" colnum="2"/>
+                <colspec colname="c3" colnum="3"/>
+                <colspec colname="c4" colnum="4"/>
+                <colspec colname="c5" colnum="5"/>
+                <colspec colname="c6" colnum="6"/>
+                <thead>
+                    <row>
+                        <entry>ID</entry>
+                        <entry>Control Plane</entry>
+                        <entry>Resource Group</entry>
+                        <entry>Ordinal</entry>
+                        <entry>State</entry>
+                        <entry>Deployed As</entry>
+                    </row>
+                </thead>
+                <tbody>
+                    <row>
+                        <entry>A</entry>
+                        <entry>ccp</entry>
+                        <entry>compute</entry>
+                        <entry>1</entry>
+                        <entry>Allocated</entry>
+                        <entry>mycloud-ccp-comp0001</entry>
+                    </row>
+                    <row>
+                        <entry>B</entry>
+                        <entry>ccp</entry>
+                        <entry>compute</entry>
+                        <entry>2</entry>
+                        <entry>Deleted</entry>
+                        <entry/>
+                    </row>
+                    <row>
+                        <entry>C</entry>
+                        <entry>ccp</entry>
+                        <entry>compute</entry>
+                        <entry>3</entry>
+                        <entry>Allocated</entry>
+                        <entry>mycloud-ccp-comp0003</entry>
+                    </row>
+                    <row>
+                        <entry>D</entry>
+                        <entry>ccp</entry>
+                        <entry>compute</entry>
+                        <entry>4</entry>
+                        <entry>Allocated</entry>
+                        <entry>mycloud-ccp-comp0004</entry>
+                    </row>
+                </tbody>
+            </tgroup></informaltable>
+<para>The configuration processor will issue a warning that server B cannot be returned to the
+        compute group because it would exceed the max-size constraint. However, because the
+        configuration processor knows that server B is associated with this group it won’t allocate
+        it to any other group that could use it, since that might lead to data loss on that
+        server.</para>
+<para>If the max-size value of the group was increased, then server B would be allocated back to
+        the group, with its previous name and addresses
+        (<literal>mycloud-cp1-compute0002</literal>).</para>
+<para>Note that the configuration processor relies on the server ID to identify a physical
+        server. If the ID value of a server is changed the configuration processor will treat it as
+        a new server. Conversely, if a different physical server is added with the same ID as a
+        deleted server the configuration processor will assume that it is the original server being
+        returned to the model.</para>
+<para>You can force the removal of persisted data for servers that are no longer in the input
+        model by running the configuration processor with the
+        <literal>remove_deleted_servers</literal> option, like below:</para>
+<screen >cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml -e remove_deleted_servers="y"</screen>
+<bridgehead  renderas="sect4">Persisted Address Allocations</bridgehead><para>The configuration processor persists IP address allocations by the generated name (see
+         for how names are
+        generated). As with servers. once an address has been allocated that address will remain
+        allocated until the configuration processor is explicitly told that it is no longer
+        required. The configuration processor will generate warnings for addresses that are
+        persisted but no longer used.</para>
+<para>You can remove persisted address allocations that are no longer used in the input model by
+        running the configuration processor with the <literal>free_unused_addresses</literal> option,
+        like below:</para>
+<screen >cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml -e free_unused_addresses="y"</screen>
+
+    </section>
