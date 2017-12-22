@@ -1,0 +1,95 @@
+<?xml version="1.0"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<!---->
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="twosystems"><title>Considerations When Installing Two Systems on One Subnet</title>
+        
+        
+
+
+
+    <para>If you wish to install two separate [[[kw-hos-phrase]]] systems
+        using a single subnet, you will need to consider the following notes.</para>
+
+    <para>The <literal>ip_cluster</literal> service includes the <literal>keepalived</literal> daemon
+        which maintains virtual IPs (VIPs) on cluster nodes. In order to maintain VIPs, it
+        communicates between cluster nodes over the VRRP protocol.</para>
+
+    <para>A VRRP virtual routerid identifies a particular VRRP cluster and must be unique for a
+        subnet. If you have two VRRP clusters with the same virtual routerid, causing a clash of
+        VRRP traffic, the VIPs are unlikely to be up or pingable and you are likely to get the
+        following signature in your <literal>/etc/keepalived/keepalived.log</literal>:</para>
+
+        <screen >Dec 16 15:43:43 helion-cp1-c1-m1-mgmt Keepalived_vrrp[2218]: ip address associated with VRID not present in received packet : 10.2.1.11
+Dec 16 15:43:43 helion-cp1-c1-m1-mgmt Keepalived_vrrp[2218]: one or more VIP associated with VRID mismatch actual MASTER advert
+Dec 16 15:43:43 helion-cp1-c1-m1-mgmt Keepalived_vrrp[2218]: bogus VRRP packet received on br-bond0 !!!
+Dec 16 15:43:43 helion-cp1-c1-m1-mgmt Keepalived_vrrp[2218]: VRRP_Instance(VI_2) ignoring received advertisment...</screen>
+        <para>To resolve this issue, our recommendation is to install your separate [[[kw-hos-phrase]]] systems with VRRP traffic on different
+        subnets.</para>
+
+        <para>If this is not possible, you may also assign a unique routerid to your separate [[[kw-hos-phrase]]] system by changing the
+        <literal>keepalived_vrrp_offset</literal> service configurable. The routerid is currently
+        derived using the <literal>keepalived_vrrp_index</literal> which comes from a configuration
+        processor variable and the <literal>keepalived_vrrp_offset</literal>.</para>
+
+    <para>For example, </para>
+
+    <orderedlist>
+        <listitem><para>Log in to your lifecycle manager.</para>
+</listitem>
+        <listitem><para>Edit your <literal>~/helion/my_cloud/config/keepalived/defaults.yml</literal> file and
+            change the value of the following line: </para>
+<screen>keepalived_vrrp_offset: 0</screen><para>Change the off value to a number that uniquely identifies a separate vrrp cluster. For
+                example:</para>
+<para><literal>keepalived_vrrp_offset: 0</literal> for the 1st vrrp cluster on this subnet.</para>
+<para><literal>keepalived_vrrp_offset: 1</literal> for the 2nd vrrp cluster on this subnet.</para>
+<para><literal>keepalived_vrrp_offset: 2</literal> for the 3rd vrrp cluster on this
+                subnet.</para>
+<important xml:id="symlinks"><para>You should be aware that the files in the <literal>~/helion/my_cloud/config/ </literal>
+                directory are symlinks to the <literal>~/helion/hos/ansible/</literal> directory. 
+                
+                For example, <literal>~/helion/my_cloud/config/keepalived/defaults.yml</literal>
+                is a symbolic link to <literal>~/helion/hos/ansible/roles/keepalived/defaults/main.yml</literal></para>
+<screen>
+ls -al ~/helion/my_cloud/config/keepalived/defaults.yml
+lrwxrwxrwx 1 stack stack 55 May 24 20:38 /home/stack/helion/my_cloud/config/keepalived/defaults.yml -&gt; ../../../hos/ansible/roles/keepalived/defaults/main.yml
+</screen><para>
+                
+              If you are using a tool like <literal>sed</literal> to make edits to files in this directory, you might break the symbolic link
+                and create a new copy of the file. To maintain the link, you will need to force <literal>sed</literal>
+                to follow the link:
+                
+</para>
+<screen>
+sed -i <emphasis role="bold">--follow-symlinks</emphasis> 's$keepalived_vrrp_offset: 0$keepalived_vrrp_offset: 2$' ~/helion/my_cloud/config/keepalived/defaults.yml
+</screen><para>                
+                
+                Alternatively, you could directly edit the target of the link  <literal>~/helion/hos/ansible/roles/keepalived/defaults/main.yml</literal>.
+       
+            </para>
+</important></listitem>
+
+
+
+        <listitem><para>Commit your configuration to the <citetitle>FIXME: broken external xref</citetitle>, as follows:
+            </para>
+<screen>cd ~/helion/hos/ansible
+git add -A
+git commit -m "changing Admin password"</screen></listitem>
+        <listitem><para>Run the configuration processor with this command:
+            </para>
+<screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</screen></listitem>
+        <listitem><para>Use the playbook below to create a deployment directory:
+            </para>
+<screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen></listitem>
+        <listitem><para>If you are making this change after your initial install, run the following reconfigure
+            playbook to make this change in your environment:
+            </para>
+<screen>cd ~/scratch/ansible/next/hos/ansible/
+ansible-playbook -i hosts/verb_hosts FND-CLU-reconfigure.yml</screen></listitem>
+    </orderedlist>
+
+    </section>
