@@ -2,576 +2,719 @@
 <!DOCTYPE section [
  <!ENTITY % entities SYSTEM "entities.ent"> %entities;
 ]>
-<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="MagnumArchitecture"><title>Magnum Architecture</title>
-    
- 
-    <bridgehead renderas="sect4">Architecture</bridgehead><para>As an OpenStack API service, Magnum
-        provides Container as a Service (CaaS) functionality. Magnum is capable of working with
-        container orchestration engines (COE) such as Kubernetes, Docker Swarm, and Apache Mesos.
-          </para>
-<para><emphasis role="bold">Components</emphasis></para>
-<itemizedlist>
-          <listitem><para><emphasis role="bold">Magnum API</emphasis>: RESTful API for cluster and cluster template operations.</para>
-</listitem>
-          <listitem><para><emphasis role="bold">Magnum Conductor</emphasis>: Performs operations on clusters requested by Magnum API in an
-            asynchronous manner.</para>
-</listitem>
-          <listitem><para><emphasis role="bold">Magnum CLI</emphasis>: Command-line interface to the Magnum API.</para>
-</listitem>
-          <listitem><para><emphasis role="bold">Etcd (planned, currently using public service)</emphasis>: Remote key/value storage for
-            distributed cluster bootstrap and discovery.</para>
-</listitem>
-          <listitem><para><emphasis role="bold">Kubemaster (in case of Kubernetes COE)</emphasis>: One or more VM(s) or baremetal
-            server(s), representing a control plane for Kubernetes cluster.</para>
-</listitem>
-          <listitem><para><emphasis role="bold">Kubeminion (in case of Kubernetes COE)</emphasis>: One or more VM(s) or baremetal
-            server(s), representing a workload node for Kubernetes cluster.</para>
-</listitem>
-          <listitem><para><emphasis role="bold">Octavia VM aka Amphora (in case of Kubernetes COE with enabled load balancer
-              functionality)</emphasis>: One or more VM(s), created by HOS LBaaS v2, performing request
-            load balancing for Kubemasters.</para>
-</listitem>
-        </itemizedlist>
-<para><emphasis role="bold">Data</emphasis></para>
-<informaltable xml:id="table_ebc_x5v_jz" colsep="1" rowsep="1"><tgroup cols="6">
-            <colspec colname="c1" colnum="1" colwidth="1.86*"/>
-            <colspec colname="c2" colnum="2" colwidth="1.58*"/>
-            <colspec colname="c3" colnum="3" colwidth="1*"/>
-            <colspec colname="c4" colnum="4" colwidth="1.35*"/>
-            <colspec colname="c5" colnum="5" colwidth="1.22*"/>
-            <colspec colname="c6" colnum="6" colwidth="4.16*"/>
-            <thead>
-              <row>
-                <entry>Data Name</entry>
-                <entry>Confidentiality</entry>
-                <entry>Integrity</entry>
-                <entry>Availability</entry>
-                <entry>Backup?</entry>
-                <entry>Description</entry>
-              </row>
-            </thead>
-            <tbody>
-              <row>
-                <entry>Session Tokens</entry>
-                <entry>Confidential</entry>
-                <entry>High</entry>
-                <entry>Medium</entry>
-                <entry>No</entry>
-                <entry>Session tokens not stored.</entry>
-              </row>
-              <row>
-                <entry>System Request</entry>
-                <entry>Confidential</entry>
-                <entry>High</entry>
-                <entry>Medium</entry>
-                <entry>No</entry>
-                <entry>Data in motion or in MQ not stored.</entry>
-              </row>
-              <row>
-                <entry>MySQL Database "Magnum"</entry>
-                <entry>Confidential</entry>
-                <entry>High</entry>
-                <entry>High</entry>
-                <entry>Yes</entry>
-                <entry>Contains user preferences. Backed up to Swift daily.</entry>
-              </row>
-              <row>
-                <entry>etcd data</entry>
-                <entry>Confidential</entry>
-                <entry>High</entry>
-                <entry>Low</entry>
-                <entry>No</entry>
-                <entry>Kubemaster IPs and cluster info. Only used during cluster bootstrap.</entry>
-              </row>
-            </tbody>
-          </tgroup></informaltable>
-<para><emphasis role="bold">Service Architecture Diagram</emphasis></para>
-<mediaobject xml:id="magnum_service_arch_diagram"><imageobject role="fo"><imagedata fileref="media-magnum-magnum_service_arch_diagram.png" width="75%" format="PNG"/></imageobject><imageobject role="html"><imagedata fileref="media-magnum-magnum_service_arch_diagram.png"/></imageobject></mediaobject>
-<para><emphasis role="bold">Interfaces</emphasis></para>
-<table xml:id="table_fst_gxv_jz" colsep="1" rowsep="1"><title/><tgroup cols="11">
-            <colspec colname="c1" colnum="1" colwidth="1.0*"/>
-            <colspec colname="c2" colnum="2" colwidth="1.0*"/>
-            <colspec colname="c3" colnum="3" colwidth="1.0*"/>
-            <colspec colname="c4" colnum="4" colwidth="1.0*"/>
-            <colspec colname="c5" colnum="5" colwidth="1.0*"/>
-            <colspec colname="c6" colnum="6" colwidth="1.0*"/>
-            <colspec colname="c7" colnum="7" colwidth="1.0*"/>
-            <colspec colname="c8" colnum="8" colwidth="1.0*"/>
-            <colspec colname="c9" colnum="9" colwidth="1.0*"/>
-            <colspec colname="c10" colnum="10" colwidth="1.0*"/>
-            <colspec colname="c11" colnum="11" colwidth="1.0*"/>
-            <thead>
-              <row>
-                <entry>Interface</entry>
-                <entry>Network Name</entry>
-                <entry>Network Protocol</entry>
-                <entry>Requestor</entry>
-                <entry>Request</entry>
-                <entry>Request Credentials</entry>
-                <entry>Request Authorization</entry>
-                <entry>Listener</entry>
-                <entry>Response</entry>
-                <entry>Response Credentials</entry>
-                <entry>Description of Operation</entry>
-              </row>
-            </thead>
-            <tbody>
-              <row>
-                <entry>1</entry>
-                <entry>External-API</entry>
-                <entry>HTTPS</entry>
-                <entry>User</entry>
-                <entry>Manage clusters</entry>
-                <entry>Keystone token</entry>
-                <entry>Manage objects which belong to current project</entry>
-                <entry>Magnum API</entry>
-                <entry>Operation status with or without data</entry>
-                <entry>TLS Certificate</entry>
-                <entry>CRUD operations on cluster templates and clusters</entry>
-              </row>
-              <row>
-                <entry>2a</entry>
-                <entry>Internal-API</entry>
-                <entry>AMQP over HTTPS</entry>
-                <entry>Magnum API</entry>
-                <entry>Enqueue messages</entry>
-                <entry>RabbitMQ username, password</entry>
-                <entry>RabbitMQ queue read/write operations</entry>
-                <entry>RabbitMQ</entry>
-                <entry>Operation status</entry>
-                <entry>TLS Certificate</entry>
-                <entry>Notifications issued when cluster CRUD operations requested</entry>
-              </row>
-              <row>
-                <entry>2b</entry>
-                <entry>Internal-API</entry>
-                <entry>AMQP over HTTPS</entry>
-                <entry>Magnum Conductor</entry>
-                <entry>Read queued messages</entry>
-                <entry>RabbitMQ username, password</entry>
-                <entry>RabbitMQ queue read/write operations</entry>
-                <entry>RabbitMQ</entry>
-                <entry>Operation status</entry>
-                <entry>TLS Certificate</entry>
-                <entry>Notifications issued when cluster CRUD operations requested</entry>
-              </row>
-              <row>
-                <entry>3</entry>
-                <entry>Internal-API</entry>
-                <entry>MySQL over HTTPS</entry>
-                <entry>Magnum Conductor</entry>
-                <entry>Persist data in MySQL</entry>
-                <entry>MySQL username, password</entry>
-                <entry>Magnum database</entry>
-                <entry>MySQL</entry>
-                <entry>Operation status with or without data</entry>
-                <entry>TLS Certificate</entry>
-                <entry>Persist cluster/cluster template data, read persisted data</entry>
-              </row>
-              <row>
-                <entry>4</entry>
-                <entry>Internal-API</entry>
-                <entry>HTTPS</entry>
-                <entry>Magnum Conductor</entry>
-                <entry>Create per-cluster user in dedicated domain, no role assignments
+<section xml:id="MagnumArchitecture"
+ xmlns="http://docbook.org/ns/docbook" version="5.1"
+ xmlns:xi="http://www.w3.org/2001/XInclude"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+ <title>Magnum Architecture</title>
+ <bridgehead renderas="sect4">Architecture</bridgehead>
+ <para>
+  As an OpenStack API service, Magnum provides Container as a Service (CaaS)
+  functionality. Magnum is capable of working with container orchestration
+  engines (COE) such as Kubernetes, Docker Swarm, and Apache Mesos.
+ </para>
+ <para>
+  <emphasis role="bold">Components</emphasis>
+ </para>
+ <itemizedlist>
+  <listitem>
+   <para>
+    <emphasis role="bold">Magnum API</emphasis>: RESTful API for cluster and
+    cluster template operations.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    <emphasis role="bold">Magnum Conductor</emphasis>: Performs operations on
+    clusters requested by Magnum API in an asynchronous manner.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    <emphasis role="bold">Magnum CLI</emphasis>: Command-line interface to the
+    Magnum API.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    <emphasis role="bold">Etcd (planned, currently using public
+    service)</emphasis>: Remote key/value storage for distributed cluster
+    bootstrap and discovery.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    <emphasis role="bold">Kubemaster (in case of Kubernetes COE)</emphasis>:
+    One or more VM(s) or baremetal server(s), representing a control plane for
+    Kubernetes cluster.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    <emphasis role="bold">Kubeminion (in case of Kubernetes COE)</emphasis>:
+    One or more VM(s) or baremetal server(s), representing a workload node for
+    Kubernetes cluster.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    <emphasis role="bold">Octavia VM aka Amphora (in case of Kubernetes COE
+    with enabled load balancer functionality)</emphasis>: One or more VM(s),
+    created by HOS LBaaS v2, performing request load balancing for Kubemasters.
+   </para>
+  </listitem>
+ </itemizedlist>
+ <para>
+  <emphasis role="bold">Data</emphasis>
+ </para>
+ <informaltable xml:id="table_ebc_x5v_jz" colsep="1" rowsep="1">
+  <tgroup cols="6">
+   <colspec colname="c1" colnum="1" colwidth="1.86*"/>
+   <colspec colname="c2" colnum="2" colwidth="1.58*"/>
+   <colspec colname="c3" colnum="3" colwidth="1*"/>
+   <colspec colname="c4" colnum="4" colwidth="1.35*"/>
+   <colspec colname="c5" colnum="5" colwidth="1.22*"/>
+   <colspec colname="c6" colnum="6" colwidth="4.16*"/>
+   <thead>
+    <row>
+     <entry>Data Name</entry>
+     <entry>Confidentiality</entry>
+     <entry>Integrity</entry>
+     <entry>Availability</entry>
+     <entry>Backup?</entry>
+     <entry>Description</entry>
+    </row>
+   </thead>
+   <tbody>
+    <row>
+     <entry>Session Tokens</entry>
+     <entry>Confidential</entry>
+     <entry>High</entry>
+     <entry>Medium</entry>
+     <entry>No</entry>
+     <entry>Session tokens not stored.</entry>
+    </row>
+    <row>
+     <entry>System Request</entry>
+     <entry>Confidential</entry>
+     <entry>High</entry>
+     <entry>Medium</entry>
+     <entry>No</entry>
+     <entry>Data in motion or in MQ not stored.</entry>
+    </row>
+    <row>
+     <entry>MySQL Database "Magnum"</entry>
+     <entry>Confidential</entry>
+     <entry>High</entry>
+     <entry>High</entry>
+     <entry>Yes</entry>
+     <entry>Contains user preferences. Backed up to Swift daily.</entry>
+    </row>
+    <row>
+     <entry>etcd data</entry>
+     <entry>Confidential</entry>
+     <entry>High</entry>
+     <entry>Low</entry>
+     <entry>No</entry>
+     <entry>Kubemaster IPs and cluster info. Only used during cluster bootstrap.</entry>
+    </row>
+   </tbody>
+  </tgroup>
+ </informaltable>
+ <para>
+  <emphasis role="bold">Service Architecture Diagram</emphasis>
+ </para>
+ <mediaobject xml:id="magnum_service_arch_diagram">
+  <imageobject role="fo">
+   <imagedata fileref="media-magnum-magnum_service_arch_diagram.png" width="75%" format="PNG"/>
+  </imageobject>
+  <imageobject role="html">
+   <imagedata fileref="media-magnum-magnum_service_arch_diagram.png"/>
+  </imageobject>
+ </mediaobject>
+ <para>
+  <emphasis role="bold">Interfaces</emphasis>
+ </para>
+ <table xml:id="table_fst_gxv_jz" colsep="1" rowsep="1">
+  <title/>
+  <tgroup cols="11">
+   <colspec colname="c1" colnum="1" colwidth="1.0*"/>
+   <colspec colname="c2" colnum="2" colwidth="1.0*"/>
+   <colspec colname="c3" colnum="3" colwidth="1.0*"/>
+   <colspec colname="c4" colnum="4" colwidth="1.0*"/>
+   <colspec colname="c5" colnum="5" colwidth="1.0*"/>
+   <colspec colname="c6" colnum="6" colwidth="1.0*"/>
+   <colspec colname="c7" colnum="7" colwidth="1.0*"/>
+   <colspec colname="c8" colnum="8" colwidth="1.0*"/>
+   <colspec colname="c9" colnum="9" colwidth="1.0*"/>
+   <colspec colname="c10" colnum="10" colwidth="1.0*"/>
+   <colspec colname="c11" colnum="11" colwidth="1.0*"/>
+   <thead>
+    <row>
+     <entry>Interface</entry>
+     <entry>Network Name</entry>
+     <entry>Network Protocol</entry>
+     <entry>Requestor</entry>
+     <entry>Request</entry>
+     <entry>Request Credentials</entry>
+     <entry>Request Authorization</entry>
+     <entry>Listener</entry>
+     <entry>Response</entry>
+     <entry>Response Credentials</entry>
+     <entry>Description of Operation</entry>
+    </row>
+   </thead>
+   <tbody>
+    <row>
+     <entry>1</entry>
+     <entry>External-API</entry>
+     <entry>HTTPS</entry>
+     <entry>User</entry>
+     <entry>Manage clusters</entry>
+     <entry>Keystone token</entry>
+     <entry>Manage objects which belong to current project</entry>
+     <entry>Magnum API</entry>
+     <entry>Operation status with or without data</entry>
+     <entry>TLS Certificate</entry>
+     <entry>CRUD operations on cluster templates and clusters</entry>
+    </row>
+    <row>
+     <entry>2a</entry>
+     <entry>Internal-API</entry>
+     <entry>AMQP over HTTPS</entry>
+     <entry>Magnum API</entry>
+     <entry>Enqueue messages</entry>
+     <entry>RabbitMQ username, password</entry>
+     <entry>RabbitMQ queue read/write operations</entry>
+     <entry>RabbitMQ</entry>
+     <entry>Operation status</entry>
+     <entry>TLS Certificate</entry>
+     <entry>Notifications issued when cluster CRUD operations requested</entry>
+    </row>
+    <row>
+     <entry>2b</entry>
+     <entry>Internal-API</entry>
+     <entry>AMQP over HTTPS</entry>
+     <entry>Magnum Conductor</entry>
+     <entry>Read queued messages</entry>
+     <entry>RabbitMQ username, password</entry>
+     <entry>RabbitMQ queue read/write operations</entry>
+     <entry>RabbitMQ</entry>
+     <entry>Operation status</entry>
+     <entry>TLS Certificate</entry>
+     <entry>Notifications issued when cluster CRUD operations requested</entry>
+    </row>
+    <row>
+     <entry>3</entry>
+     <entry>Internal-API</entry>
+     <entry>MySQL over HTTPS</entry>
+     <entry>Magnum Conductor</entry>
+     <entry>Persist data in MySQL</entry>
+     <entry>MySQL username, password</entry>
+     <entry>Magnum database</entry>
+     <entry>MySQL</entry>
+     <entry>Operation status with or without data</entry>
+     <entry>TLS Certificate</entry>
+     <entry>Persist cluster/cluster template data, read persisted data</entry>
+    </row>
+    <row>
+     <entry>4</entry>
+     <entry>Internal-API</entry>
+     <entry>HTTPS</entry>
+     <entry>Magnum Conductor</entry>
+     <entry>Create per-cluster user in dedicated domain, no role assignments
                   initially</entry>
-                <entry>Trustee domain admin username, password</entry>
-                <entry>Manage users in dedicated magnum domain</entry>
-                <entry>Keystone</entry>
-                <entry>Operation status with or without data</entry>
-                <entry>TLS Certificate</entry>
-                <entry>Magnum gernerates user record in a dedicated Keystone domain for each
+     <entry>Trustee domain admin username, password</entry>
+     <entry>Manage users in dedicated magnum domain</entry>
+     <entry>Keystone</entry>
+     <entry>Operation status with or without data</entry>
+     <entry>TLS Certificate</entry>
+     <entry>Magnum gernerates user record in a dedicated Keystone domain for each
                   cluster</entry>
-              </row>
-              <row>
-                <entry>5</entry>
-                <entry>Internal-API</entry>
-                <entry>HTTPS</entry>
-                <entry>Magnum Conductor</entry>
-                <entry>Create per-cluster stack</entry>
-                <entry>Keystone token</entry>
-                <entry>Limited to scope of authorized user</entry>
-                <entry>Heat</entry>
-                <entry>Operation status with or without data</entry>
-                <entry>TLS Certificate</entry>
-                <entry>Magnum creates Heat stack for each cluster</entry>
-              </row>
-              <row>
-                <entry>6</entry>
-                <entry>External Network</entry>
-                <entry>HTTPS</entry>
-                <entry>Magnum Conductor</entry>
-                <entry>Bootstrap a cluster in public discovery <link xlink:href="https://discovery.etcd.io/"/></entry>
-                <entry>Unguessable URL over HTTPS.  URL is only available to software processes
+    </row>
+    <row>
+     <entry>5</entry>
+     <entry>Internal-API</entry>
+     <entry>HTTPS</entry>
+     <entry>Magnum Conductor</entry>
+     <entry>Create per-cluster stack</entry>
+     <entry>Keystone token</entry>
+     <entry>Limited to scope of authorized user</entry>
+     <entry>Heat</entry>
+     <entry>Operation status with or without data</entry>
+     <entry>TLS Certificate</entry>
+     <entry>Magnum creates Heat stack for each cluster</entry>
+    </row>
+    <row>
+     <entry>6</entry>
+     <entry>External Network</entry>
+     <entry>HTTPS</entry>
+     <entry>Magnum Conductor</entry>
+     <entry>Bootstrap a cluster in public discovery <link xlink:href="https://discovery.etcd.io/"/>
+     </entry>
+     <entry>Unguessable URL over HTTPS.  URL is only available to software processes
                   needing it.</entry>
-                <entry>Read and update</entry>
-                <entry>Public discovery service</entry>
-                <entry>Cluster discovery URL</entry>
-                <entry>TLS Certificate</entry>
-                <entry>Create key/value registry of specified size in public storage.  This is used
+     <entry>Read and update</entry>
+     <entry>Public discovery service</entry>
+     <entry>Cluster discovery URL</entry>
+     <entry>TLS Certificate</entry>
+     <entry>Create key/value registry of specified size in public storage.  This is used
                   to stand up a cluster of kubernetes master nodes (refer to interface call
                   #12)</entry>
-              </row>
-              <row>
-                <entry>7</entry>
-                <entry>Internal-API</entry>
-                <entry>HTTPS</entry>
-                <entry>Heat Engine</entry>
-                <entry>Create Cinder volumes</entry>
-                <entry>Keystone token</entry>
-                <entry>Limited to scope of authorized user</entry>
-                <entry>Cinder API</entry>
-                <entry>Operation status with or without data</entry>
-                <entry>TLS Certificate</entry>
-                <entry>Heat creates Cinder volumes as part of stack</entry>
-              </row>
-              <row>
-                <entry>8</entry>
-                <entry>Internal-API</entry>
-                <entry>HTTPS</entry>
-                <entry>Heat Engine</entry>
-                <entry>Create networks, routers, load balancers</entry>
-                <entry>Keystone token</entry>
-                <entry>Limited to scope of authorized user</entry>
-                <entry>Neutron API</entry>
-                <entry>Operation status with or without data</entry>
-                <entry>TLS Certificate</entry>
-                <entry>Heat creates networks, routers, load balancers as part of the stack</entry>
-              </row>
-              <row>
-                <entry>9</entry>
-                <entry>Internal-API</entry>
-                <entry>HTTPS</entry>
-                <entry>Heat Engine</entry>
-                <entry>Create Nova VNs, attach volumes</entry>
-                <entry>Keystone token</entry>
-                <entry>Limited to scope of authorized user</entry>
-                <entry>Nova API</entry>
-                <entry>Operation status with or without data</entry>
-                <entry>TLS Certificate</entry>
-                <entry>Heat creates Nova VMs as part of the stack</entry>
-              </row>
-              <row>
-                <entry>10</entry>
-                <entry>Internal-API</entry>
-                <entry>HTTPS</entry>
-                <entry>Nova</entry>
-                <entry>Read pre-configured Glance image</entry>
-                <entry>Keystone token</entry>
-                <entry>Limited to scope of authorized user</entry>
-                <entry>Glance API</entry>
-                <entry>Operation status with or without data</entry>
-                <entry>TLS Certificate</entry>
-                <entry>
-                  <para>Nova is using pre-configured image in Glance to bootstrap VMs</para>
-
-                </entry>
-              </row>
-              <row>
-                <entry>11a</entry>
-                <entry>External-API</entry>
-                <entry>HTTPS</entry>
-                <entry>Cluster member (VM or Ironic node)</entry>
-                <entry>Heat notification</entry>
-                <entry>Keystone token</entry>
-                <entry>Limited to scope of authorized user</entry>
-                <entry>Heat API</entry>
-                <entry>Operation status with or without data</entry>
-                <entry>TLS Certificate</entry>
-                <entry>
-                  <para>Heat is using OS::Heat::WaitCondition resource. VM is expected to call Heat
-                    notification URL upon completion of certain bootstrap operation.</para>
-
-                </entry>
-              </row>
-              <row>
-                <entry>11b</entry>
-                <entry>External-API</entry>
-                <entry>HTTPS</entry>
-                <entry>Cluster member (VM or ironic node)</entry>
-                <entry>Heat notification</entry>
-                <entry>Keystone token</entry>
-                <entry>Limited to scope of authorized user</entry>
-                <entry>Heat API</entry>
-                <entry>Operation status with or without data</entry>
-                <entry>TLS Certificate</entry>
-                <entry>
-                  <para>Heat is using OS::Heat::WaitCondition resource. VM is expected to call Heat
-                    notification URL upon completion of certain bootstrap operation.</para>
-
-                </entry>
-              </row>
-              <row>
-                <entry>12</entry>
-                <entry>External-API</entry>
-                <entry>HTTPS</entry>
-                <entry>Cluster member (VM or Ironic node)</entry>
-                <entry>Update cluster member state in a public registry at https://discovery.etcd.io </entry>
-                <entry>Unguessable URL over HTTPS only available to software processes needing it. </entry>
-                <entry>Read and update</entry>
-                <entry>Public discovery servicve</entry>
-                <entry>Operation status</entry>
-                <entry>TLS Certificate</entry>
-                <entry>
-                  <para>Update key/value pair in a registry created by interface call #6</para>
-
-                </entry>
-              </row>
-              <row>
-                <entry>13a</entry>
-                <entry>A VxLAN encapsulated private network on the Guest network </entry>
-                <entry>HTTPS</entry>
-                <entry>Cluster member (VM or Ironic node) </entry>
-                <entry>Various communications inside Kubernetes cluster </entry>
-                <entry>Tenant specific</entry>
-                <entry>Tenant specific</entry>
-                <entry>Cluster member (VM or Ironic node) </entry>
-                <entry>Tenant specific</entry>
-                <entry>TLS Certificate</entry>
-                <entry>
-                  <para>Various calls performed to build Kubernetes clusters, deploy applications and
-                    put workload</para>
-
-                </entry>
-              </row>
-              <row>
-                <entry>13b</entry>
-                <entry>A VxLAN encapsulated private network on the Guest network </entry>
-                <entry>HTTPS</entry>
-                <entry>Cluster member (VM or Ironic node) </entry>
-                <entry>Various communications inside Kubernetes cluster </entry>
-                <entry>Tenant specific</entry>
-                <entry>Tenant specific</entry>
-                <entry>Cluster member (VM or Ironic node) </entry>
-                <entry>Tenant specific</entry>
-                <entry>TLS Certificate</entry>
-                <entry>
-                  <para>Various calls performed to build Kubernetes clusters, deploy applications and
-                    put workload</para>
-
-                </entry>
-              </row>
-              <row>
-                <entry>14</entry>
-                <entry>Guest/External</entry>
-                <entry>HTTPS</entry>
-                <entry>Cluster member (VM or Ironic node) </entry>
-                <entry>Download container images </entry>
-                <entry>None</entry>
-                <entry>None</entry>
-                <entry>External</entry>
-                <entry>Container image data</entry>
-                <entry>TLS Certificate</entry>
-                <entry>
-                  <para>Kubernetes is making calls to external repositories to download pre-packed
-                    container images</para>
-
-                </entry>
-              </row>
-              <row>
-                <entry>15a</entry>
-                <entry>External/EXT_VM (Floating IP) </entry>
-                <entry>HTTPS</entry>
-                <entry>Tenant specific</entry>
-                <entry>Tenant specific</entry>
-                <entry>Tenant specific</entry>
-                <entry>Tenant specific</entry>
-                <entry>Octavia load balancer </entry>
-                <entry>Tenant specific</entry>
-                <entry>Tenant specific</entry>
-                <entry>
-                  <para>External workload handled by container applications</para>
-
-                </entry>
-              </row>
-              <row>
-                <entry>15b</entry>
-                <entry>Guest</entry>
-                <entry>HTTPS</entry>
-                <entry>Tenant specific</entry>
-                <entry>Tenant specific</entry>
-                <entry>Tenant specific</entry>
-                <entry>Tenant specific</entry>
-                <entry>Cluster member (VM or Ironic node) </entry>
-                <entry>Tenant specific</entry>
-                <entry>Tenant specific</entry>
-                <entry>
-                  <para>External workload handled by container applications</para>
-
-                </entry>
-              </row>
-              <row>
-                <entry>15c</entry>
-                <entry>External/EXT_VM (Floating IP) </entry>
-                <entry>HTTPS</entry>
-                <entry>Tenant specific</entry>
-                <entry>Tenant specific</entry>
-                <entry>Tenant specific</entry>
-                <entry>Tenant specific</entry>
-                <entry>Cluster member (VM or Ironic node) </entry>
-                <entry>Tenant specific</entry>
-                <entry>Tenant specific</entry>
-                <entry>
-                  <para>External workload handled by container applications</para>
-
-                </entry>
-              </row>
-            </tbody>
-          </tgroup></table>
-<para><emphasis role="bold">Dependencies</emphasis></para>
-<itemizedlist>
-          <listitem><para>Keystone</para>
-</listitem>
-          <listitem><para>RabbitMQ</para>
-</listitem>
-          <listitem><para>MySQL</para>
-</listitem>
-          <listitem><para>Heat</para>
-</listitem>
-          <listitem><para>Glance</para>
-</listitem>
-          <listitem><para>Nova</para>
-</listitem>
-          <listitem><para>Cinder</para>
-</listitem>
-          <listitem><para>Neutron</para>
-</listitem>
-          <listitem><para>Barbican</para>
-</listitem>
-          <listitem><para>Swift</para>
-</listitem>
-        </itemizedlist>
-<para><emphasis role="bold">Sequence Diagram</emphasis></para>
-<mediaobject xml:id="magnum_sequence_diagram"><imageobject role="fo"><imagedata fileref="media-magnum-magnum_sequence_diagram.png" width="75%" format="PNG"/></imageobject><imageobject role="html"><imagedata fileref="media-magnum-magnum_sequence_diagram.png"/></imageobject></mediaobject>
-<para><emphasis role="bold">Implementation</emphasis></para>
-<para>Magnum API anmd Magnum Conductor are run on the &kw-hos; controllers (or core nodes
-        in case of mid-scale deployments).
-        </para>
-<mediaobject xml:id="midscalekvmvsa"><imageobject role="fo"><imagedata fileref="media-networkImages-Mid-Scale-AllNetworks.png" width="75%" format="PNG"/></imageobject><imageobject role="html"><imagedata fileref="media-networkImages-Mid-Scale-AllNetworks.png"/></imageobject></mediaobject>
-<para><emphasis role="bold">Security Groups</emphasis></para>
-<informaltable xml:id="security_groups_table" colsep="1" rowsep="1"><tgroup cols="4">
-            <colspec colname="c1" colnum="1" colwidth="1.62*"/>
-            <colspec colname="c2" colnum="2" colwidth="1*"/>
-            <colspec colname="c3" colnum="3" colwidth="1.31*"/>
-            <colspec colname="c4" colnum="4" colwidth="1.31*"/>
-            <thead>
-              <row>
-                <entry>Source CIDR/Security Group</entry>
-                <entry>Port/Range</entry>
-                <entry>Protocol</entry>
-                <entry>Notes</entry>
-              </row>
-            </thead>
-            <tbody>
-              <row>
-                <entry>Any IP</entry>
-                <entry>22</entry>
-                <entry>SSH</entry>
-                <entry>Tenant Admin access</entry>
-              </row>
-              <row>
-                <entry>Any IP/Kubernetes Security Group</entry>
-                <entry>2379-2380</entry>
-                <entry>HTTPS</entry>
-                <entry>Etcd Traffic</entry>
-              </row>
-              <row>
-                <entry>Any IP/Kubernetes Security Group</entry>
-                <entry>6443</entry>
-                <entry>HTTPS</entry>
-                <entry>kube-apiserver</entry>
-              </row>
-              <row>
-                <entry>Any IP/Kubernetes Security Group</entry>
-                <entry>7080</entry>
-                <entry>HTTPS</entry>
-                <entry>kube-apiserver</entry>
-              </row>
-              <row>
-                <entry>Any IP/Kubernetes Security Group</entry>
-                <entry>8080</entry>
-                <entry>HTTPS</entry>
-                <entry>kube-apiserver</entry>
-              </row>
-              <row>
-                <entry>Any IP/Kubernetes Security Group</entry>
-                <entry>30000-32767</entry>
-                <entry>HTTPS</entry>
-                <entry>kube-apiserver</entry>
-              </row>
-              <row>
-                <entry>Any IP/Kubernetes Security Group</entry>
-                <entry>any</entry>
-                <entry>tenant app specific</entry>
-                <entry>tenant app specific</entry>
-              </row>
-            </tbody>
-          </tgroup></informaltable>
-<para><emphasis role="bold">Network Ports</emphasis></para>
-<informaltable xml:id="network_ports_table" colsep="1" rowsep="1"><tgroup cols="3">
-            <colspec colname="c1" colnum="1" colwidth="1.0*"/>
-            <colspec colname="c2" colnum="2" colwidth="1.0*"/>
-            <colspec colname="c3" colnum="3" colwidth="1.0*"/>
-            <thead>
-              <row>
-                <entry>Port/Range</entry>
-                <entry>Protocol</entry>
-                <entry>Notes</entry>
-              </row>
-            </thead>
-            <tbody>
-              <row>
-                <entry>22</entry>
-                <entry>SSH</entry>
-                <entry>Admin Access</entry>
-              </row>
-              <row>
-                <entry>9511</entry>
-                <entry>HTTPS</entry>
-                <entry>Magnum API Access</entry>
-              </row>
-              <row>
-                <entry>2379-2380</entry>
-                <entry>HTTPS</entry>
-                <entry>Etcd (planned)</entry>
-              </row>
-              <row>
-                <entry/>
-                <entry/>
-                <entry/>
-              </row>
-            </tbody>
-          </tgroup></informaltable>
-<para><emphasis role="bold">Summary of Controls</emphasis></para>
-<para>Summary of controls spanning multiple components and interfaces:
-        </para>
-<itemizedlist>
-          <listitem><para><emphasis role="bold">Audit</emphasis>: Magnum performs logging. Logs are collected by the centralized logging
-            service.</para>
-</listitem>
-          <listitem><para><emphasis role="bold">Authentication</emphasis>: Authentication via Keystone tokens at APIs. Password
-            authentication to MQ and DB using specific users with randomly-generated passwords.</para>
-</listitem>
-          <listitem><para><emphasis role="bold">Authorization</emphasis>: OpenStack provides admin and non-admin roles that are indicated
-            in session tokens. Processes run at minimum privilege. Processes run as unique
-            user/group definitions (magnum/magnum). Appropriate filesystem controls prevent other
-            processes from accessing service’s files. Magnum config file is mode 600. Logs written
-            using group adm, user magnum, mode 640. IPtables ensure that no unneeded ports are open.
-            Security Groups provide authorization controls between in-cloud components.</para>
-</listitem>
-          <listitem><para><emphasis role="bold">Availability</emphasis>: Redundant hosts, clustered DB, and fail-over provide high
-            availability.</para>
-</listitem>
-          <listitem><para><emphasis role="bold">Confidentiality</emphasis>: Network connections over TLS. Network separation via VLANs.
-            Data and config files protected via filesystem controls. Unencrypted local traffic is
-            bound to localhost. Separation of customer traffic on the TUL network via Open Flow
-            (VxLANs).</para>
-</listitem>
-          <listitem><para><emphasis role="bold">Integrity</emphasis>: Network connections over TLS. Network separation via VLANs. DB API
-            integrity protected by SQL Alchemy. Data and config files are protected by filesystem
-            controls. Unencrypted traffic is bound to localhost.</para>
-</listitem>
-        </itemizedlist>
-
-
-  </section>
+    </row>
+    <row>
+     <entry>7</entry>
+     <entry>Internal-API</entry>
+     <entry>HTTPS</entry>
+     <entry>Heat Engine</entry>
+     <entry>Create Cinder volumes</entry>
+     <entry>Keystone token</entry>
+     <entry>Limited to scope of authorized user</entry>
+     <entry>Cinder API</entry>
+     <entry>Operation status with or without data</entry>
+     <entry>TLS Certificate</entry>
+     <entry>Heat creates Cinder volumes as part of stack</entry>
+    </row>
+    <row>
+     <entry>8</entry>
+     <entry>Internal-API</entry>
+     <entry>HTTPS</entry>
+     <entry>Heat Engine</entry>
+     <entry>Create networks, routers, load balancers</entry>
+     <entry>Keystone token</entry>
+     <entry>Limited to scope of authorized user</entry>
+     <entry>Neutron API</entry>
+     <entry>Operation status with or without data</entry>
+     <entry>TLS Certificate</entry>
+     <entry>Heat creates networks, routers, load balancers as part of the stack</entry>
+    </row>
+    <row>
+     <entry>9</entry>
+     <entry>Internal-API</entry>
+     <entry>HTTPS</entry>
+     <entry>Heat Engine</entry>
+     <entry>Create Nova VNs, attach volumes</entry>
+     <entry>Keystone token</entry>
+     <entry>Limited to scope of authorized user</entry>
+     <entry>Nova API</entry>
+     <entry>Operation status with or without data</entry>
+     <entry>TLS Certificate</entry>
+     <entry>Heat creates Nova VMs as part of the stack</entry>
+    </row>
+    <row>
+     <entry>10</entry>
+     <entry>Internal-API</entry>
+     <entry>HTTPS</entry>
+     <entry>Nova</entry>
+     <entry>Read pre-configured Glance image</entry>
+     <entry>Keystone token</entry>
+     <entry>Limited to scope of authorized user</entry>
+     <entry>Glance API</entry>
+     <entry>Operation status with or without data</entry>
+     <entry>TLS Certificate</entry>
+     <entry>
+      <para>
+       Nova is using pre-configured image in Glance to bootstrap VMs
+      </para>
+     </entry>
+    </row>
+    <row>
+     <entry>11a</entry>
+     <entry>External-API</entry>
+     <entry>HTTPS</entry>
+     <entry>Cluster member (VM or Ironic node)</entry>
+     <entry>Heat notification</entry>
+     <entry>Keystone token</entry>
+     <entry>Limited to scope of authorized user</entry>
+     <entry>Heat API</entry>
+     <entry>Operation status with or without data</entry>
+     <entry>TLS Certificate</entry>
+     <entry>
+      <para>
+       Heat is using OS::Heat::WaitCondition resource. VM is expected to call
+       Heat notification URL upon completion of certain bootstrap operation.
+      </para>
+     </entry>
+    </row>
+    <row>
+     <entry>11b</entry>
+     <entry>External-API</entry>
+     <entry>HTTPS</entry>
+     <entry>Cluster member (VM or ironic node)</entry>
+     <entry>Heat notification</entry>
+     <entry>Keystone token</entry>
+     <entry>Limited to scope of authorized user</entry>
+     <entry>Heat API</entry>
+     <entry>Operation status with or without data</entry>
+     <entry>TLS Certificate</entry>
+     <entry>
+      <para>
+       Heat is using OS::Heat::WaitCondition resource. VM is expected to call
+       Heat notification URL upon completion of certain bootstrap operation.
+      </para>
+     </entry>
+    </row>
+    <row>
+     <entry>12</entry>
+     <entry>External-API</entry>
+     <entry>HTTPS</entry>
+     <entry>Cluster member (VM or Ironic node)</entry>
+     <entry>Update cluster member state in a public registry at https://discovery.etcd.io </entry>
+     <entry>Unguessable URL over HTTPS only available to software processes needing it. </entry>
+     <entry>Read and update</entry>
+     <entry>Public discovery servicve</entry>
+     <entry>Operation status</entry>
+     <entry>TLS Certificate</entry>
+     <entry>
+      <para>
+       Update key/value pair in a registry created by interface call #6
+      </para>
+     </entry>
+    </row>
+    <row>
+     <entry>13a</entry>
+     <entry>A VxLAN encapsulated private network on the Guest network </entry>
+     <entry>HTTPS</entry>
+     <entry>Cluster member (VM or Ironic node) </entry>
+     <entry>Various communications inside Kubernetes cluster </entry>
+     <entry>Tenant specific</entry>
+     <entry>Tenant specific</entry>
+     <entry>Cluster member (VM or Ironic node) </entry>
+     <entry>Tenant specific</entry>
+     <entry>TLS Certificate</entry>
+     <entry>
+      <para>
+       Various calls performed to build Kubernetes clusters, deploy
+       applications and put workload
+      </para>
+     </entry>
+    </row>
+    <row>
+     <entry>13b</entry>
+     <entry>A VxLAN encapsulated private network on the Guest network </entry>
+     <entry>HTTPS</entry>
+     <entry>Cluster member (VM or Ironic node) </entry>
+     <entry>Various communications inside Kubernetes cluster </entry>
+     <entry>Tenant specific</entry>
+     <entry>Tenant specific</entry>
+     <entry>Cluster member (VM or Ironic node) </entry>
+     <entry>Tenant specific</entry>
+     <entry>TLS Certificate</entry>
+     <entry>
+      <para>
+       Various calls performed to build Kubernetes clusters, deploy
+       applications and put workload
+      </para>
+     </entry>
+    </row>
+    <row>
+     <entry>14</entry>
+     <entry>Guest/External</entry>
+     <entry>HTTPS</entry>
+     <entry>Cluster member (VM or Ironic node) </entry>
+     <entry>Download container images </entry>
+     <entry>None</entry>
+     <entry>None</entry>
+     <entry>External</entry>
+     <entry>Container image data</entry>
+     <entry>TLS Certificate</entry>
+     <entry>
+      <para>
+       Kubernetes is making calls to external repositories to download
+       pre-packed container images
+      </para>
+     </entry>
+    </row>
+    <row>
+     <entry>15a</entry>
+     <entry>External/EXT_VM (Floating IP) </entry>
+     <entry>HTTPS</entry>
+     <entry>Tenant specific</entry>
+     <entry>Tenant specific</entry>
+     <entry>Tenant specific</entry>
+     <entry>Tenant specific</entry>
+     <entry>Octavia load balancer </entry>
+     <entry>Tenant specific</entry>
+     <entry>Tenant specific</entry>
+     <entry>
+      <para>
+       External workload handled by container applications
+      </para>
+     </entry>
+    </row>
+    <row>
+     <entry>15b</entry>
+     <entry>Guest</entry>
+     <entry>HTTPS</entry>
+     <entry>Tenant specific</entry>
+     <entry>Tenant specific</entry>
+     <entry>Tenant specific</entry>
+     <entry>Tenant specific</entry>
+     <entry>Cluster member (VM or Ironic node) </entry>
+     <entry>Tenant specific</entry>
+     <entry>Tenant specific</entry>
+     <entry>
+      <para>
+       External workload handled by container applications
+      </para>
+     </entry>
+    </row>
+    <row>
+     <entry>15c</entry>
+     <entry>External/EXT_VM (Floating IP) </entry>
+     <entry>HTTPS</entry>
+     <entry>Tenant specific</entry>
+     <entry>Tenant specific</entry>
+     <entry>Tenant specific</entry>
+     <entry>Tenant specific</entry>
+     <entry>Cluster member (VM or Ironic node) </entry>
+     <entry>Tenant specific</entry>
+     <entry>Tenant specific</entry>
+     <entry>
+      <para>
+       External workload handled by container applications
+      </para>
+     </entry>
+    </row>
+   </tbody>
+  </tgroup>
+ </table>
+ <para>
+  <emphasis role="bold">Dependencies</emphasis>
+ </para>
+ <itemizedlist>
+  <listitem>
+   <para>
+    Keystone
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    RabbitMQ
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    MySQL
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Heat
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Glance
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Nova
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Cinder
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Neutron
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Barbican
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Swift
+   </para>
+  </listitem>
+ </itemizedlist>
+ <para>
+  <emphasis role="bold">Sequence Diagram</emphasis>
+ </para>
+ <mediaobject xml:id="magnum_sequence_diagram">
+  <imageobject role="fo">
+   <imagedata fileref="media-magnum-magnum_sequence_diagram.png" width="75%" format="PNG"/>
+  </imageobject>
+  <imageobject role="html">
+   <imagedata fileref="media-magnum-magnum_sequence_diagram.png"/>
+  </imageobject>
+ </mediaobject>
+ <para>
+  <emphasis role="bold">Implementation</emphasis>
+ </para>
+ <para>
+  Magnum API anmd Magnum Conductor are run on the &kw-hos; controllers (or core
+  nodes in case of mid-scale deployments).
+ </para>
+ <mediaobject xml:id="midscalekvmvsa">
+  <imageobject role="fo">
+   <imagedata fileref="media-networkImages-Mid-Scale-AllNetworks.png" width="75%" format="PNG"/>
+  </imageobject>
+  <imageobject role="html">
+   <imagedata fileref="media-networkImages-Mid-Scale-AllNetworks.png"/>
+  </imageobject>
+ </mediaobject>
+ <para>
+  <emphasis role="bold">Security Groups</emphasis>
+ </para>
+ <informaltable xml:id="security_groups_table" colsep="1" rowsep="1">
+  <tgroup cols="4">
+   <colspec colname="c1" colnum="1" colwidth="1.62*"/>
+   <colspec colname="c2" colnum="2" colwidth="1*"/>
+   <colspec colname="c3" colnum="3" colwidth="1.31*"/>
+   <colspec colname="c4" colnum="4" colwidth="1.31*"/>
+   <thead>
+    <row>
+     <entry>Source CIDR/Security Group</entry>
+     <entry>Port/Range</entry>
+     <entry>Protocol</entry>
+     <entry>Notes</entry>
+    </row>
+   </thead>
+   <tbody>
+    <row>
+     <entry>Any IP</entry>
+     <entry>22</entry>
+     <entry>SSH</entry>
+     <entry>Tenant Admin access</entry>
+    </row>
+    <row>
+     <entry>Any IP/Kubernetes Security Group</entry>
+     <entry>2379-2380</entry>
+     <entry>HTTPS</entry>
+     <entry>Etcd Traffic</entry>
+    </row>
+    <row>
+     <entry>Any IP/Kubernetes Security Group</entry>
+     <entry>6443</entry>
+     <entry>HTTPS</entry>
+     <entry>kube-apiserver</entry>
+    </row>
+    <row>
+     <entry>Any IP/Kubernetes Security Group</entry>
+     <entry>7080</entry>
+     <entry>HTTPS</entry>
+     <entry>kube-apiserver</entry>
+    </row>
+    <row>
+     <entry>Any IP/Kubernetes Security Group</entry>
+     <entry>8080</entry>
+     <entry>HTTPS</entry>
+     <entry>kube-apiserver</entry>
+    </row>
+    <row>
+     <entry>Any IP/Kubernetes Security Group</entry>
+     <entry>30000-32767</entry>
+     <entry>HTTPS</entry>
+     <entry>kube-apiserver</entry>
+    </row>
+    <row>
+     <entry>Any IP/Kubernetes Security Group</entry>
+     <entry>any</entry>
+     <entry>tenant app specific</entry>
+     <entry>tenant app specific</entry>
+    </row>
+   </tbody>
+  </tgroup>
+ </informaltable>
+ <para>
+  <emphasis role="bold">Network Ports</emphasis>
+ </para>
+ <informaltable xml:id="network_ports_table" colsep="1" rowsep="1">
+  <tgroup cols="3">
+   <colspec colname="c1" colnum="1" colwidth="1.0*"/>
+   <colspec colname="c2" colnum="2" colwidth="1.0*"/>
+   <colspec colname="c3" colnum="3" colwidth="1.0*"/>
+   <thead>
+    <row>
+     <entry>Port/Range</entry>
+     <entry>Protocol</entry>
+     <entry>Notes</entry>
+    </row>
+   </thead>
+   <tbody>
+    <row>
+     <entry>22</entry>
+     <entry>SSH</entry>
+     <entry>Admin Access</entry>
+    </row>
+    <row>
+     <entry>9511</entry>
+     <entry>HTTPS</entry>
+     <entry>Magnum API Access</entry>
+    </row>
+    <row>
+     <entry>2379-2380</entry>
+     <entry>HTTPS</entry>
+     <entry>Etcd (planned)</entry>
+    </row>
+    <row>
+     <entry/>
+     <entry/>
+     <entry/>
+    </row>
+   </tbody>
+  </tgroup>
+ </informaltable>
+ <para>
+  <emphasis role="bold">Summary of Controls</emphasis>
+ </para>
+ <para>
+  Summary of controls spanning multiple components and interfaces:
+ </para>
+ <itemizedlist>
+  <listitem>
+   <para>
+    <emphasis role="bold">Audit</emphasis>: Magnum performs logging. Logs are
+    collected by the centralized logging service.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    <emphasis role="bold">Authentication</emphasis>: Authentication via
+    Keystone tokens at APIs. Password authentication to MQ and DB using
+    specific users with randomly-generated passwords.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    <emphasis role="bold">Authorization</emphasis>: OpenStack provides admin
+    and non-admin roles that are indicated in session tokens. Processes run at
+    minimum privilege. Processes run as unique user/group definitions
+    (magnum/magnum). Appropriate filesystem controls prevent other processes
+    from accessing service’s files. Magnum config file is mode 600. Logs
+    written using group adm, user magnum, mode 640. IPtables ensure that no
+    unneeded ports are open. Security Groups provide authorization controls
+    between in-cloud components.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    <emphasis role="bold">Availability</emphasis>: Redundant hosts, clustered
+    DB, and fail-over provide high availability.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    <emphasis role="bold">Confidentiality</emphasis>: Network connections over
+    TLS. Network separation via VLANs. Data and config files protected via
+    filesystem controls. Unencrypted local traffic is bound to localhost.
+    Separation of customer traffic on the TUL network via Open Flow (VxLANs).
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    <emphasis role="bold">Integrity</emphasis>: Network connections over TLS.
+    Network separation via VLANs. DB API integrity protected by SQL Alchemy.
+    Data and config files are protected by filesystem controls. Unencrypted
+    traffic is bound to localhost.
+   </para>
+  </listitem>
+ </itemizedlist>
+</section>
