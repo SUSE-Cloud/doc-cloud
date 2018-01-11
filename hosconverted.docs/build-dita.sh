@@ -8,7 +8,7 @@ fi
 
 dita -i $1 -f html5
 
-sed -ir 's/<a href/<a target="content" href/g' out/index.html
+sed -i -r 's/<a href/<a target="content" href/g' out/index.html
 
 cat <<EOHTML >out/frameset.html
 <!DOCTYPE html>
