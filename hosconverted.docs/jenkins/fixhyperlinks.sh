@@ -41,7 +41,7 @@ sed -i 's|!copyrightsymbol!|(C)|g'  $i
 	#sed -i 's|link href\=|xref href\=|g' $i
 	#sed -i 's|xref href\="http|link href\="http|g' $i
 	sed -i 's|format="html"||g' $i
-	sed -i 's|scope="external"|scope="external" format="html"|g' $i
+	sed -i 's| |  format="html"|g' $i
 	 
 	echo $level
 	
@@ -115,8 +115,8 @@ sed -i "s|href=\"\./\(.*\)\.dita|href=\"$docPath\1\.dita|g" $i
 sed -i  '/<related-links>/,/<\/related-links>/d' $i
 sed -i 's|format=\"html\" *format=\"pdf\"|format=\"pdf\"|' $i 	
 sed -i 's|.dita\/\"|.dita\"|g' $i 
-sed -i 's|™|(TM)|g' $i 
-sed -i 's|®|(R)|g' $i 
+sed -i 's|ï¿½|(TM)|g' $i 
+sed -i 's|ï¿½|(R)|g' $i 
 sed -i 's|xref *href=\"javascript:window.open|xref format=\"html\" href=\"javascript:window.open|g' $i
 sed -i 's|<xref href=\"#|<xref type=\"section\" href=\"#|g' $i
 sed -i 's|\(mailto[^"]*"\)|\1 format="html"|g' $i
