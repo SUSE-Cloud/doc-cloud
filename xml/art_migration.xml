@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook50-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<!DOCTYPE article
+[
+  <!ENTITY % entities SYSTEM "entity-decl.ent">
+    %entities;
+]>
+<article version="5.1" xml:lang="en" xml:id="art.migration"
+  xmlns="http://docbook.org/ns/docbook"
+  xmlns:xi="http://www.w3.org/2001/XInclude"
+  xmlns:xlink="http://www.w3.org/1999/xlink">
+ <info>
+  <title>Migration Guide</title>
+  <date><?dbtimestamp format="B d, Y"?></date>
+  <!-- <xi:include href="common_copyright_gfdl.xml"/> -->
+  <xi:include href="authors.xml"/>
+ </info>
+<sect1>
+  <title>Migration from HOS 5.x to HOS 5.SCP</title>
+  <para>
+    The migration procedure is based on the following assumptions.
+  </para>
+  <itemizedlist>
+    <listitem>
+      <para>
+	Customer is responsible for backing up all the control plane and deployer nodes to an external data store before starting migration
+      </para>
+      <itemizedlist>
+	<listitem>
+	  <para>
+	    We do not support rollback of migration process once started
+	   </para>
+	  </listitem>
+      </itemizedlist>
+    </listitem>
+    <listitem>
+      <para>
+	MML data will not be migrated (HOS 5.SCP includes a new MML backend
+	which will be installed fresh)
+    </para>
+    </listitem>
+    <listitem>
+      <para>
+	Any data not kept on a separate disk from the primary root partition will be lost during reimaging:
+    </para>
+    <itemizedlist>
+      <listitem>
+	<para>
+	  Swift objects
+	 </para>
+	</listitem>
+	<listitem>
+	  <para>
+	    Audit logs
+	   </para>
+	  </listitem>
+    </itemizedlist>
+    </listitem>
+    <listitem>
+      <para>
+	All computes are running supported Linux distribution:
+    </para>
+    <itemizedlist>
+      <listitem>
+	<para>
+	  SLES12 SP3 for SLES computes
+	 </para>
+	</listitem>
+	<listitem>
+	  <para>
+	    RHEL 7.3 for RHEL computes
+	   </para>
+	  </listitem>
+    </itemizedlist>
+    </listitem>
+    <listitem>
+      <para>
+	Only supported input model services
+    </para>
+    <itemizedlist>
+      <listitem>
+	<para>
+	  No embedded HOS Ceph or VSA
+	 </para>
+	</listitem>
+    </itemizedlist>
+    </listitem>
+    <listitem>
+      <para>
+	Only supported third-party integrations/extensions
+    </para>
+    <itemizedlist>
+      <listitem>
+	<para>
+	  No unsupported customized virtual environments
+	 </para>
+	</listitem>
+    </itemizedlist>
+    </listitem>
+  </itemizedlist>
+  <procedure>
+    <title>Preparation Phase</title>
+<step>
+  <para>
+    Run validation playbook to ensure that current cloud load and configuration
+    is compatible with migration process:
+  </para>
+  <screen>    (old-deployer)$ git clone -b hp/prerelease/newton https://gerrit.suse.provo.cloud/hp/hlm-migration-tools
+(old-deployer)$ cd hlm-migration-tools/ansible
+(old-deployer)$ ansible-playbook -i ~/scratch/ansible/next/hos/ansible/hosts/verb_hosts pre-migration-validations.yml
+  </screen>
+  <para>
+    The validation playbook performs the following checks:
+  </para>
+  <itemizedlist>
+    <listitem>
+      <para>
+       Proper HOS 5.0.1/5.0.2 installed version number
+      </para>
+    </listitem>
+    <listitem>
+      <para>
+       C8-compatible Linux distributions on compute nodes
+    </para>
+    </listitem>
+    <listitem>
+     <para>
+      System clock synchronization across cloud nodes
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      HA capacity of controller nodes (L3/DHCP agent)
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      HA capacity of controller nodes (Swift)
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Data model and Cinder back-end compatibility (no VSA or Ceph)
+     </para>
+    </listitem>
+  </itemizedlist>
+</step>
+<step>
+  <para>
+   Identify a candidate "seed" controller node in the Primary control plane
+   meeting the following requirements:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     Networking connectivity is equivalent to that of existing deployer
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Member of the database cluster (running MySQL service)
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Not actively hosting any singleton Openstack services (cinder-volume or nova-consoleauth), test for empty output using:
+    </para>
+    <screen>(each controller)$ ps -ef | egrep 'cinder-volume|nova-consoleauth'</screen>
+   </listitem>
+  </itemizedlist>
+</step>
+<step>
+  <para>
+   Prepare cloud for migration
+  </para>
+  <itemizedlist>
+  <listitem>
+   <para>
+    Ensure that the data model enables deployer behavior by the new seed
+    node.
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+          Edit the <filename>disks_*.yml</filename> file that is used by your
+    server role that includes monitoring services, and replace the existing
+    vertica partition definition with two Cassandra partitions:
+   </para>
+   <screen>- name: cassandra
+            size: (whatever size was used originally by vertica partition, less 1%)
+            mount: /var/cassandra/data
+            fstype: ext4
+            mkfs-opts: -O large_file
+            consumer:
+              name: vertica
+          - name: cassandra_log
+            size: 1%
+            mount: /var/cassandra/commitlog
+            fstype: ext4
+            mkfs-opts: -O large_file
+   </screen>
+    </listitem>
+    <listitem>
+     <para>
+      Edit <filename>~/helion/my_cloud/definition/data/control_plane.yml</filename> and identify the cluster definition that already includes an entry for <filename>mysql</filename> in its service-components
+     </para>
+    </listitem>
+   </itemizedlist>
+  </listitem>
+  </itemizedlist>
+</step>
+</procedure>
+</sect1>
+</article>
