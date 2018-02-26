@@ -4,125 +4,171 @@
 ]>
 <section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude"
   xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="entryscale_ironic_multi_tenancy" version="5.1">
-  <title>Entry-scale Cloud with Ironic Multi-Tenancy</title>
-
-
-
-  <figure xml:id="multi-tenancy">
-    <title>Entry-scale Cloud with Ironic Muti-Tenancy</title>
-    <mediaobject>
-      <imageobject role="fo">
-        <imagedata fileref="media-ironic-Entry-ScaleIronicMultiTenancy.png" width="75%" format="PNG"/>
-      </imageobject>
-      <imageobject role="html">
-        <imagedata fileref="media-ironic-Entry-ScaleIronicMultiTenancy.png"/>
-      </imageobject>
-    </mediaobject>
-  </figure>
-
-  <informaltable>
-    <tgroup cols="4">
-      <colspec colnum="1" colname="col1"/>
-      <colspec colnum="2" colname="col2"/>
-      <colspec colnum="3" colname="col3"/>
-      <colspec colnum="4" colname="col4"/>
-      <thead>
-        <row>
-          <entry> </entry>
-          <entry>VLAN switch configuration</entry>
-          <entry>VLAN type in HOS</entry>
-          <entry>Interface</entry>
-        </row>
-      </thead>
-      <tbody>
-        <row>
-          <entry>EXTERNAL-API</entry>
-          <entry>Tagged for controllers, needs subnet with IP address range</entry>
-          <entry>tagged</entry>
-          <entry>
-            <itemizedlist>
-              <listitem>
-                <para>hed3 on controllers</para>
-              </listitem>
-            </itemizedlist>
-          </entry>
-        </row>
-        <row>
-          <entry>MANAGEMENT</entry>
-          <entry>Untagged for controllers and compute, needs subnet with IP address range</entry>
-          <entry>untagged</entry>
-          <entry>
-            <itemizedlist>
-              <listitem>
-                <para>hed3 on controllers and compute</para>
-              </listitem>
-            </itemizedlist>
-          </entry>
-        </row>
-        <row>
-          <entry>PROVISIONING</entry>
-          <entry>Tagged for controllers, needs subnet with IP address range. For ironic baremetal
-            nodes, switch config will be set dynamically by Neutron.</entry>
-          <entry>neutron provider VLAN (untagged)</entry>
-          <entry>
-            <itemizedlist>
-              <listitem>
-                <para>hed4 on controllers</para>
-              </listitem>
-              <listitem>
-                <para>eth0 on baremetal nodes</para>
-              </listitem>
-            </itemizedlist>
-          </entry>
-        </row>
-        <row>
-          <entry>TENANT</entry>
-          <entry>Tagged range of VLANs. Number of VLANs in range may be up to number of baremetal
-            nodes (for each node have it's own network). For ironic baremetal nodes, switch config
-            will be set dynamically by Neutron.</entry>
-          <entry>neutron provider VLAN (untagged)</entry>
-          <entry>
-            <itemizedlist>
-              <listitem>
-                <para>hed4 on controllers</para>
-              </listitem>
-              <listitem>
-                <para>eth0 on baremetal nodes</para>
-              </listitem>
-            </itemizedlist>
-          </entry>
-        </row>
-      </tbody>
-    </tgroup>
-  </informaltable>
-
-  <para>
-    <emphasis role="bold">Routing notes</emphasis>
-  </para>
-
-  <orderedlist>
-    <listitem>
-      <para>EXTERNAL-API needs to be reachable from TENANT VLANs if ironic instances need to access
-        the cloud APIs</para>
-    </listitem>
-    <listitem>
-      <para>Controller and compute nodes IPMI/iLO must be reachable from &lcm; for
-        operating system install</para>
-    </listitem>
-    <listitem>
-      <para>Baremetal node IPMI/iLO must be reachable from controllers via MANAGEMENT network for
-        operating system install</para>
-    </listitem>
-    <listitem>
-      <para>Switch management IPs must be reachable from controllers MANAGEMENT network for VLAN
-        configuration setting</para>
-    </listitem>
-    <listitem>
-      <para>TENANT VLANs should be configured to allow inbound/outbound external access, if external
-        access is needed for Ironic instances</para>
-    </listitem>
-  </orderedlist>
-
-
-
+ <title>Entry-Scale Cloud with Ironic Multi-Tenancy</title>
+ <para>
+  This example deploys an entry scale cloud that uses the Ironic service to
+  provision physical machines through the Compute services API and supports
+  multi tenancy.
+ </para>
+ <figure xml:id="multi-tenancy">
+  <title>Entry-scale Cloud with Ironic Muti-Tenancy</title>
+  <mediaobject>
+   <imageobject role="fo">
+    <imagedata fileref="media-ironic-Entry-ScaleIronicMultiTenancy.png" width="75%" format="PNG"/>
+   </imageobject>
+   <imageobject role="html">
+    <imagedata fileref="media-ironic-Entry-ScaleIronicMultiTenancy.png"/>
+   </imageobject>
+  </mediaobject>
+ </figure>
+ <variablelist>
+  <varlistentry>
+   <term>Control Plane</term>
+   <listitem>
+    <para>
+     <emphasis role="bold">Cluster1</emphasis> 3 nodes of type
+     <literal>CONTROLLER-ROLE</literal> run the core &ostack; services, such
+     as &o_ident;, &o_comp; API, &o_img; API, &o_netw; API, &o_dash;, and
+     &o_orch; API.
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry>
+   <term>&lcm;</term>
+   <listitem>
+    <para>
+     The &lcm; runs on one of the control-plane nodes of type
+     <literal>CONTROLLER-ROLE</literal>. The IP address of the node that will
+     run the &lcm; needs to be included in the
+     <filename>data/servers.yml</filename>file.
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry>
+   <term>Resource Nodes</term>
+   <listitem>
+    <itemizedlist>
+     <listitem>
+      <para>
+       <emphasis role="bold">Ironic Compute</emphasis> One node of type
+       <literal>IRONIC-COMPUTE-ROLE</literal> runs nova-compute,
+       nova-compute-ironic, and other supporting services.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <emphasis role="bold">Object Storage</emphasis> Minimal &swift;
+       Resources are provided by the control plane.
+      </para>
+     </listitem>
+    </itemizedlist>
+   </listitem>
+  </varlistentry>
+  <varlistentry>
+   <term>Networking</term>
+   <listitem>
+    <para>
+     This example requires the following networks:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       <emphasis role="bold">IPMI/iLO</emphasis> network connected to the
+       deployer and the IPMI/iLO ports of all nodes.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <emphasis role="bold">External API</emphasis> network is used to to make
+       requests to the cloud.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <emphasis role="bold">Cloud Management</emphasis> This is the network
+       that will be used for all internal traffic between the cloud services.
+       This network is also used to install and configure the controller nodes.
+       The network needs to be on an untagged VLAN.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <emphasis role="bold">Provisioning</emphasis> is the network used to PXE
+       boot the Ironic nodes and install the operating system selected by
+       tenants. This network needs to be tagged on the switch for control
+       plane/Ironic compute nodes. For Ironic bare metal nodes, VLAN
+       configuration on the switch will be set by &o_netw; driver.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <emphasis role="bold">Tenant VLANs</emphasis> The range of VLAN IDs
+       should be reserved for use by Ironic and set in the cloud configuration.
+       It is configured as untagged on control plane nodes, therefore it can't
+       be combined with Management network on the same network interface.
+      </para>
+     </listitem>
+    </itemizedlist>
+    <para>
+     The following access should be allowed by routing/firewall:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       Access from Management network to IPMI/iLO. Used during cloud
+       installation and during Ironic bare metal node provisioning.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Access from Management network to switch management network. Used by
+       neutron driver.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       The <literal>EXTERNAL API</literal> network must be reachable from the
+       tenant networks if you want bare metal nodes to be able to make API
+       calls to the cloud.
+      </para>
+     </listitem>
+    </itemizedlist>
+    <para>
+     An example set of networks is defined in
+     <filename>data/networks.yml</filename>. The file needs to be modified to
+     reflect your environment.
+    </para>
+    <para>
+     The example uses <filename>hed3</filename> for Management and External API
+     traffic, and <filename>hed4</filename> for provisioning and tenant network
+     traffic. If you need to modify these assignments for your environment,
+     they are defined in <filename>data/net_interfaces.yml</filename>.
+    </para>
+   </listitem>
+  </varlistentry>
+  <varlistentry>
+   <term>Local Storage</term>
+   <listitem>
+    <para>
+     All servers should present a single OS disk, protected by a RAID
+     controller. This disk needs to be at least 512 GB in capacity. In addition
+     the example configures one additional disk depending on the role of the
+     server:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       <emphasis role="bold">Controllers</emphasis>
+       <filename>/dev/sdb</filename> and <filename>/dev/sdc</filename>
+       configured to be used by &swift;.
+      </para>
+     </listitem>
+    </itemizedlist>
+    <para>
+     Additional disks can be configured for any of these roles by editing the
+     corresponding <filename>data/disks_*.yml</filename> file.
+    </para>
+   </listitem>
+  </varlistentry>
+ </variablelist>
 </section>
