@@ -7,7 +7,7 @@
   <!ENTITY % entities SYSTEM "entity-decl.ent">
     %entities;
 ]>
-<article version="5.1" xml:lang="en" xml:id="art.migration"
+<article version="5.1" xml:lang="en" xml:id="art.hos.migration"
   xmlns="http://docbook.org/ns/docbook"
   xmlns:xi="http://www.w3.org/2001/XInclude"
   xmlns:xlink="http://www.w3.org/1999/xlink">
@@ -563,7 +563,89 @@
    </listitem>
   </itemizedlist>
  </step>
- 
 </procedure>
+</sect1>
+<sect1>
+ <title>Migration from HOS 5.SCP to Ardana.Newton</title>
+ <para>
+  The following procedure describes the process of migrating from HOS 5.SCP to Ardana.Newton.
+ </para>
+  <procedure>
+   <title>Preparation Phase</title>
+   <step>
+    <para>
+     Convert <filename>helion</filename> git repo to <filename>openstack</filename> Git repo for use by Ardana:
+    </para>
+    <screen>cd ~
+cp -r helion openstack
+cd openstack
+git branch -m hos ardana
+git checkout ardana
+sed -i 's/hos/ardana/' .gitignore
+git commit -a -m "Prep for Ardana"
+git mv hos ardana
+git mv hos_extensions ardana_extensions
+git commit -a -m "Conversion to Ardana"
+git checkout cp-persistent
+sed -i 's/component: helion-ca/component: ardana-ca/' my_cloud/persistent_state/private_data_control-plane-1.yml
+sed -i 's/helion_internal_ca/ardana_internal_ca/' my_cloud/persistent_state/private_data_control-plane-1.yml
+git commit -a -m "Conversion to Ardana"
+git checkout site
+# undo any manual changes that have been committed to the hos/ansible directory
+git checkout hos -- hos/ansible   # 'hos' has been changed to ardana(line 9)? If so, 'hos/ansible' might be changed to 'ardana/ansible'(line 13)
+# if any files were modified, review their changes and note that the customizations will need to be reapplied in the ardana playbooks
+git diff
+git commit -a -m "Resetting codebase to Ardana"
+# finally, pull forward the changes made earlier on the ardana branch
+git merge ardana -m "Conversion to Ardana"</screen>
+   </step>
+   <step>
+    <para>
+     Rename old <filename>scratch</filename> directory to archive any remaining
+     HOS 5.SCP files:
+    </para>
+    <screen>mv ~/scratch ~/scratch.scp</screen>
+   </step>
+   <step>
+    <para>
+     Prepare the <filename>ardana_packager</filename> working directory to include existing SUSE repositories:
+    </para>
+    <screen>sudo mkdir /opt/ardana_packager
+sudo ln -s /opt/hlm_packager/hlm /opt/ardana_packager/hlm</screen>
+   </step>
+   <step>
+    <para>
+     Install Ardana.Newton content onto deployer:
+    </para>
+    <screen># untar ardana installer into ~/ardana-0.35.0
+cd ~/ardana-0.35.0
+./ardana-init.bash</screen>
+    <para>
+     If the following error occurs:
+     </para>
+     <screen>TASK: [package-consumer | configure | Download the manifest file] *************
+failed: [localhost] => {"exception": "", "extra_mode_bits": 0, "failed": true, "group": "root", "name": null, "service": null, "version": null}
+msg: Installation failed</screen>
+     <para>
+      Run the command <command>sudo service apache2 restart</command> and run
+      the <filename>ardana-init.bash</filename> script again.
+     </para>
+   </step>
+   <step>
+    <para>
+     Install Ardana.Newton:
+    </para>
+    <screen>cd ~/openstack/ardana/ansible
+# reapply any changes to playbooks that were undone in the hos code tree in step #1
+ansible-playbook -i hosts/localhost cobbler-deploy.yml
+ansible-playbook -i hosts/localhost config-processor-run.yml
+ansible-playbook -i hosts/localhost ready-deployment.yml
+cd ~/scratch/ansible/next/ardana/ansible/
+ansible-playbook -i hosts/verb_hosts osconfig-iptables-rename.yml
+ansible-playbook -i hosts/verb_hosts ardana-upgrade.yml</screen>
+   </step>
+   
+   
+  </procedure>
 </sect1>
 </article>
