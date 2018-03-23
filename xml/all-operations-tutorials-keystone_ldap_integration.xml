@@ -1,0 +1,159 @@
+<?xml version="1.0"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<!---->
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="LDAP_Integration"><title>Integrating &kw-hos; with an LDAP System</title>
+        <sidebar><title>Overview</title><para>You can configure your &kw-hos; cloud to work with an outside user
+                authentication source such as Active Directory or OpenLDAP. Keystone, the Helion
+                OpenStack identity service, functions as the first stop for any user
+                authorization/authentication requests. Keystone can also function as a proxy for
+                user account authentication, passing along authentication and authorization requests
+                to any LDAP-enabled system that has been configured as an outside source. This type
+                of integration lets you use an existing user-management system such as Active
+                Directory and its powerful group-based organization features as a source for
+                permissions in &kw-hos;. </para>
+<para>Upon successful completion of this tutorial, your cloud will refer user
+                authentication requests to an outside LDAP-enabled directory system, such as
+                Microsoft Active Directory or OpenLDAP.</para>
+</sidebar>
+        <sidebar><title>Configure your LDAP source</title><para>To configure your &kw-hos; cloud to use an outside user-management
+                source, perform the following steps:</para>
+<orderedlist xml:id="ol_lj2_l2y_yw">
+                    <listitem><para>Make sure that the LDAP-enabled system you plan to integrate with is up and
+                        running and accessible over the necessary ports from your cloud management
+                        network.</para>
+</listitem>
+                    <listitem><para>Edit the
+                            <literal>/home/stack/helion/my_cloud/config/keystone/keystone.conf.j2</literal>
+                        file and set the following
+                        options.</para>
+<screen >domain_specific_drivers_enabled = True
+domain_configurations_from_database = False</screen></listitem>
+                    <listitem><para>Create a new YAML file in the
+                            <literal>/home/stack/helion/my_cloud/config/keystone/</literal> directory
+                        that defines your LDAP connection. You can make a copy of the sample
+                        Keystone-LDAP configuration file, and then edit that file with the details
+                        of your LDAP connection.</para>
+<para>The following example copies the
+                                <literal>keystone_configure_ldap_sample.yml</literal> file and names
+                            the new file
+                        <literal>keystone_configure_ldap_my.yml</literal>:</para>
+<screen >cp /home/stack/helion/my_cloud/config/keystone/keystone_configure_ldap_sample.yml /home/stack/helion/my_cloud/config/keystone/keystone_configure_ldap_my.yml</screen></listitem>
+                    <listitem><para>Edit the new file to define the connection to your LDAP source. This guide
+                        does not provide comprehensive information on all aspects of the
+                            <literal>keystone_configure_ldap.yml</literal> file. Find a complete list
+                        of Keystone/LDAP configuration file options at:<link xlink:href="http://docs.openstack.org/liberty/config-reference/content/keystone-configuration-file.html"/> and <link xlink:href="https://github.com/openstack/keystone/blob/master/etc/keystone.conf.sample"/></para>
+<para>The following file illustrates an
+                            example Keystone configuration that's customized for an Active Directory
+                            connection.</para>
+<screen >---
+keystone_domainldap_conf:
+ 
+    # CA certificates file content.
+    # Certificates are stored in Base64 PEM format. This may be entire LDAP server
+    # certificate (in case of self-signed certificates), certificate of authority 
+    # which issued LDAP server certificate, or a full certificate chain (Root CA
+    # certificate, intermediate CA certificate(s), issuer certificate).
+    #
+    cert_settings:
+      cacert: |
+        -----BEGIN CERTIFICATE-----
+ 
+        certificate appears here
+ 
+        -----END CERTIFICATE-----
+ 
+    # A domain will be created in MySQL with this name, and associated with ldap back end.
+    # Installer will also generate a config file named /etc/keystone/domains/keystone.&lt;domain_name&gt;.conf
+    #
+    domain_settings:
+      name: ad
+      description: Dedicated domain for ad users
+ 
+    conf_settings:
+      identity:
+         driver: ldap
+ 
+ 
+      # For a full list and description of ldap configuration options, please refer to
+      # https://github.com/openstack/keystone/blob/master/etc/keystone.conf.sample or
+      # http://docs.openstack.org/liberty/config-reference/content/keystone-configuration-file.html.
+      #
+      # Please note:
+      #  1. LDAP configuration is read-only. Configuration which performs write operations (i.e. creates users, groups, etc)
+      #     is not supported at the moment.
+      #  2. LDAP is only supported for identity operations (reading users and groups from LDAP). Assignment
+      #     operations with LDAP (i.e. managing roles, projects) are not supported.
+      #  3. LDAP is configured as non-default domain. Configuring LDAP as a default domain is not supported.
+      #
+      ldap:
+        url: ldap://ad.hpe.net
+        suffix: DC=hpe,DC=net
+        query_scope: sub
+        user_tree_dn: CN=Users,DC=hpe,DC=net
+        user : CN=admin,CN=Users,DC=hpe,DC=net
+        password: REDACTED
+        user_objectclass: user
+        user_id_attribute: cn
+        user_name_attribute: cn
+        group_tree_dn: CN=Users,DC=hpe,DC=net
+        group_objectclass: group
+        group_id_attribute: cn
+        group_name_attribute: cn
+        use_pool: True
+        user_enabled_attribute: userAccountControl
+        user_enabled_mask: 2
+        user_enabled_default: 512
+        use_tls: True
+        tls_req_cert: demand
+        # if you are configuring multiple LDAP domains, and LDAP server certificates are issued
+        # by different authorities, make sure that you place certs for all the LDAP backend domains in the 
+        # cacert parameter as seen in this sample yml file so that all the certs are combined in a single CA file 
+        # and every LDAP domain configuration points to the combined CA file. 
+        # Note: 
+        # 1. Please be advised that every time a new ldap domain is configured, the single CA file gets overwritten 
+        # and hence ensure that you place certs for all the LDAP backend domains in the cacert parameter.
+        # 2. There is a known issue on one cert per CA file per domain when the system processes 
+        # concurrent requests to multiple LDAP domains. Using the single CA file with all certs combined 
+        # shall get the system working properly*.
+        
+        tls_cacertfile: /etc/keystone/ssl/certs/all_ldapdomains_ca.pem
+        
+        # The issue is in the underlying SSL library. Upstream is not investing in python-ldap package anymore. 
+        # It is also not python3 compliant.</screen></listitem>
+                    <listitem><para>Add your new file to the local Git repository and commit the
+                        changes.</para>
+<screen >cd ~/helion
+git checkout site
+git add -A
+git commit -m "Adding LDAP server integration config"</screen></listitem>
+                    <listitem><para>Run the configuration processor and deployment preparation playbooks to
+                        validate the YAML files and prepare the environment for
+                        configuration.</para>
+<screen >cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen></listitem>
+                    <listitem><para>Run the Keystone reconfiguration playbook to implement your changes, passing
+                        the newly created YAML file as an argument to the
+                            <literal>-e@&lt;path/to/file</literal>
+                            parameter.</para>
+<screen >cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts keystone-reconfigure.yml -e@/home/stack/helion/my_cloud/config/keystone/keystone_configure_ldap_my.yml</screen><para>To
+                            integrate your &kw-hos; cloud with multiple domains,
+                            create and edit a YAML file for each domain (steps 3 and 4), and then
+                            proceed with the rest of the steps in this
+                        tutorial.</para>
+</listitem>
+                </orderedlist>
+</sidebar>
+        <sidebar xml:id="section_ptg_5m5_zw"><title>Keystone auth token validation</title><para>The following video illustrates how the Keystone identity service responds to
+                authentication requests from the other &kw-hos; services:</para>
+</sidebar>
+        <mediaobject xml:id="idg-all-operations-tutorials-keystone_ldap_integration-xml-4"><imageobject role="fo"><imagedata fileref="media-keystone-KeystoneTokenValidationExample.png" width="75%" format="PNG"/></imageobject><imageobject role="html"><imagedata fileref="media-keystone-KeystoneTokenValidationExample.png"/></imageobject></mediaobject>
+
+        <para><link xlink:href="../../../media/keystone/KeystoneTokenValidationExample.png" xml:id="idg-all-operations-tutorials-keystone_ldap_integration-xml-5">Download this image</link></para>
+
+
+
+    </section>

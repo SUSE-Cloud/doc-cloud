@@ -1,0 +1,730 @@
+<?xml version="1.0"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="ceph_storage_usage"><title>&kw-hos-tm; &kw-hos-version-50;: Usage of Ceph Storage </title><abstract><para><para>Installation and configuration steps for your Ceph
+            backend.</para></para>
+</abstract>
+        <para><para xml:id="idg-all-installation-ceph-usage_ceph_storage_helion-xml-4"><phrase><phrase/></phrase></para></para>
+
+        <!---->
+        <para>Ceph is a versatile storage technology that facilitates the consumption of storage by
+            using multiple protocols. Ceph is closely integrated with &kw-hos-tm;
+            services to support various storage use cases such as the use of storage pools for
+            cinder-volume and glance data store. &kw-hos-tm; further simplifies
+            administrator tasks by providing automated playbooks for various storage use cases. </para>
+<itemizedlist xml:id="ul_gx3_sdd_jw">
+                <listitem><para>Creating storage pools</para>
+</listitem>
+                <listitem><para>Deploying Ceph client components on client nodes</para>
+</listitem>
+                <listitem><para>Configuring OpenStack services with storage pools</para>
+</listitem>
+            </itemizedlist>
+
+        <para>The following section guides you through the following common scenarios that you might
+            come across while consuming Ceph for various storage use cases. </para>
+
+        <orderedlist xml:id="ol_ix2_bdd_jw">
+                <listitem><para><link xlink:href="#ceph_storage_usage/setup-deployer-node">Set Up Your Deployer
+                        as a Ceph Client Node</link></para>
+</listitem>
+                <listitem><para><link xlink:href="#ceph_storage_usage/using-core-ceph-openstack-service">Using
+                        Core Ceph for OpenStack Services</link></para>
+<orderedlist xml:id="ol_kxs_nqf_kw">
+                        <listitem><para><link xlink:href="#ceph_storage_usage/preq">Prerequisites</link></para>
+</listitem>
+                        <listitem><para><link xlink:href="#ceph_storage_usage/glance-data-store">Use Ceph
+                                Storage Pools as Glance Data Stores</link></para>
+</listitem>
+                        <listitem><para><link xlink:href="#ceph_storage_usage/cinder-volume-backend">Use Ceph
+                                Storage Pools as Cinder Volume Backends</link></para>
+</listitem>
+                        <listitem><para><link xlink:href="#ceph_storage_usage/cinder-backup-device">Use Ceph
+                                Storage Pools as Cinder Backup Devices</link></para>
+</listitem>
+                    </orderedlist></listitem>
+                <listitem><para><link xlink:href="#ceph_storage_usage/rados-gw-object-storage">Use RADOS
+                        Gateway to Access Objects Using S3/Swift API</link></para>
+</listitem>
+            </orderedlist>
+
+        <para>Although you can also use Ceph storage pools as ephemeral storage backends for Nova, this
+            practice  is not formally supported. </para>
+
+        <sidebar xml:id="setup-deployer-node"><title>Set Up Your Deployer as a Ceph Client Node</title><para>By default, your deployer node is not configured as a Ceph client node. As a result,
+                you cannot start your Ceph operation here. It is usually more helpful to set up your
+                deployer node as an admin client node to perform various Ceph operations. This will
+                help you manage the Ceph cluster without logging in to the monitor node. You can
+                turn your deployer node into a client node by executing the following
+                playbook.</para>
+<screen >cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts ceph-setup-deployer-as-client.yml</screen>
+<para>After you complete the preceding playbook, your deployer node will be configured with
+                an admin key ring and thus act as an admin node.</para>
+</sidebar>
+        <sidebar xml:id="using-core-ceph-openstack-service"><title>Using Core Ceph OpenStack Services</title><para>The use of Cinder for glance, cinder-volume, and cinder-backup requires pool creation
+                and setting up ceph-clients on respective OpenStack service nodes. To simplify the
+                workflow, the playbook <literal>ceph-client-prepare.yml</literal> is provided. This
+                playbook reads pool configurations followng the specification provided in
+                    <literal>ceph_user_model.yml</literal> and sets up an OpenStack client node.
+                Perform the following steps: </para>
+<orderedlist xml:id="ol_g2z_rrf_kw">
+                    <listitem><para>Define the user model. </para>
+</listitem>
+                    <listitem><para>Run <literal>hosts/verb_hosts ceph-client-prepare.yml</literal>.</para>
+<para>The default
+                            user model provided with &kw-hos-tm; is mentioned
+                            below. The default configuration contains pool configuration for
+                            cinder-volume, glance, and cinder-backup. You can edit the file if you
+                            do not intend to use Ceph for all services or want to change pool
+                            attributes based on your cluster configuration. For example, if you have
+                            large number of disks then you can increase the Placement Group (PG)
+                            number for a given pool.</para>
+<screen >---
+
+product:
+   version: 2
+
+ceph_user_models:
+    - user:
+        name: cinder
+        type: openstack
+        secret_id: 457eb676-33da-42ec-9a8c-9293d545c337
+      pools:
+        - name: volumes
+          attrs:
+            creation_policy: eager
+            type: replicated
+            replica_size: 3
+            permission: rwx
+            pg: 100
+          usage:
+            consumer: cinder-volume
+        - name: vms
+          attrs:
+            creation_policy: eager
+            type: replicated
+            replica_size: 3
+            permission: rwx
+            pg: 100
+          usage:
+            consumer: nova
+        - name: images
+          attrs:
+            creation_policy: lazy
+            permission: rx
+    - user:
+        name: glance
+        type: openstack
+      pools:
+        - name: images
+          attrs:
+            creation_policy: eager
+            type: replicated
+            replica_size: 3
+            permission: rwx
+            pg: 128
+          usage:
+            consumer: glance-datastore
+    - user:
+        name: cinder-backup
+        type: openstack
+      pools:
+        - name: backups
+          attrs:
+            creation_policy: eager
+            type: replicated
+            replica_size: 3
+            permission: rwx
+            pg: 128
+          usage:
+            consumer: cinder-backup</screen>
+<para>The following table provides the descriptions of the preceding
+                            parameters. </para>
+<informaltable xml:id="simpletable_k14_jyf_kw"><tgroup cols="4"><thead><row>
+                                    <entry>Paramter</entry>
+                                    <entry>Value</entry>
+                                    <entry>Description</entry>
+                                    <entry>Recommendation</entry>
+                                </row></thead><tbody><row>
+                                    <entry>user.name</entry>
+                                    <entry>A user-defined string.</entry>
+                                    <entry>Defines the name of the user who can access a set of
+                                        pools. A user is created with same name in the Ceph
+                                        system.</entry>
+                                    <entry>Retain the default names for some of the well-known
+                                        OpenStack users as described in the default user model. For
+                                        example, cinder user for volume access who needs to access
+                                        volumes, vms, and the images pool, as defined in the default
+                                        model.</entry>
+                                </row><row>
+                                    <entry>user.type</entry>
+                                    <entry>OpenStack | user.</entry>
+                                    <entry>Indicates whether the user is specific for OpenStack
+                                        services. This parameter does not have semantic
+                                        implications. </entry>
+                                    <entry>Use <emphasis role="bold">openstack</emphasis> for pools used by cinder-volume,
+                                        cinder-backup, glance, and Nova services. For other
+                                        services, you can choose <emphasis role="bold">user</emphasis>.</entry>
+                                </row><row>
+                                    <entry>user.secret_id</entry>
+                                    <entry>UUID instance.</entry>
+                                    <entry>A unique UUID. </entry>
+                                    <entry>Generate a value for your cluster before setting up the
+                                        Cinder client. The <literal>libvirt</literal> process needs
+                                        this value to access the cluster while attaching a block
+                                        device from Cinder. </entry>
+                                </row><row>
+                                    <entry>pools.name</entry>
+                                    <entry>A user-defined string.</entry>
+                                    <entry>A user-defined name.</entry>
+                                    <entry>The name has to be unique in the Ceph
+                                        namespace.</entry>
+                                </row><row>
+                                    <entry>pools.attrs.creation_policy</entry>
+                                    <entry>eager | lazy</entry>
+                                    <entry><para>If creation_policy is "eager," the playbooks will
+                                            create the user. If the </para>
+creation_policy is set to
+                                        "lazy," the pool will be created externally (not by Ceph
+                                        ansible playbooks) out of band.</entry>
+                                    <entry>Retain default values for pools meant to be consumed by
+                                        OpenStack services.</entry>
+                                </row><row>
+                                    <entry>pools.attrs.type</entry>
+                                    <entry>Replicated.</entry>
+                                    <entry>Defines the type of pool. Ceph supports erasure-coded
+                                        and replicated pools. </entry>
+                                    <entry>Retain the value as replicated if you do want to use
+                                            <literal>ceph-client-prepare.yml</literal> for pool
+                                        creation. <para>This does not mean that you cannot create an
+                                            erasure-code pool with your cluster deployed using
+                                                &kw-hos-tm; . It just means that
+                                            erasure-code pools are not officially supported.
+                                            <!----></para>
+</entry>
+                                </row><row>
+                                    <entry>pools.attrs.replica_size</entry>
+                                    <entry>1..n </entry>
+                                    <entry>Replica count.</entry>
+                                    <entry>Use 3 as the replica count because it is used in most common 
+                                        scenarios providing the right level of protection and is the minimum 
+                                        setting that &kw-hos; supports.</entry>
+                                </row><row>
+                                    <entry>pools.attrs.permission</entry>
+                                    <entry>rwx</entry>
+                                    <entry>Read, write, and execute the permission a user will
+                                        have on given pool.</entry>
+                                    <entry>Retain the values for OpenStack user as mentioned in
+                                        the default user model. Altering these values might affect
+                                        your client setup configuration.</entry>
+                                </row><row>
+                                    <entry>pools.attrs.pg</entry>
+                                    <entry>Placement group number.</entry>
+                                    <entry>Number of placement groups.</entry>
+                                    <entry>The default value is 128. You can change the value of
+                                        this parameter if your disk size is larger.</entry>
+                                </row><row>
+                                    <entry>pools.usage.consumer</entry>
+                                    <entry>Predefined choices.</entry>
+                                    <entry>Defines pool consumers, and indicates which services
+                                        are expected to consume a given pool with which access. It
+                                        has semantic meaning for the following predefined
+                                            choices:<orderedlist xml:id="ol_zp1_s5d_lw">
+                                            <listitem><para>nova</para>
+</listitem>
+                                            <listitem><para>glance-datastore</para>
+</listitem>
+                                            <listitem><para>cinder-volume</para>
+</listitem>
+                                            <listitem><para>cinder-back-up</para>
+</listitem>
+                                        </orderedlist></entry>
+                                    <entry>Do not pick the value from glance-datastore, nova,
+                                        cinder-volume, or cinder-backup for user-defined pools. For
+                                        user-defined pools, you can skip this parameter. </entry>
+                                </row></tbody></tgroup></informaltable>
+</listitem>
+                </orderedlist>
+</sidebar>
+        <sidebar xml:id="idg-all-installation-ceph-usage_ceph_storage_helion-xml-14"><para><emphasis role="bold">Prerequisites</emphasis></para>
+<para>To use Ceph as a volume backend, the nodes running these services should have the
+                Ceph client installed on them. Use the <literal>ceph-client-prepare.yml</literal>
+                playbook to deploy the Ceph client on these nodes. </para>
+<screen >cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts ceph-client-prepare.yml</screen><para>This playbook also creates Ceph users and Ceph pools on the resource nodes.</para>
+</sidebar>
+        <sidebar xml:id="glance-data-store"><title>Use Ceph Storage Pools as Glance Data Stores</title><para>To enable Ceph as a Glance data store, perform the following steps:</para>
+<orderedlist xml:id="ol_syr_kwd_jw">
+                    <listitem><para>Log in to the lifecycle manager.</para>
+</listitem>
+                    <listitem><para>Make the following changes in the the
+                            <literal>~/helion/my_cloud/config/glance/glance-api.conf.j2</literal>
+                        file: </para>
+<orderedlist xml:id="ol_pc1_zqm_2w">
+                            <listitem><para>Copy the following content and paste it into the
+                                    <literal>glance-api.conf.j2</literal> file under
+                                    <emphasis role="bold">[glance_store]</emphasis>:
+                                </para>
+<screen ><emphasis role="bold">[glance_store]</emphasis>
+default_store = rbd
+stores = rbd
+rbd_store_pool = images
+rbd_store_user = glance
+rbd_store_ceph_conf = /etc/ceph/ceph.conf
+rbd_store_chunk_size = 8</screen></listitem>
+                            <listitem><para>In the same file, comment out the following references to Swift:
+                                </para>
+<screen >stores = {{ glance_stores }}
+default_store = {{ glance_default_store }}</screen></listitem>
+                        </orderedlist></listitem>
+                    <listitem><para><emphasis role="bold">IMPORTANT:</emphasis> If you have preexisting images in your Glance repo and
+                        want to use Ceph exclusively as a backend, use the Glance CLI or other tool
+                        to back up your images before configuring Ceph as your Glance backend: </para>
+<orderedlist xml:id="ol_fg1_zqm_2w">
+                            <listitem><para>Snapshot or delete all Nova instances using those images.</para>
+</listitem>
+                            <listitem><para>Download the images locally that you want to save.</para>
+</listitem>
+                            <listitem><para>Delete all the images from Glance.</para>
+</listitem>
+                        </orderedlist><para>After you finish the Ceph configuration you will need to add those
+                            images again.</para>
+</listitem>
+                    <listitem><para>Commit your configuration to the <xref linkend="using_git"/>, as follows:
+                        </para>
+<screen >cd ~/helion/hos/ansible
+git add -A
+git commit -m "My config or other commit message"</screen></listitem>
+                    <listitem><para>Run the configuration processor:
+                        </para>
+<screen >cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</screen></listitem>
+                    <listitem><para>Update your deployment directory:
+                        </para>
+<screen >cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen></listitem>
+                    <listitem><para>Run the Glance reconfigure playbook to configure Ceph as a Glance backend:
+                        </para>
+<screen >cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts glance-reconfigure.yml</screen></listitem>
+                </orderedlist>
+</sidebar>
+        <para>After you execute the preceding command successfully, the glance is configured to use
+            Ceph as a data store. You can use glance operations to upload images, which will be
+            stored in the Ceph cluster.</para>
+
+        <sidebar xml:id="cinder-volume-backend"><title>Use Ceph Storage Pools as Cinder Volume Backends</title><para>To enable Ceph as a Cinder volume backend, follow these steps:</para>
+<orderedlist>
+                    <listitem><para>Log in to the lifecycle manager.</para>
+</listitem>
+                    <listitem><para>Make the following changes to the
+                            <literal>~/helion/my_cloud/config/cinder/cinder.conf.j2</literal> file:
+                            </para>
+<orderedlist xml:id="ol_pwz_yqm_2w">
+                            <listitem><para>Add your Ceph backend to the <literal>enabled_backends</literal>
+                                section:
+                                    </para>
+<screen ># Configure the enabled backends
+enabled_backends=ceph1</screen><important><para>If you are using multiple backend types, you
+                                    can use a comma-delimited list here. For example, if you are
+                                    going to use both VSA and Ceph backends, specify
+                                        <literal>enabled_backends=vsa-1,ceph1</literal>.</para>
+</important></listitem>
+                            <listitem><para>[optional] If you want your volumes to use a default volume type,
+                                enter the name of the volume type in the <literal>[DEFAULT]</literal>
+                                section with the following syntax. <emphasis role="bold">Make note of this value
+                                    because you will need it when you create your volume type
+                                    later.</emphasis></para>
+<important><para>If you do not specify a default type,
+                                        then your volumes will default to a nonredundant RAID
+                                        configuration. We recommend that you create a volume type
+                                        that meets your environments needs and specify it
+                                        here.</para>
+</important>
+<screen >[DEFAULT]
+# Set the default volume type
+default_volume_type = &lt;your new volume type&gt;</screen></listitem>
+                            <listitem><para>Uncomment the <literal>ceph</literal> section and supply the values to
+                                match your cluster information. If you have more than one cluster,
+                                you will need to add another similar section with respective values.
+                                The following example adds only one cluster.
+                                    </para>
+<screen >[ceph1]
+rbd_secret_uuid = &lt;secret-uuid&gt;
+rbd_user = &lt;ceph-cinder-user&gt;
+rbd_pool = &lt;ceph-cinder-volume-pool&gt;
+rbd_ceph_conf = &lt;ceph-config-file&gt;
+rbd_cluster_name = &lt;cluster_name&gt;
+volume_driver = cinder.volume.drivers.rbd.RBDDriver
+volume_backend_name = &lt;ceph-backend-name&gt;</screen><para>This
+                                    example has the following values:</para>
+<informaltable xml:id="ceph_volume" colsep="1" rowsep="1"><tgroup cols="2">
+                                        <colspec colname="c1" colnum="1"/>
+                                        <colspec colname="c2" colnum="2"/>
+                                        <thead>
+                                            <row>
+                                                <entry>Value</entry>
+                                                <entry>Description</entry>
+                                            </row>
+                                        </thead>
+                                        <tbody>
+                                            <row>
+                                                <entry>rbd_secret_uuid</entry>
+                                                <entry>The secret_id value from the
+                                                  <literal>~/helion/my_cloud/config/ceph/user_model.yml</literal>
+                                                  file, as highlighted here: <screen >- user:
+    name: <emphasis role="bold">cinder</emphasis>
+    type: openstack
+    secret_id: <emphasis role="bold">&lt;secret ID will be here&gt;</emphasis>
+pools:
+    - name: volumes</screen>
+                                                  <important><para>You should generate and use
+                                                  your own secret ID. You can use any UUID
+                                                  generation tool.</para>
+</important></entry>
+                                            </row>
+                                            <row>
+                                                <entry>rbd_user</entry>
+                                                <entry>The username value from the
+                                                  <literal>~/helion/my_cloud/config/ceph/user_model.yml</literal>
+                                                  file, as highlighted
+                                                  here:<screen >- user:
+    name: <emphasis role="bold">cinder</emphasis>
+    type: openstack
+    secret_id: &lt;secret ID will be here&gt;
+pools:
+    - name: volumes</screen></entry>
+                                            </row>
+                                            <row>
+                                                <entry>rbd_pool</entry>
+                                                <entry>The pool name value from the
+                                                  <literal>~/helion/my_cloud/config/ceph/user_model.yml</literal>
+                                                  file, as highlighted here:
+                                                  <screen >- user:
+    name: cinder
+    type: openstack
+    secret_id: 457eb676-33da-42ec-9a8c-9293d545c337
+pools:
+    - name: <emphasis role="bold">volumes</emphasis></screen></entry>
+                                            </row>
+                                            <row>
+                                                <entry>rbd_ceph_conf</entry>
+                                                <entry>The Ceph configuration file location, usually
+                                                  <literal>/etc/ceph/ceph.conf</literal>.</entry>
+                                            </row>
+                                            <row>
+                                                <entry> rbd_cluster_name</entry>
+                                                <entry>Name of the Ceph cluster.</entry>
+                                            </row>
+                                            <row>
+                                                <entry>volume_driver</entry>
+                                                <entry>The Cinder volume driver. Leave this as the
+                                                  default value specified for Ceph.</entry>
+                                            </row>
+                                            <row>
+                                                <entry>volume_backend_name</entry>
+                                                <entry>The name given to the Ceph backend. </entry>
+                                            </row>
+                                        </tbody>
+                                    </tgroup></informaltable></listitem>
+                        </orderedlist></listitem>
+                    <listitem><para>To enable attaching Ceph volumes to Nova provisioned instances, make the
+                        following changes to the
+                            <literal>~/helion/my_cloud/config/nova/kvm-hypervisor.conf.j2</literal>
+                        file: </para>
+<orderedlist xml:id="ol_p31_zqm_2w">
+                            <listitem><para>Uncomment the Ceph backend lines and edit them as follows:
+                                    </para>
+<screen >[libvirt]
+rbd_user = &lt;ceph-user&gt;
+rbd_secret_uuid = &lt;secret-uuid&gt;</screen><para>The
+                                    values are as follows:</para>
+<informaltable xml:id="nova_volume" colsep="1" rowsep="1"><tgroup cols="2">
+                                        <colspec colname="c1" colnum="1"/>
+                                        <colspec colname="c2" colnum="2"/>
+                                        <thead>
+                                            <row>
+                                                <entry>Value</entry>
+                                                <entry>Description</entry>
+                                            </row>
+                                        </thead>
+                                        <tbody>
+                                            <row>
+                                                <entry>rbd_user</entry>
+                                                <entry>The username value from the
+                                                  <literal>~/helion/my_cloud/config/ceph/user_model.yml</literal>
+                                                  file, as highlighted
+                                                  here:<screen >- user:
+            name: <emphasis role="bold">cinder</emphasis>
+            type: openstack
+            secret_id: 457eb676-33da-42ec-9a8c-9293d545c337</screen></entry>
+                                            </row>
+                                            <row>
+                                                <entry>rbd_secret_uuid</entry>
+                                                <entry>The secret_id value from the
+                                                  <literal>~/helion/my_cloud/config/ceph/user_model.yml</literal>
+                                                  file, as highlighted
+                                                  here:<screen >- user:
+           name: <emphasis role="bold">cinder</emphasis>
+           type: openstack
+           secret_id: <emphasis role="bold">457eb676-33da-42ec-9a8c-9293d545c337</emphasis></screen></entry>
+                                            </row>
+                                        </tbody>
+                                    </tgroup></informaltable></listitem>
+                        </orderedlist><important><para>Do not use <literal>backend_host</literal>
+                            variable in <literal>cinder.conf</literal> file. If
+                                <literal>backend_host</literal> is set, it will override the
+                            [DEFAULT]/host value which &kw-hos-phrase; is
+                            dependent on.</para>
+</important></listitem>
+                    <listitem><para>Commit your configuration to the <xref linkend="using_git"/>, as follows:
+                        </para>
+<screen >cd ~/helion/hos/ansible
+git add -A
+git commit -m "My config or other commit message"</screen></listitem>
+                    <listitem><para>Run the configuration processor:
+                        </para>
+<screen >cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</screen></listitem>
+                    <listitem><para>Update your deployment directory:
+                        </para>
+<screen >cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen></listitem>
+                    <listitem><para>Run the Cinder reconfigure playbook:
+                        </para>
+<screen >cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts cinder-reconfigure.yml</screen></listitem>
+                    <listitem><para>If Nova has been configured to attach Ceph backend volumes, run the Nova
+                        reconfigure playbook:
+                        </para>
+<screen >cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts nova-reconfigure.yml</screen></listitem>
+                </orderedlist>
+</sidebar>
+        <para>After you execute the preceding command successfully, the cinder-volume is configured to
+            use Ceph as a data store. You can use volume lifecycle operations as described at <citetitle>FIXME: broken external xref</citetitle></para>
+
+        <sidebar xml:id="cinder-backup-device"><title>Use Ceph Storage Pools as Cinder Backup Devices</title><para>To enable Cinder backup devices for Ceph, make the following changes to the
+                    <literal>~/helion/my_cloud/config/cinder/cinder.conf.j2</literal> file: </para>
+<orderedlist xml:id="ol_f11_zqm_2w">
+                    <listitem><para>Uncomment the <literal>ceph backup</literal> section and supply the values:
+                            </para>
+<screen >[DEFAULT]
+backup_driver = cinder.backup.drivers.ceph
+backup_ceph_conf = &lt;ceph-config-file&gt;
+backup_ceph_user = &lt;ceph-backup-user&gt;
+backup_ceph_pool = &lt;ceph-backup-pool&gt;</screen><para>The
+                            values are as follows:</para>
+<informaltable xml:id="ceph_backup" colsep="1" rowsep="1"><tgroup cols="2">
+                                <colspec colname="c1" colnum="1"/>
+                                <colspec colname="c2" colnum="2"/>
+                                <thead>
+                                    <row>
+                                        <entry>Value</entry>
+                                        <entry>Description</entry>
+                                    </row>
+                                </thead>
+                                <tbody>
+                                    <row>
+                                        <entry>backup_driver</entry>
+                                        <entry>The Cinder volume driver. Leave this as the default
+                                            value specified for Ceph.</entry>
+                                    </row>
+                                    <row>
+                                        <entry>backup_ceph_conf</entry>
+                                        <entry>The Ceph configuration file location, usually:
+                                                <literal>/etc/ceph/ceph.conf</literal>.</entry>
+                                    </row>
+                                    <row>
+                                        <entry>backup_ceph_user</entry>
+                                        <entry>The username value from the
+                                                <literal>~/helion/my_cloud/config/ceph/user_model.yml</literal>
+                                            file, as highlighted here:
+                                            <screen >- user:
+    name: <emphasis role="bold">cinder-backup</emphasis>
+    type: openstack
+pools:
+    - name: backups</screen></entry>
+                                    </row>
+                                    <row>
+                                        <entry>backup_ceph_pool</entry>
+                                        <entry>The pool name value from the
+                                                <literal>~/helion/my_cloud/config/ceph/user_model.yml</literal>
+                                            file, as highlighted here:
+                                            <screen >pools:
+    - name: <emphasis role="bold">backups</emphasis></screen></entry>
+                                    </row>
+                                </tbody>
+                            </tgroup></informaltable></listitem>
+                    <listitem><para>Commit your configuration to the <xref linkend="using_git"/>, as follows:
+                        </para>
+<screen >cd ~/helion/hos/ansible
+git add -A
+git commit -m "My config or other commit message"</screen></listitem>
+                    <listitem><para>Run the configuration processor:
+                        </para>
+<screen >cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</screen></listitem>
+                    <listitem><para>Update your deployment directory:
+                        </para>
+<screen >cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen></listitem>
+                    <listitem><para>Run the Cinder reconfigure playbook:
+                        </para>
+<screen >cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts cinder-reconfigure.yml </screen></listitem>
+                </orderedlist>
+</sidebar>
+        <para>After you execute the preceding command successfully, the cinder-backup service is
+            configured to use Ceph as a data store. You can use volume lifecycle operations as
+            described in <xref linkend="creating_voltype"/>.</para>
+
+        <!---->
+        <sidebar xml:id="rados-gw-object-storage"><title>Use RADOS Gateway to Access Objects Using S3/Swift API</title><para>RADOS Gateway provides object storage functionality through S3 and Swift API. It has
+                a built-in authentication mechanism and it can use Keystone as an authentication
+                backend, unlike the OpenStack Services, where Keystone is the only authentication
+                backend. Users primarily see the following combinations of object accessibility:</para>
+<orderedlist>
+                    <listitem><para>Keystone users using: </para>
+<orderedlist xml:id="ol_uc3_dfd_jw">
+                            <listitem><para>Swift API</para>
+</listitem>
+                            <listitem><para>S3 API</para>
+</listitem>
+                        </orderedlist></listitem>
+                    <listitem><para>RADOS Gateway users using: </para>
+<orderedlist xml:id="ol_pf1_cfd_jw">
+                            <listitem><para>Swift API</para>
+</listitem>
+                            <listitem><para>S3 API</para>
+</listitem>
+                        </orderedlist></listitem>
+                </orderedlist>
+<para>Here's a pictorial view of preceding perspective:</para>
+<mediaobject xml:id="image_lf4_tmt_jw"><imageobject  role="fo"><imagedata fileref="media-ceph-ceph-rgw.png" width="75%" format="PNG"/></imageobject><imageobject  role="html"><imagedata fileref="media-ceph-ceph-rgw.png"/></imageobject></mediaobject>
+<para>The first view uses Keystone as the authentication backend while the second one uses
+                RADOS Gateway (internal authentication backend). Default deployment of RADOS Gateway
+                in &kw-hos-tm;
+                &kw-hos-version; enables 1.a, 2.a, and 2.b only. </para>
+<para>Enabling choice 1.b for Keystone users accessing S3 API requires Keystone to be the
+                default authentication backend. In this case all user authentication goes first to
+                Keystone, with failover to RADOS Gateway even for non-Keystone users (such as in
+                case 2.b), but this situation causes a serious performance drop for RADOS Gateway
+                users. </para>
+<para>Lab tests performed on a 10 TB Ceph cluster have shown that enabling S3 API access
+                for Keystone users degrades the performance of S3 API access for RADOS Gateway users
+                roughly by 50%. We ran the rest-bench tool for 10 seconds with a concurrency of 16
+                and an object size of 4096 (4K) bytes on Ceph deployed using the
+                    <literal>entry-scale-kvm-ceph</literal> input model. Our lab finding was that the
+                system performed an average of 1350 (object size 4K) write operations when Keystone
+                was enabled as the default authentication backend, in contrast to 2500 (object size
+                4K) operations in the default configuration, which was a degradation of roughly 49%.
+                Note that these numbers are for illustration purposes to provide an insight on the
+                degree of degradation. However, storing all credentials in Keystone provides the
+                advantage of reducing the maintenance burden. It is not required to create or manage
+                credentials in a database for S3 authentication. You can use standard administrative
+                tools such as Horizon instead. Aspect 1.b does not apply if you do not intend to
+                enable S3 API access for Keystone users. </para>
+<para><emphasis role="bold">Steps to Access S3 API for RADOS Gateway Users</emphasis></para>
+<para>Perform these steps:</para>
+<orderedlist xml:id="ol_asx_xfd_jw">
+                    <listitem><para>Create a user by executing the following command:
+                            </para>
+<screen >sudo radosgw-admin user create --uid="{username}" --display-name="{Display Name}" --email="{email}"</screen><para>Example:</para>
+<screen >sudo radosgw-admin user create --uid=rgwuser --display-name="RadosGatewayUser" --email=rgwuser@test.com</screen>
+</listitem>
+                    <listitem><para>Perform the object operation. You can use S3 clients. Example:
+                            <literal>python-boto</literal>.</para>
+</listitem>
+                </orderedlist>
+<para><emphasis role="bold">Steps to Access Swift API for RADOS Gateway Users</emphasis></para>
+<para>Perform these steps:</para>
+<orderedlist xml:id="ol_up5_2gd_jw">
+                    <listitem><para>Create a user by executing the following command:
+                            </para>
+<screen >sudo radosgw-admin user create --uid="{username}" --display-name="{Display Name}" --email="{email}"</screen>
+<para>
+                            Example: </para>
+<screen >sudo radosgw-admin user create --uid=rgwuser --display-name="RadosGatewayUser" --email=rgwuser@test.com</screen>
+</listitem>
+                    <listitem><para>Create a subuser by executing the following command: </para>
+<screen >sudo radosgw-admin subuser create --uid={username} --subuser={username}:{subusername} --access=full --key-type=swift --gen-secret</screen>
+<para> Example: </para>
+<screen >sudo radosgw-admin subuser create --uid="rgwuser" --subuser="rgwuser:rgwswiftuser" --access=full --key-type=swift --gen-secret</screen>
+</listitem>
+                    <listitem><para>Perform the object operation using Swift CLI or any compatible client.</para>
+</listitem>
+                </orderedlist>
+<para><emphasis role="bold">Steps to Access Swift API for Keystone Users</emphasis></para>
+<para>When RADOS Gateway is deployed per the default <literal>entry-scale-kvm-ceph</literal>
+                model, it exists alongside OpenStack Swift (this is because the Keystone service
+                type for RADOS Gateway defaults to <literal>ceph-object-store</literal>). In this
+                (coexisting) mode, OpenStack Horizon communicates only with OpenStack Swift for all
+                the object store operations. However, the OpenStack Swift command line interface can
+                be tuned to communicate with both OpenStack Swift and RADOS Gateway as follows:</para>
+<itemizedlist xml:id="ul_p4x_4zd_jw">
+                    <listitem><para># to interact with Swift (default):
+                        </para>
+<screen ><literal>export OS_SERVICE_TYPE=object-store</literal></screen></listitem>
+                    <listitem><para># to interact with RADOS
+                        Gateway:</para>
+<screen > <literal>export OS_SERVICE_TYPE=ceph-object-store</literal></screen></listitem>
+                </itemizedlist>
+<para> You can use Swift CLI to perform object operations on Ceph.</para>
+<para><emphasis role="bold">Example</emphasis>:</para>
+<para>Log in to to the monitor node to list the objects in Ceph using the credentials
+                available in the <literal>~/service.osrc</literal>
+                file.</para>
+<screen >source ~/service.osrc</screen>
+<para>Execute the following command to list objects in the Ceph object store:</para>
+<screen >export OS_SERVICE_TYPE=ceph-object-store
+swift list</screen>
+<para>Execute the following command to list objects in the Swift object
+                store:</para>
+<screen >export OS_SERVICE_TYPE=object-store
+swift list</screen>
+<para><emphasis role="bold">Steps to Access S3 API for Keystone Users</emphasis></para>
+<para>By default, a Keystone user can access the RADOS Gateway functionality using the
+                Swift API. To configure a Keystone user for S3 API to access the RADOS Gateway,
+                perform the following steps:</para>
+<orderedlist xml:id="ol_vlh_bnr_lx">
+                    <listitem><para>Login to lifecycle manager.</para>
+</listitem>
+                    <listitem><para>Edit the<literal> ~/helion/my_cloud/config/ceph/settings.yml</literal> file
+                        and set the <literal>rgw_s3_auth_use_keystone</literal> value to
+                        <emphasis role="bold">true</emphasis>.</para>
+<screen >rgw_s3_auth_use_keystone: true</screen></listitem>
+                    <listitem><para>Commit your configuration to local
+                        repo.</para>
+<screen >cd ~/helion/hos/ansible 
+git add -A 
+git commit -m &lt;"commit message"&gt;</screen></listitem>
+                    <listitem><para>Run ready-deployment
+                        playbook.</para>
+<screen >cd ~/helion/hos/ansible 
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen></listitem>
+                    <listitem><para>Run the ceph-reconfigure playbook.</para>
+<screen >cd ~/scratch/ansible/next/hos/ansible 
+ansible-playbook -i hosts/verb_hosts ceph-reconfigure.yml</screen><para><emphasis role="bold">Create the EC2 credentials</emphasis></para>
+<orderedlist xml:id="ol_wb3_msr_lx">
+                            <listitem><para>Login to a controller node and source the admin user
+                                credentials.</para>
+<screen >source ~/service.osrc</screen></listitem>
+                            <listitem><para>Execute the following commands to generate the EC2 credentials for
+                                the OpenStack
+                                    user.</para>
+<screen >openstack ec2 credentials create --project &lt;project-name&gt; --user &lt;user-name&gt;</screen><para>For
+                                    example, to generate the EC2 credentials for user demo for the
+                                    project
+                                    demo.</para>
+<screen >openstack ec2 credentials create --project demo --user demo</screen>
+</listitem>
+                        </orderedlist></listitem>
+                </orderedlist>
+<important><para>Please contact the Professional Services team for details on
+                    how to perform the preceding steps. </para>
+</important>
+</sidebar>
+    </section>

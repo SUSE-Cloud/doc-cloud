@@ -1,0 +1,141 @@
+<?xml version="1.0"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<!---->
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="upgrade_ironic"><title>&kw-hos-tm; &kw-hos-version-50;: Ironic Post-Upgrade Procedures</title><!---->
+    <para><para xml:id="idg-all-installation-ironic-upgrade_ironic-xml-4"><phrase><phrase/></phrase></para></para>
+
+    
+    <sidebar><title>Glance Container Name Change Requires Update of Driver Information</title><para>If you have Ironic nodes in your existing  &kw-hos-phrase-30; cloud, with perhaps some
+        nodes running provisioned instances and some in the available state, you will need to update the driver
+        information after upgrade to &kw-hos-phrase; to point at  new deploy images.
+      
+      </para>
+<para>After upgrade, a registered ironic node  could be in <literal>Available</literal>, <literal>Active</literal> 
+        (with running instances) or <literal>clean_failed</literal> provisioning states. Use the information in the
+      following sections to update the driver information appropriately.</para>
+</sidebar>
+    
+    <sidebar><title>Node has  provisioning state  <literal>Available</literal> or <literal>Active</literal></title><para>
+       Update node <literal>driver-info</literal> to use latest version of the deployed image, for example:
+          </para>
+<itemizedlist>
+            <listitem><para>Extract <literal>glance_ramdisk_uuid</literal> using  <literal>glance image-list | grep ir-deploy-ramdisk-HOS4.0 </literal></para>
+</listitem>
+            <listitem><para>Extract <literal>glance_kernel_uuid</literal> using  <literal>glance image-list | grep ir-deploy-kernel-HOS4.0 </literal></para>
+</listitem>
+            <listitem><para><literal>ironic node-update $node_id add driver_info/deploy_kernel=$glance_kernel_uuid driver_info/deploy_ramdisk=$glance_ramdisk_uuid</literal></para>
+</listitem>
+          </itemizedlist>
+</sidebar>
+    
+    <sidebar><title>Node Enters clean_failed State after Upgrade</title><para>If you have  provisioned a node in &kw-hos; &kw-hos-version-302; and you try to delete the node after upgrade
+        to &kw-hos-version-40;, 
+        then node enters the  <literal>clean_failed</literal> state. Execute the following steps to fix the problem:</para>
+<itemizedlist>
+        <listitem><para><literal>ironic node-set-provision-state $node_id manage</literal></para>
+</listitem>
+        <listitem><para>Update node <literal>driver-info</literal> to use latest version of the deployed image, for example:
+          </para>
+<itemizedlist>
+            <listitem><para>Extract <literal>glance_ramdisk_uuid</literal> using  <literal>glance image-list | grep ir-deploy-ramdisk-HOS4.0 </literal></para>
+</listitem>
+            <listitem><para>Extract <literal>glance_kernel_uuid</literal> using  <literal>glance image-list | grep ir-deploy-kernel-HOS4.0 </literal></para>
+</listitem>
+            <listitem><para><literal>ironic node-update $node_id add driver_info/deploy_kernel=$glance_kernel_uuid driver_info/deploy_ramdisk=$glance_ramdisk_uuid</literal></para>
+</listitem>
+          </itemizedlist></listitem>
+        <listitem><para><literal>ironic node-set-maintenance $node_id false</literal></para>
+</listitem>
+        <listitem><para>ironic node-set-provision-state $node_id provide</para>
+</listitem>
+
+      </itemizedlist></sidebar>
+    
+    <sidebar xml:id="ironic_reupload_images"><title>Re-upload User Images for Agent-Based Drivers</title><para>After upgrade from &kw-hos; &kw-hos-version-302;, if you have a node enrolled with agent based drivers and
+      and try to spawn an instance with user images uploaded in &kw-hos-version-302;, instance creation will fail with the message 
+        "Error downloading image". </para>
+<para>You will need to re-upload any user images that were uploaded in &kw-hos-version-302;, so that the images are uploaded to a new glance container.
+        This will allow instance creation from nodes with agent-based drivers to succeed.</para>
+<para>In the followng example, the <literal>rhel_bios</literal> image is downloaded from Glance, and then re-uploaded to Glance.
+    
+      </para>
+<itemizedlist>
+        <listitem><para>
+          List all the images:
+</para>
+<screen >
+glance image-list
+
++--------------------------------------+--------------------------+
+| ID                                   | Name                     |
++--------------------------------------+--------------------------+
+| 5e38b504-68be-485b-a9f9-b1e0f3099566 | ir-deploy-iso-HOS3.0     |
+| 74503106-0ac2-4135-9a46-09af503331f2 | ir-deploy-iso-HOS4.0     |
+| c24235c8-7c31-46b0-b61e-acf665d35d42 | ir-deploy-kernel-HOS3.0  |
+| 82a9b2ce-1913-4d83-9c0f-3291190b8fca | ir-deploy-kernel-HOS4.0  |
+| aa642a5b-7cfd-4436-aa7a-651a420c9712 | ir-deploy-ramdisk-HOS3.0 |
+| 646e2b3c-7f57-4fb3-9491-fdbefe9d3649 | ir-deploy-ramdisk-HOS4.0 |
+| a0107aaf-ac8d-4958-9b87-c1f7a5e367d3 | <emphasis role="bold">rhel_bios</emphasis>                |
+| e35cdf43-a520-46fd-b3e8-9f94fde87075 | update_ramdisk_3.0       |
++--------------------------------------+--------------------------+
+</screen></listitem>
+        <listitem><para>Download the <literal>rhel_bios</literal> image from Glance
+
+</para>
+<screen >
+glance image-download --file /tmp/rhel_bios_4.0 a0107aaf-ac8d-4958-9b87-c1f7a5e367d3
+</screen></listitem>
+        
+        <listitem><para>
+          Re-upload the image to Glance with a different name:
+</para>
+<screen >
+glance image-create --name rhel_bios_4.0 --file /tmp/rhel_bios_4.0 --disk-format qcow2 --container-format bare --progress --visibility public
+[=============================&gt;] 100%
++------------------+--------------------------------------+
+| Property         | Value                                |
++------------------+--------------------------------------+
+| checksum         | 52ca72e12f7f82c6cd36f5e0e109a930     |
+| container_format | bare                                 |
+| created_at       | 2016-10-21T06:37:27Z                 |
+| disk_format      | qcow2                                |
+| id               | ade5e26b-6246-4b6e-b315-28bced03c7e1 |
+| min_disk         | 0                                    |
+| min_ram          | 0                                    |
+| name             | rhel_bios_4.0                        |
+| owner            | 650d45fca5d24b729cd97890ea74df82     |
+| protected        | False                                |
+| size             | 413024256                            |
+| status           | active                               |
+| tags             | []                                   |
+| updated_at       | 2016-10-21T06:37:37Z                 |
+| virtual_size     | None                                 |
+| visibility       | public                               |
++------------------+--------------------------------------+
+</screen></listitem>
+        <listitem><para>List all the images again to see the re-uploaded version:
+</para>
+<screen >
+ glance image-list
+
++--------------------------------------+--------------------------+
+| ID                                   | Name                     |
++--------------------------------------+--------------------------+
+| 5e38b504-68be-485b-a9f9-b1e0f3099566 | ir-deploy-iso-HOS3.0     |
+| 74503106-0ac2-4135-9a46-09af503331f2 | ir-deploy-iso-HOS4.0     |
+| c24235c8-7c31-46b0-b61e-acf665d35d42 | ir-deploy-kernel-HOS3.0  |
+| 82a9b2ce-1913-4d83-9c0f-3291190b8fca | ir-deploy-kernel-HOS4.0  |
+| aa642a5b-7cfd-4436-aa7a-651a420c9712 | ir-deploy-ramdisk-HOS3.0 |
+| 646e2b3c-7f57-4fb3-9491-fdbefe9d3649 | ir-deploy-ramdisk-HOS4.0 |
+| a0107aaf-ac8d-4958-9b87-c1f7a5e367d3 | rhel_bios                |
+| ade5e26b-6246-4b6e-b315-28bced03c7e1 | <emphasis role="bold">rhel_bios_4.0</emphasis>            |
+| e35cdf43-a520-46fd-b3e8-9f94fde87075 | update_ramdisk_3.0       |
++--------------------------------------+--------------------------+
+</screen></listitem>
+        
+      </itemizedlist>
+</sidebar>
+    
+  </section>

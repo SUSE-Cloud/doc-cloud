@@ -1,0 +1,121 @@
+<?xml version="1.0"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="dpdk_setup"><title>&kw-hos-tm; &kw-hos-version-50;: DPDK Setup for Neutron Networking</title>
+    <sidebar><title>Hardware requirements</title><itemizedlist xml:id="ul_epc_stf_qw">
+          <listitem><para>Intel-based compute node. DPDK is not available on AMD-based systems.</para>
+</listitem>
+          <!---->
+          <listitem><para>The following BIOS settings must be enabled for DL360 Gen9:</para>
+<orderedlist xml:id="ol_ymk_mhy_3x">
+              <listitem><para>Virtualization Technology</para>
+</listitem>
+              <listitem><para>Intel(R) VT-d</para>
+</listitem>
+              <listitem><para>PCI-PT <xref linkend="pcipt-gen9"/> are found here.</para>
+</listitem>
+            </orderedlist></listitem>
+          <listitem><para>Need adequate host memory to allow for hugepages. The examples below use 1G hugepages
+            for the VMs</para>
+</listitem>
+        </itemizedlist>
+</sidebar>
+    <sidebar><title>Limitations</title><itemizedlist xml:id="ul_llz_bvf_qw">
+        <listitem><para>DPDK is supported on hLinux only. DPDK is not available for RedHat Linux.</para>
+</listitem>
+        <listitem><para>Applies to &kw-hos-phrase; only. </para>
+</listitem>
+        <listitem><para>Tenant network can be untagged vlan or untagged vxlan </para>
+</listitem>
+        <listitem><para>DPDK port names must be of the form 'dpdk&lt;portid&gt;' where port id is sequential and
+          starts at 0</para>
+</listitem>
+        <listitem><para>No support for converting DPDK ports to non DPDK ports without rebooting compute
+          node.</para>
+</listitem>
+        <listitem><para>No security group support, need userspace conntrack. </para>
+</listitem>
+        <listitem><para>No jumbo frame support.</para>
+</listitem>
+      </itemizedlist></sidebar>
+    <sidebar><title>Setup instructions</title><para>These setup instructions and example model are for a three-host system. There is one
+        controller with lifecycle manager in cloud control plane and two compute hosts.</para>
+<orderedlist xml:id="ol_gcc_qwf_qw">
+        <listitem><para>After initial run of site.yml all compute nodes must be rebooted to pick up changes in
+          grub for hugepages and isolcpus </para>
+</listitem>
+        <listitem><para>Changes to non-uniform memory access (NUMA) memory, isolcpu, or network devices must be
+          followed by a reboot of compute nodes </para>
+</listitem>
+        <listitem os="HOS"><para>Run sudo reboot to pick up libvirt change and hugepage/isocpus grub
+          changes</para>
+<screen>sudo reboot </screen></listitem>
+        <listitem><para>Use the bash script below to configure nova aggregates, neutron networks, a new flavor,
+          etc. And then it will spin up two VMs.</para>
+</listitem>
+      </orderedlist><para><emphasis role="bold">VM spin-up instructions</emphasis></para>
+<para>Before running the spin up script you need to get a copy of the cirros image to your
+        lifecycle manager node. You can manually scp a copy of the cirros image to the system. You
+        can copy it locallly with wget like
+      so</para>
+<screen >wget http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img</screen><para>
+      Save the following shell script in the home directory and run it. This should spin up two VMs,
+      one on each compute node. </para>
+<caution><para>Make sure to change all network-specific
+        information in the script to match your environment.
+      </para>
+</caution><screen >#!/usr/bin/env bash
+ 
+source service.osrc
+ 
+######## register glance image
+glance image-create --name='cirros' --container-format=bare --disk-format=qcow2 &lt; ~/cirros-0.3.4-x86_64-disk.img
+ 
+####### create nova aggregate and flavor for dpdk
+ 
+MI_NAME=dpdk
+ 
+nova aggregate-create $MI_NAME nova
+nova aggregate-add-host $MI_NAME helion-cp-comp0001-mgmt
+nova aggregate-add-host $MI_NAME helion-cp-comp0002-mgmt
+nova aggregate-set-metadata $MI_NAME pinned=true
+ 
+nova flavor-create $MI_NAME 6 1024 20 1
+nova flavor-key $MI_NAME set hw:cpu_policy=dedicated
+nova flavor-key $MI_NAME set aggregate_instance_extra_specs:pinned=true
+nova flavor-key $MI_NAME set hw:mem_page_size=1048576
+ 
+######## sec groups NOTE: no sec groups supported on DPDK.  This is in case we do non-DPDK compute hosts.
+nova secgroup-add-rule default tcp 22 22 0.0.0.0/0
+nova secgroup-add-rule default icmp -1 -1 0.0.0.0/0
+ 
+########  nova keys
+nova keypair-add mykey &gt;mykey.pem
+chmod 400 mykey.pem
+ 
+######## create neutron external network
+neutron net-create ext-net --router:external --os-endpoint-type internalURL
+neutron subnet-create ext-net 10.231.0.0/19 --gateway_ip=10.231.0.1  --ip-version=4 --disable-dhcp  --allocation-pool start=10.231.17.0,end=10.231.17.255
+ 
+########  neutron network
+neutron net-create mynet1
+neutron subnet-create mynet1 10.1.1.0/24 --name mysubnet1 
+neutron router-create myrouter1
+neutron router-interface-add myrouter1 mysubnet1
+neutron router-gateway-set myrouter1 ext-net
+export MYNET=$(neutron net-list|grep mynet|awk '{print $2}')
+ 
+######## spin up 2 VMs, 1 on each compute
+nova boot --image cirros --nic net-id=${MYNET} --key-name mykey --flavor dpdk --availability-zone nova:helion-cp-comp0001-mgmt vm1
+nova boot --image cirros --nic net-id=${MYNET} --key-name mykey --flavor dpdk --availability-zone nova:helion-cp-comp0002-mgmt vm2
+ 
+######## create floating ip and attach to instance
+export MYFIP1=$(nova floating-ip-create|grep ext-net|awk '{print $4}')
+nova add-floating-ip vm1 ${MYFIP1}
+ 
+export MYFIP2=$(nova floating-ip-create|grep ext-net|awk '{print $4}')
+nova add-floating-ip vm2 ${MYFIP2}
+ 
+nova list</screen></sidebar>
+  </section>

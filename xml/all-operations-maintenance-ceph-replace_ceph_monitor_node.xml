@@ -1,0 +1,102 @@
+<?xml version="1.0"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<!---->
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="replace_monitor_node"><title>&kw-hos-tm; &kw-hos-version-50;: Replacing a Ceph Monitor Node</title><abstract><para><para>Steps for replacing a Ceph monitor node.</para></para>
+</abstract>
+    <para>&kw-hos-phrase; supports hosting the Ceph monitor service in the following
+      configurations:</para>
+
+    <itemizedlist>
+      <listitem><para>On a controller node</para>
+</listitem>
+      <listitem><para>On a dedicated resource node</para>
+</listitem>
+      <listitem><para>On a dedicated cluster node</para>
+</listitem>
+    </itemizedlist>
+    <para>If you are hosting the Ceph monitor service on a controller node, then we have separate
+      instructions for how to replace a controller node. See <xref linkend="replacing_controller"/> for more details.</para>
+
+    <para>If you configured your environment to have a dedicated resource for your Ceph monitor
+      service, then these steps will assist you in replacing that node if that is needed.</para>
+
+    <orderedlist>
+      <listitem><para>Log in to the lifecycle manager.</para>
+</listitem>
+      <listitem><para>Edit your <literal>~/helion/my_cloud/definition/data/servers.yml</literal> file to include
+        the details of the replacement Ceph monitor node you are adding. Ensure that the role and
+        server-group settings are the same as the Ceph monitor node you are replacing.</para>
+</listitem>
+      <listitem><para>Commit the changes to git:
+        </para>
+<screen>git commit -a -m "Replacing node &lt;name&gt;"</screen></listitem>
+      <listitem><para>Run the configuration processor:
+        </para>
+<screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</screen></listitem>
+      <listitem><para>Update your deployment directory:
+        </para>
+<screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen></listitem>
+      <listitem><para>Run the Cobbler deploy playbook to add your replacement node:
+        </para>
+<screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost cobbler-deploy.yml</screen></listitem>
+      <listitem><para>Image your replacement node.</para>
+<para>Obtain your server name in Cobbler:</para>
+<screen>sudo cobbler system list</screen><para>Image the node using this playbook, using the server name you obtained:</para>
+<screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost bm-reimage.yml -e nodelist=&lt;server_name&gt;</screen></listitem>
+      <listitem><para>Configure the operating system of the replacement node. </para>
+<para>Obtain the hostname for your
+          replacement node:</para>
+<screen>cat /etc/hosts</screen><para>Configure the operating system, using the hostname you obtained:</para>
+<screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts osconfig-run.yml -limit &lt;hostname_of_replacement_Ceph_monitor_node&gt;</screen></listitem>
+      <listitem><para>Stop the Ceph monitor service on the old monitor node using this playbook:
+        </para>
+<screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts ceph-stop.yml -limit &lt;hostname_of_old_Ceph_monitor_node&gt;</screen></listitem>
+      <listitem><para>SSH to the old Ceph monitor node and remove it from the cluster using this
+        command:</para>
+<screen>ceph mon remove &lt;old-mon-hostname&gt; --cluster &lt;cluster-name&gt;</screen></listitem>
+      <listitem><para>Log back into the lifecycle manager node and regenerate the hosts file on all the nodes in
+        your environment and configure the services using this
+        playbook:</para>
+<screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts site.yml --tags "generate_hosts_file"
+ansible-playbook -i hosts/verb_hosts site.yml -limit &lt;hostname_of_replacement_Ceph_monitor_node&gt;</screen></listitem>
+      <listitem><para>Edit your <literal>~/helion/my_cloud/definition/data/servers.yml</literal> file and remove
+        the details of your old Ceph monitor node.</para>
+</listitem>
+      <listitem><para>Commit the changes to git:
+        </para>
+<screen>git commit -a -m "Removing node &lt;name&gt;"</screen></listitem>
+      <listitem><para>Run the configuration processor:
+        </para>
+<screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</screen></listitem>
+      <listitem><para>Update your deployment directory:
+        </para>
+<screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen></listitem>
+      <listitem><para>Remove the old Ceph monitor node from Cobbler.</para>
+<para>Obtain the server name of your old Ceph
+          monitor node with this command:</para>
+<screen>sudo cobbler system list</screen>
+<para>Remove the server with this
+        command:</para>
+<screen>sudo cobbler system remove --name &lt;old_server_name&gt;</screen></listitem>
+      <listitem><para>Regenerate the Ceph cluster configuration file on each of your Ceph clusters with this
+        playbook:</para>
+<screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts ceph-reconfigure.yml</screen></listitem>
+      <listitem><para>Ensure that the Ceph clients also receive the updated copy of the Ceph cluster
+        configuration
+        file:</para>
+<screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts ceph-client-prepare.yml</screen></listitem>
+    </orderedlist>
+  </section>

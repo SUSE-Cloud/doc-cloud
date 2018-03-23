@@ -1,0 +1,227 @@
+<?xml version="1.0"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<!---->
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="configureMTU"><title>&kw-hos-tm; &kw-hos-version-50;: Configuring Maximum Transmission Units in
+    Neutron</title>
+    <!---->
+    <para><para xml:id="idg-all-networking-configure_mtu-xml-4"><phrase><phrase/></phrase></para></para>
+
+    <sidebar><para>This topic explains how you can configure MTUs, what to look out for, and the results
+      and implications of changing the default MTU settings. It is important to note that every
+      network within a network group will have the same MTU. </para>
+<warning><para> An MTU change
+        will not affect existing networks that have had VMs created on them. It will only take
+        effect on new networks created after the reconfiguration process.  </para>
+</warning></sidebar>
+    
+    <sidebar><title>Overview</title><para>A Maximum Transmission Unit, or MTU is the maximum packet size (in bytes) that a network
+        device can or is configured to handle. There are a number of places in your cloud where MTU
+        configuration is relevant: the physical interfaces managed and configured by Helion
+        OpenStack, the virtual interfaces created by Neutron and Nova for Neutron networking, and
+        the interfaces inside the VMs.</para>
+<para><emphasis role="bold">&kw-hos;-managed physical interfaces </emphasis></para>
+<para>&kw-hos;-managed physical interfaces include the physical interfaces and the bonds, bridges, and
+        VLANs created on top of them. The MTU for these interfaces is configured via the 'mtu'
+        property of a network group. Because multiple network groups can be mapped to one physical
+        interface, there may have to be some resolution of differing MTUs between the untagged and
+        tagged VLANs on the same physical interface. For instance, if one untagged VLAN, vlan101
+        (with an MTU of 1500) and a tagged VLAN vlan201 (with an MTU of 9000) are both on one
+        interface (eth0), this means that eth0 can handle 1500, but the VLAN interface which is
+        created on top of eth0 (i.e. vlan201@eth0) wants 9000. However, vlan201 can't have a higher
+        MTU than eth0, so vlan201 will be limited to 1500 when it is brought up, and fragmentation
+        will result.</para>
+<para>In general, a VLAN interface MTU must be lower than or equal to the base device MTU. If
+        they are different, as in the case above, the MTU of eth0 can be overridden and raised to
+        9000, but in any case the discrepancy will have to be reconciled. </para>
+<para><emphasis role="bold">Neutron/Nova
+          interfaces </emphasis></para>
+<para>Neutron/Nova interfaces include the virtual devices created by Neutron and Nova during the
+        normal process of realizing a Neutron network/router and booting a VM on it (qr-*, qg-*,
+        tap-*, qvo-*, qvb-*, etc.). There is currently no support in Neutron/Nova for per-network
+        MTUs in which every interface along the path for a particular Neutron network has the
+        correct MTU for that network. There is, however, support for globally changing the MTU of
+        devices created by Neutron/Nova (see network_device_mtu below). This means that if you want
+        to enable jumbo frames for any set of VMs, you will have to enable it for all your VMs. You
+        cannot just enable them for a particular Neutron network. </para>
+<para><emphasis role="bold">VM interfaces</emphasis></para>
+<para>VMs typically get their MTU via DHCP advertisement, which means that the dnsmasq processes 
+        spawned by the neutron-dhcp-agent actually advertise a particular MTU to the VMs. 
+        In &kw-hos-phrase;, the DHCP server advertises to all VMS a 1400
+        MTU via a forced setting in dnsmasq-neutron.conf. This is suboptimal for every network type
+        (vxlan, flat, vlan, etc) but it does prevent fragmentation of a VM's packets due to 
+        encapsulation.</para>
+<para>For instance, if you set the new *-mtu configuration options to a default of 1500 and
+        create a VXLAN network, it will be given an MTU of 1450 (with the remaining 50 bytes used by
+        the VXLAN encapsulation header) and will advertise a 1450 MTU to any VM booted on that
+        network. If you create a provider VLAN network, it will have an MTU of 1500 and will
+        advertise 1500 to booted VMs on the network. It should be noted that this default starting
+        point for MTU calculation and advertisement is also global, meaning you can't have an MTU of
+        8950 on one VXLAN network and 1450 on another. However, you can have provider physical
+        networks with different MTUs by using the physical_network_mtus config option, but Nova
+        still requires a global MTU option for the interfaces it creates, thus you can't really take
+        advantage of that config option. </para>
+</sidebar>
+    
+    <sidebar><title>Network settings in the input model</title><para>
+      MTU can be set as an attribute of a
+      network group in network_groups.yml. Note that this applies only to KVM. That setting means
+      that every network in the network group will be assigned the specified MTU. The MTU value must
+      be set individually for each network group. For example:
+      </para>
+<screen >network-groups:
+        - name: GUEST
+        mtu: 9000
+        ...
+        
+        - name: EXTERNAL-API
+        mtu: 9000
+        ...
+        
+        - name: EXTERNAL-VM
+        mtu: 9000
+        ... </screen></sidebar>
+    
+    <sidebar><title>Infrastructure support for jumbo frames</title><para>If you want to use jumbo frames, or frames with an MTU of 9000 or more, the physical
+        switches and routers that make up the infrastructure of the Helion installation must be
+        configured to support them. To realize the advantages, generally all devices in the same
+        broadcast domain must have the same MTU. </para>
+<para>If you want to configure jumbo frames on compute and controller nodes, then all switches
+        joining the compute and controller nodes must have jumbo frames enabled. Similarly, the
+        "infrastructure gateway" through which the external VM network flows, commonly known as the
+        default route for the external VM VLAN, must also have the same MTU configured. </para>
+<para> You can also consider anything in the same broadcast domain to be anything in the same
+        VLAN or anything in the same IP subnet. </para>
+</sidebar>
+    
+    <sidebar><title>Enabling end-to-end jumbo frames for a VM</title><orderedlist>
+        <listitem><para>Add an 'mtu' attribute to all the network groups in your model. Note that adding the MTU
+          for the network groups will only affect the configuration for physical network
+          interfaces.
+          </para>
+<para>To add the mtu attribute, find the YAML file that contains your
+          network-groups entry. We will assume it is network_groups.yml, unless you have changed it.
+          Whatever the file is named, it will be found in ~/helion/my_cloud/definition/data/. 
+          </para>
+<para>To edit these files, begin by checking out the <emphasis role="bold">site</emphasis> branch on the lifecycle manager
+          node. You may already be on that branch. If so, you will remain there.
+          </para>
+<screen>cd ~/helion/hos/ansible
+git checkout site</screen><para>
+          Then begin editing the files. In network_groups.yml, add mtu: 9000
+          </para>
+<screen>network-groups:
+            - name: GUEST
+            hostname-suffix: guest
+            mtu: 9000
+            tags:
+            - neutron.networks.vxlan</screen><para>
+          This will set the physical interface managed by &kw-hos-phrase; that has the
+          GUEST network group tag assigned to it. This can be found in the interfaces_set.yml file
+          under the interface-models section. </para>
+</listitem>
+        <listitem><para>Next, edit the layer 2 agent config file, ml2_conf.ini.j2, found in
+          ~/helion/my_cloud/config/neutron/ to set the path_mtu to 0, this ensures that
+          global_physnet_mtu is used.</para>
+<screen>[ml2]
+...
+path_mtu = 0</screen></listitem>
+        <listitem><para>Next, edit neutron.conf.j2 found in ~/helion/my_cloud/config/neutron/ to set
+          advertise_mtu (to true) and global_physnet_mtu to 9000 under [DEFAULT]:
+          </para>
+<screen>[DEFAULT]
+...
+advertise_mtu = True
+global_physnet_mtu = 9000</screen><para> This
+          allows Neutron to advertise the optimal MTU to instances (based upon global_physnet_mtu
+          minus the encapsulation size).</para>
+</listitem>
+        <listitem><para>Next, remove the "dhcp-option-force=26,1400" line from
+          ~/helion/my_cloud/config/neutron/dnsmasq-neutron.conf.j2. </para>
+</listitem>
+        
+        <!---->
+        
+        <listitem><para>Commit your changes
+          </para>
+<screen>git add -A
+git commit -m "your commit message goes here in quotes"</screen></listitem>
+        <listitem><para>If &kw-hos; has not been deployed yet, do normal deployment and skip to step 8.</para>
+</listitem>
+        <listitem><para>Assuming it has been deployed already, continue here: </para>
+<para>Run the configuration
+          processor:</para>
+<screen>ansible-playbook -i hosts/localhost config-processor-run.yml</screen><para>and
+          ready the
+          deployment:</para>
+<screen>ansible-playbook -i hosts/localhost ready-deployment.yml</screen><para>Then
+          run the network_interface-reconfigure.yml playbook, changing directories
+          first:</para>
+<screen>cd ~/scratch/ansible/next/hos/ansible 
+ansible-playbook -i hosts/verb_hosts network_interface-reconfigure.yml</screen><para>Then
+          run neutron-reconfigure.yml:
+          </para>
+<screen>ansible-playbook -i hosts/verb_hosts neutron-reconfigure.yml</screen><para>Then
+          nova-reconfigure.yml:</para>
+<screen>ansible-playbook -i hosts/verb_hosts nova-reconfigure.yml </screen><para>
+          Note: adding/changing network-group mtu settings will likely require a network restart
+          during network_interface-reconfigure.yml. </para>
+</listitem>
+        <listitem><para>Follow the normal process for creating a Neutron network and booting a VM or two. In
+          this example, if a VXLAN network is created and a VM is booted on it, the VM will have an
+          MTU of 8950, with the remaining 50 bytes used by the VXLAN encapsulation header.</para>
+</listitem>
+        <listitem><para>Test and verify that the VM can send and receive jumbo frames without fragmentation. You
+          can use ping. For example, to test an MTU of 9000 using VXLAN:
+          </para>
+<screen>ping –M do –s 8950 &lt;your_vm_floating_ip&gt;</screen><para>Just substitute your
+          actual floating IP address for the &lt;your vm floating IP&gt;.
+          
+        </para>
+</listitem>
+      </orderedlist></sidebar>
+    
+    <sidebar xml:id="optimal_mtu"><title>Enabling Optimal MTU Advertisement Feature</title><para>To enable the optimal MTU feature, follow these steps:</para>
+<orderedlist>
+          <listitem><para>Edit <literal>~/helion/my_cloud/config/neutron/neutron.conf.j2</literal> to
+              <emphasis role="bold">remove</emphasis> advertise_mtu variable under [DEFAULT]
+            </para>
+<screen >[DEFAULT]
+...
+advertise_mtu = False #remove this</screen></listitem>
+          <listitem><para>Remove the <literal>dhcp-option-force=26,1400</literal> line from 
+            <literal>~/helion/my_cloud/config/neutron/dnsmasq-neutron.conf.j2</literal></para>
+</listitem>
+          <listitem><para>If &kw-hos; has already been deployed, follow the remaining steps,
+            otherwise follow the normal deployment procedures.
+          </para>
+</listitem>
+          <listitem><para>Commit your changes
+            </para>
+<screen >git add -A
+git commit -m "your commit message goes here in quotes"</screen></listitem>
+          <listitem><para>Run the configuration processor:
+            </para>
+<screen >ansible-playbook -i hosts/localhost config-processor-run.yml</screen></listitem>
+          <listitem><para>Run ready deployment:
+            </para>
+<screen >ansible-playbook -i hosts/localhost ready-deployment.yml</screen></listitem>
+          <listitem><para>Run the <literal>network_interface-reconfigure.yml</literal> playbook, changing 
+            directories first:</para>
+<screen >cd ~/scratch/ansible/next/hos/ansible 
+ansible-playbook -i hosts/verb_hosts network_interface-reconfigure.yml</screen></listitem>
+          <listitem><para>Run neutron-reconfigure.yml:
+            </para>
+<screen >ansible-playbook -i hosts/verb_hosts neutron-reconfigure.yml</screen></listitem>
+ 
+        </orderedlist>
+<important><para>If you are upgrading an existing deployment, attention must be paid to 
+          avoid creating MTU mismatch between network interfaces in preexisting VMs and that of VMs 
+          created after upgrade. If you do have an MTU mismatch, then the new VMs (having interface 
+          with 1500 minus the underlay protocol overhead) will not be able to have L2 connectivity 
+          with preexisting VMs (with 1400 MTU due to dhcp-option-force).  
+        </para>
+</important>
+</sidebar>
+  </section>
