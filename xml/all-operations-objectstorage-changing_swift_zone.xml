@@ -1,0 +1,152 @@
+<?xml version="1.0"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<!---->
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="changing_swift_zone"><title>&kw-hos-tm; &kw-hos-version-50;: Changing Swift Zone Layout</title><!---->
+    <sidebar xml:id="idg-all-operations-objectstorage-changing_swift_zone-xml-4"><para>Before changing the number of Swift zones or the assignment of servers to specific zones,
+        you must ensure that your system has sufficient storage available to perform the operation.
+        Specifically, if you are adding a new zone, you may need additional storage. There are two
+        reasons for this:</para>
+<itemizedlist>
+        <listitem><para>You cannot simply change the Swift zone number of disk drives in the ring. Instead, you
+          need to remove the server(s) from the ring and then re-add the server(s) with a new Swift
+          zone number to the ring. At the point where the servers are removed from the ring, there
+          must be sufficient spare capacity on the remaining servers to hold the data that was
+          originally hosted on the removed servers.</para>
+</listitem>
+        <listitem><para>The total amount of storage in each Swift zone must be the same. This is because new
+          data is added to each zone at the same rate. If one zone has a lower capacity than the
+          other zones, once that zone becomes full, you cannot add more data to the system – even if
+          there is unused space in the other zones.</para>
+</listitem>
+      </itemizedlist><para>As mentioned above, you cannot simply change the Swift zone number of disk drives in an
+        existing ring. Instead, you must remove and then re-add servers. This is a summary of the
+        process:</para>
+<orderedlist>
+        <listitem><para>Identify appropriate server groups that correspond to the desired Swift zone
+          layout.</para>
+</listitem>
+        <listitem><para>Remove the servers in a server group from the rings. This process may be protracted,
+          either by removing servers in small batches or by using the weight-step attribute so that
+          you limit the amount of replication traffic that happens at once.</para>
+</listitem>
+        <listitem><para>Once all the targeted servers are removed, edit the <literal>swift-zones</literal>
+          attribute in the ring specifications to add or remove a Swift zone.</para>
+</listitem>
+        <listitem><para>Re-add the servers you had temporarily removed to the rings. Again you may need to do
+          this in batches or rely on the weight-step attribute.</para>
+</listitem>
+        <listitem><para>Continue removing and re-adding servers until you reach your final configuration.</para>
+</listitem>
+      </orderedlist></sidebar>
+    <sidebar xml:id="idg-all-operations-objectstorage-changing_swift_zone-xml-5"><title>Process for Changing Swift Zones</title><para>This section describes the detailed process or reorganizing Swift zones. As a concrete
+        example, we assume we start with a single Swift zone and the target is three Swift zones.
+        The same general process would apply if you were reducing the number of zones as well.</para>
+<para>The process is as follows:</para>
+<orderedlist>
+        <listitem><para>Identify the appropriate server groups that represent the desired final state. In this
+          example, we are going to change the Swift zone layout as follows: </para>
+<informaltable xml:id="table_uql_rkc_cv" colsep="1" rowsep="1"><tgroup cols="2">
+                <colspec colname="c1" colnum="1" colwidth="1.0*"/>
+                <colspec colname="c2" colnum="2" colwidth="1.0*"/>
+                <thead>
+                  <row>
+                    <entry>Original Layout</entry>
+                    <entry>Target Layout</entry>
+                  </row>
+                </thead>
+                <tbody>
+                  <row>
+                    <entry><screen>swift-zones:
+  - 1d: 1
+    server-groups:
+       - AZ1
+       - AZ2
+       - AZ3</screen></entry>
+                    <entry><screen>swift-zones:
+   - 1d: 1
+     server-groups:
+        - AZ1
+   - id: 2
+        - AZ2
+   - id: 3
+        - AZ3</screen></entry>
+                  </row>
+                </tbody>
+              </tgroup></informaltable>
+<para>The plan is to move servers from server groups <literal>AZ2</literal> and
+              <literal>AZ3</literal> to a new Swift zone number. The servers in <literal>AZ1</literal>
+            will remain in Swift zone 1.</para>
+</listitem>
+        <listitem><para>If you have not already done so, consider setting the weight-step attribute as described
+          in <xref linkend="swift_weight_att"/>.</para>
+</listitem>
+        <listitem><para>Identify the servers in the <literal>AZ2</literal> server group. You may remove all
+          servers at once or remove them in batches. If this is the first time you have performed a
+          major ring change, we suggest you remove one or two servers only in the first batch. When
+          you see how long this takes and the impact replication has on your system you can then use
+          that experience to decide whether you can remove a larger batch of servers, or increase or
+          decrease the weight-step attribute for the next server-removal cycle. To remove a server,
+          use steps 2-9 as described in <xref linkend="remove_swift_node"/>
+          ensuring that you don't remove the remove the servers from the input model.</para>
+</listitem>
+        <listitem><para>This process may take a number of ring rebalance cycles until the disk drives are
+          removed from the ring files. Once this happens, you can edit the ring specifications and
+          add Swift zone 2 as shown in this example:
+          </para>
+<screen>swift-zones:
+  - id: 1
+    server-groups:
+      - AZ1
+      - AZ3
+  - id: 2
+       - AZ2</screen></listitem>
+        <listitem><para>The server removal process in step #3 set the "remove" attribute in the
+            <literal>pass-through</literal> attribute of the servers in server group
+            <literal>AZ2</literal>. Edit the input model files and remove this
+            <literal>pass-through</literal> attribute. This signals to the system that the servers
+          should be used the next time we rebalance the rings (i.e. the server should be added to
+          the rings).</para>
+</listitem>
+        <listitem><para>Commit your configuration to the <xref linkend="using_git"/>, as follows:
+          </para>
+<screen>cd ~/helion/hos/ansible
+git add -A
+git commit -m "My config or other commit message"</screen></listitem>
+        <listitem><para>Run the configuration processor:
+          </para>
+<screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</screen></listitem>
+        <listitem><para>Use the playbook to create a deployment directory:
+          </para>
+<screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen></listitem>
+        <listitem><para>Rebuild and deploy the Swift rings containing the re-added servers by running this
+          playbook:
+          </para>
+<screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts swift-deploy.yml</screen></listitem>
+        <listitem><para>Wait until replication has finished. For more details, see <xref linkend="topic_ohx_j1t_4t"/>.</para>
+</listitem>
+        <listitem><para>You may need to continue to rebalance the rings. For instructions, see the "Final
+          Rebalance Stage" steps at <xref linkend="change_swift_rings"/>.</para>
+</listitem>
+        <listitem><para>At this stage, the servers in server group <literal>AZ2</literal> are responsible for
+          Swift zone 2. Repeat the process in steps #3-9 to remove the servers in server group
+            <literal>AZ3</literal> from the rings and then re-add them to Swift zone 3. The ring
+          specifications for zones (step 4) should be as follows:
+          </para>
+<screen>swift-zones:
+  - 1d: 1
+    server-groups:
+      - AZ1
+  - id: 2
+      - AZ2
+  - id: 3
+      - AZ3</screen></listitem>
+        <listitem><para>Once complete, all data should be dispersed (i.e. each replica is located) in the Swift
+          zones as specified in the input model.</para>
+</listitem>
+      </orderedlist></sidebar>
+  </section>

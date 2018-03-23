@@ -1,0 +1,400 @@
+<?xml version="1.0"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<!---->
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="x509_certificate_auth"><title>Configuring Keystone and Horizon to use X509 Client Certificates</title>
+        <sidebar xml:id="section_and_l2p_hx"><title>Overview</title><para>The Keystone service supports X.509 SSL cerificate authentication and authorization
+                for accessing the Horizon dashboard in &kw-hos-phrase;. This
+                feature is disabled by default, and must be manually configured and enabled by
+                running a number of Ansible playbooks.</para>
+</sidebar>
+        <sidebar xml:id="section_ttr_l2p_hx"><title>Keystone configuration</title><para>To configure and enable X.509 SSL authentication and authorization support for the
+                Keystone service, perform the following steps.</para>
+<orderedlist xml:id="ol_pby_lfp_hx">
+                    <listitem><para>Create a new configuration file named <literal>x509auth.yml</literal> and
+                        place it in any directory in your deployer node. For example, perform the
+                        following command to create the file in the <literal>/tmp/</literal>
+                        directory:</para>
+<screen >touch /tmp/x509auth.yml</screen></listitem>
+                    <listitem><para>Edit the new file to include the following text. Note that YAML files are
+                        whitespace-sensitive. Please preserve the indentation format of the
+                        following
+                            text.</para>
+<screen >keystone_x509auth_conf:
+    identity_provider:
+        id: intermediateca
+        description: This is the trusted issuer HEX Id.
+    mapping:
+        id: x509_mapping1
+        rules_file: /tmp/x509auth_mapping.json
+    protocol:
+        id: x509
+    remote_id: intermediateca
+    ca_file: /tmp/cacert.pem</screen><para>The
+                            preceding example sets a number of configuration parameters for the
+                            X.509/Keystone configuration. The following are detailed descriptions of
+                            each parameter.</para>
+<itemizedlist xml:id="ul_t2r_wgp_hx">
+                                <listitem><para><emphasis role="bold">identity_provider</emphasis> This section identifies and describes
+                                    an outside identity provider.</para>
+<itemizedlist xml:id="ul_s4w_php_hx">
+                                        <listitem><para><emphasis role="bold">id</emphasis>: Any unique, readable string that identifies
+                                            the identitiy provider.</para>
+</listitem>
+                                        <listitem><para><emphasis role="bold">description</emphasis>: A description of the identity
+                                            provider.</para>
+</listitem>
+                                    </itemizedlist></listitem>
+                                <listitem><para><emphasis role="bold">mapping</emphasis>: This section describes a JSON-format file that
+                                    maps X.509 client certificate attributes to a local Keystone
+                                        user.</para>
+<itemizedlist xml:id="ul_whh_rhp_hx">
+                                        <listitem><para><emphasis role="bold">id</emphasis>: Any unique, readable string that identifies
+                                            the user-certificate mapping.</para>
+</listitem>
+                                        <listitem><para><emphasis role="bold">rules_file</emphasis>: The filepath to a JSON file that
+                                            contains the client certificate attributes mapping.</para>
+</listitem>
+                                    </itemizedlist></listitem>
+                                <listitem><para><emphasis role="bold">protocol</emphasis>: This section sets the cryptographic protocol to
+                                    be used.</para>
+<itemizedlist xml:id="ul_cbr_shp_hx">
+                                        <listitem><para><emphasis role="bold">id</emphasis>: The cryptographic protocol used for the
+                                            certificate-based authentication/authorization.</para>
+</listitem>
+                                    </itemizedlist></listitem>
+                                <listitem><para><emphasis role="bold">remote_id</emphasis>: By default, this field expects the client
+                                    certificate's issuer's common name (CN) as a value. The expected
+                                    value is set in the <literal>keystone.conf</literal> file, where
+                                    the default setting
+                                    is:</para>
+<screen >remote_id_attribute = SSL_CLIENT_I_DN_CN</screen></listitem>
+                                <listitem><para><emphasis role="bold">ca_file</emphasis>: The file that contains the client certificate's
+                                    related intermediary and root CA certificates.</para>
+</listitem>
+                            </itemizedlist>
+<para>Note: In the <literal>/tmp/x509auth.yml</literal> file,
+                            the <literal>ca_file</literal> value should be a file that contains both
+                            the root and signing CA certificates (often found in
+                                <literal>/home/pki/cacert.pem</literal>).</para>
+</listitem>
+                    <listitem><para>Create a JSON-formatted mapping file. You will need to edit the
+                            <literal>x509auth.yml</literal> file you created in <emphasis role="bold">Step 2</emphasis> to
+                        reference this file in the <emphasis role="bold">mapping</emphasis>→ <emphasis role="bold">rules_file</emphasis> parameter. You
+                        can create the file with the following example
+                        command:</para>
+<screen >touch /tmp/x509auth_mapping.json</screen></listitem>
+                    <listitem><para>Edit the JSON file you created in <emphasis role="bold">Step 3</emphasis> to include the following
+                        content.
+                        </para>
+<screen >[
+                 {
+                     "local": [
+                         {
+                            "user": {
+                                "name": "{0}",
+                                "domain": {
+                                    "name": "{1}"
+                                },
+                                "type": "local"
+                            }
+                         }
+                    ],
+                    "remote": [
+                        {
+                            "type": "SSL_CLIENT_S_DN_CN"
+                        },
+                        {
+                            "type": "SSL_CLIENT_S_DN_O"
+                        },
+                        {
+                            "type": "SSL_CLIENT_I_DN",
+                            "any_one_of": [
+                            ]
+                        }
+                    ]
+                }
+]</screen></listitem>
+                    <listitem><para>Enter the distinguished name(s) (DN) of the certificate issuer(s) that
+                        issued your client certificates into the <emphasis role="bold">any_one_of</emphasis> field in the
+                            <emphasis role="bold">remote</emphasis> block. The <emphasis role="bold">any_one_of</emphasis> field is a comma-separated
+                        list of all certificate issuers that you want the Keystone service to trust.
+                        </para>
+<para>All DNs in the <emphasis role="bold">any_one_of</emphasis> field must adhere to the following
+                            format.</para>
+<itemizedlist xml:id="ul_cm3_pzy_3x">
+                            <listitem><para>A descending list of DN elements, with each element separated by a
+                                forward slash (/).</para>
+</listitem>
+                        </itemizedlist><para>The following is an example of a properly formatted DN for a
+                            certificate issuer named "intermedia".</para>
+<screen >/C=US/ST=California/O=HPE/OU=Engineering/CN=intermediateca/emailAddress=intermediateca@hpe.com</screen>
+<para>The following example file illustrates an
+                                <literal>x509auth_mapping.json</literal> file with the "intermedia"
+                            certificate issuer added to the <emphasis role="bold">any_one_of</emphasis> field. Note that the
+                            DN string is in
+                            quotes.</para>
+<screen >[
+                 {
+                     "local": [
+                         {
+                            "user": {
+                                "name": "{0}",
+                                "domain": {
+                                    "name": "{1}"
+                                },
+                                "type": "local"
+                            }
+                         }
+                    ],
+                    "remote": [
+                        {
+                            "type": "SSL_CLIENT_S_DN_CN"
+                        },
+                        {
+                            "type": "SSL_CLIENT_S_DN_O"
+                        },
+                        {
+                            "type": "SSL_CLIENT_I_DN",
+                            "any_one_of": [
+                                "/C=US/ST=California/O=HPE/OU=Engineering/CN=intermediateca/emailAddress=intermediateca@hpe.com"
+                            ]
+                        }
+                    ]
+                }
+]</screen>
+<para>The
+                            Keystone service will trust all client certificates issued by any of the
+                            certificate issuers listed in the <emphasis role="bold">any_one_of</emphasis> field.</para>
+</listitem>
+                    <listitem><para>Run the following commands to enable the new X.509/Keystone
+                        settings.</para>
+<screen >cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts keystone-reconfigure.yml -e@/tmp/x509auth.yml</screen></listitem>
+                </orderedlist>
+</sidebar>
+        <sidebar xml:id="section_p5j_4lq_mx"><title>HAProxy Configuration</title><para>Because of the experimental nature of the HAProxy feature, it is important to
+                minimize the risk of impacting other services. If you have implemented, or wish to
+                implement the HAProxy feature alongside client SSL certificate login to the Horizon
+                dashboard in your cloud, please complete the following steps to make the necessary
+                manual configuration changes.</para>
+<orderedlist xml:id="ol_kmc_vlq_mx">
+                    <listitem><para>Locate and open the
+                            <literal>~/helion/hos/ansible/roles/haproxy/templates/haproxy.cfg</literal>
+                        file.</para>
+</listitem>
+                    <listitem><para>Locate the following line in the <literal>haproxy.cfg</literal>
+                            file.</para>
+<screen >listen {{ network.vip }}-{{ port }}</screen><para>Enter
+                            the following codeblock in the open space immediately preceding the
+                                <literal>listen {{ network.vip }}-{{ port }}</literal>
+                            line.</para>
+<screen >{%- if service == 'KEY_API' and port == '5000' %}
+    {% set bind_defaults = 'ca-file /etc/ssl/private/cacert.pem verify optional' %}
+{%- endif %}</screen><para>After
+                            entering the preceding code, your <literal>haproxy.cfg</literal> file
+                            should look like the following
+                        example.</para>
+<screen >
+{%- if network.terminate_tls is defined and network.terminate_tls and port == '80' %}
+    {% set port = '443' %}
+{%- endif %}
+ 
+{%- if service == 'KEY_API' and port == '5000' %}
+    {% set bind_defaults = 'ca-file /etc/ssl/private/cacert.pem verify optional' %}
+{%- endif %}
+ 
+listen {{ network.vip }}-{{ port }}
+    {%- set options = network.vip_options | default(vip_options_defaults) %}
+      {%- if options &gt; 0 %}
+        {%- for option in options %}
+    {{ option }}
+        {%- endfor %}
+      {%- endif %}
+    bind {{ network.vip }}:{{ port }} {% if network.terminate_tls is defined and network.terminate_tls %} ssl crt {{ frontend_server_cert_directory }}/{{ network.cert_file }} {{ bind_defaults }} {% endif %}</screen></listitem>
+                    <listitem><para>Commit the changes to your local git
+                        repository.</para>
+<screen >git add -A
+git commit -m "Added HAProxy configuration changes"</screen></listitem>
+                    <listitem><para>Run the configuration processor and ready-deployment Ansible
+                        playbooks.</para>
+<screen >cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen></listitem>
+                    <listitem><para>Implement the HAProxy configuration changes.
+                        </para>
+<screen >cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts FND-CLU-reconfigure.yml</screen></listitem>
+                </orderedlist>
+</sidebar>
+        <sidebar xml:id="section_mqr_m2p_hx"><title>Create CA and client certificates</title><para>An X.509 client certificate can be issued from any certificate authority (CA). You
+                can use the openssl command-line tool to generate certificate signing requests
+                (CSRs). Once a CA has signed your CSR, the CA will return a signed certificate that
+                you can use to authenticate to Horizon.</para>
+<para>Read more about openssl here: <link xlink:href="https://www.openssl.org/"/></para>
+</sidebar>
+        <sidebar xml:id="section_qjc_42p_hx"><title>Horizon configuration</title><para>Complete the following steps to configure Horizon to support SSL certificate
+                authorization and authentication.</para>
+<orderedlist xml:id="ol_xd5_rwp_hx">
+                    <listitem><para>Edit the
+                            <literal>~/helion/hos/ansible/roles/HZN-WEB/defaults/main.yml</literal>
+                        file and set the following parameter to
+                        <literal>True</literal>.</para>
+<screen >horizon_websso_enabled: True</screen></listitem>
+                    <listitem><para>Locate the last line in the
+                            <literal>~/helion/hos/ansible/roles/HZN-WEB/defaults/main.yml</literal>
+                        file. The default configuration for this line should look like the following.</para>
+<screen >horizon_websso_choices:
+  - {protocol: saml2, description: "ADFS Credentials"}</screen><itemizedlist xml:id="ul_jg3_g2r_mx">
+                                <listitem><para>If your cloud <emphasis role="bold">does not</emphasis> have ADFS enabled, then replace
+                                    the preceding <literal>horizon_websso_choices:</literal> parameter
+                                    with the
+                                    following.</para>
+<screen >- {protocol: x509, description: "X.509 SSL Certificate"}</screen><para>The
+                                    resulting block should look like the
+                                    following.</para>
+<screen >horizon_websso_choices:
+    - {protocol: x509, description: "X.509 SSL Certificate"}</screen></listitem>
+                                <listitem><para>If your cloud <emphasis role="bold">does</emphasis> have ADFS enabled, then simply add the
+                                    following parameter to the
+                                        <literal>horizon_websso_choices:</literal> section. Do not
+                                    replace the default parameter, simply add the following line to
+                                    the existing
+                                    block.</para>
+<screen >- {protocol: saml2, description: "ADFS Credentials"}</screen><para>If
+                                    your cloud has ADFS enabled, the final block of your
+                                        <literal>~/helion/hos/ansible/roles/HZN-WEB/defaults/main.yml</literal>
+                                    should have the following
+                                    entries.</para>
+<screen >horizon_websso_choices:
+    - {protocol: x509, description: "X.509 SSL Certificate"}
+    - {protocol: saml2, description: "ADFS Credentials"}</screen></listitem>
+                            </itemizedlist>
+</listitem>
+                    <listitem><para>Run the following commands to add your changes to the local git repository,
+                        and reconfigure the Horizon service, enabling the changes made in <emphasis role="bold">Step
+                            1</emphasis>:</para>
+<screen >cd ~/helion
+git add -A
+git commit -m "my commit message"
+cd ~/helion/hos/ansible/
+ansible-playbook -i hosts/localhost config-processor-run.yml
+ansible-playbook -i hosts/localhost ready-deployment.yml
+cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts horizon-reconfigure.yml</screen></listitem>
+                </orderedlist>
+</sidebar>
+        <sidebar xml:id="section_chx_42p_hx"><title>Browser configuration</title><para>To enable your web browser to present a certificate to the Horizon dashboard upon
+                login, you first need to import the certificate. </para>
+<orderedlist xml:id="ol_oyb_rxp_hx">
+                    <listitem><para>Import the desired certificate into your web browser's certificate store.
+                        The steps to complete this action will vary from browser to browser. Please
+                        refer to your browser's documentation for specific instructions.</para>
+</listitem>
+                    <listitem><para>After importing the certificate, verify that it appears in your browser's
+                        certificate manager.</para>
+</listitem>
+                </orderedlist>
+<para>The following image displays an example certificate as it appears in a browser's
+                certificate manager.</para>
+<mediaobject xml:id="image_gx4_gyp_hx"><imageobject  role="fo"><imagedata fileref="media-security-cert_dn_example.png" width="75%" format="PNG"/></imageobject><imageobject  role="html"><imagedata fileref="media-security-cert_dn_example.png"/></imageobject></mediaobject>
+</sidebar>
+        <sidebar xml:id="section_u54_p2p_hx"><title>User accounts</title><para>For the Keystone service to use X.509 certificates to grant users access to Horizon,
+                there must be a Keystone user account associated with each certificate. Keystone
+                associates user accounts with certificates by matching the common name (CN) and
+                organization (O) of a presented certificate with the username and domain of an
+                existing Keystone user.</para>
+<para>When an X.509 certificate is presented to Horizon for authentication/authorization,
+                Horizon passes the certificate information along to the Keystone service. Keystone
+                attempts to match the CN and O of the certificate with the username and domain of an
+                existing local user account. For this operation to be successful, there must be a
+                Keystone user account and domain that match the CN and O of the certificate.</para>
+<para>For example, if a user named Sam presents a certificate to Horizon with the following
+                    information,</para>
+<itemizedlist xml:id="ul_o2v_2fs_3x">
+                    <listitem><para>CN=sam</para>
+</listitem>
+                    <listitem><para>O=HPE</para>
+</listitem>
+                </itemizedlist>
+<para>Then there must be an existing Keystone user account with the following values,</para>
+<itemizedlist xml:id="ul_mn5_pfs_3x">
+                <listitem><para>Username=sam</para>
+</listitem>
+                <listitem><para>Domain=HPE</para>
+</listitem>
+            </itemizedlist><para>Further, Sam's client certificate must have been issued by one of the certificate
+                issuers listed in the <emphasis role="bold">any_one_of</emphasis> field in the
+                    <literal>x509auth_mapping.json</literal> file.</para>
+<para>Also, when creating a local Keystone user, you must assign the user account a project
+                scope. Without a project scope, the authorization portion of the sign-on process
+                will fail.</para>
+<para>The following steps illustrate how to use the CLI to create a domain, create and
+                manage a user, and assign a permissions role to the new user.</para>
+<orderedlist xml:id="ol_tnt_msq_mx">
+                    <listitem><para>Create a new domain, named
+                        HPE.</para>
+<screen >openstack domain create HPE</screen></listitem>
+                    <listitem><para>Create a new project named "xyz", under the HPE domain.
+                        </para>
+<screen >openstack project create --domain HPE xyz</screen></listitem>
+                    <listitem><para>Create a new user named "Sam" in the HPE domain. Set the password and email
+                        for the new
+                        account.</para>
+<screen >openstack user create --domain HPE --password pass --email sam@hpe.com --enable sam</screen></listitem>
+                    <listitem><para>Create a new role named
+                        "role1".</para>
+<screen >openstack role create role1</screen></listitem>
+                    <listitem><para>Grant the new role, "role1" to the new user "Sam" from the "HPE" domain.
+                        Note that both the user account and domain must be referenced by their
+                        unique ID numbers rather than their friendly
+                        names.</para>
+<screen >openstack role add --user 04f3db9e7f3f45dc82e1d5f20b4acfcc --domain 6b64021839774991b5e0df16077f11eb role1</screen></listitem>
+                    <listitem><para>Add the user "Sam" to the newly-created project from step 2. Note that the
+                        project and user account must be referenced by their respective unique ID
+                        numbers rather than their friendly
+                        names.</para>
+<screen >openstack role add --project 4e2ad14406b247c7a9fc0a48c0b1713e --user 04f3db9e7f3f45dc82e1d5f20b4acfcc role1</screen></listitem>
+                </orderedlist>
+</sidebar>
+        <sidebar xml:id="section_hbf_q2p_hx"><title>How it works</title><para>The SSL authentication and authorization process is detailed in the following
+                    steps.</para>
+<orderedlist xml:id="ol_vhn_cbq_hx">
+                        <listitem><para>User directs a web browser to the &kw-hos; Horizon login landing
+                        page.</para>
+</listitem>
+                    <listitem><para>The user selects the "X.509 Certificate" login option from the dropdown
+                        menu.</para>
+</listitem>
+                    <listitem><para>Horizon responds with an HTTP 302 redirect, redirecting the browser to the
+                        SSL-protected Keystone (federated) authentication endpoint.</para>
+</listitem>
+                    <listitem><para>The browser then prompts user to select the certificate to use for the login
+                        (if there is more than one certificate for the given trusted Certificate
+                        Authority (CA)).</para>
+</listitem>
+                    <listitem><para>The web browser establishes a 2-way SSL handshake with the Keystone
+                        service.</para>
+</listitem>
+                    <listitem><para>Keystone, utilizing federation mapping, maps the user to a federated persona
+                        and issues an (federated) unscoped token.</para>
+</listitem>
+                    <listitem><para>The token is then passed to the browser, along with JavaScript code that
+                        redirects the browser back to the Horizon dashboard.</para>
+</listitem>
+                    <listitem><para>The browser then logs into the Horizon dashboard using the newly issued
+                        unscoped token to authenticate the user.</para>
+</listitem>
+                    <listitem><para>Horizon queries the Keystone service for the list of federated projects the
+                        authenticated user has access to.</para>
+</listitem>
+                    <listitem><para>Horizon then rescopes the token to the first project, granting the user
+                        authorization.</para>
+</listitem>
+                    <listitem><para>The login process is completed.</para>
+</listitem>
+                </orderedlist>
+<mediaobject xml:id="image_h4j_mdq_hx"><imageobject  role="fo"><imagedata fileref="media-security-Horizon-SSL-Keystone.png" width="75%" format="PNG"/></imageobject><imageobject  role="html"><imagedata fileref="media-security-Horizon-SSL-Keystone.png"/></imageobject></mediaobject>
+</sidebar>
+    </section>

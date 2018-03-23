@@ -1,0 +1,227 @@
+<?xml version="1.0"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="add_vsa"><title>&kw-hos-tm; &kw-hos-version-50;: Adding a VSA Node</title><abstract><para><para>Adding a VSA node allows you to add additional
+      capacity.</para><para>You may have a need to add a VSA node for additional storage capacity
+      or another purpose and these steps will help you achieve this.</para></para>
+</abstract>
+    <para><para xml:id="idg-all-operations-maintenance-vsa-add_vsa_node-xml-4"><phrase><phrase/></phrase></para></para>
+
+
+    <para>The process for adding additional VSA nodes to your cloud environment involves two major
+      tasks:</para>
+
+    <itemizedlist>
+        <listitem><para>Adding the VSA node(s) to your input model</para>
+</listitem>
+        <listitem><para>Updating your VSA management group and cluster to add the additional node(s)</para>
+</listitem>
+      </itemizedlist>
+
+    <para>Once you have completed these two tasks, you should add those new hosts to your monitoring
+      checks following the directions in <link xlink:href="#add_vsa/monitoring">How to add
+        an additional VSA node to your monitoring checks</link>.</para>
+
+
+    <sidebar xml:id="idg-all-operations-maintenance-vsa-add_vsa_node-xml-6"><title>Prerequisites</title><para>You should have one or more baremetal servers that meet the minimum hardware requirements
+        for a VSA node which are detailed in the <xref linkend="min_hardware"/>.</para>
+</sidebar>
+
+    <sidebar xml:id="idg-all-operations-maintenance-vsa-add_vsa_node-xml-7"><title>Notes</title><para>When adding additional VSA nodes you should consider the high availability (HA)
+        implications to this action. Your VSA nodes are made highly available via the server-group
+        and cluster options. For example, if you had an existing cluster of 3 VSA nodes and you
+        dispersed them across three server-groups using <literal>RACK1</literal>,
+          <literal>RACK2</literal>, and <literal>RACK3</literal> and you wanted to additional capacity
+        you may want to consider adding another cluster of 3 VSA nodes to maintain high
+        availability. If you want to add an additional 1-2 VSA nodes per RACK then that is also
+        possible but you would lose the HA aspect of the server-group.</para>
+<para>The recommended maximum number of VSA nodes per cluster is 16 before you need to create
+        additional clusters.</para>
+</sidebar>
+
+    <sidebar xml:id="idg-all-operations-maintenance-vsa-add_vsa_node-xml-8"><title>How to add an additional VSA node to your input model and deploy
+        it</title><para>Follow these steps to add additional VSA nodes to your cloud environment.</para>
+<orderedlist>
+        <listitem><para>Log in to your lifecycle manager.</para>
+</listitem>
+        <listitem><para>Checkout the <literal>site</literal> branch of your local git so you can begin to make the
+          necessary edits:
+          </para>
+<screen>cd ~/helion/my_cloud/definition/data
+git checkout site</screen></listitem>
+        <listitem><para>Edit your <literal>~/helion/my_cloud/definition/data/servers.yml</literal> file to include
+          the details about your new VSA node(s), ensuring you take into account the notes at the top of this page concerning HA.
+          </para>
+<para>For example, if you already had a cluster of
+            three VSA nodes and needed to add a fourth one you would add your details to the bottom
+            of the file in this
+            format:</para>
+<screen># VSA Storage Nodes
+
+   - id: vsa4
+     ip-addr: 10.13.111.148
+     role: VSA-ROLE
+     server-group: RACK1
+     nic-mapping: HP-DL360-4PORT
+     mac-addr: f0:92:1c:05:f5:78
+     ilo-ip: 192.168.9.4
+     ilo-password: password
+     ilo-user: admin</screen><para>You
+            can find detailed descriptions of these fields .</para>
+<important><para>You will need to verify that the
+              <literal>ip-addr</literal> value you choose for this node does not conflict with any
+            other IP address in your cloud environment. You can confirm this by checking the
+              <literal>~/helion/my_cloud/info/address_info.yml</literal> file on your lifecycle
+            manager.</para>
+</important></listitem>
+        <listitem><para>In your <literal>~/helion/my_cloud/definition/data/control_plane.yml</literal> file you
+          will need to check the values for <literal>member-count</literal>,
+            <literal>min-count</literal>, and <literal>max-count</literal>, if you specified them, to
+          ensure that they match up with your new total node count. </para>
+<para>For example, if you had
+            previously specified <literal>member-count: 3</literal> and are adding a fourth VSA node,
+            you will need to change that value to <literal>member-count: 4</literal>.</para>
+<para>See  for more
+            details.</para>
+</listitem>
+        <listitem><para>Commit your configuration to the <xref linkend="using_git"/>, as follows:
+          </para>
+<screen>git commit -a -m "Adding additional VSA node"</screen></listitem>
+        <listitem><para>Run the configuration processor:
+          </para>
+<screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</screen></listitem>
+        <listitem><para>Update your deployment directory:
+          </para>
+<screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen></listitem>
+        <listitem><para>Add the new node into Cobbler:
+          </para>
+<screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost cobbler-deploy.yml</screen></listitem>
+        <listitem><para>Then you can image the node:
+            </para>
+<screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost bm-reimage.yml -e nodelist=&lt;node name&gt;</screen><para>Before proceeding, you may want to
+            take a look at <literal>~/helion/my_cloud/info/server_info.yml</literal> to see if the
+            assignment of the node you have added is what you expect. It may not be, as nodes will
+            not be numbered consecutively if any have previously been removed. This is to prevent
+            loss of data; the configuration processor retains data about removed nodes and keeps
+            their ID numbers from being reallocated. See the Persisted Server Allocations section in
+               for information on how this
+          works.</para>
+</listitem>
+        <listitem><para>Complete the deployment of your new node with this playbook, ensuring you use the
+            <literal>--limit</literal> option. With the <literal>--limit</literal> switch you will need
+          to specify your first controller node (which may be your lifecycle manager) if you are
+          adding VSA nodes to your environment for the first time. If you added a VSA cluster during
+          your initial cloud deploy then you only need to specify your new VSA nodes and can leave
+          the controller node out.
+            </para>
+<screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts site.yml --tags "generate_hosts_file"
+ansible-playbook -i hosts/verb_hosts site.yml --limit &lt;hostname_vsa_node,hostname_first_controller&gt;</screen></listitem>
+      </orderedlist></sidebar>
+
+
+
+    <sidebar xml:id="idg-all-operations-maintenance-vsa-add_vsa_node-xml-9"><title>How to add an additional VSA node to your management group
+        and cluster</title><para>You can add additional VSA node(s) in an automated process using the provided Ansible
+        playbooks only if you used this method initially to create the cluster. If you used the HPE
+        StoreVirtual Centralized Management Console (CMC) GUI to create the cluster, you must
+        continue to use the CMC utility to add new node(s) and manage your cluster.</para>
+<para><emphasis role="bold">Using Ansible</emphasis></para>
+<para>If you initially created your VSA cluster using Ansible (using the <xref linkend="config_vsa"/> instructions,
+        you can add nodes to that cluster using the same playbook. Using this playbook to perform
+        cluster operations is highly recommended.</para>
+<para>Perform the following steps:</para>
+<orderedlist>
+        <listitem><para>Log in to the lifecycle manager.</para>
+</listitem>
+        <listitem><para>Run the following playbook, which will update both your management group and your
+          cluster:
+          </para>
+<screen>cd ~/scratch/ansible/next/hos/ansible/
+ansible-playbook -i hosts/verb_hosts vsalm-configure-cluster.yml</screen></listitem>
+        <listitem><para>When prompted, enter an administrative user name and password you will use to administer
+          your cluster via the CMC utility, should it be needed in the future.</para>
+</listitem>
+        <listitem><para>Confirm in the output of the playbook that your new node is added.</para>
+</listitem>
+        <listitem><para>You can view the added node to the cluster in CMC GUI as follows: </para>
+<orderedlist xml:id="idg-all-operations-maintenance-vsa-add_vsa_node-xml-10">
+            <listitem><para>Launch the CMC utility. See <xref linkend="config_vsa"/> for more details.</para>
+</listitem>
+            <listitem><para>Find the VSA system. </para>
+</listitem>
+            <listitem><para>View the added node in the cluster.</para>
+</listitem>
+          </orderedlist></listitem>
+      </orderedlist><para><emphasis role="bold">Show | Hide</emphasis> Using the CMC Utility</para>
+<orderedlist>
+          <listitem><para>On your lifecycle manager, collect the IP addresses of the VSA virtual machines that
+            you added from the
+              <literal>~/scratch/ansible/next/my_cloud/stage/info/net_info.yml</literal> file. This
+            file is generated as part of output of the configuration processor during installation.
+            You will need this IP address in the next steps.</para>
+</listitem>
+          <listitem><para>Launch the CMC utility. You will likely want to use the same method you used when you
+            did your initial VSA cluster configuration. See <xref linkend="config_vsa"/> for more details.</para>
+</listitem>
+          <listitem><para>In the CMC GUI, click the <emphasis role="bold">Find</emphasis> menu and then select the <emphasis role="bold">Find Systems</emphasis>
+            options. </para>
+<mediaobject><imageobject  role="fo"><imagedata fileref="media-vsa-addvsa_cmc1.png" width="75%" format="PNG"/></imageobject><imageobject  role="html"><imagedata fileref="media-vsa-addvsa_cmc1.png"/></imageobject></mediaobject>
+</listitem>
+          <listitem><para>Click the <emphasis role="bold">Add</emphasis> button which will open the <emphasis role="bold">Enter IP Address</emphasis> dialogue box
+            where you can enter the IP address of the VSA node(s) that you are adding. These will be
+            the same IP addresses you noted in step 1 from your
+              <literal>~/scratch/ansible/next/my_cloud/stage/info/net_info.yml</literal> file.
+                </para>
+<mediaobject><imageobject  role="fo"><imagedata fileref="media-vsa-addvsa_cmc2.png" width="75%" format="PNG"/></imageobject><imageobject  role="html"><imagedata fileref="media-vsa-addvsa_cmc2.png"/></imageobject></mediaobject>
+</listitem>
+          <listitem><para>Once you have all of your VSA nodes entered, click the <emphasis role="bold">Close</emphasis> button. </para>
+<mediaobject><imageobject  role="fo"><imagedata fileref="media-vsa-addvsa_cmc3.png" width="75%" format="PNG"/></imageobject><imageobject  role="html"><imagedata fileref="media-vsa-addvsa_cmc3.png"/></imageobject></mediaobject>
+</listitem>
+          <listitem><para>Next, click the <emphasis role="bold">Tasks</emphasis> menu and then navigate to the <emphasis role="bold">System</emphasis> submenu and
+            select the <emphasis role="bold">Add to Existing Management Group</emphasis> option. </para>
+<mediaobject><imageobject  role="fo"><imagedata fileref="media-vsa-addvsa_cmc4.png" width="75%" format="PNG"/></imageobject><imageobject  role="html"><imagedata fileref="media-vsa-addvsa_cmc4.png"/></imageobject></mediaobject>
+</listitem>
+          <listitem><para>In the Management Group wizard, select your new VSA node and then press
+              <emphasis role="bold">Continue</emphasis>. </para>
+<mediaobject><imageobject  role="fo"><imagedata fileref="media-vsa-addvsa_cmc5.png" width="75%" format="PNG"/></imageobject><imageobject  role="html"><imagedata fileref="media-vsa-addvsa_cmc5.png"/></imageobject></mediaobject>
+</listitem>
+          <listitem><para>Select your <emphasis role="bold">Group Name</emphasis> from the drop down box and then press <emphasis role="bold">Add</emphasis> to
+            continue. </para>
+<mediaobject><imageobject  role="fo"><imagedata fileref="media-vsa-addvsa_cmc6.png" width="75%" format="PNG"/></imageobject><imageobject  role="html"><imagedata fileref="media-vsa-addvsa_cmc6.png"/></imageobject></mediaobject>
+</listitem>
+          <listitem><para>The CMC utility will then add your new VSA node to the management group. Once it has
+            completed you will see the <emphasis role="bold">Status</emphasis> change to <literal>Storage System
+              Normal</literal>. </para>
+<mediaobject><imageobject  role="fo"><imagedata fileref="media-vsa-addvsa_cmc7.png" width="75%" format="PNG"/></imageobject><imageobject  role="html"><imagedata fileref="media-vsa-addvsa_cmc7.png"/></imageobject></mediaobject>
+</listitem>
+          <listitem><para>Add the VSA node to an existing cluster. </para>
+<itemizedlist>
+              <listitem><para>Right click the newly added VSA node and select <emphasis role="bold">Add to Existing Cluster</emphasis>:
+                    </para>
+<mediaobject><imageobject  role="fo"><imagedata fileref="media-vsa-addvsa_cmc8.png" width="75%" format="PNG"/></imageobject><imageobject  role="html"><imagedata fileref="media-vsa-addvsa_cmc8.png"/></imageobject></mediaobject>
+</listitem>
+              <listitem><para>Select your cluster from the drop down box. Select the storage system to add to
+                the cluster and then click OK: </para>
+<mediaobject><imageobject  role="fo"><imagedata fileref="media-vsa-addvsa_cmc9.png" width="75%" format="PNG"/></imageobject><imageobject  role="html"><imagedata fileref="media-vsa-addvsa_cmc9.png"/></imageobject></mediaobject>
+</listitem>
+              <listitem><para>You can then mouse over your VSA node to see the Storage System get successfully
+                added to the cluster: </para>
+<mediaobject><imageobject  role="fo"><imagedata fileref="media-vsa-addvsa_cmc10.png" width="75%" format="PNG"/></imageobject><imageobject  role="html"><imagedata fileref="media-vsa-addvsa_cmc10.png"/></imageobject></mediaobject>
+</listitem>
+            </itemizedlist></listitem>
+        </orderedlist>
+</sidebar>
+
+    <sidebar xml:id="idg-all-operations-maintenance-vsa-add_vsa_node-xml-11"><title>How to add an additional VSA node to your monitoring
+        checks</title><para>If you want to add a new VSA node to the monitoring service checks, there is an additional
+        playbook that must be run to ensure this happens:</para>
+<screen >cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts monasca-deploy.yml --tags active_ping_checks</screen></sidebar>
+
+  </section>

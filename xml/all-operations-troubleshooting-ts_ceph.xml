@@ -1,0 +1,464 @@
+<?xml version="1.0"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<!---->
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="troubleshooting_ceph"><title>&kw-hos-tm; &kw-hos-version-50;: Ceph Storage Troubleshooting</title><abstract><para><para>Troubleshooting scenarios with resolutions for the
+      Ceph service.</para>This page describes troubleshooting scenarios for Ceph.</para>
+</abstract>
+    <!---->
+    <para><para xml:id="idg-all-operations-troubleshooting-ts_ceph-xml-4"><phrase><phrase/></phrase></para></para>
+
+    <para>
+      Expand All Sections
+      Collapse All Sections
+    </para>
+
+
+
+  <section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="idg-all-operations-troubleshooting-ts_ceph-xml-7"><title>Troubleshooting Ceph deployment issues</title>
+      <para>Here is a list of known issues along with resolutions for Ceph deployment issues.</para>
+
+
+      <formalpara xml:id="issue1"><title>Issue: If no Ceph monitor nodes are defined for the cloud, then
+          Ceph cloud deployment fails</title><para><para>If no Ceph monitor nodes are defined for the cloud, then Ceph cloud deployment fails
+            with the following error while executing the <literal>site.yml</literal> playbook:</para></para>
+<screen >TASK: [_CEP-CMN | install | Install ceph] ************************************* 
+changed: [stratushelion-cp1-ceph0001-mgmt]
+changed: [stratushelion-cp1-ceph0002-mgmt]
+changed: [stratushelion-cp1-ceph0005-mgmt]
+changed: [stratushelion-cp1-ceph0003-mgmt]
+changed: [stratushelion-cp1-ceph0004-mgmt]
+
+TASK: [_CEP-CMN | configure | Copy "{{ deployer_ceph_dir }}/ceph.client.admin.keyring" to /etc/ceph directory] *** 
+fatal: [stratushelion-cp1-ceph0001-mgmt] =&gt; input file not found at /etc/ceph/ceph.client.admin.keyring or /etc/ceph/ceph.client.admin.keyring
+fatal: [stratushelion-cp1-ceph0002-mgmt] =&gt; input file not found at /etc/ceph/ceph.client.admin.keyring or /etc/ceph/ceph.client.admin.keyring
+fatal: [stratushelion-cp1-ceph0003-mgmt] =&gt; input file not found at /etc/ceph/ceph.client.admin.keyring or /etc/ceph/ceph.client.admin.keyring
+fatal: [stratushelion-cp1-ceph0004-mgmt] =&gt; input file not found at /etc/ceph/ceph.client.admin.keyring or /etc/ceph/ceph.client.admin.keyring
+fatal: [stratushelion-cp1-ceph0005-mgmt] =&gt; input file not found at /etc/ceph/ceph.client.admin.keyring or /etc/ceph/ceph.client.admin.keyring
+
+FATAL: all hosts have already failed -- aborting</screen>
+<para><para><emphasis role="bold">Resolution:</emphasis></para><para>Compare the cloud control plane defined in the
+              <literal>~/helion/my_cloud/definition/data/control_plane.yml</literal> file with the
+            example one. Ensure that either: <orderedlist xml:id="ol_ir1_2s4_5t">
+              <listitem><para>The service component includes <literal>- ceph-monitor</literal> for
+                  <literal>server-role: CONTROLLER-ROLE</literal></para><para>OR</para></listitem>
+              <listitem><para>The resource nodes for Ceph Monitor are added to the
+                  <literal>~/helion/my_cloud/definition/data/control_plane.yml</literal> file, which
+                have the service-components (<literal>- ntp-client</literal> and <literal>-
+                  ceph-monitor</literal>) defined.</para></listitem>
+            </orderedlist></para></para>
+</formalpara>
+      <formalpara xml:id="issue2"><title>Issue: If the disk presented as OSD data and/or a journal disk
+          has some pre-existing partitions, then the Ceph cloud deployment fails</title><para><para>If the disk presented as OSD data and/or a journal disk has some pre-existing
+            partitions, then the Ceph cloud deployment fails with the following error while
+            executing <literal>site.yml</literal> playbook:</para><para><screen>TASK: [CEP-OSD | configure | Configure the osds of {{ inventory_hostname }}] *** 
+failed: [stratushelion-cp1-ceph0001-mgmt] =&gt; (item={'key': '/dev/sdd', 'value': '/dev/sdc'}) =&gt; {"failed": true, "item": {"key": "/dev/sdd", "value": "/dev/sdc"}}
+msg: Exception: 'ceph-disk -v prepare --cluster-uuid 2645bbf6-16d0-4c42-8835-8ba9f5c95a1d --cluster ceph --osd-uuid 41cfdfe8-1c97-4c8c-9561-5ced0e88ebfd --fs-type xfs --zap-disk /dev/sdd /dev/sdc' failed with error DEBUG:ceph-disk:Zapping partition table on /dev/sdd
+INFO:ceph-disk:Running command: /sbin/sgdisk --zap-all -- /dev/sdd
+Caution: invalid backup GPT header, but valid main header; regenerating
+backup header from main header.
+  
+INFO:ceph-disk:Running command: /sbin/sgdisk --clear --mbrtogpt -- /dev/sdd
+DEBUG:ceph-disk:Calling partprobe on zapped device /dev/sdd
+INFO:ceph-disk:Running command: /sbin/partprobe /dev/sdd
+INFO:ceph-disk:Running command: /usr/bin/ceph-conf --cluster=ceph --name=osd. --lookup osd_mkfs_options_xfs
+INFO:ceph-disk:Running command: /usr/bin/ceph-conf --cluster=ceph --name=osd. --lookup osd_mount_options_xfs
+INFO:ceph-disk:Running command: /usr/bin/ceph-osd --cluster=ceph --show-config-value=osd_journal_size
+INFO:ceph-disk:Running command: /sbin/parted --machine -- /dev/sdc print
+WARNING:ceph-disk:OSD will not be hot-swappable if journal is not the same device as the osd data
+DEBUG:ceph-disk:Creating journal partition num 4 size 5120 on /dev/sdc
+INFO:ceph-disk:Running command: /sbin/sgdisk --new=4:0:+5120M --change-name=4:ceph journal --partition-guid=4:26d3ce3e-5843-4655-ba3c-26d9383b6fc0 --typecode=4:45b0969e-9b03-4f30-b4c6-b4b80ceff106 --mbrtogpt -- /dev/sdc
+Could not create partition 4 from 0 to 10485759
+Unable to set partition 4's name to 'ceph journal'!
+Could not change partition 4's type code to 45b0969e-9b03-4f30-b4c6-b4b80ceff106!
+Error encountered; not saving changes.
+ceph-disk: Error: Command '['/sbin/sgdisk', '--new=4:0:+5120M', '--change-name=4:ceph journal', '--partition-guid=4:26d3ce3e-5843-4655-ba3c-26d9383b6fc0', '--typecode=4:45b0969e-9b03-4f30-b4c6-b4b80ceff106', '--mbrtogpt', '--', '/dev/sdc']' returned non-zero exit status 4</screen></para><para><emphasis role="bold">Resolution:</emphasis></para><para>You must manually delete any partitions on the (failed) disk presented as OSD data
+            and/or journal disk and re-execute the <literal>site.yml</literal> playbook to resume the
+            cloud
+            deployment.<screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts site.yml </screen></para></para>
+</formalpara>
+      <formalpara xml:id="issue3"><title>Issue: If on an entry-scale-kvm-ceph cloud, the controller
+          nodes are not always a part of the actionable nodes then executing the site.yml playbook
+          for a particular node (using --limit &lt;node&gt;) fails</title><para><para>If on a entry-scale-kvm-ceph cloud, the controller nodes are not always a part of the
+            actionable nodes then executing the <literal>site.yml</literal> playbook for a particular
+            node (using --limit &lt;node&gt;) fails with the following error:</para></para>
+<screen >TASK: [_CEP-CMN | check_network | Set cluster_network_enabled to True if available] *** 
+skipping: [localhost]
+
+TASK: [ceph-deployer | configure | Generate "/etc/ceph/{{ ceph_cluster }}.conf" file] *** 
+fatal: [localhost] =&gt; {'msg': "AnsibleUndefinedVariable: One or more undefined variables: 'dict object' has no attribute 'host'", 'failed': True}
+fatal: [localhost] =&gt; {'msg': "AnsibleUndefinedVariable: One or more undefined variables: 'dict object' has no attribute 'host'", 'failed': True}
+
+FATAL: all hosts have already failed -- aborting  
+        </screen>
+<para><para><emphasis role="bold">Resolution</emphasis>:</para><para>Edit the limit file or limit string specified while executing the
+              <literal>site.yml</literal> playbook and include the hostnames of all the <emphasis role="bold">Ceph
+              monitor nodes</emphasis> in the cloud. You can execute the <literal>site.yml</literal> option
+            in either of the following ways:<orderedlist xml:id="ol_jxh_bfq_5t">
+              <listitem><para><literal>ansible-playbook -i hosts/verb_hosts site.yml --limit
+                  new-compute</literal></para><para>You must add monitor nodes in the above
+                  command:<screen>ansible-playbook -i hosts/verb_hosts site.yml --limit new-compute,monitor-1,monitor-2,monitor-3</screen></para></listitem>
+              <listitem><para><literal>ansible-playbook -i hosts/verb_hosts site.yml -limit
+                  @new_nodes.txt</literal></para><para>You can add the monitor hosts to the text file (named
+                    <literal>new_nodes.txt</literal>), which specifies the new compute host (along
+                  with monitor hosts) as follows:<itemizedlist xml:id="ul_ak5_fgq_5t">
+                    <listitem><para>new-compute</para></listitem>
+                    <listitem><para>monitor-1</para></listitem>
+                    <listitem><para>monitor-2</para></listitem>
+                    <listitem><para>monitor-3</para></listitem>
+                  </itemizedlist></para></listitem>
+            </orderedlist></para></para>
+</formalpara>
+      <formalpara xml:id="issue4"><title>Issue: If the time required for placement group creation is
+          slower than usual (&gt;50 secs for PGs to get created), the ceph-client-prepare.yml playbook
+          fails with an error while creating placement groups</title><para><para>If the time required for placement group creation is slower than usual (&gt;50 secs for
+            PGs to get created), the <literal>ceph-client-prepare.yml</literal> playbook fails with
+            the following error while creating placement groups:</para></para>
+<screen >Symptom:
+Following error traces seen during site.yml playbook execution:
+TASK: [ceph-client-prepare | prepare-cluster-user | Set pool {{ item.1.name }} pgp_num to {{ item.1.attrs.pg }}] ***
+changed: [localhost] =&gt; (item=({'user': {'type': 'openstack', 'name': 'cinder', 'secret_id': '457eb676-33da-42ec-9a8c-9293d545c337'}}, {'usage': {'purpose': 'cinder-volume'}, 'name': 'volumes', 'attrs': {'type': 'replicated', 'creation_policy': 'eager', 'replica_size': 3, 'pg': 100, 'permission': 'rwx'}}))
+changed: [localhost] =&gt; (item=({'user': {'type': 'openstack', 'name': 'cinder', 'secret_id': '457eb676-33da-42ec-9a8c-9293d545c337'}}, {'usage': {'purpose': 'nova'}, 'name': 'vms', 'attrs': {'creation_policy': 'eager', 'type': 'replicated', 'pg': 100, 'permission': 'rwx'}}))
+skipping: [localhost] =&gt; (item=({'user': {'type': 'openstack', 'name': 'cinder', 'secret_id': '457eb676-33da-42ec-9a8c-9293d545c337'}}, {'usage': {'purpose': 'glance-datastore'}, 'name': 'images', 'attrs': {'type': 'erasure', 'creation_policy': 'lazy', 'replica_size': 2, 'pg': 128, 'permission': 'rwx'}}))
+failed: [localhost] =&gt; (item=({'user': {'type': 'openstack', 'name': 'glance'}}, {'usage': {'purpose': 'glance-datastore'}, 'name': 'images', 'attrs': {'creation_policy': 'eager', 'pg': 128, 'permission': 'rwx'}})) =&gt; {"changed": true, "cmd": "ceph --cluster bvceph3 osd pool set images pgp_num 128", "delta": "0:00:00.456878", "end": "2015-10-19 12:08:37.379630", "item": [{"user": {"name": "glance", "type": "openstack"}}, {"attrs": {"creation_policy": "eager", "permission": "rwx", "pg": 128}, "name": "images", "usage": {"purpose": "glance-datastore"}}], "rc": 16, "start": "2015-10-19 12:08:36.922752", "warnings": []}
+stderr: Error EBUSY: currently creating pgs, wait
+failed: [localhost] =&gt; (item=({'user': {'type': 'openstack', 'name': 'cinder-backup'}}, {'usage': {'purpose': 'cinder-backup'}, 'name': 'backups', 'attrs': {'type': 'replicated', 'creation_policy': 'eager', 'replica_size': 3, 'pg': 128, 'permission': 'rwx'}})) =&gt; {"changed": true, "cmd": "ceph --cluster bvceph3 osd pool set backups pgp_num 128", "delta": "0:00:00.242184", "end": "2015-10-19 12:08:37.824764", "item": [{"user": {"name": "cinder-backup", "type": "openstack"}}, {"attrs": {"creation_policy": "eager", "permission": "rwx", "pg": 128, "replica_size": 3, "type": "replicated"}, "name": "backups", "usage": {"purpose": "cinder-backup"}}], "rc": 16, "start": "2015-10-19 12:08:37.582580", "warnings": []}
+stderr: Error EBUSY: currently creating pgs, wait
+
+FATAL: all hosts have already failed -- aborting</screen>
+<para><para><emphasis role="bold">Resolution</emphasis>:</para><para>Pause for a minute and check the status of <literal>ceph --cluster &lt;ceph-cluster&gt; -s
+              |grep creating</literal>. If no results are returned by this command then re-execute
+            the <literal>ceph-client-prepare.yml</literal> playbook.</para></para>
+</formalpara>
+      <formalpara xml:id="issue5"><title>Issue: During configuration of a new OSD disk, there is an
+          error similar to "disk does not exist" during the "ceph-disk activate" phase</title><para><para>During configuration of a new OSD disk, if there is an error similar to <literal>disk
+              does not exist</literal> during the <literal>ceph-disk activate</literal> phase it means
+            that the partition created is taking more time than usual to appear. You can edit the
+              <literal>~/helion/my_cloud/config/ceph/settings.yml</literal> file and change the values
+            for the parameters below to assist:</para></para>
+<screen >data_disk_poll_attempts
+data_disk_poll_interval</screen>
+<para><para>The default values of the parameters above (5 and 12 respectively) result in a timeout
+            for polling data disk availability of one minute. Ideally, increasing the
+              <literal>data_disk_poll_attempts</literal> value for 50 would set the timeout value to
+            10 minutes.</para></para>
+</formalpara>
+      <formalpara xml:id="issue6"><title>Issue: If the volume of requests to Ceph is too high, the logs
+          generated by Ceph will fill up the disk quickly.</title><para><para>If the volume of requests to Ceph is very high, the logs generated by Ceph will fill up
+            the disk quickly. The default logrotate configuration for Ceph rotates at a daily
+            frequency, which will not suffice for heavy workloads. In such a scenario, the
+            administrator will need to perform the following changes so that the Ceph logs get
+            rotated more frequently (every 30 minutes in the example below) if the log file reaches
+            the size of <literal>50M</literal>.</para></para>
+<orderedlist>
+            <listitem><para>Log in to the lifecycle manager.</para>
+</listitem>
+            <listitem><para>Edit the file below:
+              </para>
+<screen>~/helion/hos/ansible/roles/_CEP-CMN/files/logrotate.conf</screen></listitem>
+            <listitem><para>Add the <literal>size 50M</literal> line after the rotation frequency line.
+                </para>
+<para>Example:</para>
+<screen>/var/log/ceph/*.log {
+rotate 7
+daily
+size 50M
+compress</screen></listitem>
+            <listitem><para>Commit the changes to git:
+              </para>
+<screen>git add -A
+git commit -m "Added size 50M restriction to Ceph logrotate conf"</screen></listitem>
+            <listitem><para>Run the configuration processor:
+              </para>
+<screen>cd ~/helion/hos/ansible/
+ansible-playbook -i hosts/localhost config-processor-run.yml</screen></listitem>
+            <listitem><para>Create the deployment directory:
+              </para>
+<screen>cd ~/helion/hos/ansible/
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen></listitem>
+            <listitem><para>Reconfigure the Ceph service to complete the changes:
+              </para>
+<screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts ceph-reconfigure.yml</screen></listitem>
+            <listitem><para>Once that playbook is complete, log in to each Ceph node and add a cron job to
+              trigger the Ceph log rotation every 30 minutes by using these steps: </para>
+<orderedlist>
+                <listitem><para>Execute this command: </para>
+<screen>crontab -e</screen></listitem>
+                <listitem><para>Choose an editor.</para>
+</listitem>
+                <listitem><para>Add this line to the bottom of the file:
+                  </para>
+<screen>*/30 * * * * /usr/sbin/logrotate /etc/logrotate.d/ceph &gt;/dev/null 2&gt;&amp;1</screen></listitem>
+                <listitem><para>Save the file.</para>
+</listitem>
+              </orderedlist></listitem>
+          </orderedlist>
+</formalpara>
+      <formalpara xml:id="issue7"><title>Issue: Cinder volume create fails consistently as insufficient
+          disk space gets reported when an OSD is down.</title><para><para><emphasis role="bold">Resolution:</emphasis></para><para>Scenario 1: An OSD node is down</para></para>
+<orderedlist>
+            <listitem><para>If an OSD node has failed, note the OSD numbers on that node, by executing the 'ceph
+              --cluster &gt;cluster-name&gt; osd tree' command on a controller node. A sample of OSD
+              tree output is as follows: </para>
+<screen>$ ceph osd tree
+# id    weight  type name       up/down reweight
+-1      6       root default
+-2      3 host padawan-ceph-ccp-ceph0003-mgmt
+0       1         osd.0   up      1
+3       1         osd.3   up      1
+6       1         osd.6   up      1
+-4      3 host padawan-ceph-ccp-ceph0001-mgmt
+1       1         osd.1   down    0
+4       1         osd.4   down    0
+7       1         osd.7   down    0
+-3      3 host padawan-ceph-ccp-ceph0002-mgmt
+2       1         osd.2   up      1
+5       1         osd.5   up      1
+8       1         osd.8   up      1</screen><para>For example, if <literal>padawan-ceph-ccp-ceph0001-mgmt</literal> is down, the OSD
+                numbers 1, 4, and 7 are relevant.</para>
+</listitem>
+            <listitem><para>For each OSD number identified above perform below steps:
+              </para>
+<screen>ceph --cluster &gt;cluster-name&gt; osd out &lt;osd-num&gt;
+ceph --cluster &lt;cluster-name&gt; osd crush remove osd.&lt;osd-num&gt;
+ceph --cluster &lt;cluster-name&gt; auth del osd.&lt;osd-num&gt;
+ceph --cluster &lt;cluster-name&gt; osd rm &lt;osd-num&gt;</screen></listitem>
+            <listitem><para>Remove the OSD host from crush map if all osd's on the particular host is down:
+              </para>
+<screen>ceph --cluster &lt;cluster-name&gt; osd crush remove &lt;osd-hostname&gt;</screen></listitem>
+          </orderedlist>
+<para><para>Scenario 2: One or more OSDs on an OSD node is/are down</para></para>
+<orderedlist>
+            <listitem><para>If the OSD node is up, but one/more OSDs on that node are down, remove those OSD's
+              from the crush map, by repeating the step below for each OSD number (identified using
+              method mentioned in step #1 above): </para>
+<screen>ceph --cluster &lt;cluster-name&gt; osd crush remove osd.&lt;osd-num&gt;</screen><para>Once the maintenance is performed, the OSD can be added back once it is up:</para>
+<screen>ceph --cluster &lt;cluster-name&gt; osd crush add osd.&lt;osd-num&gt; 1.0 host=&lt;osd-hostname&gt;</screen></listitem>
+          </orderedlist>
+</formalpara>
+      <formalpara xml:id="issue8"><title>Issue: Retrieving the UUID for your OSD Disks</title><para><para>In &kw-hos;, OSD disks are referred to by UUID instead of by block
+            device name, which is what previous versions used.</para><para>If you were using a previous version of &kw-hos; and then upgraded,
+            your <literal>/etc/fstab</literal> file may have been updated with the UUIDs of your OSD
+            disks by the upgrade process. If you are using a fresh install of H&kw-hos; then your UUIDs will be auto-populated during installation.</para><para>In order to obtain the UUIDs for your partitioned OSD data disks, use these steps:</para></para>
+<orderedlist>
+            <listitem><para>SSH to your OSD node.</para>
+</listitem>
+            <listitem><para>Use this command: </para>
+<screen>sudo blkid &lt;partitioned_osd_data_disk&gt;</screen><para>For example:</para>
+<screen>sudo blkid /dev/sde1
+/dev/sde1: UUID="ac0914b3-6d7f-40dc-b54a-f677e00ad818" TYPE="xfs" PARTLABEL="ceph data" PARTUUID="f50afc8c-de25-4047-aa1d-daa953210149"</screen></listitem>
+          </orderedlist>
+</formalpara>
+
+
+      <formalpara xml:id="issue9"><title>Issue: Ceph playbooks fail during disk validation step</title><para><para>If you receive an error like this when going through disk validation the follow the
+            steps below for resolution.</para></para>
+<screen >TASK: [CEP-OSD | validate_disks | Validate the journal disks] *****************
+fatal: [helion-cp1-ceph0003-mgmt] =&gt; Traceback (most recent call last):
+  File "/opt/stack/venv/ansible-hos-3.0.0/lib/python2.7/site-packages/ansible/runner/__init__.py", line 589, in _executor
+   exec_rc = self._executor_internal(host, new_stdin)
+  File "/opt/stack/venv/ansible-hos-3.0.0/lib/python2.7/site-packages/ansible/runner/__init__.py", line 793, in _executor_internal
+    return self._executor_internal_inner(host, self.module_name, self.module_args, inject, port, complex_args=complex_args)
+  File "/opt/stack/venv/ansible-hos-3.0.0/lib/python2.7/site-packages/ansible/runner/__init__.py", line 1008, in _executor_internal_inner
+    module_args = template.template(self.basedir, module_args, inject, fail_on_undefined=self.error_on_undefined_vars)
+  File "/opt/stack/venv/ansible-hos-3.0.0/lib/python2.7/site-packages/ansible/utils/template.py", line 124, in template
+    varname = template_from_string(basedir, varname, templatevars, fail_on_undefined)
+  File "/opt/stack/venv/ansible-hos-3.0.0/lib/python2.7/site-packages/ansible/utils/template.py", line 382, in template_from_string
+    res = jinja2.utils.concat(rf)
+  File "&lt;template&gt;", line 13, in root
+  File "/home/stack/helion/hos/ansible/filter_plugins/osd_disk_validate.py", line 23, in journal_disk_validate
+    existing_journal_disks = json.loads(existing_journal_disks)
+  File "/usr/lib/python2.7/json/__init__.py", line 338, in loads
+    return _default_decoder.decode(s)
+  File "/usr/lib/python2.7/json/decoder.py", line 369, in decode
+    raise ValueError(errmsg("Extra data", s, end, len(s)))
+ValueError: Extra data: line 1 column 4 - line 1 column 65 (char 3 - 64)</screen>
+<para><para><emphasis role="bold">Resolution:</emphasis></para><para>This problem is hit due to existence of Ceph journal partition(s), which have not been
+            removed after the OSD data disk was removed. From the error, the problematic OSD node
+            can be identified (like 'helion-cp1-ceph0003-mgmt' in the above ansible error). Follow
+            the below steps to get the OSD disks inventory to a clean state:</para></para>
+<orderedlist>
+            <listitem><para>Log in to the identified OSD node.</para>
+</listitem>
+            <listitem><para>List the OSD journal partitions using this command: </para>
+<screen>sudo ceph-disk list | grep "ceph journal"</screen><para>Example output:</para>
+<screen>$ sudo ceph-disk list | grep "ceph journal"
+ /dev/sdd2 ceph journal, for /dev/sdd1
+ /dev/sdg1 ceph journal, for /dev/sdc1
+ /dev/sdg2 ceph journal, for /dev/sde1
+ /dev/sdg3 ceph journal, for /dev/sdf1
+ /dev/sdg4 ceph journal</screen></listitem>
+            <listitem><para>Identify the journal disk for which the OSD data disk is not listed. For example, in
+              the output above <literal>/dev/sdg4</literal> is the journal partition.</para>
+</listitem>
+            <listitem><para>Delete the journal partition identified in step #3 and instruct the kernel to reload
+              the table: </para>
+<screen>(echo d; echo &lt;partition-number&gt;; echo w) | sudo fdisk &lt;disk&gt;
+sudo partprobe</screen><para>Example output:</para>
+<screen>/dev/sdg4 journal partition can be removed by executing below commands:
+$ (echo d; echo 4; echo w) | sudo fdisk /dev/sdg
+$ sudo partprobe</screen></listitem>
+            <listitem><para>The above process should be repeated on rest of the OSD nodes in the Ceph cluster to
+              sanitize the Ceph disk inventory.</para>
+</listitem>
+          </orderedlist>
+</formalpara>
+
+
+      <formalpara xml:id="issue10"><title>Issue: Nova volume-attach fails after configuring Ceph as the
+          backend</title><para><!----><para>If you had Nova instances active in your environment prior to configuring Ceph as your
+            backend and you attempt to attach a Ceph volume to the instance and it fails, you should
+            check the <literal>libvirt_debug.log</literal> for the cause. If the error looks like this
+            below then look below for the workaround.</para></para>
+<screen >2015-10-20 13:18:15.237+0000: 17966: debug : qemuMonitorSend:972 : QEMU_MONITOR_SEND_MSG: mon=0x7f9fa0000bd0 msg={"execute":"human-monitor-command","arguments":{"command-line":"drive_add dummy file=rbd:volumes/volume-d1d8d038-9571-42a9-ad5b-4a379849420c:id=cinder:key=AQBFMyZWKNnJERAAXvYACmAhovhjTJZymYfxsQ==:auth_supported=cephx\;none:mon_host=192.168.186.102\:6789\;192.168.186.103\:6789\;192.168.186.104\:6789,if=none,id=drive-virtio-disk1,format=raw,serial=d1d8d038-9571-42a9-ad5b-4a379849420c,cache=none"},"id":"libvirt-316"}^M
+ fd=-1
+2015-10-20 13:18:15.237+0000: 17961: debug : qemuMonitorIOWrite:503 : QEMU_MONITOR_IO_WRITE: mon=0x7f9fa0000bd0 buf={"execute":"human-monitor-command","arguments":{"command-line":"drive_add dummy file=rbd:volumes/volume-d1d8d038-9571-42a9-ad5b-4a379849420c:id=cinder:key=AQBFMyZWKNnJERAAXvYACmAhovhjTJZymYfxsQ==:auth_supported=cephx\;none:mon_host=192.168.186.102\:6789\;192.168.186.103\:6789\;192.168.186.104\:6789,if=none,id=drive-virtio-disk1,format=raw,serial=d1d8d038-9571-42a9-ad5b-4a379849420c,cache=none"},"id":"libvirt-316"}^M
+ len=425 ret=425 errno=0
+2015-10-20 13:18:15.239+0000: 17961: debug : qemuMonitorIOProcess:399 : QEMU_MONITOR_IO_PROCESS: mon=0x7f9fa0000bd0 buf={"return": "2015-10-20T13:18:15.239452Z Unknown protocol 'rbd'
+", "id": "libvirt-316"}^M
+ len=91
+2015-10-20 13:18:15.239+0000: 17961: debug : qemuMonitorJSONIOProcessLine:179 : Line [{"return": "2015-10-20T13:18:15.239452Z Unknown protocol 'rbd'
+", "id": "libvirt-316"}]
+2015-10-20 13:18:15.239+0000: 17961: debug : qemuMonitorJSONIOProcessLine:199 : QEMU_MONITOR_RECV_REPLY: mon=0x7f9fa0000bd0 reply={"return": "2015-10-20T13:18:15.239452Z Unknown protocol 'rbd'
+", "id": "libvirt-316"}
+2015-10-20 13:18:15.239+0000: 17961: debug : qemuMonitorJSONIOProcess:248 : Total used 91 bytes out of 91 available in buffer
+2015-10-20 13:18:15.239+0000: 17966: debug : qemuMonitorJSONCommandWithFd:291 : Receive command reply ret=0 rxObject=0x7f9fc16f8f80</screen>
+<para><para><emphasis role="bold">Resolution:</emphasis></para><para>If you had active Nova instances before your environment was configured to use Ceph as
+            your block storage backend you will receive the error above. To resolve this issue you
+            will need to reboot the instances and then volume-attach actions should succeed.</para></para>
+</formalpara>
+
+      <formalpara xml:id="issue11"><title>Issue: Upgrade playbook fails if the
+          monitor service does not come up on time</title><para><para>In a large system it is possible that the upgrade playbook fails if the monitor service
+            does not come up on time. </para><para><emphasis role="bold">Resolution:</emphasis></para><para>Modify the <literal>mon_upgrade_settle_time</literal> parameter to increase the duration,
+            which the playbook should wait, for the monitor service to come up before time out.</para><para><informaltable xml:id="idg-all-operations-troubleshooting-ts_ceph-xml-22" colsep="1" rowsep="1"><tgroup cols="4">
+                <colspec colname="c1" colnum="1" colwidth="1.92*"/>
+                <colspec colname="newCol2" colnum="2" colwidth="1*"/>
+                <colspec colname="newCol3" colnum="3" colwidth="1.04*"/>
+                <colspec colname="c2" colnum="4" colwidth="2.23*"/>
+                <thead>
+                  <row>
+                    <entry>Parameter</entry>
+                    <entry>Description</entry>
+                    <entry>
+                      <para> Default value</para>
+                    </entry>
+                    <entry>Recommendation</entry>
+                  </row>
+                </thead>
+                <tbody>
+                  <row>
+                    <entry><literal>mon_upgrade_settle_time</literal></entry>
+                    <entry>The time in seconds to wait for the monitor services to come up after
+                      upgrade.</entry>
+                    <entry>12</entry>
+                    <entry>It is recommended to increase this value if the monitor service does not
+                      come up on time during upgrade. </entry>
+                  </row>
+                </tbody>
+              </tgroup></informaltable></para><para> Note that the <literal>mon_upgrade_settle_time</literal> parameter is private so
+              <literal>~/helion/my_cloud/config/ceph/settings.yml</literal> file cannot be modified to
+            increase the time limit of this parameter. You must perform the following steps to
+            modify the <literal>mon_upgrade_settle_time</literal> parameter. <orderedlist xml:id="ol_y4h_jjw_3x">
+              <listitem><para>Login to life cycle manager.</para></listitem>
+              <listitem><para>Edit <literal>~/helion/hos/ansible/roles/CEP-MON/defaults/main.yml</literal> file to
+                change the value of <literal>mon_upgrade_settle_time</literal> parameter.</para></listitem>
+              <listitem><para>Commit your changes to
+                git:</para><screen>cd ~/helion/hos/ansible
+git add -A
+git commit -m "My config or other commit message"</screen></listitem>
+              <listitem><para>Update your deployment
+                directory:</para><screen>cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen></listitem>
+              <listitem><para>Run the playbook to upgrade the
+                changes:</para><screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts hlm-upgrade.yml</screen></listitem>
+            </orderedlist></para></para>
+</formalpara>
+      
+      <formalpara><title>Issue: Multiple OSDS fail to recover</title><para><para>In situations where multiple OSDs fail (due to a catastrophic event), then
+            for systems with large numbers of OSDs on a ceph OSD server, the OSDs can fail
+            to recover once repaired due to the kernel configuration parameter 
+            <literal>pid_max</literal> being too small (ceph OSD recovery launches many 
+            extra processes).  This will exhibit itself when the related systemd processes 
+            fail to remain running.
+          </para><para>For systems with 32 failed OSDS setting <literal>pid_max</literal> to 128K (131072) has
+            been shown to allow OSD recovery to continue.
+            <screen>sudo sysctl -a | grep pid_max
+kernel.pid_max = 32768
+sudo sysctl -w kernel.pid_max=131072
+kernel.pid_max = 131072
+sudo sysctl -a | grep pid_max
+kernel.pid_max = 131072</screen></para><para>To make the setting permanent, create <literal>/etc/sysctl.d/ceph_sysctl.conf</literal> 
+            and set the value in this file.
+            <screen>cat  /etc/sysctl.d/ceph_sysctl.conf
+kernel.pid_max = 131072</screen></para></para>
+</formalpara>
+      
+    </section><section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="rados"><title>Troubleshooting RADOS Gateway Issues</title>
+      <sidebar><para>Here is a list of known issues along with resolutions for Ceph RADOS Gateway issues.</para>
+</sidebar>
+
+      <formalpara><title>Issue: Rados Gateway service does not come up after node
+          is rebooted</title><para><para>After the RADOS Gateway node is rebooted, wait for the node to become ssh-able and
+            allow an additional minimum of five minutes for the node to settle. Start the services
+            on the node:</para><para><screen>cd ~/scratch/ansible/next/hos/ansible 
+ansible-playbook -i hosts/verb_hosts hlm-start.yml --limit &lt;radosgw-node&gt; </screen></para><para> Verify the status of all services on the node:
+            <screen>cd ~/scratch/ansible/next/hos/ansible 
+ansible-playbook -i hosts/verb_hosts hlm-status.yml --limit &lt;radosgw-node&gt;</screen></para></para>
+</formalpara>
+
+
+      <formalpara><title>Issue: Rados Gateway service is not responding</title><para><para>Verify the status of all services on the Rados Gateway node:
+            <screen>cd ~/scratch/ansible/next/hos/ansible 
+ansible-playbook -i hosts/verb_hosts hlm-status.yml --limit &lt;radosgw-node&gt;</screen></para><para>Based on the results of the playbook:<itemizedlist xml:id="ul_grf_tjb_wv">
+              <listitem><para>If the radosgw service is reported down, check the radosgw service logs in
+                  <literal>/var/log/ceph/</literal> to diagnose the cause of the crash. </para></listitem>
+              <listitem><para>If the radosgw service status is fine, you can examine the access and error logs
+                for the apache2 web server in <literal>/var/log/apache2/ directory</literal> to
+                determine if the problem is with the web server. </para></listitem>
+              <listitem><para>If apache2 logs do not indicate an issue, check the HAProxy service logs in the
+                  <literal>/var/log/haprpoxy/</literal> directory on the controller nodes. </para></listitem>
+            </itemizedlist></para></para>
+</formalpara>
+
+      <formalpara><title>Issue: HTTP Request errors</title><para><para>Examining the access and error logs for the apache2 web server itself is probably the
+            first step in identifying what is going on. If there is a 500 error, that usually
+            indicates a problem communicating with the radosgw daemon.</para><para>Make sure the daemon is running:
+          </para></para>
+<screen >cd ~/scratch/ansible/next/hos/ansible 
+ansible-playbook -i hosts/verb_hosts hlm-status.yml --limit &lt;radosgw-node&gt; </screen>
+</formalpara>
+
+      <formalpara><title>Issue: Failure of horizon-status.yml</title><important><para>This is applicable only for &kw-hos-version-30;.</para>
+</important>
+<para><para>If you deploy RADOS gateway on a controller node, the
+              <literal>horizon-status.yml</literal> fails.</para><para><emphasis role="bold">Resolution</emphasis></para><para>Perform the following steps to rectify the issue.</para><para><orderedlist xml:id="ol_r2d_mzg_rw">
+              <listitem><para>Log in to the lifecycle manager.</para></listitem>
+              <listitem><para>Change the directory:
+                </para><screen>cd ~/helion/hos/ansible/roles/HZN-WEB/tasks</screen></listitem>
+              <listitem><para>Edit the status of the Horizon in <literal>status.yml</literal> file. The default
+                value of Horizon in <literal>status.yml</literal> is shown
+                  below:</para><screen>- name: HZN-WEB | status | Check status of horizon vhost
+  sudo: no
+  shell: . /etc/apache2/envvars &amp;&amp; /usr/sbin/apache2 -S | grep 'horizon.conf'
+  ignore_errors: yes
+  register: sbin_apache2_status_result</screen><para>The
+                  edited value of Horizon in <literal>status.yml</literal> file is shown
+                  below:<screen>- name: HZN-WEB | status | Check status of horizon vhost
+  become: <emphasis role="bold">yes</emphasis>
+  shell: . /etc/apache2/envvars &amp;&amp; /usr/sbin/apache2 -S | grep 'horizon.conf'
+  ignore_errors: yes
+  register: sbin_apache2_status_result</screen></para></listitem>
+              <listitem><para>Commit the changes to git:
+                </para><screen>git add -A 
+git commit -m "Changed the status of Horizon in status YAML file"</screen></listitem>
+              <listitem><para> After your configuration files are setup, continue with the <xref linkend="install_kvm"/>. </para></listitem>
+            </orderedlist></para></para>
+</formalpara>
+      
+
+    </section></section>

@@ -1,0 +1,122 @@
+<?xml version="1.0"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="topic_sqg_cvb_dx"><title>&kw-hos-tm; &kw-hos-version-50;: Autoscaling using the Orchestration
+    Service</title><abstract><para><para>Autoscaling is a process that can be used to scale up
+      and down your compute resources based on the load they are currently experiencing to ensure a
+      balanced load.</para></para>
+</abstract>
+    <!---->
+    <!---->
+    <sidebar xml:id="idg-all-operations-orchestration-autoscaling-xml-4"><title>What is autoscaling?</title><para>Autoscaling is a process that can be used to scale up and down your compute resources based
+        on the load they are currently experiencing to ensure a balanced load across your compute
+        environment.
+        </para>
+<important><para>Autoscaling is only supported for KVM and RHEL KVM.</para>
+</important>
+</sidebar>
+    <sidebar xml:id="use"><title>How does autoscaling work?</title><para>The monitoring service, Monasca, monitors your infrastructure resources and generates
+        alarms based on their state. The orchestration service, Heat, talks to the Monasca API and
+        offers the capability to templatize the existing Monasca resources, which are the Monasca
+        Notification and Monasca Alarm definition. Heat can configure certain alarms for the
+        infrastructure resources (compute instances and block storage volumes) it creates and can
+        expect Monasca to notify continuously if a certain evaluation pattern in an alarm definition
+        is met.</para>
+<para>For example, Heat can tell Monasca that it needs an alarm generated if the average CPU
+        utilization of the compute instance in a scaling group goes beyond 90%.</para>
+<para>As Monasca continuously monitors all the resources in the cloud, if it happens to see a
+        compute instance spiking above 90% load as configured by Heat, it generates an alarm and in
+        turn sends a notification to Heat. Once Heat is notified, it will execute an action that was
+        preconfigured in the template. Commonly, this action will be a scale up to increase the
+        number of compute instances to balance the load that is being taken by the compute instance
+        scaling group.</para>
+<para>Monasca sends a notification every 60 seconds while the alarm is in the ALARM state.</para>
+</sidebar>
+    <sidebar><title>Autoscaling template example</title><para>The following Monasca alarm definition template snippet is an example of instructing
+        Monasca to generate an alarm if the average CPU utilization in a group of compute instances
+        exceeds beyond 50%. If the alarm is triggered, it will invoke the
+          <literal>up_notification</literal> webhook once the alarm evaluation expression is
+        satisfied.</para>
+<screen >cpu_alarm_high:
+  type: OS::Monasca::AlarmDefinition
+  properties:
+    name: CPU utilization beyond 50 percent
+    description: CPU utilization reached beyond 50 percent
+    expression:
+    str_replace:
+    template: avg(cpu.utilization_perc{scale_group=scale_group_id}) &gt; 50 times 3
+    params:
+    scale_group_id: {get_param: "OS::stack_id"}
+    severity: high
+    alarm_actions:
+      - {get_resource: up_notification }</screen><para>The following Monasca notification template snippet is an example of creating a Monasca
+        notification resource that will be used by the alarm definition snippet to notify
+      Heat.</para>
+<screen >up_notification:
+  type: OS::Monasca::Notification
+  properties:
+    type: webhook
+    address: {get_attr: [scale_up_policy, alarm_url]}</screen></sidebar>
+    <sidebar><title>Monasca Agent configuration options</title><para>There is a Monasca Agent configuration option which controls the behavior around compute
+        instance creation and the measurements being received from the compute instance.</para>
+<para>The variable is <literal>monasca_libvirt_vm_probation</literal> which is set in the
+          <literal>~/helion/my_cloud/config/nova/libvirt-monitoring.yml</literal> file. Here is a
+        snippet of the file showing the description and variable:</para>
+<screen ># The period of time (in seconds) in which to suspend metrics from a
+# newly-created VM. This is used to prevent creating and storing
+# quickly-obsolete metrics in an environment with a high amount of instance
+# churn (VMs created and destroyed in rapid succession).  Setting to 0
+# disables VM probation and metrics will be recorded as soon as possible
+# after a VM is created.  Decreasing this value in an environment with a high
+# amount of instance churn can have a large effect on the total number of
+# metrics collected and increase the amount of CPU, disk space and network
+# bandwidth required for Monasca. This value may need to be decreased if
+# Heat Autoscaling is in use so that Heat knows that a new VM has been
+# created and is handling some of the load.
+monasca_libvirt_vm_probation: 300</screen><para>The default value is <literal>300</literal>. This is the time in seconds that a compute
+        instance must live before the Monasca libvirt agent plugin will send measurements for it.
+        This is so that the Monasca metrics database does not fill with measurements from short
+        lived compute instances. However, this means that the Monasca threshold engine will not see
+        measurements from a newly created compute instance for at least five minutes on scale up. If
+        the newly created compute instance is able to start handling the load in less than five
+        minutes, then Heat autoscaling may mistakenly create another compute instance since the
+        alarm does not clear.</para>
+<para>If the default <literal>monasca_libvirt_vm_probation</literal> turns out to be an issue, it
+        can be lowered. However, that will affect all compute instances, not just ones used by Heat
+        autoscaling which can increase the number of measurements stored in Monasca if there are
+        many short lived compute instances. You should consider how often compute instances are
+        created that live less than the new value of <literal>monasca_libvirt_vm_probation</literal>.
+        If few, if any, compute instances live less than the value of
+          <literal>monasca_libvirt_vm_probation</literal>, then this value can be decreased without
+        causing issues. If many compute instances live less than the
+          <literal>monasca_libvirt_vm_probation</literal> period, then decreasing
+          <literal>monasca_libvirt_vm_probation</literal> can cause excessive disk, CPU and memory
+        usage by Monasca.</para>
+<para>If you wish to change this value, follow these steps:</para>
+<orderedlist xml:id="ol_zkg_hgy_kx">
+          <listitem><para>Log in to the lifecycle manager.</para>
+</listitem>
+          <listitem><para>Edit the <literal>monasca_libvirt_vm_probation</literal> value in this configuration
+            file:</para>
+<screen >~/helion/my_cloud/config/nova/libvirt-monitoring.yml</screen></listitem>
+          <listitem><para>Commit your changes to the local
+            git:</para>
+<screen >cd ~/helion/hos/ansible
+git add --all
+git commit -m "changing Monasca Agent configuration option"</screen></listitem>
+          <listitem><para>Run the configuration
+            processor:</para>
+<screen >cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</screen></listitem>
+          <listitem><para>Update your deployment
+            directory:</para>
+<screen >cd ~/helion/hos/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen></listitem>
+          <listitem><para>Run this playbook to reconfigure the Nova service and enact your
+            changes:</para>
+<screen >cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts nova-reconfigure.yml</screen></listitem>
+        </orderedlist>
+</sidebar>
+  </section>

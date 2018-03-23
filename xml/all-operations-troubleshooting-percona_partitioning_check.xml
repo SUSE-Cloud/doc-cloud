@@ -1,0 +1,70 @@
+<?xml version="1.0"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="topic_hzq_2nz_sw"><title>&kw-hos-tm;
+    &kw-hos-version-301;: Checking for Percona Cluster Partitioning</title>
+<sidebar><para>A new check has been added to the Percona play to check whether your Percona cluster has
+        become partitioned. If it has, you could have mutliple versions of your dtabase with
+        incorrect/out of sync data which need to be re-aligned. This would typically cause
+        unexplained behaviour or service errors because the MySQL databases which underpin services
+        may not be in the same state on all nodes of your HLM cluster.</para>
+<para>Partitioning could happen because of an issue present in an earlier version or by running
+        bootstrap on one host of a cluster which has Percona up and running.</para>
+<para>You can run this check to troubleshoot and correct the partitioned cluster.</para>
+<para>This check is from the percona-status play and logs the following in the event of a
+        cluster</para>
+<para>partition.</para>
+<screen >TASK: [FND-MDB | status | Report if the cluster seems partitioned] ************ 
+failed: [multicp-cp1-c1-m1-mgmt] =&gt;
+{"failed": true}
+msg: The cluster size is 2
+The number of nodes in the cluster 3
+The number of nodes with mysql down is 0
+Check the cluster is not partitioned!!
+FATAL: all hosts have already failed – aborting</screen><para>This indicates your cluster is partitioned. </para>
+<para>The number of nodes in each cluster partition can be identified as follows:</para>
+<screen >sudo mysql -sNe "SHOW GLOBAL STATUS LIKE 'wsrep_cluster_size'"
+wsrep_cluster_size 2</screen><para>And the nodes in each partition can be identified as follows:</para>
+<screen >sudo mysql -sNe "SHOW GLOBAL STATUS LIKE 'wsrep_incoming_addresses'"
+wsrep_incoming_addresses 192.168.245.5:3306,192.168.245.4</screen><para>To fix the partitioned cluster:</para>
+<orderedlist><listitem><para>Identify which node or nodes of your cluster have the "correct" version of your database; i.e.,
+          which cluster partition is correct. </para>
+<para>Generally, in MySQL  all queries are directed to
+            the first node of your cluster through haproxy, so the first node of the cluster or
+            controller 1 is likely to be in the up-to-date cluster. Examine some of the service
+            databases to establish if recent updates in Nova compute or Glance have been applied to
+            this database.</para>
+</listitem><listitem><para>Shut down MySQL on the node or nodes which have been identified as in the "incorrect" partition
+          or having an incorrect version of the database:
+          </para>
+<screen>$ sudo service mysql stop</screen></listitem><listitem><para>Confirm that MySQL is fully shut down and that no daemons are running
+          </para>
+<screen>$ ps -elf|grep -i mysql</screen></listitem><listitem><para>Make a copy of the database on the node:
+          </para>
+<screen>$ sudo cp -r /var/lib/mysql /var/lib/mysql.save</screen></listitem><listitem><para>Try to start MySQL on the node. </para>
+<screen>sudo service mysql start</screen><para>If this database
+          has been updated then this may fail an SST as follows: A typical warning in the logs would
+          be:
+          </para>
+<screen>2016-06-23 17:28:13 26494 [ERROR] WSREP:
+gcs/src/gcs_group.cpp:group_post_state_exchange():321: Reversing history: 442 -&gt; 440, this
+member has applied 2 more events than the primary component.Data loss is possible.
+Aborting.</screen><para>If
+          this fails, execute step 6. Otherwise, skip to step 7. </para>
+</listitem><listitem><para>Remove the <literal>grastate.dat</literal> file on the problem node to force a full SST from one
+          of the other cluster nodes and start
+          </para>
+<screen>$ sudo rm -rf /var/lib/mysql/grastate.dat
+$ sudo service mysql start</screen></listitem><listitem><para>Check the database on this node to confirm it is now fully aligned with the "good" cluster
+          partition.</para>
+</listitem>
+        <listitem><para>Run percona-status to make sure it is running and that the cluster partition check no
+          longer reports a partitioned cluster
+          </para>
+<screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts percona-status.yml</screen></listitem>
+      
+      
+      </orderedlist></sidebar>
+  </section>

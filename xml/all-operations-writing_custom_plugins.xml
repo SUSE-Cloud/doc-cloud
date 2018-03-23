@@ -1,0 +1,344 @@
+<?xml version="1.0"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="writing_custom_plugins"><title>Writing Custom Plugins</title>
+        <para>When the pre-built Monasca plugins don't meet your monitoring needs, you can write custom
+            plugins to monitor your cloud. After you have written a plugin, you must install and
+            configure it.</para>
+
+        <para>When your needs dictate a very specific custom monitoring check, you must provide both a
+            detection and check plugin.</para>
+
+        <para>The steps involved in configuring a custom plugin include running a detection plugin and
+            passing any necesssary parameters to the detection plugin so the resulting check
+            configuration file is created with all necessary data.</para>
+
+        <para>When using an existing check plugin to monitor a third-party component, a custom
+            detection plugin is needed only if there is not an associated default detection
+            plugin.</para>
+
+        
+        <para><emphasis role="bold">Check plugin configuration files</emphasis></para>
+
+        <para>Each plugin needs a corresponding YAML configuration file with the same stem name as the
+            plugin check file. For example, the plugin file http_check.py should have a
+            corresponding configuration file, http_check.yaml. The stem name <emphasis role="bold">http_check</emphasis> must
+            be the same for both files.</para>
+
+        <para>Permissions for the YAML configuration file must be <emphasis role="bold">read+write</emphasis> for mon-agent user
+            (the user that must also own the file),  and <emphasis role="bold">read</emphasis> for the mon-agent group.
+            Permissions for the file must be restricted to the <emphasis role="bold">mon-agent</emphasis> user and
+                <emphasis role="bold">mon-agent</emphasis> group. The following example shows correct permissions settings for
+            the file
+            http_check.yaml.</para>
+<screen >-rw-r----- 1 mon-agent mon-agent 10043 Sep 21 19:05 http_check.yaml</screen>
+
+        
+        <para>A check plugin YAML configuration file has the following
+            structure.</para>
+<screen >init_config:
+    key1: value1
+    key2: value2
+ 
+instances:
+    - name: john_smith
+      username: john_smith
+      password: 123456
+    - name: jane_smith
+      username: jane_smith
+      password: 789012</screen>
+
+        <para>In the above file structure, the <literal>init_config</literal> section allows you to
+            specify any number of global <emphasis role="bold">key:value</emphasis> pairs. Each pair will be available on
+            every run of the check that relates to the YAML configuration file.</para>
+
+        <para>The <literal>instances</literal> section allows you to list the instances that the related
+            check will be run on. The check will be run once on each instance listed in the
+                <literal>instances</literal> section. Ensure that each instance listed in the
+                <literal>instances</literal> section has a unique name. </para>
+
+        
+        <para><emphasis role="bold">Custom detection plugins</emphasis></para>
+
+        <para>Detection plugins should be written to perform checks that ensure that a component can be
+            monitored on a host. Any arguments needed by the associated check plugin are passed into
+            the detection plugin at setup (configuration) time. The detection plugin will write to
+            the associated check configuration file. </para>
+
+        <para>When a detection plugin is successfully run in the configuration step, it will write to
+            the check configuration YAML file. The configuration file for the check is written to
+            the following directory.</para>
+<screen >
+/etc/monasca/agent/conf.d/</screen>
+
+        
+        <para><emphasis role="bold">Writing process detection plugin using the ServicePlugin class</emphasis></para>
+
+        <para>The monasca-agent provides a <emphasis role="bold">ServicePlugin</emphasis> class that makes process detection
+            monitoring easy.</para>
+
+        <para><emphasis role="bold">Process check</emphasis></para>
+
+        <para>The process check plugin generates metrics based on the process status for specified
+            process names. It generates <emphasis role="bold">process.pid_count</emphasis> metrics for the specified
+            dimensions, and a set of detailed process metrics for the specified dimensions by
+            default.</para>
+
+        <para>The ServicePlugin class allows you to specify a list of process name(s) to detect, and
+            uses <emphasis role="bold">psutil</emphasis> to see if the process exists on the host. It then appends the
+            process.yaml configuration file with the process name(s), if they don't already
+            exist.</para>
+
+        
+        <para>The following is an example of a <emphasis role="bold">process.py</emphasis> check <emphasis role="bold">ServicePlugin</emphasis>.</para>
+
+        <screen >import monasca_setup.detection
+ 
+class MonascaTransformDetect(monasca_setup.detection.ServicePlugin):
+    """Detect Monasca Transform daemons and setup configuration to monitor them."""
+    def __init__(self, template_dir, overwrite=False, args=None):
+        log.info("	Watching the monasca transform processes.")
+        service_params = {
+            'args': {},
+            'template_dir': template_dir,
+            'overwrite': overwrite,
+            'service_name': 'monasca-transform',
+            'process_names': ['monasca-transform','pyspark',
+                              'transform/lib/driver']
+        }
+        super(MonascaTransformDetect, self).__init__(service_params)</screen>
+
+        
+        <para><emphasis role="bold">Writing a Custom Detection Plugin using Plugin or ArgsPlugin classes</emphasis></para>
+
+        <para>A custom detection plugin class should derive from either the Plugin or ArgsPlugin
+            classes provided in the <literal>monasca-agent/monasca_setup/detection</literal>
+            directory.</para>
+
+        <para>If the plugin parses command line arguments, the ArgsPlugin class is useful. The
+            ArgsPlugin class derives from the Plugin class. The ArgsPlugin class has a method to
+            check for required arguments, and a method to return the instance that will be used for
+            writing to the configuration file with the dimensions from the command line parsed and
+            included.</para>
+
+        <para>If the ArgsPlugin methods do not seem to apply, then derive directly from the Plugin
+            class.</para>
+
+        <para>When deriving from these classes, the following methods should be implemented.</para>
+
+        <itemizedlist xml:id="ul_dfd_kvs_px">
+            <listitem><para>_<emphasis>detect - set self.available=True when conditions are met that the thing to
+                    monitor exists on a host.</emphasis></para>
+</listitem>
+            <listitem><para><emphasis>build</emphasis>_config - writes the instance information to the configuration and
+                return the configuration.</para>
+</listitem>
+            <listitem><para>dependencies_installed (default implementation is in ArgsPlugin, but not Plugin) -
+                return true when python dependent libraries are installed.</para>
+</listitem>
+        </itemizedlist>
+        <para>The following is an example custom detection
+            plugin.</para>
+<screen >
+# (C) Copyright 2015-2016 Hewlett Packard Enterprise Development Company LP
+ 
+import ast
+import logging
+ 
+import monasca_setup.agent_config
+import monasca_setup.detection
+ 
+log = logging.getLogger(__name__)
+ 
+ 
+class HttpCheck(monasca_setup.detection.ArgsPlugin):
+    """Setup an http_check according to the passed in args.
+       Despite being a detection plugin this plugin does no detection and will be a noop without   arguments.
+       Expects space separated arguments, the required argument is url. Optional parameters include:
+       disable_ssl_validation and match_pattern.
+    """
+ 
+    def _detect(self):
+        """Run detection, set self.available True if the service is detected.
+        """
+        self.available = self._check_required_args(['url'])
+ 
+    def build_config(self):
+        """Build the config as a Plugins object and return.
+        """
+        config = monasca_setup.agent_config.Plugins()
+        # No support for setting headers at this time
+        instance = self._build_instance(['url', 'timeout', 'username', 'password',
+                                         'match_pattern', 'disable_ssl_validation',
+                                         'name', 'use_keystone', 'collect_response_time'])
+ 
+        # Normalize any boolean parameters
+        for param in ['use_keystone', 'collect_response_time']:
+            if param in self.args:
+                instance[param] = ast.literal_eval(self.args[param].capitalize())
+        # Set some defaults
+        if 'collect_response_time' not in instance:
+            instance['collect_response_time'] = True
+        if 'name' not in instance:
+            instance['name'] = self.args['url']
+ 
+        config['http_check'] = {'init_config': None, 'instances': [instance]}
+ 
+        return config</screen>
+
+        
+        <para><emphasis role="bold">Installing a detection plugin in HPE Helion OpenStack</emphasis></para>
+
+        <para>Install a plugin by copying the plugin to the appropriate directory.</para>
+
+        <para>The plugin should have file permissions of <emphasis role="bold">read+write</emphasis> for the root user (the user
+            that should also own the file) and <emphasis role="bold">read</emphasis> for the root group and all other
+            users.</para>
+
+        <para>The following is an example of correct file permissions for the <emphasis role="bold">http_check.py</emphasis>
+            file.</para>
+<screen >-rw-r--r-- 1 root root 1769 Sep 19 20:14 http_check.py</screen>
+
+        
+        <para>Detection plugins should be placed in the following directory.</para>
+
+        <screen >/usr/lib/monasca/agent/custom_detect.d/</screen>
+
+        
+        <para>The detection plugin directory name should be accessed using the
+                <literal>monasca_agent_detection_plugin_dir</literal> Ansible variable. This variable
+            is defined in the <literal>roles/monasca-agent/vars/main.yml</literal>
+            file.</para>
+<screen >monasca_agent_detection_plugin_dir: /usr/lib/monasca/agent/custom_detect.d/</screen>
+
+        
+        <para>Example Ansible <literal>monasca_configure</literal> task to install the
+            plugin.</para>
+<screen >---
+- name: _CEI-CMN | monasca_configure |
+    Copy Ceilometer Custom plugin
+  become: yes
+  copy:
+    src: hlmceilometer_mon_plugin.py
+    dest: "{{ monasca_agent_detection_plugin_dir }}"
+    owner: root
+    group: root
+    mode: 0440</screen>
+
+        
+        <para><emphasis role="bold">Custom check plugins</emphasis></para>
+
+        <para>Custom check plugins generate metrics. Scalability should be taken into consideration on
+            systems that will have hundreds of servers, as a large number of metrics can affect
+            performance by impacting disk performance, RAM and CPU usage. If too many metrics are
+            added, the license for the Vertica database may be exceeded. </para>
+
+        <para>You may want to tune your configuration parameters so that less-important metrics are not
+            monitored as frequently. When check plugins are configured (when they have an associated
+            YAML configuration file) the agent will attempt to run them.</para>
+
+        <para>Checks should be abel to run within the 30-second metric collection window. If your check
+            runs a command, you should provide a timeout to prevent the check from running longer
+            than the default 30-second window. You can use the
+                <literal>monasca_agent.common.util.timeout_command</literal> to set a timeout for your
+            checks.</para>
+
+        <para>Find a description of how to write custom check plugins at the following link. <link xlink:href="https://github.com/openstack/monasca-agent/blob/master/docs/Customizations.md#creating-a-custom-check-plugin">https://github.com/openstack/monasca-agent/blob/master/docs/Customizations.md#creating-a-custom-check-plugin</link></para>
+
+        <para>Custom checks derive from the AgentCheck class located in the
+                <literal>monasca_agent/collector/checks/check.py</literal> file. A check method is
+            required.</para>
+
+        <para>Metrics should contain dimensions that make each item that you are monitoring unique
+            (such as service, component, hostname). The hostname dimension is defined by default
+            within the AgentCheck class, so every metric has this dimension.</para>
+
+        <para>A custom check will do the following.</para>
+
+        <itemizedlist xml:id="ul_lmm_h1t_px">
+            <listitem><para>Read the configuration instance passed into the check method.</para>
+</listitem>
+            <listitem><para>Set dimensions that will be included in the metric.</para>
+</listitem>
+            <listitem><para>Create the metric with gauge, rate, or counter types.</para>
+</listitem>
+        </itemizedlist>
+        <para>Metric Types:</para>
+
+        <itemizedlist xml:id="ul_mmm_h1t_px">
+            <listitem><para>gauge: Instantaneous reading of a particular value (for example, mem.free_mb).</para>
+</listitem>
+            <listitem><para>rate: Measurement over a time period. The following equation can be used to define
+                rate.</para>
+<screen>rate=delta_v/float(delta_t)</screen></listitem>
+            <listitem><para>counter: The number of events.Iincrement and decrement methods, for example,
+                zookeeper.timeouts</para>
+</listitem>
+        </itemizedlist>
+        
+        <para>The following is an example component check named
+            SimpleVerticaExample.</para>
+<screen >import monasca_agent.collector.checks as checks
+from monasca_agent.common.util import timeout_command
+ 
+VERTICA_VERSION_QUERY = "SELECT version();"
+ 
+ 
+class SimpleVerticaExample(checks.AgentCheck):
+ 
+    def __init__(self, name, init_config, agent_config):
+        super(SimpleVerticaExample, self).__init__(name, init_config, agent_config)
+ 
+    @staticmethod
+    def _get_config(instance):
+        user = instance.get('user')
+        password = instance.get('password')
+        service = instance.get('service')
+        timeout = int(instance.get('timeout'))
+ 
+        return user, password, service, timeout
+ 
+    def check(self, instance):
+        user, password, service, node_name, timeout = self._get_config(instance)
+ 
+        dimensions = self._set_dimensions({'component': 'vertica', 'service': service}, instance)
+ 
+        results, connection_status = self._query_database(user, password, timeout, VERTICA_VERSION_QUERY)
+ 
+        if connection_status != 0:
+            self.gauge('vertica.connection_status', 1, dimensions=dimensions)
+        else:
+            # successful connection status
+            self.gauge('vertica.connection_status', 0, dimensions=dimensions)
+ 
+    def _query_database(self, user, password, timeout, query):
+        stdout, stderr, return_code = timeout_command(["/opt/vertica/bin/vsql", "-U", user, "-w", password, "-A", "-R",
+                                                       "|", "-t", "-F", ",", "-x"], timeout, command_input=query)
+        if return_code == 0:
+            # remove trailing newline
+            stdout = stdout.rstrip()
+            return stdout, 0
+        else:
+            self.log.error("Error querying vertica with return code of {0} and error {1}".format(return_code, stderr))
+            return stderr, 1</screen>
+
+        
+        <para><emphasis role="bold">Installing check plugin</emphasis></para>
+
+        <para>The check plugin needs to have the same file permissions as the detection plugin. File
+            permissions must be <emphasis role="bold">read+write</emphasis> for the root user (the user that should own the
+            file), and <emphasis role="bold">read</emphasis> for the root group and all other users.</para>
+
+        <para>Check plugins should be placed in the following
+            directory.</para>
+<screen >/usr/lib/monasca/agent/custom_checks.d/</screen>
+
+        
+        <para>The check plugin directory should be accessed using the
+                <literal>monasca_agent_check_plugin_dir</literal> Ansible variable. This variable is
+            defined in the <literal>roles/monasca-agent/vars/main.yml</literal>
+            file.</para>
+<screen >monasca_agent_check_plugin_dir: /usr/lib/monasca/agent/custom_checks.d/</screen>
+
+    </section>

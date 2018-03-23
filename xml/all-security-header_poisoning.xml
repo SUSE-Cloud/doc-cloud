@@ -1,0 +1,77 @@
+<?xml version="1.0"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<!---->
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="header_poisoning"><title>&kw-hos-tm; &kw-hos-version-50;: Preventing Host Header Poisoning</title><!---->
+    <para><para xml:id="idg-all-security-header_poisoning-xml-4"><phrase><phrase/></phrase></para></para>
+
+    <sidebar><para> Depending on the environment and context of your &kw-hos; deployment, it
+      may be advisable to configure Horizon to protect against Host header poisoning (see ref. #1
+      below) by using Django's ALLOWED_HOSTS setting (see ref. #2 below). To configure Horizon to
+      use the ALLOWED_HOSTS setting, take the following steps: </para>
+<orderedlist xml:id="ol_ctx_f2r_b5">
+        <listitem><para>Edit the haproxy settings to reconfigure the health check for Horizon to specify the
+          allowed hostname(s). This needs to be done first, before configuring Horizon itself.
+          Otherwise, if Horizon is first configured to restrict the values of the "Host" header on
+          incoming HTTP requests, the haproxy health checks will start to fail. So, the haproxy
+          configuration needs to be updated first, if this is being done on an existing
+          installation. </para>
+<orderedlist xml:id="ol_k5x_f2r_b5">
+            <listitem><para> On your lifecycle manager node, open <emphasis role="bold">~/helion/hos/services/horizon.yml</emphasis></para>
+</listitem>
+            <listitem><para>Find the line that contains "option httpchk" and modify it so it reads the following
+              way:
+              </para>
+<screen>- "option httpchk GET / HTTP/1.1\r\nHOST:\ my.example.com" 
+# Note the escaped escape characters.</screen><para>
+              In this example, my.example.com is the hostname associated with the Horizon VIP on the
+              external API network. However, you aren't restricted to just one allowed host. In
+              addition, allowed hosts can contain wildcards (though not in the horizon.yml file;
+              there you must have an actual resolvable hostname or a routeable IP address). However,
+              for this change to the haproxy healthcheck, it is suggested that the hostname
+              associated with the Horizon VIP on the external API network be used. </para>
+</listitem>
+            <listitem><para>Commit the change with a "git commit -a" command. </para>
+</listitem>
+          </orderedlist></listitem>
+        <listitem><para>Edit the template file that will be use for Horizon's local_settings.py configuration
+          file </para>
+<orderedlist xml:id="ol_cvx_f2r_b5">
+            <listitem><para>While still on your lifecycle manager node, open
+              ~/helion/my_cloud/config/horizon/local_settings.py </para>
+</listitem>
+            <listitem><para>Change the line that sets the "ALLOWED_HOSTS" setting. This can be a list of
+              hostnames and (V)IPs that eventually get routed to Horizon. Wildcards are supported.
+              </para>
+<screen>ALLOWED_HOSTS = ['my.example.com', '*.example.net', '192.168.245.6']</screen><para>
+              In the above example, any HTTP request received with a hostname not matching any in
+              this list will receive an HTTP 400 reply. </para>
+</listitem>
+            <listitem><para>Commit the change with a "git commit -a" command. </para>
+</listitem>
+          </orderedlist></listitem>
+        <listitem><para>Run the configuration processor
+          </para>
+<screen>cd ~/helion/hos/ansible 
+ansible-playbook -i hosts/localhost config-processor-run.yml</screen></listitem>
+        <listitem><para>Enable the configuration This can be done in one of a few ways: As part of a site deploy
+          play as part of an upgrade play or by re-running the FND-CLU and Horizon deploys on an
+          existing deployment: If modifying an existing deploy, the FND-CLU deploy will need to be
+          run first, since changing the ALLOWED_HOSTS setting in Horizon first will cause the
+          default health check to fail, if it doesn't specify a "Host" header in the HTTP request
+          sent to check the health of Horizon's Apache virtual host.
+          </para>
+<screen>cd ~/helion/hos/ansible 
+ansible-playbook -i hosts/localhost ready-deployment.yml 
+cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts horizon-deploy.yml 
+ansible-playbook -i hosts/verb_hosts FND-CLU-deploy.yml</screen></listitem>
+      </orderedlist><para> References: </para>
+</sidebar>
+    <para>1
+      https://www.djangoproject.com/weblog/2013/feb/19/security/#s-issue-host-header-poisoning </para>
+
+    <para>2 https://docs.djangoproject.com/en/dev/ref/settings/#allowed-hosts </para>
+
+  </section>
