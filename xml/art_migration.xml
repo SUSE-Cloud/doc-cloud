@@ -97,10 +97,25 @@
      </listitem>
     </itemizedlist>
    </listitem>
+   <listitem>
+    <para>
+     No significant issues or alarms being reported by Monasca and OpsConsole
+    </para>
+   </listitem>
   </itemizedlist>
 
   <procedure>
    <title>Preparation Phase</title>
+   <step>
+    <para>
+     Obtain the HOS 5.SCP installation ISO and use the <command>mount</command>
+     command to make its contents available on the deployer:
+    </para>
+    <screen>(old-deployer)$ mkdir hos-5.scp
+(old-deployer)$ sudo mount <replaceable>HOS5SCP_ISO_FILE</replaceable> hos-5.scp
+(old-deployer)$ tar -xzvf hos-5.scp/hos/hlm-migration-tools.tar.gz ./
+    </screen>
+   </step>
    <step>
     <para>
      Run the validation playbook to ensure that the current cloud load and
@@ -142,7 +157,7 @@
      </listitem>
      <listitem>
       <para>
-       Data model and &o_blockstore; back-end compatibility (no VSA or Ceph)
+       Data model and &o_blockstore; back-end compatibility (no VSA, Ceph, or cmc-service)
       </para>
      </listitem>
     </itemizedlist>
@@ -193,7 +208,7 @@
          <literal>Vertica</literal> partition definition with two
          <literal>Cassandra</literal> partitions:
         </para>
-<screen>- name: cassandra
+<screen>- name: cassandra_db
             size: (whatever size was used originally by vertica partition, less 1%)
             mount: /var/cassandra/data
             fstype: ext4
@@ -232,7 +247,7 @@
        </listitem>
        <listitem>
         <para>
-         Commit your changes to the git model:
+         Commit your changes to the Git model:
         </para>
 <screen>(deployer)> git commit -a -m "Prepare for HOS 5.1 installation"</screen>
        </listitem>
@@ -320,7 +335,7 @@
      </listitem>
      <listitem>
       <para>
-       For correct behavior, you must use the <systemitem>--limit</systemitem>
+       For correct behavior, you must use the <command>--limit</command>
        argument to select the target seed host. This will output a success or
        error message at the end of its run.
       </para>
@@ -555,8 +570,8 @@
    <note>
     <title>No Downtime</title>
     <para>
-     These steps do not cause service downtime and can be performed at any time
-     while the cloud is up and running.
+     These steps do not cause service downtime and can be performed while the
+     cloud is up and running.
     </para>
    </note>
    <step>
@@ -640,96 +655,196 @@
   </para>
 
   <procedure>
-   <title>Preparation Phase</title>
-   <step>
+   <title>Preparation</title>
+   <step xml:id="st.migrate.git-convert">
     <para>
-     Convert the <filename>helion</filename> Git repo to
-     <filename>openstack</filename> Git repo for use by Ardana:
+     Convert the <filename>helion</filename> Git repository to an
+     <filename>openstack</filename> Git repository for use by Ardana:
     </para>
-<screen>>cd ~
+<screen>cd ~
 cp -r helion openstack
 cd openstack
 git checkout site</screen>
     <para>
-     Undo any manual changes that have been previously committed to the
-     hos/ansible directory
+     Save a record of all manual changes that have been previously committed
+     to the <filename>hos/ansible</filename> directory, as you will need to
+     reapply them later:
+    </para>
+<screen>git diff hos -- hos/ansible > /tmp/hos.diff</screen>
+    <para>
+     Undo all manual changes:
     </para>
 <screen>git checkout hos -- hos/ansible</screen>
     <para>
-     If any files were modified, review their changes and note that the
-     customizations will need to be reapplied in the ardana playbooks:
+     Reset the codebase to make it ready for Ardana, then refactor the rest of
+     the repository:
     </para>
-<screen>> git diff
+<screen>
 git commit -a -m "Resetting codebase in prep for Ardana"
-# then, continue to refactor the rest of the repo
 git branch -m hos ardana
 git checkout ardana
 sed -i 's/hos/ardana/' .gitignore
 git commit -a -m "Prep for Ardana"
 git mv hos ardana
 git mv hos_extensions ardana_extensions
+for i in $(find -L my_cloud/config -xtype l); \
+do ln -sfn $(readlink $i | sed 's/\/hos\//\/ardana\//') $i; done
 git commit -a -m "Conversion to Ardana"
 git checkout cp-persistent
-sed -i 's/component: helion-ca/component: ardana-ca/'\
-  my_cloud/persistent_state/private_data_control-plane-1.yml
+sed -i 's/component: helion-ca/component: ardana-ca/' \
+my_cloud/persistent_state/private_data_control-plane-1.yml
 sed -i 's/helion_internal_ca/ardana_internal_ca/' \
-  my_cloud/persistent_state/private_data_control-plane-1.yml
+my_cloud/persistent_state/private_data_control-plane-1.yml
 git commit -a -m "Conversion to Ardana"
-git checkout site</screen>
-    <para>
-     Pull forward the changes made earlier on the ardana branch:
-    </para>
-<screen>>git merge ardana -m "Conversion to Ardana"</screen>
+git checkout site
+git merge ardana -m "Conversion to Ardana"
+# reinstate the changes that were originally made to the contents of hos/ansible
+sed 's/ \([ab]\?[\/]\?\)hos\/ansible/ \1ardana\/ansible/g' /tmp/hos.diff | git apply
+git commit -a -m "Reinstated hos playbook customizations (batch)"
+</screen>
    </step>
    <step>
     <para>
-     Rename the old <filename>scratch</filename> directory to archive any
-     remaining &hpecloud; 5.SCP files:
+     Remove and archive the &hpecloud; 5.SCP-related content:
     </para>
-<screen>mv ~/scratch ~/scratch.scp</screen>
+<screen>mv ~/scratch ~/scratch.scp
+sudo rm /etc/apache2/sites-enabled/deployer_venv_server.conf</screen>
    </step>
    <step>
     <para>
      Prepare the <filename>ardana_packager</filename> working directory to
      include existing &suse; repositories:
     </para>
-<screen>> sudo mkdir /opt/ardana_packager
-> sudo ln -s /opt/hlm_packager/hlm /opt/ardana_packager/hlm</screen>
+<screen>sudo mkdir /opt/ardana_packager
+sudo ln -s /opt/hlm_packager/hlm /opt/ardana_packager/hlm</screen>
    </step>
    <step>
     <para>
      Install Ardana.Newton content onto deployer by unpacking the ardana
-     installer into ~/ardana-0.35.0 and then running the following commands:
+     installer into <filename>~/ardana-0.35.0</filename> and then running the following commands:
     </para>
-<screen>> cd ~/ardana-0.35.0
-> ./ardana-init.bash</screen>
-    <para>
-     If the following error occurs, proceed as follows:
-    </para>
-<screen>TASK: [package-consumer | configure | Download the manifest file] *************
-failed: [localhost] => {"exception": "", "extra_mode_bits": 0, "failed": true, "group": "root", "name": null, "service": null, "version": null}
-msg: Installation failed</screen>
-    <para>
-     Run the command <command>sudo service apache2 restart</command> and run
-     the <filename>ardana-init.bash</filename> script again.
-    </para>
+<screen>cd ~/ardana-0.35.0
+./ardana-init.bash</screen>
    </step>
    <step>
     <para>
      Install Ardana.Newton:
     </para>
-<screen>> cd ~/openstack/ardana/ansible</screen>
+<screen>cd ~/openstack/ardana/ansible</screen>
     <para>
      Reapply any changes to playbooks that were undone in the hos code tree in
-     step 1
+     <xref linkend="st.migrate.git-convert"/>:
     </para>
-<screen>> ansible-playbook -i hosts/localhost cobbler-deploy.yml
-> ansible-playbook -i hosts/localhost config-processor-run.yml
-> ansible-playbook -i hosts/localhost ready-deployment.yml
-> cd ~/scratch/ansible/next/ardana/ansible/
-> ansible-playbook -i hosts/verb_hosts osconfig-iptables-rename.yml
-> ansible-playbook -i hosts/verb_hosts ardana-upgrade.yml</screen>
+<screen>ansible-playbook -i hosts/localhost cobbler-deploy.yml
+ansible-playbook -i hosts/localhost config-processor-run.yml
+ansible-playbook -i hosts/localhost ready-deployment.yml
+cd ~/scratch/ansible/next/ardana/ansible/
+ansible-playbook -i hosts/verb_hosts osconfig-iptables-rename.yml
+ansible-playbook -i hosts/verb_hosts ardana-upgrade.yml</screen>
    </step>
   </procedure>
  </sect1>
+ <sect1 xml:id="ardana.pike.migration">
+  <title>Migration from Ardana.Newton to Ardana.Pike</title>
+  <para>
+   The following instructions are suitable for use with RC2 build #0053.
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Create the <systemitem>ardana</systemitem> user throughout the cloud nodes:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible</screen>
+   </step>
+   <step>
+    <para>
+     Mount the &productname; &productnumber; installation media on the host
+     (after copying the ISO file into the user's home directory)
+    </para>
+<screen>sudo mkdir -p /opt/ardana_packager/SUSE-12-3/x86_64/repos/Cloud
+sudo mount ~/SUSE-OPENSTACK-CLOUD-8-x86_64-Build0334-Media1.iso \
+/opt/ardana_packager/SUSE-12-3/x86_64/repos/Cloud</screen>
+   </step>
+   <step>
+    <para>
+     Add the contents of the ISO as a zypper repository and begin installation:
+    </para>
+<screen>sudo zypper ar -G -f file:///opt/ardana_packager/SUSE-12-3/x86_64/repos/Cloud Cloud
+sudo zypper refresh</screen>
+   </step>
+   <step>
+    <para>
+     Begin the Ardana.Pike installation:
+    </para>
+<screen>sudo zypper -n in patterns-cloud-ardana
+sudo su - ardana
+ARDANA_INIT_AUTO=1 /usr/bin/ardana-init</screen>
+   </step>
+   <step>
+    <para>
+     Adjust data model to install <systemitem>cassandra</systemitem> instead
+     of <systemitem>vertica</systemitem> (continuing as
+     <systemitem>ardana</systemitem> user):
+    </para>
+<screen>$ cd /var/lib/ardana/openstack/ardana/ansible</screen>
+    <para>
+     Replace <literal>vertica</literal> with <literal>cassandra</literal> in
+     the service-components list:
+    </para>
+<screen>vi ../../my_cloud/definition/data/control_plane.yml</screen>
+    <para>
+         In files where a <systemitem>cassandra_db</systemitem> partition
+	 exists, update its consumer name from <literal>vertica</literal> to
+	 <literal>cassandra</literal>  and add an identical
+	 <literal>consumer</literal> block to the
+	 <systemitem>cassandra_log</systemitem> partition definition:
+    </para>
+<screen>vi ../../my_cloud/definition/data/disks_*</screen>
+    <para>
+     Update the data model:
+    </para>
+<screen>git commit -a -m 'Update data model for cassandra'</screen>
+   </step>
+   <step>
+    <para>
+     Prepare the repository for Pike installation:
+    </para>
+<screen>
+ansible-playbook -i hosts/localhost config-processor-run.yml
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+   </step>
+   <step>
+    <para>
+     Prepare the servers for Pike infrastructure:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts FND-AP2-vhosts-transition.yml</screen>
+   </step>
+   <step>
+    <para>
+     Set up &scc; repositories or link to existing &smt; repositories. Replace
+     the &hpecloud; &rhla; repositories on &rhel; &compnode;s with &productname;
+     &productnumber; sources. Follow the public documentation for populating
+     &suse; repositories and then proceed with the following command:
+    </para>
+<screen>ansible-playbook -i hosts/verb_hosts
+ardana-replace-legacy-repos.yml</screen>
+   </step>
+   <step>
+   <para>
+    Run Pike upgrade playbook:
+   </para>
+<screen>ansible-playbook -i hosts/verb_hosts -vvv \
+ardana-upgrade-from-legacy.yml</screen>
+   </step>
+   <step>
+    <para>
+     If you had to run <filename>ardana-upgrade-from-legacy.yml</filename>
+     multiple times in order to complete the upgrade, restart all services using
+     <filename>ardana-stop.yml</filename> and
+     <filename>ardana-start.yml</filename>.
+    </para>
+   </step>
+  </procedure>
+  </sect1>
 </article>
