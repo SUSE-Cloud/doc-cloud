@@ -193,6 +193,17 @@ ansible -i hosts/verb_hosts FND-STN -a 'sudo keytool -delete -alias debian:&lt;f
     a stable state for testing.
    </para>
   </important>
+  <note>
+   <para>
+    Unless this is a new deployment, do not update both the certificate and the
+    CA together. Add the CA first and then run a site deploy. Then update the
+    certificate and run tls-reconfigure, FND-CLU-stop, FND-CLU-start and then
+    hlm-reconfigure. If a playbook has failed, rerun it with -vv to get detailed
+    error information. The configure, HAproxy restart, and reconfigure steps are
+    included below. If this is a new deployment and you are adding your own
+    certs/CA before running site.yml this caveat does not apply.
+   </para>
+  </note>
   <para>
    You can add your own certificate by following the instructions below. All
    changes must go into the following file:
@@ -411,9 +422,11 @@ openssl req -x509 -batch -newkey rsa:2048 -nodes -out "${EXAMPLE_CA_CERT_FILE}" 
   example-internal-cert.req</screen>
    </step>
   </procedure>
-  <para>
-   The certificate request file should look similar to the following example:
-  </para>
+  <example xml:id="privateMetadata">
+   <title>Certificate request file</title>
+   <para>
+    The certificate request file should look similar to the following example:
+   </para>
 <screen>[req]
 distinguished_name = req_distinguished_name
 req_extensions = v3_req
@@ -436,9 +449,30 @@ DNS.47 = "192.168.245.5"
 IP.1 = "192.168.245.5"
 
 =============end of certificate request file.</screen>
- </section>
- <section>
-  <title>Adding FQDNs</title>
+  </example>
+  <note>
+   <para>
+    In the case of a public VIP certificate, please add all the FQDNs you
+    want it to support Currently, &productname; does not add the hostname for
+    the external-name specified in <literal>network_groups.yml</literal> to
+    the certificate request file. However, you can add it to the certificate
+    request file manually. Here we assume that
+    <literal>myopenstack.test</literal> is your external-name. In that case you
+    would add this line (to the full sample certificate request file shown in
+    <xref linkend="privateMetadata"/>):
+   </para>
+<screen>DNS.48 = "myopenstack.test"</screen>
+  </note>
+  <note>
+   <para>
+    Any attempt to use IP addresses rather than FQDNs in certificates must use
+    subject alternate name entries that list both the IP address (needed for
+    Google) and DNS with an IP (needed for a Python bug workaround). Failure to
+    create the certificates in this manner will cause future installations of
+    Go-based tools (such as Cloud Foundry, Stackato and other PaaS components)
+    to fail.
+   </para>
+  </note>
   <para>
    In the case of a public VIP certificate, add all the FQDNs you want it to
    support. Openstack does not add the hostname for the external-name specified
@@ -462,10 +496,22 @@ IP.1 = "192.168.245.5"
  </section>
  <section>
   <title>Generate a Certificate Signing Request</title>
+  <note>
+   <para>
+    In a production setting you will not perform this step. You will use your
+    company's CA or a valid public CA.
+   </para>
+  </note>
   <para>
    Now that you have a CA and a certificate request file, it's time to generate
    a CSR.
   </para>
+  <note>
+   <para>
+    Please use a unique CN for your example Certificate Authority and do not
+    install multiple CA certificates with the same CN into your cloud.
+   </para>
+  </note>
 <screen>
 <?dbsuse-fo font-size="0.70em"?>
 export EXAMPLE_SERVER_KEY_FILE='example-internal-cert.key'
@@ -482,6 +528,13 @@ openssl req -newkey rsa:2048 -nodes -keyout "$EXAMPLE_SERVER_KEY_FILE" \
  </section>
  <section>
   <title>Generate a Server Certificate</title>
+  <note>
+   <para>
+    In a production setting you will not perform this step. You will send the
+    CSR created in the previous section to your company CA or a to a valid
+    public CA and have them sign and send you back the certificate.
+   </para>
+  </note>
   <para>
    This section demonstrates how you would use the self-signed CA that you
    created earlier to sign and generate a server certificate. A server
@@ -673,6 +726,14 @@ ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
     <para>
      If you receive any prompts, enter the required information.
     </para>
+    <note>
+     <para>
+      For automated installation (for example, CI) you can specify the required
+      passwords on the Ansible command line. For example, the command below
+      will disable encryption by the configuration processor:
+     </para>
+<screen>ansible-playbook -i hosts/localhost config-processor-run.yml -e encrypt="" -e rekey=""</screen>
+    </note>
    </step>
    <step>
     <para>
