@@ -1,0 +1,1811 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE appendix
+[
+  <!ENTITY % entities SYSTEM "entity-decl.ent">
+  %entities;
+]>
+<!-- Converted by suse-upgrade version 1.1 -->
+<appendix xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0" xml:id="app.deploy.zsystems">
+ <title>IBM &zseries; Installation Instructions</title>
+ <info>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:maintainer>fs</dm:maintainer>
+   <dm:status>editing</dm:status>
+   <dm:deadline/>
+   <dm:priority/>
+   <dm:translation>no</dm:translation>
+   <dm:languages/>
+  </dm:docmanager>
+ </info>
+ <para>
+  &cloud; supports the &o_comp; ZVMDriver driver which manages communication
+  between &ostack; and a z/VM hypervisor to deploy and manage &vmguest;s
+  on z/VM. &productname; does not natively support managing and deploying z/VM
+  &vmguest;s&mdash;it delegates requests to an &xcat; server running on
+  z/VM. This requires a proper setup on the &zseries; side and a single
+  &comp; node on the &cloud; side.
+ </para>
+
+
+ <sect1 xml:id="sec.deploy.zsystems">
+  <title>Configuring IBM &zseries;</title>
+  <para>
+  IBM supports different ways to set up the &zseries; side. This document
+  describes the <literal>CMA mn</literal> setup as described in the <link
+  xlink:href="https://www.ibm.com/support/knowledgecenter/en/SSB27U_6.3.0/com.ibm.zvm.v630.hcpo4/cmoover.htm">IBM
+  documentation</link>. It configures the z/VM Cloud Manager Appliance (CMA) to
+  only run the Extreme Cloud Administration Toolkit (&xcat;) and the ZHCP
+  services, because, all &ostack; components are running on external &cloud;
+  servers.
+ </para>
+ <para>
+  Additional documentation providing in-depth information to topics also
+  covered in this document are available from IBM and can be retrieved from the
+  IBM Knowledge Center for z/VM 6.3.0:
+ </para>
+ <itemizedlist>
+  <listitem>
+   <para>
+    <link xlink:href="https://www.ibm.com/support/knowledgecenter/en/SSB27U_6.3.0/com.ibm.zvm.v630.hcpo4/toc.htm">z/VM Enabling z/VM for OpenStack (Support for OpenStack Liberty Release)</link>
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    <link xlink:href="https://www.ibm.com/support/knowledgecenter/en/SSB27U_6.3.0/com.ibm.zvm.v630.dmse6/toc.htm">z/VM: Systems Management Application Programming</link>
+   </para>
+  </listitem>
+ </itemizedlist>
+ <para>
+  Note, that the IBM manuals contain procedures and setups not fully tested by
+  &suse; and &cloud;. In this text, links to sections covering topics
+  described in the IBM manuals are provided in the respective sections.
+ </para>
+
+ <para>
+  The following steps are required to set up the &zseries; side:
+ </para>
+ <procedure>
+  <step>
+   <!-- Supported Setup  -->
+   <para>
+    Checking the <xref xrefstyle="select:title nopage" linkend="sec.deploy.zsystems.setup"/>
+   </para>
+  </step>
+  <step>
+   <!-- Configuring z/VM -->
+   <para>
+    <xref xrefstyle="select:title nopage" linkend="sec.deploy.zsystems.zvm"/>
+   </para>
+  </step>
+  <step>
+   <!-- Configuring the CMA  -->
+   <para>
+    <xref xrefstyle="select:title nopage" linkend="sec.deploy.zsystems.cma"/>
+   </para>
+  </step>
+  <step>
+   <!-- Configuring the &xcat; and ZHCP Servers -->
+   <para>
+    <xref xrefstyle="select:title nopage" linkend="sec.deploy.zsystems.xcat"/>
+   </para>
+  </step>
+  <step>
+   <!-- Capturing an Image for &slsa; on &zseries; -->
+   <para>
+    <xref xrefstyle="select:title nopage" linkend="sec.deploy.zsystems.image"/>
+   </para>
+  </step>
+ </procedure>
+
+ <sect2 xml:id="sec.deploy.zsystems.setup">
+  <title>Supported Setup</title>
+  <para>
+   To manage and deploy &vmguest;s on z/VM with &cloud;, a z/VM running the CMA
+   with the &xcat; and ZHCP services is required. You also need to set up a
+   Linux system running &cloudos; that will be used to capture an image
+   from. The setup described in this document uses the following components and
+   configurations:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     The &xcat; and the ZHCP servers are running in the CMA, all &ostack;
+     services are running on external &cloud; servers. This setup is named
+     <literal>CMA mn</literal>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Communication between &xcat; and &productname; is done by a single &cloud;
+     &comp; node that is deployed and configured from &productname;. This
+     &comp; node needs to be an <literal>x86_64</literal> machine.
+    </para>
+    <para>
+     The &xcat; server and the &cloud; &comp; node need to be able to
+     bidirectionally communicate with each other. This can, for example, be
+     achieved by assigning the &xcat; and the &comp; node IP addresses from the
+     public cloud network. See <xref linkend="sec.deploy.zsys_ostack.neutron"/>
+     for details.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Networking for &zseries; &vmguest;s instances is handled by the &xcat;
+     server. See <link
+     xlink:href="https://www.ibm.com/support/knowledgecenter/en/SSB27U_6.3.0/com.ibm.zvm.v630.hcpo4/networkcon.htm">Network
+     Considerations</link> and the following chapters in the IBM documentation
+     for general information. &suse; supports setting up the &xcat; server with
+     either a single flat network or a flat and VLAN mixed network.
+    </para>
+    <figure>
+     <title>Supported Network Setup</title>
+     <mediaobject>
+      <imageobject role="fo">
+       <imagedata fileref="ostack_xcat_networks.png" width="75%" format="PNG"/>
+      </imageobject>
+      <imageobject role="html">
+       <imagedata fileref="ostack_xcat_networks.png" width="100%" format="PNG"/>
+      </imageobject>
+     </mediaobject>
+    </figure>
+   </listitem>
+   <listitem>
+    <para>
+     The Linux image capture system needs to run &cloudos; for IBM
+     &zseries; and needs to use ECKD or FBA for storage. See <xref
+     linkend="sec.deploy.zsystems.image.requirements"/> for a full list of
+     requirements for this system.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Live migration of &vmguest;s is currently not supported by &suse;.
+    </para>
+   </listitem>
+  </itemizedlist>
+<!--
+  <remark condition="clarity">
+   2016-09-22 - fs: Do we support multipath for persistent disks?
+   <link xlink:href="https://www.ibm.com/support/knowledgecenter/en/SSB27U_6.3.0/com.ibm.zvm.v630.hcpo4/multipath.htm"/>
+   </remark>
+-->
+ </sect2>
+
+ <sect2 xml:id="sec.deploy.zsystems.zvm">
+  <title>Configuring z/VM</title>
+  <para>
+   Please refer to <link
+   xlink:href="http://www.redbooks.ibm.com/abstracts/sg248147.html?Open">The
+   Virtualization Cookbook for IBM z Systems Volume 1: IBM z/VM 6.3</link> for
+   general instructions on how to configure z/VM. The following requirements
+   need to be fulfilled:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     The IBM Directory Maintenance Facility (DIRMAINT) needs to be enabled
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     The z/VM Systems Management API (SMAPI) needs to be enabled
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     The latest APARs and PTFs for z/VM &ostack; Liberty support from <link
+     xlink:href="http://www.vm.ibm.com/sysman/osmntlvl.html"/> need to be
+     installed. Note that this Web page offers APARS and PTFs for &ostack;
+     Liberty and Juno. This setup requires them for &ostack; Liberty only.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Provide four preformatted Model 9 (or equivalent) system attached mini
+     disks for the CMA. These disks will be used by &xcat; and be added to
+     the disk pool XCAT1. Refer to <filename>CMA120.FILE</filename> on mdisk
+     400 in MAINT for detailed instructions.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Provided two Model 3 (or equivalent) mini disks to be added to the
+     system as <literal>M0101</literal> and <literal>M0102</literal>. These
+     disks are used to store the root disks of the &vmguest;s. Refer to the
+     section
+     <link
+       xlink:href="https://www.ibm.com/support/knowledgecenter/en/SSB27U_6.3.0/com.ibm.zvm.v630.hcpo4/cmaenv.htm">Disk
+     Storage: CMA Environment</link> in the IBM documentation for details.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Provide a single disk pool for disk space required for the
+     &vmguest;s. It is not possible to use more than one disk pool for this
+     purpose. Supported pool types are ECKD or FBA. All images must use the
+     disk type specified for this pool, mixing ECKD and FBA is not supported.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     &xcat; needs to be configured to have SMAPI access. Note that in previous
+     CMA versions, ZHCP needed to have SMAPI access. This has changed with the
+     CMA for &ostack; Liberty.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Provide a real OSA device for &xcat;.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Make sure to the IP address for &xcat; is accessible from within the
+     company network.
+    </para>
+   </listitem>
+  </itemizedlist>
+ </sect2>
+
+ <sect2 xml:id="sec.deploy.zsystems.cma">
+  <title>Configuring the CMA</title>
+  <para>
+   The CMA configuration is stored in the file <filename>DMSSICMO
+   COPY</filename>. This section is about tailoring the default configuration
+   to set up the CMA according to the CMA mn role (refer to <xref
+   linkend="sec.deploy.zsystems.setup"/> for details on this role).
+  </para>
+  <para>
+   The <filename>DMSSICMO COPY</filename> file must reside on the MAINT 193
+   disk only. Adjustments to the <filename>DMSSICMO COPY</filename> file should
+   only be made locally using the automated local modification procedure. Make
+   sure SMAPI and the &xcat; server are not running when editing file.
+  </para>
+  <procedure xml:id="pro.deploy.zsystems.dmssicmo">
+   <title>Adjusting <filename>DMSSICMO COPY</filename></title>
+   <step>
+    <para>
+     Log on as user MAINT630 to the z/VM system
+    </para>
+   </step>
+   <step>
+    <para>
+     Shut down SMAPI and &xcat; with the following command:
+    </para>
+    <screen>FORCE VSMGUARD</screen>
+   </step>
+   <step>
+    <para>
+     Create a local copy of <filename>DMSSICMO COPY</filename> using the
+     following command:
+    </para>
+    <screen>LOCALMOD CMS DMSSICMO $COPY</screen>
+    <para>
+     In the upcoming dialog, select <guimenu>1</guimenu>. An XEDIT session in
+     which you can adjust the default settings of the <filename>DMSSICMO
+     COPY</filename> file will automatically start.
+    </para>
+   </step>
+   <step>
+    <para>
+     Adjust the values listed below. Do not change values not listed below.
+    </para>
+    <variablelist>
+     <varlistentry>
+      <term><envar>cmo_data_disk</envar></term>
+      <listitem>
+       <para>
+        A space-separated list of volume IDs of minidisks that are to be used
+        by the CMA to store user data. These are the four preformatted Model 9
+        mini disks you provided for the CMA. See <xref
+        linkend="qa.zsystem.add.disks"/> for detailed instructions.
+       </para>
+       <screen>cmo_data_disk="<replaceable>volumeID1</replaceable> <replaceable>volumeID2</replaceable> <replaceable>volumeID3</replaceable> <replaceable>...</replaceable>"</screen>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term><envar>openstack_system_role</envar></term>
+      <listitem>
+       <para>
+        This option needs to be set to <literal>mn</literal> to configure the
+        CMA mn role.
+       </para>
+       <screen>openstack_system_role="mn"</screen>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+   </step>
+   <step>
+    <para>
+     To save the <filename>DMSSICMO $COPY</filename> enter
+     <literal>FILE</literal> followed by <keycap function="enter"/> on the
+     XEDIT command line.
+    </para>
+   </step>
+   <step>
+    <para>
+     Make the changes available by entering the following commands:
+    </para>
+    <screen>SERVICE CMS BUILD
+PUT2PROD</screen>
+   </step>
+  </procedure>
+  <para>
+   The CMA is now configured. Proceed with <xref
+   linkend="sec.deploy.zsystems.xcat"/>.
+  </para>
+  </sect2>
+
+ <sect2 xml:id="sec.deploy.zsystems.xcat">
+  <title>Configuring the &xcat; and ZHCP Servers</title>
+  <para>
+   Each &xcat; and CMA server requires a ZHCP server to communicate with
+   SMAPI. Different setups are supported, however the configuration described
+   in this document is a single z/VM running &xcat; and ZHCP in an integrated
+   CMA (<literal>CMA mn</literal>). ZHCP is automatically started alongside
+   &xcat; and both services are configured with the <filename>DMSSICNF
+   COPY</filename> file.
+  </para>
+  <para>
+   The <filename>DMSSICNF COPY</filename> file must reside on the MAINT 193
+   disk only. Adjustments in the <filename>DMSSICNF COPY</filename> file should
+   only be made locally using the automated local modification procedure. Make
+   sure the &xcat; server is not running when editing file.
+  </para>
+  <procedure>
+   <title>Adjusting <filename>DMSSICNF COPY</filename></title>
+   <step>
+    <para>
+     Log on as user MAINT630 to the z/VM system
+    </para>
+   </step>
+   <step>
+    <para>
+     Shut down &xcat; with the following command:
+    </para>
+    <screen>FORCE VSMGUARD</screen>
+   </step>
+   <step>
+    <para>
+     Create a local copy of <filename>DMSSICNF COPY</filename> using the
+     following command:
+    </para>
+    <screen>LOCALMOD CMS DMSSICNF $COPY</screen>
+    <para>
+     In the upcoming dialog, select <guimenu>1</guimenu>. An XEDIT session in
+     which you can adjust the default settings of the <filename>DMSSICNF
+     COPY</filename> file will automatically start.
+    </para>
+   </step>
+   <step>
+    <para>
+     Set values matching your network configuration for the &xcat; server
+     running on this z/VM instance:
+    </para>
+    <simplelist>
+     <member><envar>XCAT_MN_Addr</envar> (IP address).</member>
+     <member><envar>XCAT_MN_gateway</envar> (gateway).</member>
+     <member><envar>XCAT_MN_Mask</envar>(network mask).</member>
+     <member>
+      <envar>XCAT_DOMAIN</envar> and <envar>ZHCP_Domain</envar> (domain name
+      for the &xcat; and the ZHCP servers, for instance
+      <literal>&exampledomain;</literal>).
+     </member>
+    </simplelist>
+    <para>
+     If you are running multiple &xcat; servers in your network, also set
+     <envar>XCAT_Host</envar> to the host name of the server running on this
+     z/VM instance.
+    </para>
+   </step>
+   <step>
+    <para>
+     Set the value of <envar>XCAT_MN_OSAdev</envar> to the address of the real
+     OSA device (first address of the triplet) of the &xcat; server. Note that
+     you can only specify a single address here.
+    </para>
+   </step>
+   <step>
+    <para>
+     It is recommended <emphasis>not</emphasis> to change the default values
+     for
+    </para>
+    <simplelist>
+     <member><envar>XCAT_vswitch</envar>=<literal>XCATVSW1</literal></member>
+     <member>
+      <envar>XCAT_MN_vswitch</envar>=<literal>XCATVSW2</literal>
+     </member>
+    </simplelist>
+   </step>
+   <step>
+    <para>
+     Set <envar>XCAT_zvmsysid</envar> to the id of this z/VM instance.
+    </para>
+   </step>
+   <step>
+    <para>
+     Set <envar>XCAT_notify</envar> to the user ID that should receive start-up
+     messages. If unset, these messages are automatically sent to <systemitem
+     class="username">OPERATOR</systemitem>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Provide &xcat; log in credentials for a user with
+     <envar>XCAT_MN_admin</envar> (user name) and <envar>XCAT_MN_pw</envar>
+     (password). This user is granted sudo access and can be used to log in to
+     the &xcat; node via SSH for management and configuration purposes.
+<!--
+     Configure the login credentials for the &xcat; Web interface by setting
+     <envar>XCAT_MN_admin</envar> to a user name and <envar>XCAT_MN_pw</envar>
+     to a password of your choice. The password should be changed when logging
+     in for the first time.
+-->
+    </para>
+   </step>
+   <step>
+    <para>
+     To save the <filename>DMSSICNF $COPY</filename> enter
+     <literal>FILE</literal> followed by <keycap function="enter"/> on the
+     XEDIT command line.
+    </para>
+   </step>
+   <step>
+    <para>
+     Make the changes available by entering the following commands:
+    </para>
+    <screen>SERVICE CMS BUILD
+PUT2PROD</screen>
+   </step>
+  </procedure>
+  <para>
+   Since ZHCP is integrated in the CMA, the stand-alone ZHCP server needs to be
+   prevented from being IPLed. This is achieved by editing <filename>DMSSISVR
+   NAMES</filename> and commenting the ZHCP entry.
+  </para>
+  <procedure>
+   <title>Adjusting <filename>DMSSISVR NAMES</filename></title>
+   <step>
+    <para>
+     Log on as user MAINT630 to the z/VM system.
+    </para>
+   </step>
+   <step>
+    <para>
+     Create a local copy of <filename>DMSSISVR NAMES</filename> using the
+     following command:
+    </para>
+    <screen>LOCALMOD CMS DMSSISVR NAMES</screen>
+    <para>
+     In the upcoming dialog, select <guimenu>1</guimenu>. An XEDIT session in
+     which you can adjust the default settings of the <filename>DMSSISVR
+     NAMES</filename> file will automatically start.
+    </para>
+   </step>
+   <step>
+    <para>
+     Adjust the section <literal>* Node server for xcat</literal>. The result
+     should look like the following:
+    </para>
+    <screen>* Node server for xcat
+ * :server.ZHCP
+ * :type.XCAT
+ * :subtype.NODE</screen>
+   </step>
+   <step>
+    <para>
+     To save the <filename>DMSSISVR NAMES</filename> enter
+     <literal>FILE</literal> followed by <keycap function="enter"/> on the
+     XEDIT command line.
+    </para>
+   </step>
+  </procedure>
+
+  <para>
+   To restart the &xcat; and ZHCP servers, proceed as follows:
+  </para>
+  <procedure>
+   <title>Restarting &xcat; and ZHCP</title>
+   <step>
+    <para>
+     Shut down and restart VSMGUARD as user MAINT630:
+    </para>
+    <screen>FORCE VSMGUARD
+XAUTOLOG VSMGUARD</screen>
+   </step>
+   <step>
+    <para>
+     Redirect the VSMGUARD log messages to the <systemitem
+     class="username">xcat</systemitem> user ID, so you can check whether
+     &xcat; and ZHCP have been restarted. The latter can take several minutes.
+    </para>
+    <screen>SET SECUSER XCAT *</screen>
+   </step>
+   <step>
+    <para>
+     Once the servers have been restarted, reset logging to the defaults by
+     entering
+    </para>
+    <screen>SET SECUSER XCAT NONE</screen>
+   </step>
+   <step>
+    <para>
+     Check if the servers have been properly set up. Do so by browsing to the
+     following Web page:
+     <literal>https://<replaceable>XCAT_Host</replaceable>.<replaceable>XCAT_DOMAIN</replaceable>/xcat/</literal>. <replaceable>XCAT_Host</replaceable>
+     and <replaceable>XCAT_DOMAIN</replaceable> need to be replaced by the
+     respective values from <filename>DMSSICNF CONF</filename>. If you have not
+     set <replaceable>XCAT_Host</replaceable>, use the IP address provided with
+     <envar>XCAT_MN_Addr</envar>, for example <link
+     xlink:href="https://&wsIVip;/xcat/"/>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Log in to the &xcat; GUI as administrator using the credentials
+     <literal>admin</literal>/<literal>admin</literal>. At this point it is
+     recommended to change the administrator password as described in <link
+     xlink:href="https://www.ibm.com/support/knowledgecenter/en/SSB27U_6.3.0/com.ibm.zvm.v630.dmse6/xcatgui.htm"/>.
+    </para>
+   </step>
+  </procedure>
+  <para>
+   If you can access the &xcat; GUI and login successfully, &xcat; and ZHCP
+   have been properly set up and the CMA has been started. To finish the setup
+   on the &zseries; side, continue with <xref
+   linkend="sec.deploy.zsystems.image"/>.
+  </para>
+
+<!--
+  <tip>
+   <title>Providing SSH Access for &rootuser; to the &xcat; Server</title>
+   <para>
+    Although optional, it is strongly recommended to enable connecting via SSH
+    to the &xcat; server. This makes it easier to run commands required to
+    finish the setup. With SSH disabled, you can alternatively run these
+    commands using the &xcat; Web interface.
+   </para>
+   <para>
+    Log in to the &xcat; GUI and navigate to the script panel as described in
+    <link
+      xlink:href="https://www.ibm.com/support/knowledgecenter/en/SSB27U_6.3.0/com.ibm.zvm.v630.dmse6/usesp.htm#usesp"/>. Enter
+    the following command into the script box and <guimenu>Run</guimenu> it:
+   </para>
+   <screen>echo "<replaceable>SSH-KEY</replaceable>" >> /root/.ssh/authorized_keys</screen>
+   <para>
+    Replace <replaceable>SSH-KEY</replaceable> with the public SSH key of the
+    user that should be allowed to log in via SSH as &rootuser;.
+   </para>
+   </tip>
+   -->
+ </sect2>
+
+ <sect2 xml:id="sec.deploy.zsystems.image">
+  <title>Capturing an Image for &slsa; on &zseries;</title>
+  <para>
+   To start an &vmguest;, an operating system image is required. To
+   create such an image, you need to set up a &cloudos; system running in the
+   same z/VM as the CMA. Once the system has been installed and configured,
+   you can shut it down and capture the image. In the following this Linux
+   system used to capture the image from is referred to as the <quote>image
+   capture system</quote>.
+  </para>
+
+  <para>
+   The following steps are required to capture an image. In case you plan to
+   provide multiple images, these steps need to be repeated for each image.
+  </para>
+
+  <procedure>
+   <step>
+    <!-- Requirements for the Image Capture System -->
+    <para>
+     Checking the <xref xrefstyle=" select:title nopage" linkend="sec.deploy.zsystems.image.requirements"/>
+    </para>
+   </step>
+   <step>
+    <!-- Installing and Configuring the Image Capture System -->
+    <para>
+     <xref xrefstyle=" select:title nopage"  linkend="sec.deploy.zsystems.image.install"/>
+    </para>
+   </step>
+   <step>
+    <!-- Define the Image Capture System as an &xcat; Node -->
+    <para>
+     <xref xrefstyle=" select:title nopage"  linkend="sec.deploy.zsystems.image.install.xcat_node"/>
+    </para>
+   </step>
+   <step>
+    <!-- Deploy the <literal>xcatconf4z</literal> Service -->
+    <para>
+     <xref xrefstyle=" select:title nopage"  linkend="sec.deploy.zsystems.image.install.xcatconf4z"/>
+    </para>
+   </step>
+   <step>
+    <!-- Installing and Configuring Cloud-Init -->
+    <para>
+     <xref xrefstyle=" select:title nopage"  linkend="sec.deploy.zsystems.image.install.cloud-init"/>
+    </para>
+   </step>
+   <step>
+    <!-- Capture an Image  -->
+    <para>
+     <xref xrefstyle=" select:title nopage" linkend="sec.deploy.zsystems.image.install.image-capture"/>
+    </para>
+   </step>
+  </procedure>
+
+  <sect3 xml:id="sec.deploy.zsystems.image.requirements">
+   <title>Requirements for the Image Capture System</title>
+   <para>
+    The following requirements for the image capture system need to be met:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Use &cloudos; as an operating system. This system has been tested and
+      is known to work. &slsa; 11 SP4 and RHEL 6.2 - 7.2 may also work but have
+      not been tested by &suse;).
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Use a minidisk with ECKD or FBA for storage. You must use the same type
+      as is used for the disk pool for ephemeral storage, mixing ECKD and FBA
+      is not possible. The minidisk must <emphasis>not</emphasis> be a
+      full-pack disk and needs to be defined with the virtual address 0100.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Network interfaces need to be configured with IPv4. Disabling IPv6 in the
+      network settings is strongly recommended.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      The size of the root disk should not exceed 5 GB. It is also recommended
+      to use a disk size with a full gigabyte value (for example 2GB or 3GB),
+      since &ostack; disks are defined that way. See the <link
+      xlink:href="http://ibmmainframes.com/references/disk.html">Mainframe Disk
+      Capacity Table</link> for values that help to convert blocks or
+      cylinders to bytes.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      The root disk needs to have a single partition and the root file system
+      must not be on a logical volume.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      The root file system needs to be formatted with Ext2, Ext3, Ext4, or
+      XFS. Btrfs is currently not supported.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      The <systemitem class="daemon">sshd</systemitem> needs to run and the SSH
+      port (22) needs to be opened in the firewall.
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect3>
+
+  <sect3 xml:id="sec.deploy.zsystems.image.install">
+   <title>Installing and Configuring the Image Capture System</title>
+   <para>
+    To install the image capture system, follow the default &slsa; for IBM
+    &zseries; installation instructions that are available from the &suse; Web
+    page: <link
+    xlink:href="https://www.suse.com/documentation/sles-12/book_sle_deployment/data/cha_zseries.html">Installation
+    on IBM z Systems</link>. Make sure to fulfill the <xref
+    linkend="sec.deploy.zsystems.image.requirements"/> when setting up the
+    network and the partitions.
+   </para>
+
+   <remark condition="clarity">
+    2016-10-17 - fs: What about registering the system? Should this step be
+    skipped?
+   </remark>
+
+
+<!--
+
+   <important>
+    <title>Do not Register the System</title>
+    <para>
+
+    </para>
+   </important>
+
+-->
+
+   <para>
+    Once the system has been installed, make the following adjustments:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Make sure the package <package>openssl</package> is installed
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      SELinux must not be enabled (this is the default for &cloudos;)
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      The system needs to be accessible via SSH. Disable DNS lookup for SSH by
+      setting <literal>UseDNS no</literal> in
+      <filename>/etc/ssh/sshd_config</filename>.
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect3>
+
+
+  <sect3 xml:id="sec.deploy.zsystems.image.install.xcat_node">
+   <title>Define the Image Capture System as an &xcat; Node</title>
+   <para>
+    Before you can create an image for the image capture system, you need to
+    define it as a node to the &xcat; server.
+   </para>
+   <procedure>
+    <step>
+     <para>
+      Log in to the &xcat; server via SSH as the user configured with
+      <envar>XCAT_MN_admin</envar> and <envar>XCAT_MN_pw</envar> earlier on.
+     </para>
+    </step>
+    <step>
+     <para>
+      Run the following command:
+     </para>
+     <screen>sudo /opt/xcat/bin/mkdef -t node -o
+<replaceable>HOSTNAME</replaceable> userid=<replaceable>UID</replaceable> \
+hcp=<replaceable>ZHCP_FQN</replaceable> mgt=zvm groups=all</screen>
+     <para>
+      Replace the following placeholders with appropriate values:
+     </para>
+     <variablelist>
+      <varlistentry>
+       <term><replaceable>HOSTNAME</replaceable></term>
+       <listitem>
+        <para>
+         The image capture system's short host name, for example
+         <literal>&wsI;</literal>
+        </para>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+       <term><replaceable>UID</replaceable></term>
+       <listitem>
+        <para>
+         The userid name of the image capture system.
+        </para>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+       <term><replaceable>ZHCP_FQN</replaceable></term>
+       <listitem>
+        <para>
+         The fully qualified host name of the ZHCP server, for example
+         <literal>zhcp.&exampledomain;</literal>
+        </para>
+       </listitem>
+      </varlistentry>
+     </variablelist>
+    </step>
+    <step>
+     <para>
+      Update the node's properties by running the following command:
+     </para>
+     <screen>sudo /opt/xcat/sbin/chtab node=HOSTNAME hosts.ip=<replaceable>IP_ADDRESS</replaceable> \
+ hosts.hostnames=<replaceable>FQN</replaceable> noderes.netboot=zvm nodetype.os=sles12.1 \
+ nodetype.arch=s390x nodetype.profile=<replaceable>PROFILENAME</replaceable> nodetype.provmethod=netboot</screen>
+     <para>
+      Replace the following placeholders with appropriate values:
+     </para>
+     <variablelist>
+      <varlistentry>
+       <term><replaceable>HOSTNAME</replaceable></term>
+       <listitem>
+        <para>
+         The image capture system's short host name, for example
+         <literal>&wsI;</literal>
+        </para>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+       <term><replaceable>IP_ADDRESS</replaceable></term>
+       <listitem>
+        <para>
+         The IP address of the image capture system.
+        </para>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+       <term><replaceable>FQN</replaceable></term>
+       <listitem>
+        <para>
+         The fully qualified host name of the image capture system, for
+         example <literal>&wsIname;</literal>.
+        </para>
+       </listitem>
+      </varlistentry>
+      <varlistentry>
+       <term><replaceable>PROFILENAME</replaceable></term>
+       <listitem>
+        <para>
+         Profile name for this system, can be freely chosen.
+        </para>
+       </listitem>
+      </varlistentry>
+     </variablelist>
+    </step>
+    <step>
+     <para>
+      Create the host by running:
+     </para>
+     <screen>sudo /opt/xcat/sbin/makehosts</screen>
+    </step>
+    <step>
+     <para>
+      Log in as administrator to the &xcat; GUI and click <menuchoice>
+      <guimenu>Node</guimenu> <guimenu>Nodes</guimenu> </menuchoice>. Start the
+      image capture system by choosing <guimenu>Power On</guimenu> from it's
+      <guimenu>Actions</guimenu> menu.
+     </para>
+     <note>
+      <title>System Start-Up</title>
+      <para>
+       Starting the image capture system may take several minutes. Sometimes
+       the status is not properly updated in the &xcat; GUI and the machine is
+       reported to be <literal>OFF</literal>, although it is already
+       running. You can use <command>ping
+       <replaceable>IP_ADDRESS</replaceable></command> to check whether the
+       machine has started.
+      </para>
+     </note>
+    </step>
+    <step>
+     <para>
+      To allow &xcat; to communicate with the image capture system, you need to
+      unlock it via the &xcat; GUI:
+     </para>
+     <substeps>
+      <step>
+       <para>
+        Click <menuchoice><guimenu>Nodes</guimenu> <guimenu>Groups</guimenu>
+        <guimenu>All</guimenu> <guimenu>Nodes panel</guimenu></menuchoice>.
+       </para>
+      </step>
+      <step>
+       <para>
+        Activate the image capture system via the check box.
+       </para>
+      </step>
+      <step>
+       <para>
+        Now select <menuchoice><guimenu>Configuration</guimenu>
+        <guimenu>Unlock</guimenu></menuchoice>.
+       </para>
+      </step>
+      <step>
+       <para>
+        In the dialog that launches, specify the &rootuser; password and finish
+        by clicking <guimenu>Unlock</guimenu>.
+       </para>
+      </step>
+     </substeps>
+    </step>
+   </procedure>
+  </sect3>
+
+  <sect3 xml:id="sec.deploy.zsystems.image.install.xcatconf4z">
+   <title>Deploy the <literal>xcatconf4z</literal> Service</title>
+   <para>
+    <literal>xcatconf4z</literal> service allows &xcat; to inject changes to a
+    system that is currently not running. The changes are applied the next time
+    the system starts. This feature is required on the image capture system. To
+    make it available, deploy <literal>xcatconf4z</literal>:
+   </para>
+   <procedure>
+    <step>
+     <para>
+      Log in to the &xcat; server via SSH as the user configured with
+      <envar>XCAT_MN_admin</envar> and <envar>XCAT_MN_pw</envar> earlier on.
+     </para>
+    </step>
+    <step>
+     <para>
+      Copy the <literal>xcatconf4z</literal> files to the image capture system:
+     </para>
+     <screen>cd /opt/xcat/share/xcat/scripts
+scp xcatconf4z xcatconf4z.service <replaceable>ICS</replaceable>:/tmp</screen>
+     <para>
+      Replace <replaceable>ICS</replaceable> with the host name or the IP
+      address of the image capture system.
+     </para>
+    </step>
+    <step>
+     <para>
+      Log in to the image capture system as &rootuser;.
+     </para>
+    </step>
+    <step>
+     <para>
+      Edit <filename>/tmp/xcatconf4z</filename> and set
+      <literal>authorizedSenders</literal> to <literal>*</literal>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Edit <filename>/tmp/xcatconf4z.service</filename> and set the following
+      values as shown below:
+     </para>
+     <screen>ExecStart=/usr/local/bin/xcatconf4z
+NetworkManagerService=wicked.service</screen>
+    </step>
+    <step>
+     <para>
+      Move the xcatconf4z files to the correct locations and make the script
+      executable:
+     </para>
+     <screen>mv /tmp/xcatconf4z /usr/local/bin/
+mv /tmp/xcatconf4z.service /etc/systemd/system/
+chmod 755 /usr/local/bin/xcatconf4z</screen>
+    </step>
+    <step>
+     <para>
+      Enable and start the xcatconf4z service. Check its status
+      afterwards&mdash;it should report xcatconf4z as being active and running.
+     </para>
+     <screen>systemctl enable xcatconf4z
+systemctl start xcatconf4z
+systemctl status xcatconf4z</screen>
+    </step>
+   </procedure>
+  </sect3>
+
+
+  <sect3 xml:id="sec.deploy.zsystems.image.install.cloud-init">
+   <title>Installing and Configuring Cloud-Init</title>
+   <para>
+    Whenever an &vmguest; is started for the first time, the activation engine
+    <command>cloud-init</command> runs to take care of the initial setup of the
+    image. Among other things, it injects the SSH keys, that allow remote
+    access to the &vmguest;. To make Cloud-Init available, it need to be
+    installed and configured in the image capture system.
+   </para>
+
+   <sect4 xml:id="sec.deploy.zsystems.image.install.cloud-init.install">
+    <title>Installing Cloud-Init</title>
+
+    <para>
+     Cloud-Init for &slsa; is available as an RPM package from the Public Cloud
+     Module. The Public Cloud Module is included in your &slsa; subscription,
+     but needs to be activated. To install Cloud-init, proceed as follows:
+    </para>
+    <procedure>
+    <step>
+     <para>
+      Log in to the image capture system as &rootuser;.
+     </para>
+    </step>
+     <step>
+      <para>
+       Launch the <menuchoice> <guimenu>&yast;</guimenu> <guimenu>Product
+       Registration</guimenu> </menuchoice>. If you have not registered your
+       system, yet, do so now and restart the <guimenu>Product
+       Registration</guimenu> module afterwards.
+       <remark condition="clarity">
+        2016-10-17 - fs: We have a catch22 problem here: We do not want the
+        root image to already be registered, however, access to the Public
+        Cloud Module is only available when the system is registered. How to
+        solve this problem?
+       </remark>
+      </para>
+     </step>
+     <step>
+      <para>
+       Click <guimenu>Select Extensions</guimenu> to open the
+       <guimenu>Extension and Module Selection</guimenu> dialog. Select
+       <guimenu>Public Cloud Module 12 x86_64</guimenu> and proceed with
+       <guimenu>Next</guimenu>.
+      </para>
+     </step>
+     <step>
+      <para>
+       After the module has been registered and the repository data has been
+       downloaded, the software manager opens with two packages preselected for
+       installation. Switch to the <guimenu>Search</guimenu> tab, enter
+       <literal>cloud-init</literal> into the text box and click
+       <guimenu>Search</guimenu>.
+      </para>
+     </step>
+     <step>
+      <para>
+       The package <package>cloud-init</package> will be listed in the
+       right-hand pane. Select it and proceed with
+       <guimenu>Accept</guimenu>. Confirm the <guimenu>Automatic
+       Changes</guimenu> with <guimenu>Continue</guimenu> to start the package
+       installation.
+      </para>
+     </step>
+     <step>
+      <para>
+       Finalize the installation by clicking
+       <guimenu>Finish</guimenu>. Cloud-Init is now available on the
+       installation capture system.
+      </para>
+     </step>
+    </procedure>
+   </sect4>
+
+   <sect4 xml:id="sec.deploy.zsystems.image.install.cloud-init.config">
+    <title>Configuring and Activating Cloud-Init</title>
+    <para>
+     To finalize the setup of the image capture system, Cloud-Init needs to be
+     configured and its associated services need to be started.
+    </para>
+    <procedure>
+     <step>
+      <para>
+       Log in as user &rootuser; to the image capture system.
+      </para>
+     </step>
+     <step>
+      <para>
+       The Cloud-Init configuration is stored in
+       <filename>/etc/cloud/cloud.cfg</filename>. Open this file in an editor
+       and make the following adjustments:
+      </para>
+      <substeps>
+       <step>
+        <para>
+         Add the following lines underneath the section that is titled <literal># Adapted default config for (open)SUSE systems</literal>:
+        </para>
+        <screen># Datasource configuration
+
+datasource_list: [ ConfigDrive, None ]
+datasource:
+  ConfigDrive:
+    dsmode: local</screen>
+       </step>
+       <step>
+        <para>
+         Navigate to the section titled <literal># The modules that run in the
+         'init' stage</literal>. Remove the modules
+         <literal>growpart</literal>, and <literal>resizefs</literal>. Add the
+         module <literal>seed_random</literal>. After the change the section
+         should look like the following:
+        </para>
+        <screen># The modules that run in the 'init' stage
+cloud_init_modules:
+ - migrator
+ - seed_random
+ - bootcmd
+ - write-files
+ - set_hostname
+ - update_hostname
+ - update_etc_hosts
+ - ca-certs
+ - rsyslog
+ - users-groups
+ - ssh</screen>
+       </step>
+       <step>
+        <para>
+         Navigate to the section titled <literal># The modules that run in the
+         'config' stage</literal>. Remove the modules
+         <literal>ssh-import-id</literal>, <literal>chef</literal>, and
+         <literal>byobu</literal>. Add the module
+         <literal>disk_setup</literal>. After the change the section should
+         look like the following:
+        </para>
+        <screen># The modules that run in the 'config' stage
+cloud_config_modules:
+ - disk_setup
+ - mounts
+ - locale
+ - set-passwords
+ - package-update-upgrade-install
+ - timezone
+ - puppet
+ - salt-minion
+ - mcollective
+ - disable-ec2-metadata
+ - runcmd</screen>
+       </step>
+       <step>
+        <para>
+         For more optional configuration options (such as defining a default
+         user or setting up <command>sudo</command>, refer to <link
+         xlink:href="https://cloudinit.readthedocs.io/"/>.
+        </para>
+       </step>
+      </substeps>
+     </step>
+     <step>
+      <para>
+       Create the file
+       <filename>/etc/tmpfiles.d/cloud-init-tmpfiles.conf</filename> with the
+       following command:
+      </para>
+      <screen>echo "d /run/cloud-init 0700 root root - -" > <filename>/etc/tmpfiles.d/cloud-init-tmpfiles.conf</filename></screen>
+     </step>
+     <step>
+      <para>
+       Start and enable the Cloud-Init services:
+      </para>
+      <screen>for SERV in cloud-init cloud-ini-local cloud-config cloud-final; do
+  systemctl enable $SERV
+  systemctl start $SERV
+  systemctl status $SERV
+  echo "---------------------"
+done</screen>
+      <para>
+       Carefully check the output of these commands to make sure the services
+       are active and running. In case one of the services fails, try
+       restarting it.
+      </para>
+     </step>
+     <step>
+      <para>
+       Remove the directory <filename>/var/lib/cloud</filename>, otherwise
+       Cloud-Init will not run when first booting an &vmguest;:
+      </para>
+      <screen>rm -r <filename>/var/lib/cloud</filename></screen>
+     </step>
+    </procedure>
+    <para>
+     The image capture system setup and configuration is now finished.
+    </para>
+   </sect4>
+  </sect3>
+
+  <sect3 xml:id="sec.deploy.zsystems.image.install.image-capture">
+   <title>Capture an Image</title>
+   <para>
+    Once the image capture system is completely configured, you can capture an
+    image from it. Log in to the &xcat; server via SSH as the user configured
+    with <envar>XCAT_MN_admin</envar> and <envar>XCAT_MN_pw</envar> earlier on
+    and run the following command:
+   </para>
+   <screen>sudo /opt/xcat/bin/imgcapture <replaceable>HOSTNAME</replaceable> --profile <replaceable>PROFILENAME</replaceable></screen>
+   <para>
+    Replace the following placeholders with appropriate values:
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term><replaceable>HOSTNAME</replaceable></term>
+     <listitem>
+      <para>
+       The image capture system's short host name, for example
+       <literal>&wsI;</literal>
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term><replaceable>PROFILENAME</replaceable></term>
+     <listitem>
+      <para>
+       Profile name for this system. This name was defined when setting up the
+       image capture system as an &xcat; node (see <xref
+       linkend="sec.deploy.zsystems.image.install.xcat_node"/>).
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <para>
+    During this process, the image capture system is shut down. In case you
+    need the system afterwards, restart it using the &xcat; GUI.
+   </para>
+  </sect3>
+
+ </sect2>
+
+ <sect2 xml:id="sec.deploy.zsystems.faq">
+  <title>Frequently Asked Questions</title>
+  <qandaset>
+   <qandaentry xml:id="qa.zsystem.add.disks">
+    <question>
+     <para>
+      How to provide the disks for the CMA? How to add disks at a later stage?
+     </para>
+    </question>
+    <answer>
+     <para>
+      Use these instructions to set up the disk pool required for the CMA or to
+      add new disks to an existing pool.
+     </para>
+     <procedure>
+      <step>
+       <para>
+        Format the disk(s) using <command>CPFMTXA</command>. Only
+        CPFMTXA-formatted disks can be used by the CMA.
+       </para>
+
+       <tip>
+        <title>Disk Labeling</title>
+        <para>
+         If you follow the disk labeling schema of the <link
+         xlink:href="http://www.redbooks.ibm.com/abstracts/sg248147.html?Open">Virtualization
+         Cookbook</link>, you might want to set an extra type letter for that
+         disks.  For example, if your LPAR letter is "J", the type could be
+         "X". A disk with the number 6010 can then be formatted as MAINT with
+         the following commands:
+        </para>
+        <screen>ATTACH 6010 *
+CPFMTXA 6010#format#0-1#JX6010#YES#END
+DETACH 6010</screen>
+       </tip>
+      </step>
+      <step>
+       <para>
+        To make the disk persistently available to z/VM, first do a system
+        attach of the disk. Also attach the disk during startup of z/VM. Note
+        that you must <emphasis>not</emphasis> add the disk to a directory
+        manager disk group.
+       </para>
+      </step>
+      <step>
+       <para>
+        Add the disk ID that was returned by the <command>CPFMTXA</command>
+        command to the <envar>cmo_data_disk</envar> entry in the
+        <filename>DMSSICMO COPY</filename> file as described in <xref
+        linkend="pro.deploy.zsystems.dmssicmo"/>.
+       </para>
+       <tip>
+        <title>Specifying a Value on Multiple Lines</title>
+        <para>
+         The maximum number of characters per line in <filename>DMSSICMO
+         COPY</filename> is limited to 90 characters. In case you need to enter
+         the disk IDs on multiple lines, start the value with a double quote on
+         the first line and end it with a double quote on the last line. Each
+         line that is continued, also needs to end with a space.
+        </para>
+        <screen>cmo_data_disk="<replaceable>volumeID1</replaceable> <replaceable>volumeID2</replaceable> <replaceable>volumeID3</replaceable> <replaceable>volumeID4</replaceable>
+<replaceable>volumeID5</replaceable> <replaceable>volumeID6</replaceable>
+<replaceable>volumeID7</replaceable>"</screen>
+       </tip>
+      </step>
+      <step>
+       <para>
+        In case you have added a disk to an already existing pool, restart the
+        CMA by running the following commands:
+       </para>
+       <screen>FORCE VSMGUARD
+XAUTOLOG VSMGUARD</screen>
+      </step>
+     </procedure>
+     <para>
+      All disks that are added this way will be added to a disk pool named
+      XCAT1. New disks will be added to that pool every time the CMA logs
+      on. In case of disk space issues refer to <link
+      xlink:href="https://www.ibm.com/support/knowledgecenter/en/SSB27U_6.3.0/com.ibm.zvm.v630.hcpo4/spinstall.htm">Space
+      Issues on /install Directory Can Lead to xCAT MN Issues</link> in the IBM
+      documentation for help.
+     </para>
+    </answer>
+   </qandaentry>
+<!--
+   <qandaentry>
+    <question>
+     <para>
+      How to attach disks to SYSTEM CONFIG?
+     </para>
+    </question>
+    <answer>
+     <para>
+      TBD by bg
+     </para>
+    </answer>
+   </qandaentry>
+   <qandaentry>
+    <question>
+     <para>
+      How to give &xcat; appropriate permissions to access SMAPI?
+     </para>
+    </question>
+    <answer>
+     <para>
+      TBD by bg
+     </para>
+    </answer>
+   </qandaentry>
+   <qandaentry>
+    <question>
+     <para>
+      How to create or modify a disk pool for instances for ECKD?
+     </para>
+    </question>
+    <answer>
+     <para>
+      TBD by bg
+     </para>
+    </answer>
+   </qandaentry>
+   <qandaentry>
+    <question>
+     <para>
+      How to create or modify a disk pool for instances for FBA?
+     </para>
+    </question>
+    <answer>
+     <para>
+      TBD by bg
+     </para>
+    </answer>
+   </qandaentry>
+-->
+  </qandaset>
+ </sect2>
+</sect1>
+
+<sect1 xml:id="sec.deploy.zsys_ostack">
+ <title>Configuring &cloud;</title>
+ <para>
+  Setting up the &cloud; side for deploying &zseries; &vmguest;s requires
+  &productname; to be set up at least up to the point where the &o_netw;
+  &barcl; gets deployed. It is also possible to adjust and re-deploy the
+  &o_netw; and &o_comp; &barcl; in a &cloud; that already has been deployed.
+ </para>
+  <para>
+  To deploy &zseries; &vmguest;s with &cloud; the following steps need to be performed on
+  the &cloud; side:
+ </para>
+ <orderedlist>
+  <listitem>
+   <para>
+    <xref linkend="sec.deploy.zsys_ostack.neutron" xrefstyle="select:title
+    nopage"/>
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    <xref linkend="sec.deploy.zsys_ostack.nova" xrefstyle="select:title
+    nopage"/>
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    <xref linkend="sec.deploy.zsys_ostack.glance" xrefstyle="select:title
+    nopage"/>
+   </para>
+  </listitem>
+ </orderedlist>
+
+ <sect2 xml:id="sec.deploy.zsys_ostack.neutron">
+  <title>Configuring &o_netw; for IBM &zseries;</title>
+  <para>
+   Refer to <xref linkend="sec.depl.ostack.quantum"/> for general configuration
+   and deployment instructions. The following section describes the
+   z/VM-specific configuration options.
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term><guimenu>xCAT Host/IP Address</guimenu></term>
+    <listitem>
+     <para>
+      Host name or IP address of the xCAT server. Should be the same address as
+      was configured by <envar>XCAT_MN_Addr</envar> in <filename>DMSSICNF
+      COPY</filename> (see <xref linkend="sec.deploy.zsystems.xcat"/>.
+     </para>
+     <para>
+      This IP
+      address is used for the communication between the &xcat; server and the
+      z/VM &compnode;.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>
+     <guimenu>xCAT Username</guimenu> / <guimenu>xCAT Password</guimenu>
+    </term>
+    <listitem>
+     <para>
+      &xcat; admin login credentials. The <guimenu>xCAT Username</guimenu>
+      should be set to <literal>admin</literal>. Set <guimenu>xCAT
+      Password</guimenu> accordingly. The default password is
+      <literal>admin</literal>. Changing this password was recommended after
+      first having logged in to the &xcat; GUI.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>
+     <guimenu>RDEV List for physnet1 vswitch Uplink</guimenu>
+    </term>
+    <listitem>
+     <para>
+      The RDEV address of the OSA cards which are connected to the switch
+      defined as <envar>XCAT_MN_vswitch</envar> in <filename>DMSSICNF
+      COPY</filename> (see <xref linkend="sec.deploy.zsystems.xcat"/>. If you
+      have not changed the default, the switch's name is
+      <literal>XCATVSW2</literal>. Only one active RDEV address must be
+      specified here.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>
+     <guimenu>xCAT IP Address on Management Network</guimenu> / <guimenu>Net
+     Mask of Management Network</guimenu>
+    </term>
+    <listitem>
+     <para>
+      IP address and netmask of the &xcat; management network. For more
+      information refer to the <link
+      xlink:href="https://www.ibm.com/support/knowledgecenter/en/SSB27U_6.3.0/com.ibm.zvm.v630.hcpo4/networkcon.htm">IBM
+      documentation</link> for single flat networks or flat and VLAN mixed
+      networks.
+     </para>
+     <para>
+      This IP address is used for communication between &xcat; and all
+      &vmguest;s that do not have a public IP address.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+
+  <important>
+   <title>&xcat; Management VSwitch Name</title>
+   <para>
+    In case you have provided a custom name to
+    <literal>XCAT_MN_vswitch</literal> in <filename>DMSSICNF COPY</filename>
+    (see <xref linkend="sec.deploy.zsystems.xcat"/>), you need to change this
+    name in the <guimenu>Raw</guimenu> view of the &o_netw; configuration as
+    well:
+   </para>
+   <procedure>
+    <step>
+     <para>
+      In the <guimenu>Attributes</guimenu> section of the &o_netw; &barcl;,
+      click <guimenu>Raw</guimenu> to edit the configuration file.
+     </para>
+    </step>
+    <step>
+     <para>
+      Search for the <literal>zvm_xcat_network</literal> entry in the
+      <literal>zvm</literal> section and set it to the custom name you provided
+      for <literal>XCAT_MN_vswitch</literal>. In the following example, the
+      value was set to <literal>xcatmnsw</literal>:
+     </para>
+     <screen>"zvm": {
+    ...
+    "zvm_xcat_mgt_vswitch": "xcatmnsw",
+    ...
+},</screen>
+    </step>
+   </procedure>
+  </important>
+
+
+  <tip>
+   <title>Adding the &xcat; Management Node to a &cloud; Network</title>
+   <para>
+    Communication between the &xcat; server and the &cloud; components requires a
+    network configuration that allows bidirectional communication between both
+    components. Since the &cloud; networks are isolated from the company
+    network, this requires network adjustments as described in <link
+     xlink:href="https://www.ibm.com/support/knowledgecenter/en/SSB27U_6.3.0/com.ibm.zvm.v630.hcpo4/networkcon.htm">Network Considerations</link>.
+   </para>
+   <para>
+    An alternative to these setups is to make the &xcat; Management Node part
+    of the public network of &cloud;. This can be done following these steps:
+   </para>
+   <procedure>
+    <step>
+     <para>
+      In the <guimenu>Attributes</guimenu> section of the &o_comp; &barcl;,
+      click <guimenu>Raw</guimenu> to edit the configuration file.
+     </para>
+    </step>
+    <step>
+     <para>
+      Search for the <literal>zvm_xcat_network</literal> entry and set the
+      value to, for example, the <literal>public</literal> network:
+     </para>
+     <screen>"zvm": {
+    ...
+    "zvm_xcat_network": "public",
+    ...
+},</screen>
+     <para>
+      Possible values are all networks configured via &crow;. By default, the
+      <literal>admin</literal> network is used.
+     </para>
+    </step>
+    <step>
+     <para>
+      Click <guimenu>Save</guimenu> to save your changes and then
+      <guimenu>Custom</guimenu> to return to the &barcl; UI.
+     </para>
+    </step>
+   </procedure>
+  </tip>
+
+  <figure>
+   <title>The &o_netw; &barcl;: z/VM Configuration</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="depl_barclamp_neutron_zsystems.png" width="100%" format="png"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="depl_barclamp_neutron_zsystems.png" width="75%" format="png"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+ </sect2>
+
+ <sect2 xml:id="sec.deploy.zsys_ostack.nova">
+  <title>Configuring  &o_comp; for IBM &zseries;</title>
+  <para>
+   Refer to <xref linkend="sec.depl.ostack.nova"/> for general configuration
+   and deployment instructions. The following section describes the
+   z/VM-specific configuration options.
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term><guimenu>xCAT Host/IP Address</guimenu></term>
+    <listitem>
+     <para>
+      Host name or IP address of the xCAT server. Should be the same address as
+      was configured by <envar>XCAT_MN_Addr</envar> in <filename>DMSSICNF
+      COPY</filename> (see <xref linkend="sec.deploy.zsystems.xcat"/>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>
+     <guimenu>xCAT Username</guimenu> / <guimenu>xCAT Password</guimenu>
+    </term>
+    <listitem>
+     <para>
+      &xcat; admin login credentials. The <guimenu>xCAT Username</guimenu>
+      should be set to <literal>admin</literal>. Set <guimenu>xCAT
+      Password</guimenu> accordingly. The default password is
+      <literal>admin</literal>. Changing this password was recommended after
+      first having logged in to the &xcat; GUI.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><guimenu>z/VM Disk Pool for Ephemeral Disks</guimenu></term>
+    <listitem>
+     <para>
+      Name of the disk pool you set up to be used by the &vmguest;s. Do not
+      confuse this pool with the one for the CMA (XCAT1).
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>z/VM Disk Pool Type for Ephemeral Disks</term>
+    <listitem>
+     <para>
+      Type of the disk pool (ECKD or FBA).
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>z/VM Host Managed By xCAT MN</term>
+    <listitem>
+     <para>
+      Host ID of the z/VM that runs &xcat;.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>User Profile for Creating a z/VM Userid</term>
+    <listitem>
+     <para>
+      Name of the profile used to create new &vmguest;s. Needs to be set to
+      <literal>osdflt</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><guimenu>Default zFCP SCSI Disk Pool</guimenu></term>
+    <listitem>
+     <para>
+      The name of an SCSI disk pool managed by &xcat;. Setting this value is
+      optional. Set it to <literal>none</literal>, because this option is not used in this setup.
+      <remark condition="clarity">
+       2016-10-28 - fs: What's the use of this disk pool?
+      </remark>
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><guimenu>The xCAT MN Node Name</guimenu></term>
+    <listitem>
+     <para>
+      Host name of the &xcat; management node.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>The xCAT MN Node Public SSH Key</term>
+    <listitem>
+     <para>
+      Public SSH key of the &rootuser; user of the &xcat; management node. The
+      key is stored in the file <filename>/root/.ssh/id_rsa.pub</filename> on
+      the &xcat; management node. This key is needed for SSH communication
+      between the &xcat; management node and the &compnode;.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  <figure>
+   <title>The &o_comp; &barcl;: z/VM Configuration</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="depl_barclamp_nova_zsystems.png" width="100%" format="png"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="depl_barclamp_nova_zsystems.png" width="75%" format="png"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+
+  <note>
+   <title><literal>force_config_drive</literal></title>
+   <para>
+    The &o_comp; node for IBM &zseries; needs to be deployed with the option
+    <literal>force_config_drive</literal> set to <literal>always</literal>,
+    otherwise the network will not work properly. <literal>force_config_drive =
+    always</literal> is set by default, do not change this setting.
+   </para>
+  </note>
+
+ </sect2>
+
+ <sect2 xml:id="sec.deploy.zsys_ostack.glance">
+  <title>Exporting and Uploading an Image for IBM &zseries; to &o_img;</title>
+  <para>
+   To make the image that was created following the instructions in <xref
+   linkend="sec.deploy.zsystems.image"/> available in &cloud; it needs to be
+   exported to the &compnode; and then be uploaded to &o_img;.
+  </para>
+  <procedure>
+   <step>
+    <para>
+     To export the image to the Nova &compnode;, follow the instructions in the
+     IBM documentation: <link
+     xlink:href="https://www.ibm.com/support/knowledgecenter/en/SSB27U_6.3.0/com.ibm.zvm.v630.hcpo4/exportimage.htm">Export
+     the Image to the Nova Compute Server</link>. Use the
+     <literal>nova</literal> user ID.
+    </para>
+   </step>
+   <step>
+    <para>
+     Log in to the Nova &compnode; for z/VM with SSH via the &cloud;
+     &admserv;. In a shell, source the &ostack; RC file for the project that
+     you want to upload an image to. For details, refer to <link
+     xlink:href="http://docs.openstack.org/user-guide/common/cli_set_environment_variables_using_openstack_rc.html">Set
+     environment variables using the &ostack; RC file</link> in the &ostack;
+     documentation.
+    </para>
+   </step>
+   <step>
+    <para>
+     Upload the image using <command>glance image-create</command>:
+    </para>
+    <screen>glance image-create --name="<replaceable>IMAGE_NAME</replaceable>" --progress \
+  --visibility=public --disk-format=raw --container-format=bare \
+  --property image_type_xcat=linux --property architecture=s390x \
+  --property os_name=Linux --property os_version=sles12.2 \
+  --property provisioning_method=netboot &lt; ~nova/<replaceable>IMAGE_FILE_NAME</replaceable></screen>
+    <para>
+     If the image upload has been successful, a message appears, displaying the
+     ID that has been assigned to the image. Now users can launch &zseries;
+     &vmguest;s as described in the <citetitle>SUSE OpenStack Cloud 6 OpenStack
+     End User Guide</citetitle>.
+    </para>
+   </step>
+  </procedure>
+ </sect2>
+ <sect2 xml:id="sec.deploy.zsys_ostack.network">
+  <title>Create an &xcat; Management Provider Network</title>
+  <para>
+   The last step that is required before you can start an &vmguest; is to set
+   up the &xcat; provider management network in &crow;. This network is
+   required for communication between the &xcat; host and the &vmguest;s.
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Log in as &rootuser; to one of the &contrnode;s.
+    </para>
+   </step>
+   <step>
+    <para>
+     Source the <filename>.openrc</filename> file:
+    </para>
+    <screen>source ~/.openrc</screen>
+   </step>
+   <step>
+    <para>
+     Create the network:
+    </para>
+    <screen>neutron net-create <replaceable>NAME</replaceable> --provider:network_type flat  --provider:physical_network <replaceable>SWITCH</replaceable></screen>
+    <para>
+     Replace the following placeholders with appropriate values:
+    </para>
+    <variablelist>
+     <varlistentry>
+      <term><replaceable>NAME</replaceable></term>
+      <listitem>
+       <para>
+        Name for the management network, can be freely chosen, for example
+        <literal>xcat_mgmt</literal>.
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term><replaceable>SWITCH</replaceable></term>
+      <listitem>
+       <para>
+        Switch that was configured with <literal>XCAT_MN_vswitch</literal> in
+        <filename>DMSSICNF COPY</filename> (see <xref
+        linkend="sec.deploy.zsystems.xcat"/>). Should be
+        <literal>xcatvsw2</literal> if you have not changed the default as was
+        recommended.
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term></term>
+      <listitem>
+       <para>
+        Create a subnet:
+       </para>
+       <screen>neutron subnet-create xcat_mgmt --gateway <replaceable>GATEWAY</replaceable> \
+ <replaceable>XCAT_MGMT_NETWORK</replaceable>  --allocation-pool start=<replaceable>START</replaceable>,end=<replaceable>END</replaceable> \
+ --disable-dhcp</screen>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+    <para>
+     Replace the following placeholders with appropriate values:
+    </para>
+    <variablelist>
+     <varlistentry>
+      <term><replaceable>GATEWAY</replaceable></term>
+      <listitem>
+       <para>
+        IP address of the gateway of the &xcat; management network.
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term><replaceable>XCAT_MGMT_NETWORK</replaceable></term>
+      <listitem>
+       <para>
+        Address of the &xcat; management network, for example
+        <literal>192.168.2.0/24</literal>.
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term><replaceable>START</replaceable>, <replaceable>END</replaceable></term>
+      <listitem>
+       <para>
+        Define the range of IP addresses to use for the subnet by defining a
+        start and end address. Make sure to exclude addresses that are already
+        in use, such as the address used by the &xcat; server itself.
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+   </step>
+  </procedure>
+ </sect2>
+</sect1>
+</appendix>

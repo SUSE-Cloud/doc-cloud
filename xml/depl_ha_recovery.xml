@@ -24,9 +24,9 @@
   controll node clusters (bsc#966643) vs. compute node clusters (bsc#966641), an additional
  structure level may be needed in the future -->
  <para>If one node in your cluster refuses to rejoin the cluster, it is most
-  likely that the node has not been shut down cleanly. This can either be due to
-  manual intervention or because the node has been fenced (shut down) by the
-  &stonith; mechanism of the cluster, to protect the integrity of data in
+  likely that the node has not been shut down cleanly. This can either happen
+  because of manual intervention or because the node has been fenced (shut down) by the
+  &stonith; mechanism of the cluster. Fencing is used to protect the integrity of data in
   case of a split-brain scenario.</para>
  <para>The following sections refer to problems with the &contrnode;s
   cluster and show how to recover your degraded cluster to full strength. This
@@ -48,7 +48,7 @@
   </step>
   <step>
    <!--XREF: Cleaning Up Resources-->
-   <para>In addition, you may need to reset resource failcounts in order to
+   <para>In addition, you may need to reset resource failcounts to
     allow resources to start on the node you have re-added to the cluster. See
      <xref linkend="sec.deploy.ha_recovery.cleanup"/>.</para>
   </step>
@@ -59,10 +59,8 @@
   </step>
  </procedure>
  <para>
-  <remark>taroth 2016-02-22: todo: if possible, turn the symptoms section into a
-   generic section that is true for both &contrnode;s and &compnode;s -
-   but let's wait for the outcome of bsc#966641</remark> For a list of possible
-  symptoms that help you to diagnose a degraded cluster, see <xref
+   For a list of possible symptoms that help you to diagnose a
+   degraded cluster, see <xref
    linkend="sec.deploy.ha_recovery.contr.symptoms"/>.</para>
 
  <sect1 xml:id="sec.deploy.ha_recovery.contr.symptoms">
@@ -76,7 +74,7 @@
    </listitem>
    <listitem>
     <para>One of the &contrnode; in the &crow; &wi; is in status
-      <literal>Problematic</literal>, signified by a red dot next to the
+      <literal>Problem</literal>, signified by a red dot next to the
      node.</para>
    </listitem>
    <listitem>
@@ -87,7 +85,7 @@
     <para>The SSH connection to one of the &contrnode;s freezes.</para>
    </listitem>
    <listitem>
-    <para>The &ostack; services stop responding for a short while.</para>
+    <para>The &ostack; components stop responding for a short while.</para>
    </listitem>
   </itemizedlist>
  </sect1>
@@ -102,20 +100,27 @@
     <para>Connect to the node via SSH from the &admserv;.</para>
    </step>
    <step>
-    <para>If you have a 2-node cluster, remove the block file that is created
-     on a node during start of the cluster service:</para>
+    <para>
+     If you have a 2-node cluster with the <xref
+     linkend="var.depl.ostack.pacemaker.corosync_fencing"/> option set
+     to <guimenu>Automatic</guimenu>, remove the block file that is created on a
+     node during start of the cluster service:
+    </para>
     <screen>&prompt.root;rm /var/spool/corosync/block_automatic_start</screen>
     <para>The block file avoids &stonith; deathmatches for 2-node clusters
      (where each node kills the other one, resulting in both nodes rebooting all
      the time). When &corosync; shuts down cleanly, the block file is automatically removed.
      Otherwise the block file is still present and prevents the cluster service
      from (re-)starting on that node.</para>
-   </step>
-   <step>
-    <para>Start the cluster service on the cluster node:</para>
+    <para>
+     Alternatively, bypass the block file by starting the cluster service on the
+     cluster node before reconnecting the node to Crowbar in the next section
+     (see <xref
+     linkend="sec.deploy.ha_recovery.contr.crow.chef"/>):
+    </para>
     <screen>&prompt.root;<command>systemctl</command> start pacemaker</screen>
-   </step>
-  </procedure>
+    </step>
+   </procedure>
  </sect1>
 
  <sect1 xml:id="sec.deploy.ha_recovery.contr.crow.chef">
@@ -130,53 +135,46 @@
    </step>
    <step>
     <para>Re-register the node with &crow; by executing:</para>
-    <screen>&prompt.root;service crowbar_join start</screen>
+    <screen>&prompt.root;<command>systemctl</command> start crowbar_join</screen>
    </step>
-   <!--
-   taroth 2016-02-24: aspiers, is the following still (or also?) needed?
-   copied from depl_nodex.xml, l.625-->
-   <!--
-    <listitem>
-    <para>
-     On the &admserv;, run the following command to update the status
-     of the node specified with <replaceable>NODE</replaceable>.
-    </para>
-    <screen>crowbar crowbar transition <replaceable>NODE</replaceable> ready</screen>
-   </listitem>
-   -->
    <step>
-    <para>Log in to one of the <emphasis>other</emphasis>
+    <para>Log in to each of the <emphasis>other</emphasis>
      &contrnode;s.</para>
    </step>
    <step>
     <para>Trigger a &chef; run:</para>
-    <screen>&prompt.root;chef-client</screen>
+    <screen>&prompt.root;<command>chef-client</command></screen>
    </step>
   </procedure>
  </sect1>
 
  <sect1 xml:id="sec.deploy.ha_recovery.cleanup">
   <title>Cleaning Up Resources</title>
-  <para> A resource will be automatically restarted if it fails, but each
+  <para>
+   A resource will be automatically restarted if it fails, but each
    failure increases the resource's failcount. If a
-    <literal>migration-threshold</literal> has been set for the resource, the
-   node will no longer run the resource when the number of failures reaches the
-   migration threshold. To allow the resource to start again on the node, reset
-   the resources failcount by cleaning up the resource manually. You can clean
+   <literal>migration-threshold</literal> has been set for the resource,
+   the node will no longer run the resource when the number of failures
+   reaches the migration threshold.
+   <remark>aspiers 2016-03-18: todo: actually, this is
+   not true until https://trello.com/c/0wmqMP52 is completed</remark>
+   To allow the resource to start again on the node, reset
+   the resource's failcount by cleaning up the resource manually. You can clean
    up individual resources by using the &hawk; &wi; or all in one go as
-   described below:</para>
+   described below:
+  </para>
   <procedure>
    <step>
-    <para>
-     <remark>taroth 2016-02-19: aspiers, does it need to be the node that I have
-      re-added before? or can it be any of the controll nodes belonging to the
-      cluster?</remark> Log in to one of the cluster nodes.</para>
+     <para>
+      Log in to any one of the cluster nodes which is currently online
+      in the cluster.  (You can check this via <command>crm_mon</command>.)
+     </para>
    </step>
    <step>
     <para>Clean-up all stopped resources with the following command:</para>
     <screen>&prompt.root;crm_resource -o | \
   awk '/\tStopped |Timed Out/ { print $1 }' | \
-  xargs -n1 crm resource cleanup</screen>
+  xargs -r -n1 crm resource cleanup</screen>
    </step>
   </procedure>
  </sect1>
@@ -221,46 +219,49 @@
     <para>
      Put the cluster in maintenance mode:
     </para>
-    <screen>crm configure property maintenance-mode=true</screen>
+    <screen>&prompt.root;crm configure property maintenance-mode=true</screen>
    </step>
    <step>
     <para>
-     If the chosen node is in primary role, stop all services using this
-     ressource and switch it to secondary role. Skip thios step, if the
-     already is in secondary role.
-    </para>
-    <screen>drbdadm secondary <replaceable>RESSOURCE</replaceable></screen>
+     Check if the chose node is in primary role:</para>
+    <screen>&prompt.root;systemctl status drbd</screen>
+   </step>
+   <step>
     <para>
-     To check if a node is in primary role, see the output of
-     <command>systemctl status drbd</command>.
+     If it is in primary role, stop all services using this
+     resource and switch it to secondary role. If the node
+     already is in secondary role, skip this step.
+    </para>
+    <screen>&prompt.root;drbdadm secondary <replaceable>RESOURCE</replaceable></screen>
+   </step>
+   <step>
+    <para>
+     Check if a node is in state <literal>WFConnection</literal> by looking at
+     the output of <command>systemctl status drbd</command>.
     </para>
    </step>
    <step>
     <para>
      If the node is in state <literal>WFConnection</literal> disconnect
-     the ressource:
+     the resource:
     </para>
-    <screen>drbdadm disconnect <replaceable>RESSOURCE</replaceable></screen>
-    <para>
-     To check if a node is in state <literal>WFConnection</literal>,
-     see the output of <command>systemctl status drbd</command>.
-    </para>
+    <screen>&prompt.root;drbdadm disconnect <replaceable>RESOURCE</replaceable></screen>
    </step>
    <step>
     <para>
      Discard all modifications on the chosen node. This step is
      irreversible, the modifications on the chosen node will be lost!
     </para>
-    <screen>drbdadm -- --discard-my-data connect <replaceable>RESSOURCE</replaceable></screen>
+    <screen>&prompt.root;drbdadm -- --discard-my-data connect <replaceable>RESOURCE</replaceable></screen>
    </step>
    <step>
     <para>
      If the other (healthy) node is in state
      <literal>WFConnection</literal>, synchronization to the chosen node
      will start automatically. If not, reconnect the healthy node to start
-     the synchronization.
+     the synchronization:
     </para>
-    <screen>drbdadm connect <replaceable>RESSOURCE</replaceable></screen>
+    <screen>&prompt.root;drbdadm connect <replaceable>RESOURCE</replaceable></screen>
     <para>
      During the synchronization all data modifications on the chosen node
      will be overwritten with the data from the healthy node.
@@ -268,10 +269,9 @@
    </step>
    <step>
     <para>
-     Reset the cluster to normal mode when the synchronization has
-     finished:
+     When the synchronization has finished, reset the cluster to normal mode:
     </para>
-    <screen>crm configure property maintenance-mode=false</screen>
+    <screen>&prompt.root;crm configure property maintenance-mode=false</screen>
    </step>
   </procedure>
  </sect1>

@@ -19,7 +19,7 @@
 </info>
 <para/>
  <sect1 xml:id="sec.depl.maintenance.updates">
-  <title>Keeping the Nodes Up-to-date</title>
+  <title>Keeping the Nodes Up-To-Date</title>
 
   <para>
    Keeping the nodes in &productname; up-to-date requires an appropriate
@@ -132,10 +132,11 @@
   <title>Service Order on &cloud; Start-up or Shutdown</title>
   <para>
    In case you need to restart your complete &cloud; (after a complete shut
-   down or a power outage), the services need to started in the following
+   down or a power outage), the nodes and services need to be started in the following
    order:
   </para>
   <orderedlist>
+   <title>Service Order on Start-up</title>
    <listitem>
     <para>
      &contrnode;/Cluster on which the Database is deployed
@@ -150,6 +151,43 @@
     <para>
      &contrnode;/Cluster on which &o_ident; is deployed
     </para>
+   </listitem>
+   <listitem>
+    <para>For &o_objstore;:</para>
+    <orderedlist>
+     <listitem>
+      <para>
+       &stornode; on which the <literal>swift-storage</literal> role is deployed
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       &stornode; on which the <literal>swift-proxy</literal> role is deployed
+      </para>
+     </listitem>
+    </orderedlist>
+   </listitem>
+   <listitem>
+    <para>For &ceph;:</para>
+    <orderedlist>
+     <listitem>
+      <para>
+       &stornode; on which the <literal>ceph-mon</literal> role is deployed
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       &stornode; on which the <literal>ceph-osd</literal> role is deployed
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       &stornode; on which the <literal>ceph-radosgw</literal> and
+       <literal>ceph-mds</literal> roles are deployed (if deployed on different
+       nodes: in either order)
+      </para>
+     </listitem>
+    </orderedlist>
    </listitem>
    <listitem>
     <para>
@@ -181,15 +219,16 @@
   <para>
    If multiple roles are deployed on a single &contrnode;, the services are
    automatically started in the correct order on that node. If you have more
-   than one node on which multiple roles are installed, make sure they are
-   started in a way that the order listed above is met as best as possible.
+   than one node with multiple roles, make sure they are
+   started as closely as possible to the order listed above.
   </para>
   <para>
-   If you need to shut down &cloud;, the services need to be terminated in
+   If you need to shut down &cloud;, the nodes and services need to be terminated in
    reverse order than on start-up:
   </para>
 
   <orderedlist>
+   <title>Service Order on Shut-down</title>
    <listitem>
     <para>
      &compnode;s
@@ -219,6 +258,43 @@
     </para>
    </listitem>
    <listitem>
+    <para>For &o_objstore;:</para>
+    <orderedlist>
+     <listitem>
+      <para>
+       &stornode; on which the <literal>swift-proxy</literal> role is deployed
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       &stornode; on which the <literal>swift-storage</literal> role is deployed
+      </para>
+     </listitem>
+    </orderedlist>
+   </listitem>
+   <listitem>
+    <para>For &ceph;:</para>
+    <orderedlist>
+     <listitem>
+      <para>
+       &stornode; on which the <literal>ceph-radosgw</literal> and
+       <literal>ceph-mds</literal> roles are deployed (if deployed on different
+       nodes: in either order)
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       &stornode; on which the <literal>ceph-osd</literal> role is deployed
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       &stornode; on which the <literal>ceph-mon</literal> role is deployed
+      </para>
+     </listitem>
+    </orderedlist>
+   </listitem>
+   <listitem>
     <para>
      &contrnode;/Cluster on which &o_ident; is deployed
     </para>
@@ -237,319 +313,980 @@
  </sect1>
 
  <sect1 xml:id="sec.depl.maintenance.upgrade">
-  <title>Upgrading from &productname; 5 to &productname; 6</title>
+  <title>Upgrading from &productname; 6 to &productname; 7</title>
 
   <para>
-   Upgrading from &productname; 5 to &productname; 6 is done via a &wi;
-   guiding you through the process. The process consists of four phases:
+   Upgrading from &productname; 6 to &productname; 7 can either be done via a
+   &wi; or from the command line. Starting with &productname; 7, a
+   <quote>non-disruptive</quote> update is supported, when the requirements
+   listed at <xref linkend="list.depl.maintenance.upgrade.non-disruptive"/> are
+   met. The non-disruptive upgrade guarantees a fully functional &cloud;
+   operation during the upgrade procedure. The only feature that is not
+   supported during the non-disruptive upgrade procedure is the deployment of
+   additional nodes.
   </para>
-  <orderedlist>
-   <listitem>
+  <para>
+   If the requirements for a non-disruptive upgarde are not met, the
+   upgrade procedure will be done in normal mode. When
+   live-migration is set up, &vmguest;s will be migrated to another node,
+   before the respective &compnode; will get updated to ensure continuous
+   operation. However, you will not be able to access &vmguest;s during the
+   upgrade of the &contrnode;s.
+ </para>
+
+
+  <important>
+    <title>STONITH and &admserv;</title>
     <para>
-     Saving the configuration data of your &productname; 5 installation in a
-     data dump.
-    </para>
-   </listitem>
-   <listitem>
-    <para>
-     Re-Installing and setting up the &admserv; with &productname; 6.
-    </para>
-   </listitem>
-   <listitem>
-    <para>
-     Upgrading the all nodes to &cloudos; and &productname; 6.
-    </para>
-   </listitem>
-   <listitem>
-    <para>
-     Re-applying the &barcl;s.
-    </para>
-   </listitem>
-  </orderedlist>
+      Make sure that the STONITH mechanism in your cloud does not rely on the state of the
+      &admserv; (for example, no SBD devices located there, and IPMI is not
+      using the network connection relaying on the &admserv;). Otherwise, this
+      may affect the clusters when the &admserv; is rebooted during the
+      upgrade procedure.
+     </para>
+    </important>
 
   <sect2 xml:id="sec.depl.maintenance.upgrade.require">
    <title>Requirements</title>
    <para>
-    Before you start upgrading &productname;, make sure the following
-    requirements are met:
+    When starting the upgrade process, several checks are performed to
+    determine whether the &cloud; is in an upgradeable state and whether a
+    non-disruptive update would be supported:
    </para>
-   <itemizedlist mark="bullet" spacing="normal">
+   <itemizedlist>
+    <title>General Upgrade Requirements</title>
     <listitem>
      <para>
-      The &admserv; needs to have the latest &productname; 5 updates
-      installed. One of these updates will add the new upgrade routine to the
-      &crow; &wi;.
+      All nodes need to have the latest &productname; 6 updates
+      <emphasis>and</emphasis> the latest &slsa; 12 SP1 updates installed. If
+      this is not the case, refer to <xref
+      linkend="sec.depl.inst.nodes.post.updater"/> for instructions on how to
+      update.
      </para>
     </listitem>
     <listitem>
      <para>
-      All other nodes need to have the latest &productname; 5 updates
-      <emphasis>and</emphasis> the latest &slsa; updates. If this is not the
-      case, refer to <xref linkend="sec.depl.inst.nodes.post.updater"/> for
-      instructions.
+      All allocated nodes need to be turned on and have to be in state
+      <quote>ready</quote>.
      </para>
     </listitem>
     <listitem>
      <para>
-      All allocated nodes need to be turned on.
+      All &barcl; proposals need to have been successfully deployed. In case a
+      proposal is in state <quote>failed</quote>, the upgrade procedure will
+      refuse to start. Fix the issue or&mdash;if possible&mdash;remove the
+      proposal.
      </para>
     </listitem>
     <listitem>
      <para>
-      During the upgrade of the &contrnode;s and the &compnode;s the
-      &vmguest;s need to be shut down. However it is not necessary
-      to do so at the beginning of the upgrade procedure. This step can be
-      postponed until after the &admserv; has been upgraded to &productname; 6
-      to keep the downtime as short as possible.
+      In case the pacemaker &barcl; is deployed, all clusters need to be in a
+      healthy state.
      </para>
-     <important>
-      <title>
-       Instance Running on HyperV Nodes Will Not <quote>Survive</quote> an
-       Upgrade
-      </title>
-      <para>
-       As of &productname; 6, HyperV Nodes need to be re-installed after the
-       upgrade procedure. This re-installation will overwrite the instance's
-       data and therefore they will be lost. &kvm;, VMware and &xen;
-       instances are not affected.
-      </para>
-     </important>
-     <tip>
-      <title>Back Up the &admserv;</title>
-      <para>
-       It is strongly recommended to create a backup of the &admserv; before
-       starting the upgrade procedure, to be able to restore the server in
-       case the upgrade fails. Refer to the chapter <link
-       xlink:href="&suse-onlinedoc;/suse-cloud-5/book_cloud_deploy/data/sec_depl_maintenance_backup_admin.html">Backing
-       Up and Restoring the Administration Server</link> in the &suse; Cloud 5
-       documentation for instructions.
-      </para>
-     </tip>
+    </listitem>
+    <listitem>
+     <para>
+      The following repositories need to be available on a server that is
+      accessible from the &admserv;. The HA repositories are only needed if you
+      have an &hasetup;. It is recommended to use the same server
+      that also hosts the respective repositories of the current version.
+     </para>
+     <simplelist>
+      <member><literal>&cloud_repo;-Pool</literal></member>
+      <member><literal>&cloud_repo;-Update</literal></member>
+      <member><literal>&sle_repo;-Pool</literal></member>
+      <member><literal>&sle_repo;-Update</literal></member>
+      <member>
+       <literal>&sleha_repo;-Pool</literal> (for &hasetup;s only)
+      </member>
+      <member>
+       <literal>&sleha_repo;-Update</literal> (for &hasetup;s only)
+      </member>
+     </simplelist>
+     <para>
+      Do not add these repositories to the &cloud; repository configuration,
+      yet. This needs to be done during the upgrade procedure.
+     </para>
+     <para>
+      If you have deployed &ceph; (&ses; 2.1) you also need to make the
+      &ses; 4 repositories available:
+     </para>
+     <simplelist>
+      <member><literal>&ses_repo;-Pool</literal></member>
+      <member><literal>&ses_repo;-Update</literal></member>
+     </simplelist>
+    </listitem>
+    <listitem>
+     <para>
+      Hybrid authentication with &o_ident; is not supported during upgrade. If
+      you have configured this authentication method (see <citetitle>Using
+      Hybrid Authentication</citetitle> in the &productname; 6 Deplyoment
+      Guide), you need to revert this setting prior to starting the upgrade. To
+      do so, open the &o_ident; &barcl; <guimenu>Attribute</guimenu>
+      configuration in <guimenu>Raw</guimenu> mode. Set the identity and
+      assignment drivers as follows:
+     </para>
+     <screen>  "identity": {
+    "driver": "sql"
+  },
+  "assignment": {
+    "driver": "sql"
+  },</screen>
+     <para>
+      After the upgrade has finished, re-enable hybrid authentication as
+      described in <xref linkend="sec.depl.ostack.keystone.ldap.hybrid"/>.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      &productname; 7 comes with a new version of &o_objstore;. Replica
+      handling has changed with this version&mdash;the number of replicas
+      cannot be higher than the number of available disks. Check the
+      <guimenu>Replica</guimenu> setting in the &o_objstore; &barcl; prior to
+      starting the upgrade. If it is higher than the number of available disks,
+      adjust it to match the number of disks and redeploy the &barcl;.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+       Note that a non-disruptive upgrade is not supported if the
+       &o_blockstore; has been deployed with the <literal>raw devices</literal>
+       or <literal>local file</literal> back-end. In this case, you have to
+       perform a regular upgrade, or change the &o_blockstore; back-end for a
+       non-disruptive upgrade.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      If you have deployed &ceph; (&ses;) you need to upgrade all &ceph; nodes
+      from version 2.1 to version 4 prior to starting the &productname;
+      upgrade. For details refer to <link
+      xlink:href="https://www.suse.com/documentation/ses-4/book_storage_admin/data/ceph_upgrade_general.html"/>.
+     </para>
+     <orderedlist>
+      <listitem>
+       <para>
+        Log in to the &crow; &wi; for &cloud; and choose <menuchoice>
+        <guimenu>Utilities</guimenu> <guimenu>Prepare Ceph Upgrade</guimenu>
+        <guimenu>Prepare for the Upgrade</guimenu></menuchoice>.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        The following steps need to be performed on each &ceph; node:
+       </para>
+       <orderedlist numeration="loweralpha">
+        <listitem>
+         <para>
+          Upgrade the current &slsa; SP1 to version 12 SP2. Refer to <link
+          xlink:href="https://www.suse.com/documentation/sles-12/book_sle_deployment/data/cha_update_spmigration.html"/>
+          for more information on supported upgrade methods. Either use the
+          &yast; Online Migration tool or <command>zypper migrate</command>. Do
+          <emphasis>not</emphasis> use the method using <command>zypper
+          dup</command> (<citetitle>Migrating with Plain Zypper</citetitle>).
+         </para>
+        </listitem>
+        <listitem>
+         <para>
+          Use <menuchoice> <guimenu>&yast;</guimenu>
+          <guimenu>Software</guimenu>
+          <guimenu>Software Repositories</guimenu></menuchoice> or the command
+          line too <command>zypper mr</command> to replace the
+          <literal>SUSE-Enterprise-Storage-2.1-Pool</literal> and
+          <literal>SUSE-Enterprise-Storage-2.1-Update</literal> repositories
+          with the respective repositories for version 4.
+         </para>
+        </listitem>
+        <listitem>
+         <para>
+          Install the upgrade helper package:
+         </para>
+         <screen>&prompt.root; zypper in ses-upgrade-helper</screen>
+        </listitem>
+        <listitem>
+         <para>
+          Run the upgrade script:
+         </para>
+         <screen>&prompt.root; upgrade-ses.sh</screen>
+         <para>
+          The script does a distribution upgrade of the node. After a reboot,
+          the node comes up with &cloudos; and &ses; 4 running.
+         </para>
+        </listitem>
+       </orderedlist>
+      </listitem>
+      <listitem>
+       <para>
+        Continue with step 8 on <link
+        xlink:href="https://www.suse.com/documentation/ses-4/book_storage_admin/data/ceph_upgrade_to4.html"/>.
+       </para>
+      </listitem>
+     </orderedlist>
+    </listitem>
+   </itemizedlist>
+
+   <itemizedlist xml:id="list.depl.maintenance.upgrade.non-disruptive">
+    <title>Non-Disruptive Upgrade Requirements</title>
+    <listitem>
+     <para>
+      All &contrnode;s need to be set up highly available.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Live-migration support needs to be configured and enabled for the
+      &compnode;s. The amount of free resources (CPU and RAM) on the
+      &compnode;s needs to be sufficient to evacuate the nodes one by one.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+       In case of a non-disruptive upgrade, &o_img; must be configured as a
+       shared storage if the <guimenu>Default Storage
+       Store</guimenu> value in the &o_img; is set to <literal>File</literal>.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+       For a non-disruptive upgrade, only KVM-based &compnode;s with
+       the <literal>nova-computer-kvm</literal> role are allowed in &productname; 6.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+       If your &productname; 6 setup is using LBaaS v1, you need to
+       switch to LBaaS v2 manually. To do this, switch to the
+       <systemitem>Raw</systemitem> view in the &o_netw; &barcl; and set the
+       <systemitem>use_lbaasv2</systemitem> parameter to
+       <literal>true</literal>. You must also re-create all objects
+       manually. This includes load balancers, pools, and health monitors. Note that switching
+       to LBaaS v2 is not required if your &productname; 6 setup is configured for LBaaS v1 but is not using it actively.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+       Non-disruptive upgrade is limited to the following cluster
+       configurations:
+     </para>
+       <itemizedlist>
+       <listitem>
+         <para>
+           Single cluster that has all supported controller roles on it
+         </para>
+       </listitem>
+       <listitem>
+         <para>
+          Two clusters where one only has
+          <systemitem>neutron-network</systemitem> and the other one the rest
+          of the controller roles.
+         </para>
+       </listitem>
+       <listitem>
+         <para>
+          Two clusters where one only has
+          <systemitem>neutron-server</systemitem> plus
+          <systemitem>neutron-network</systemitem> and the other one the rest
+          of the controller roles.
+         </para>
+       </listitem>
+       <listitem>
+         <para>
+           Two clusters, where one cluster runs the database and RabbitMQ
+         </para>
+       </listitem>
+       <listitem>
+         <para>
+           Three clusters, where one cluster runs database and RabbitMQ,
+           another cluster runs APIs, and the third cluster has the
+           <systemitem>neutron-network</systemitem> role.
+         </para>
+       </listitem>
+       </itemizedlist>
+       <para>
+       If your cluster configuration is not supported by the non-disruptive
+       upgrade procedure, you can still perform a normal upgrade.
+     </para>
     </listitem>
    </itemizedlist>
   </sect2>
-  <sect2 xml:id="sec.depl.maintenance.upgrade.procedure">
-   <title>The Upgrade Procedure</title>
-   <para>
-    To start the upgrade procedure, proceed as follows:
-   </para>
 
-   <procedure>
-    <title>Upgrade Part 1: Create the Upgrade Data</title>
-    <step>
+  <sect2 xml:id="sec.depl.maintenance.upgrade.ui">
+   <title>Upgrading Using the Web Interface</title>
+   <para>
+    The &wi; features a wizard that guides you through the upgrade
+    procedure.
+   </para>
+   <note>
+     <title>Canceling Upgrade</title>
      <para>
-      Open a browser and point it to the &crow; &wi;, for example
-      http://192.168.124.10/. Log in as user crowbar. The password is
-      <literal>crowbar</literal>, if you have not changed the default.
-     </para>
-    </step>
-    <step>
-     <para>
-      Open <menuchoice> <guimenu>Utilities</guimenu> <guimenu>Upgrade to Cloud
-      6</guimenu> </menuchoice>.
-     </para>
-    </step>
-    <step>
-     <para>
-      Follow the instructions in the &wi; to create and save the upgrade
-      data. Part 1 of the upgrade procedure is finished when you have saved
-      the data.
-     </para>
-     <important>
-      <title>Location for Saving the Upgrade Data</title>
-      <para>
-       Make sure to save the upgrade data to a location that can be accessed
-       from the &admserv; after having re-installed it. Do not save it on the
-       &admserv; itself, since it might get overwritten when re-installing the
-       machine.
+       You can cancel the upgrade process by clicking <guimenu>Cancel
+    Upgrade</guimenu>. Note that the upgrade operation can be canceled
+    only before the &admserv; upgrade is started. When the upgrade has been
+    canceled, the nodes return to the ready state. However any user modifications must be undone manually. This includes reverting repository configuration.
       </para>
-     </important>
+     </note>
+   <procedure>
+    <step>
+     <para>
+      To start the upgrade procedure, open the &crow; &wi; on the &admserv; and choose <menuchoice>
+      <guimenu>Utilities</guimenu> <guimenu>Upgrade</guimenu>
+      </menuchoice>. Alternatively, point the browser directly to the upgrade
+      wizard on the &admserv;, for example
+      <literal>http://192.168.124.10/upgrade/</literal>.
+     </para>
+     <informalfigure>
+      <mediaobject>
+       <imageobject role="fo">
+        <imagedata fileref="depl_upgrade_initial.png" width="100%" format="PNG"/>
+       </imageobject>
+       <imageobject role="html">
+        <imagedata fileref="depl_upgrade_initial.png" width="100%" format="PNG"/>
+       </imageobject>
+      </mediaobject>
+     </informalfigure>
+    </step>
+    <step>
+     <para>
+      Perform the preliminary checks to determine whether the upgrade
+      requirements are met by clicking <guimenu>Check</guimenu> in
+      <guimenu>Step 1: Preliminary Checks</guimenu>.
+     </para>
+     <para>
+      The &wi; displays the progress of the checks. Make sure all checks are
+      passed (you should see a green marker next to each check). If errors
+      occur, fix them and run
+      the <command>Check</command> again. Do not proceed before all checks
+      are passed.
+     </para>
+    </step>
+    <step>
+     <para>
+      When all checks in the previous step have passed, <guimenu>Step 2:
+      Upgrade Mode</guimenu> shows the result of the upgrade analysis. You are
+      informed about whether the upgrade procedure will continue in
+      non-disruptive or in normal mode.
+     </para>
+    </step>
+    <step>
+     <para>
+      To start the upgrade process, click <guimenu>Begin Upgrade</guimenu> in
+      <guimenu>Step 3: Begin Upgrade</guimenu>.
+     </para>
+    </step>
+    <step>
+     <para>
+      While the upgrade of the &admserv; is prepared,
+      the upgrade wizard prompts you to
+      <guimenu>Download the Backup of the &admserv;</guimenu>. Do this, and move
+      the backup to a safe place. In case something goes wrong during the
+      upgrade procedure of the &admserv;, you can restore the original state
+      from this backup using the <command>crowbarctl backup restore
+      <replaceable>NAME</replaceable></command> command.
+     </para>
+     <informalfigure>
+      <mediaobject>
+       <imageobject role="fo">
+        <imagedata fileref="depl_upgrade_backup.png" width="100%" format="PNG"/>
+       </imageobject>
+       <imageobject role="html">
+        <imagedata fileref="depl_upgrade_backup.png" width="100%" format="PNG"/>
+       </imageobject>
+      </mediaobject>
+     </informalfigure>
+    </step>
+    <step>
+      <para>
+        In the next step, check whether the
+        repositories required for upgrading the &admserv; are available and updated. To do this, click
+        <guimenu>Check</guimenu>. If the checks fail, add the software
+        repositories as described in <xref
+        linkend="cha.depl.repo_conf" /> of
+        the Deployment Guide. Run the checks again, and click <guimenu>Next</guimenu>.
+      </para>
+      <informalfigure>
+      <mediaobject>
+       <imageobject role="fo">
+        <imagedata fileref="depl_upgrade_repos.png" width="100%" format="PNG"/>
+       </imageobject>
+       <imageobject role="html">
+        <imagedata fileref="depl_upgrade_repos.png" width="100%" format="PNG"/>
+       </imageobject>
+      </mediaobject>
+     </informalfigure>
+    </step>
+    <step>
+      <para>
+        Click <guimenu>Upgrade Administration Server</guimenu> to upgrade and
+        reboot the admin node. Note that this operation may take a while. When
+        the &admserv; has been updated, click
+        <guimenu>Next</guimenu>.
+      </para>
+      <informalfigure>
+      <mediaobject>
+       <imageobject role="fo">
+        <imagedata fileref="depl_upgrade_admserv.png" width="100%" format="PNG"/>
+       </imageobject>
+       <imageobject role="html">
+        <imagedata fileref="depl_upgrade_admserv.png" width="100%" format="PNG"/>
+       </imageobject>
+      </mediaobject>
+     </informalfigure>
+    </step>
+    <step>
+      <para>
+        Create a new database on the &admserv; by specifying the desired
+        username and password. Click then <guimenu>Create
+        Database</guimenu>. If you choose to host the database on a different host, create the database as described in Step
+        7 of <xref linkend="sec.depl.maintenance.upgrade.cmdl" />. Specify then the required database connection info in the <guimenu>Connect
+        to Database</guimenu> section of the upgrade wizard.
+      </para>
+      <informalfigure>
+      <mediaobject>
+       <imageobject role="fo">
+        <imagedata fileref="depl_upgrade_db.png" width="100%" format="PNG"/>
+       </imageobject>
+       <imageobject role="html">
+        <imagedata fileref="depl_upgrade_db.png" width="100%" format="PNG"/>
+       </imageobject>
+      </mediaobject>
+     </informalfigure>
+    </step>
+
+    <step>
+      <para>
+        In the next step, check whether the
+        repositories required for upgrading all nodes are available and updated. To do this click
+        <guimenu>Check</guimenu>. If the checks fail, add the software
+        repositories as described in <xref
+        linkend="cha.depl.repo_conf" /> of
+        the Deployment Guide. Run the checks again, and click
+        <guimenu>Next</guimenu>.
+        </para>
+        <informalfigure>
+      <mediaobject>
+       <imageobject role="fo">
+        <imagedata fileref="depl_upgrade_node_repos.png" width="100%" format="PNG"/>
+       </imageobject>
+       <imageobject role="html">
+        <imagedata fileref="depl_upgrade_node_repos.png" width="100%" format="PNG"/>
+       </imageobject>
+      </mediaobject>
+     </informalfigure>
+    </step>
+
+    <step>
+      <para>
+        Next step is to stop the &ostack; services. Before you proceed, make
+        sure that no changes are made to your cloud during and after stopping
+        the services. Keep in mind that &ostack; API will not be
+        available until the upgrade process is completed. When you are ready,
+        click <guimenu>Next</guimenu>, wait till the services are stopped, and
+        click <guimenu>Next</guimenu>.
+      </para>
+      <informalfigure>
+      <mediaobject>
+       <imageobject role="fo">
+        <imagedata fileref="depl_upgrade_stopservices.png" width="100%" format="PNG"/>
+       </imageobject>
+       <imageobject role="html">
+        <imagedata fileref="depl_upgrade_stopservices.png" width="100%" format="PNG"/>
+       </imageobject>
+      </mediaobject>
+     </informalfigure>
+    </step>
+
+    <step>
+      <para>
+        Before upgrading the nodes, the wizard prompts you to back up the
+        OpenStack PostgreSQL database. The database backup will be stored on
+        the Administration Server, and it can be used to restore the database in
+        case something goes wrong during the upgrade. To back up the database,
+        click <guimenu>Create Backup</guimenu>. When the backup operation is
+        finished, click <guimenu>Next</guimenu>.
+      </para>
+      <informalfigure>
+      <mediaobject>
+       <imageobject role="fo">
+        <imagedata fileref="depl_upgrade_backupdb.png" width="100%" format="PNG"/>
+       </imageobject>
+       <imageobject role="html">
+        <imagedata fileref="depl_upgrade_backupdb.png" width="100%" format="PNG"/>
+       </imageobject>
+      </mediaobject>
+     </informalfigure>
+    </step>
+
+    <step>
+      <para>
+        The final step is upgrading the nodes. To
+        start the upgrade, click <guimenu>Upgrade Nodes</guimenu>. Depending on
+        the number of nodes, the upgrade process can take some time. When the
+        upgrade is completed, press <guimenu>Finish</guimenu> to return to the Dashboard.
+      </para>
+            <informalfigure>
+      <mediaobject>
+       <imageobject role="fo">
+        <imagedata fileref="depl_upgrade_nodes.png" width="100%" format="PNG"/>
+       </imageobject>
+       <imageobject role="html">
+        <imagedata fileref="depl_upgrade_nodes.png" width="100%" format="PNG"/>
+       </imageobject>
+      </mediaobject>
+     </informalfigure>
     </step>
    </procedure>
 
-   <para>
-    When the upgrade data has been saved, the &admserv; needs to be
-    re-installed with &productname; 6 on &cloudos;:
-   </para>
+   <note>
+    <title>Dealing with Errors</title>
+    <para>
+     If an error occurs during the upgrade process, the wizard displays a
+     message with a description of the error and a possible solution. After
+     fixing the error, re-run the step where the error occurred.
+    </para>
+   </note>
+  </sect2>
 
+  <sect2 xml:id="sec.depl.maintenance.upgrade.cmdl">
+   <title>Upgrading from the Command line</title>
+   <para>
+    The upgrade procedure on the command line is performed by using the program
+    <command>crowbarctl</command>. For general help, run <command>crowbarctl
+    help</command>. To get help on a certain subcommand, run
+    <command>crowbarctl <replaceable>COMMAND</replaceable> help</command>.
+   </para>
+   <para>
+    To review the process of the upgrade procedure, you may call
+    <command>crowbarctl upgrade status</command> at any time. Steps may have
+    three states: <literal>pending</literal>, <literal>running</literal>, and
+    <literal>passed</literal>.
+   </para>
    <procedure>
-    <title>Part 2: Re-Installing the &admserv;</title>
     <step>
      <para>
-      Check the network configuration of the &admserv; with the command
-      <command>ifconfig</command>. Note the MAC address and the IP address of
-      the interface named <literal>eth0</literal>. Also note the IP addresses
-      and ranges of all &cloud; networks. You can either find them in
-      <filename>/etc/crowbar/network.json</filename> or when checking the
-      <guimenu>Networks</guimenu> section in &yast; &crow; (see <xref
-      linkend="sec.depl.adm_inst.crowbar.network"/> for details).
+      To start the upgrade procedure from the command line, log in to the
+      &admserv; as &rootuser;.
      </para>
-     <warning>
-      <title>No Parallel Setup</title>
-      <para>
-       It is <emphasis>not</emphasis> possible to set up a second machine,
-       install &productname; 6 and then switch the old machine with the new
-       one. The MAC address of the network interfaces need to be the same
-       before and after the upgrade.
-      </para>
-     </warning>
     </step>
     <step>
      <para>
-      Reboot the &admserv; from a &cloudos; installation source and install
-      the operating system plus &productname; 6 as an add-on products. For
-      details, see <xref linkend="cha.depl.adm_inst"/>.
+      Perform the preliminary checks to determine whether the upgrade
+      requirements are met:
      </para>
+     <screen>&prompt.root;crowbarctl upgrade prechecks</screen>
+     <para>
+      The command's result is shown in a table. Make sure the column
+      <guimenu>Errors</guimenu> does not contain any entries. If not, make sure
+      to fix the errors and restart the <command>precheck</command> command
+      afterwards. Do not proceed before all checks are passed.
+     </para>
+<screen>&prompt.root;crowbarctl upgrade prechecks
++-------------------------------+--------+----------+--------+------+
+| Check ID                      | Passed | Required | Errors | Help |
++-------------------------------+--------+----------+--------+------+
+| network_checks                | true   | true     |        |      |
+| cloud_healthy                 | true   | true     |        |      |
+| maintenance_updates_installed | true   | true     |        |      |
+| compute_status                | true   | false    |        |      |
+| ha_configured                 | true   | false    |        |      |
+| clusters_healthy              | true   | true     |        |      |
++-------------------------------+--------+----------+--------+------+</screen>
+     <para>
+      Depending on the outcome of the checks, it is automatically decided
+      whether the upgrade procedure will continue in non-disruptive or in
+      normal mode.
+     </para>
+
      <tip>
-      <title>Deleting Unused Mirror Data</title>
+      <title>Forcing Normal Mode Upgrade</title>
       <para>
-       &productname; &productnumber; does not use any of the repositories that
-       were required for &productname; 5. In case you have mirrored
-       repositories to the &admserv; and <filename>/srv</filename> resides on
-       a separate partition, it is safe to format this partition to free space
-       for the new repositories.
+       The non-disruptive update will take longer than an upgrade in normal
+       mode, because it performs certain tasks in parallel which are done
+       sequentially during the non-disruptive upgrade. What's more,
+       live-migrating guests to other &compnode;s during the non-disruptive
+       upgrade, takes additional time.
+      </para>
+      <para>
+       Therefore, if a non-disruptive upgrade is not a requirement for you, you
+       may want to switch to the normal upgrade mode, even if your setup
+       supports the non-disruptive method. To force the normal upgrade mode,
+       run:
+      </para>
+      <screen>&prompt.root;crowbarctl upgrade mode normal</screen>
+      <para>
+       To query the current upgrade mode run:
+      </para>
+      <screen>&prompt.root;crowbarctl upgrade mode</screen>
+      <para>
+       To switch back to the non-disruptive mode run:
+      </para>
+      <screen>&prompt.root;crowbarctl upgrade mode non_disruptive</screen>
+      <para>
+       It is possible to call this command at any time during the upgrade
+       process until the <literal>services</literal> step is started. After
+       that point the upgrade mode can no longer be changed.
       </para>
      </tip>
     </step>
     <step>
      <para>
-      Optional: If you have installed a local &smt; server, configure it as
-      described in <xref linkend="app.deploy.smt.config"/>. Make
-      sure the repositories are set up and mirrored as described in <xref
-      linkend="app.deploy.smt.repos"/>.
+      Prepare the nodes by transitioning them into the <quote>upgrade</quote>
+      state and stopping the chef daemon:
      </para>
+     <screen>&prompt.root;crowbarctl upgrade prepare</screen>
+     <para>
+      Depending of the size of your &cloud; deployment, this step may take
+      some time. Use the command <command>crowbarctl upgrade status</command>
+      to monitor the status of the process named
+      <literal>steps.prepare.status</literal>. It needs to be in state
+      <literal>passed</literal> before you proceed:
+     </para>
+     <screen>&prompt.root;crowbarctl upgrade status
++--------------------------------+----------------+
+| Status                         | Value          |
++--------------------------------+----------------+
+| current_step                   | backup_crowbar |
+| current_substep                |                |
+| current_node                   |                |
+| remaining_nodes                |                |
+| upgraded_nodes                 |                |
+| crowbar_backup                 |                |
+| openstack_backup               |                |
+| steps.prechecks.status         | passed         |
+| steps.prepare.status           | passed         |
+| steps.backup_crowbar.status    | pending        |
+| steps.repocheck_crowbar.status | pending        |
+| steps.admin.status             | pending        |
+| steps.database.status          | pending        |
+| steps.repocheck_nodes.status   | pending        |
+| steps.services.status          | pending        |
+| steps.backup_openstack.status  | pending        |
+| steps.nodes.status             | pending        |
++--------------------------------+----------------+</screen>
     </step>
     <step>
      <para>
-      Make sure all required repositories are made available as described in
-      <xref linkend="cha.depl.repo_conf"/>.
+      Create a backup of the existing &admserv; installation. In case something
+      goes wrong during the upgrade procedure of the &admserv; you can restore
+      the original state from this backup with the command <command>crowbarctl
+      backup restore <replaceable>NAME</replaceable></command>
      </para>
+     <screen>&prompt.root;crowbarctl upgrade backup crowbar</screen>
+     <para>
+      To list all existing backups including the one you have just created, run
+      the following command:
+     </para>
+     <screen>&prompt.root;crowbarctl backup list
++----------------------------+--------------------------+--------+---------+
+| Name                       | Created                  | Size   | Version |
++----------------------------+--------------------------+--------+---------+
+| crowbar_upgrade_1486116507 | 2017-02-03T10:08:30.721Z | 209 KB | 3.0     |
++----------------------------+--------------------------+--------+---------+</screen>
     </step>
     <step>
      <para>
-      Configure the network of the &admserv; as described in <xref
-      linkend="sec.depl.adm_inst.network"/>. Make sure to use the exact same
-      settings as in the previous installation.
+      This step prepares the upgrade of the &admserv; by checking the
+      availability of the update and pool repositories for &productname;
+      &productnumber; and &cloudos;. Run the following command:
      </para>
+     <screen>&prompt.root;crowbarctl upgrade repocheck crowbar
++---------------------------------+--------------------------------+
+| Status                          | Value                          |
++---------------------------------+--------------------------------+
+| os.available                    | false                          |
+| os.repos                        | SLES12-SP2-Pool                |
+|                                 | SLES12-SP2-Updates             |
+| os.errors.x86_64.missing        | SLES12-SP2-Pool                |
+|                                 | SLES12-SP2-Updates             |
+| openstack.available             | false                          |
+| openstack.repos                 | SUSE-OpenStack-Cloud-7-Pool    |
+|                                 | SUSE-OpenStack-Cloud-7-Updates |
+| openstack.errors.x86_64.missing | SUSE-OpenStack-Cloud-7-Pool    |
+|                                 | SUSE-OpenStack-Cloud-7-Updates |
++---------------------------------+--------------------------------+</screen>
+     <para>
+      All four required repositories are reported as missing, because they have
+      not yet been added to the &crow; configuration. To add them to the
+      &admserv; proceed as follows.
+     </para>
+     <para>
+      Note that this step is for setting up the repositories for the &admserv;,
+      not for the nodes in &cloud; (this will be done in a subsequent step).
+     </para>
+     <substeps>
+      <step>
+       <para>
+        Start <command>yast repositories</command> and proceed with
+        <guimenu>Continue</guimenu>. Replace the repositories
+        <literal>SLES12-SP1-Pool</literal> and
+        <literal>SLES12-SP1-Updates</literal> with the respective SP2
+        repositories.
+       </para>
+       <para>
+        If you prefer to use zypper over &yast;, you may alternatively make the
+        change using <command>zypper mr</command>.
+       </para>
+       <!-- fs 2017-02-03: Does not seem possible to use this one
+       <para>
+        Note that if you have used the contents of the
+        <filename>/srv/tftpboot/suse-12.1/x86_64/install</filename> directory
+        as a source for the <literal>SLES12-SP1-Pool</literal>, you may also
+        use the same approach now. Create the directory
+        <filename>&tftp_dir;/install</filename> and mirror the contents from
+        the first &cloudos; installation medium to this directory. See <xref
+        linkend="sec.depl.adm_conf.repos.product"/> for instructions. Once
+        done, you can use the newly created directory as a source for
+        &sle_repo;.
+        </para>
+        -->
+      </step>
+      <step>
+       <para>
+        Next, replace the <literal>SUSE-OpenStack-Cloud-6</literal> update and
+        pool repositories with the respective &productname; &productnumber;
+        versions.
+       </para>
+       <!-- fs 2017-02-03: Does not seem possible to use this one
+       <para>
+        Note that if you have used the contents of the
+        <filename>/srv/tftpboot/suse-12.1/x86_64/install</filename> directory
+        as a source for the <literal>SLES12-SP1-Pool</literal>, you may also
+        use the same approach now. Create the directory
+        <filename>&tftp_dir;/repos/Cloud</filename> and mirror the contents
+        from the first &productname; &productnumber; installation medium to
+        this directory. See <xref linkend="sec.depl.adm_conf.repos.product"/>
+        for instructions. Once done, you can use the newly created directory as
+        a source for &sle_repo;.
+        </para>
+        -->
+      </step>
+      <step>
+       <para>
+        Check for other (custom) repositories. All &slsa; SP1 repositories need
+        to be replaced with the respective &slsa; SP2 version. In case no SP2
+        version exists, disable the repository&mdash;the respective packages
+        from that repository will be deleted during the upgrade.
+       </para>
+      </step>
+     </substeps>
+     <para>
+      Once the repository configuration on the &admserv; has been updated, run
+      the command to check the repositories again. If the configuration is
+      correct, the result should look like the following:
+     </para>
+     <screen>&prompt.root;crowbarctl upgrade repocheck crowbar
++---------------------+--------------------------------+
+| Status              | Value                          |
++---------------------+--------------------------------+
+| os.available        | true                           |
+| os.repos            | SLES12-SP2-Pool                |
+|                     | SLES12-SP2-Updates             |
+| openstack.available | true                           |
+| openstack.repos     | SUSE-OpenStack-Cloud-7-Pool    |
+|                     | SUSE-OpenStack-Cloud-7-Updates |
++---------------------+--------------------------------+</screen>
     </step>
     <step>
      <para>
-      Configure &productname; with &yast; Crowbar as described in <xref
-      linkend="sec.depl.adm_inst.crowbar"/>. Make sure to configure the exact
-      same network settings for &crow; as in the previous installation.
+      Now that the repositories are available, the &admserv; itself will be
+      upgraded. The update will run in the background using <command>zypper
+      dup</command>. Once all packages have been upgraded, the &admserv; will
+      be rebooted and you will be logged out. To start the upgrade run:
      </para>
+     <screen>&prompt.root;crowbarctl upgrade admin</screen>
     </step>
     <step>
      <para>
-      The &admserv; setup is finished as soon as you have finished the
-      configuration with &yast; &crow;. Do <emphasis>not</emphasis> start the
-      regular &inst_crow;!
+      Starting with &productname; 7, &crow; uses a &postgres; database to store
+      its data. With this step, the database is created on the
+      &admserv;. Alternatively a database on a remote host can be used.
      </para>
+     <para>
+      To create the database on the &admserv; proceed as follows:
+     </para>
+     <substeps>
+      <step>
+       <para>
+        Login to the &admserv;.
+       </para>
+      </step>
+      <step>
+       <para>
+        To create the database on the &admserv; with the default credentials
+        (<literal>crowbar</literal>/<literal>crowbar</literal>) for the
+        database, run
+       </para>
+       <screen>&prompt.root;crowbarctl upgrade database new </screen>
+       <para>
+        To use a different user name and password, run the following command
+        instead:
+       </para>
+       <screen>&prompt.root;crowbarctl upgrade database new \
+--db-username=<replaceable>USERNAME</replaceable> --db-password=<replaceable>PASSWORD</replaceable></screen>
+      </step>
+      <step>
+       <para>
+        To connect to an existing &postgres; database, use the following
+        command rather than creating a new database:
+       </para>
+    <screen>&prompt.root;crowbarctl upgrade database connect --db-username=<replaceable>USERNAME</replaceable> \
+--db-password=<replaceable>PASSWORD</replaceable> --database=<replaceable>DBNAME</replaceable> \
+--host=<replaceable>IP_or_FQDN</replaceable> --port=<replaceable>PORT</replaceable></screen>
+      </step>
+     </substeps>
     </step>
-   </procedure>
+    <step>
+     <para>
+      After the &admserv; has been successfully updated, the &contrnode;s and
+      &compnode;s will be upgraded. At first the availability of the
+      repositories used to provide packages for the &cloud; nodes is tested.
+     </para>
+     <para>
+      Note that the configuration for these repositories differs from the one
+      for the &admserv; that was already done in a previous step. In this step
+      the repository locations are made available to &crow; rather than to
+      libzypp on the &admserv;. To check the repository configuration run the
+      following command:
+     </para>
+     <screen>&prompt.root;crowbarctl upgrade repocheck nodes
++---------------------------------+--------------------------------+
+| Status                          | Value                          |
++---------------------------------+--------------------------------+
+| ha.available                    | false                          |
+| ha.repos                        | SLES12-SP2-HA-Pool             |
+|                                 | SLES12-SP2-HA-Updates          |
+| ha.errors.x86_64.missing        | SLES12-SP2-HA-Pool             |
+|                                 | SLES12-SP2-HA- Updates         |
+| os.available                    | false                          |
+| os.repos                        | SLES12-SP2-Pool                |
+|                                 | SLES12-SP2-Updates             |
+| os.errors.x86_64.missing        | SLES12-SP2-Pool                |
+|                                 | SLES12-SP2-Updates             |
+| openstack.available             | false                          |
+| openstack.repos                 | SUSE-OpenStack-Cloud-7-Pool    |
+|                                 | SUSE-OpenStack-Cloud-7-Updates |
+| openstack.errors.x86_64.missing | SUSE-OpenStack-Cloud-7-Pool    |
+|                                 | SUSE-OpenStack-Cloud-7-Updates |
++---------------------------------+--------------------------------+</screen>
+     <para>
+      To update the locations for the listed repositories, start <command>yast
+      crowbar</command> and proceed as described in <xref
+      linkend="sec.depl.adm_inst.crowbar.repos"/>.
+     </para>
+     <para>
+      Once the repository configuration for &crow; has been updated, run the
+      command to check the repositories again to determine, whether the current
+      configuration is correct.
+     </para>
+     <screen>&prompt.root;crowbarctl upgrade repocheck nodes
++---------------------+--------------------------------+
+| Status              | Value                          |
++---------------------+--------------------------------+
+| ha.available        | true                           |
+| ha.repos            | SLE12-SP2-HA-Pool              |
+|                     | SLE12-SP2-HA-Updates           |
+| os.available        | true                           |
+| os.repos            | SLES12-SP2-Pool                |
+|                     | SLES12-SP2-Updates             |
+| openstack.available | true                           |
+| openstack.repos     | SUSE-OpenStack-Cloud-7-Pool    |
+|                     | SUSE-OpenStack-Cloud-7-Updates |
++---------------------+--------------------------------+</screen>
 
-   <para>
-    When the &admserv; has been set up and configured, return to the upgrade
-    &wi; to upgrade all nodes in &cloud;:
-   </para>
-
-   <procedure>
-    <title>Part 3: Upgrading the Nodes</title>
-    <step>
-     <para>
-      Open a browser and point it to the &crow; Web interface available on the
-      &admserv;, for example <literal>http://192.168.124.10/</literal>.
-     </para>
-     <figure>
-      <title>The &productname; Installer</title>
-      <mediaobject>
-       <imageobject role="fo">
-        <imagedata fileref="depl_inst_ui_initial.png" width="75%" format="png"/>
-       </imageobject>
-       <imageobject role="html">
-        <imagedata fileref="depl_inst_ui_initial.png" width="75%" format="png"/>
-       </imageobject>
-      </mediaobject>
-     </figure>
-    </step>
-    <step>
-     <para>
-      Choose <guimenu>Continue Upgrade from SUSE OpenStack Cloud 5</guimenu>
-      and start the upgrade process by uploading the upgrade data downloaded
-      in Part 1 of the upgrade procedure. Follow the on-screen instruction to
-      finish the upgrade process. Depending on the amount of nodes in your
-      installation this will take up to several hours.
-     </para>
-
-     <note>
-      <title>Login Credentials</title>
+     <important>
+      <title>Shut Down Running &vmguest;s in Normal Mode</title>
       <para>
-       During the upgrade procedure you will be asked to provide login
-       credentials for the &crow; &wi; two times. First time you need to
-       provide the default login credentials
-       (<literal>crowbar/crowbar</literal>. On the second occasion you need to
-       specify the ones you used with Cloud 5. These credentials are also the
-       ones you need to provide for subsequent logins to the &crow; &wi;.
+       If the upgrade is done in normal mode (prechecks compute_status and
+       ha_configured have not been passed), you need to shut down all running
+       &vmguest;s now.
       </para>
-     </note>
+     </important>
 
+     <important>
+      <title>Product Media Repository Copies</title>
+      <para>
+       To PXE boot new nodes, an additional &cloudos; repository&mdash;a copy
+       of the installation system&mdash; is required. Although not required
+       during the upgrade procedure, it is recommended to set up this directory
+       now. Refer to <xref linkend="sec.depl.adm_conf.repos.product"/> for
+       details. If you had also copied the &productname; 6 installation media
+       (optional), you may also want to provide the &productname;
+       &productnumber; the same way.
+      </para>
+      <para>
+       Once the upgrade procedure has been successfully finished, you may
+       delete the previous copies of the installation media in
+       <filename>/srv/tftpboot/suse-12.1/x86_64/install</filename> and
+       <filename>/srv/tftpboot/suse-12.1/x86_64/repos/Cloud</filename>.
+      </para>
+     </important>
+    </step>
+    <step>
+     <para>
+      To ensure the status of the nodes does not change during the upgrade
+      process, the majority of the &ostack; services will be stopped on the
+      nodes now. As a result, the &ostack; API will no longer be
+      accessible. The &vmguest;s, however, will continue to run and will also
+      be accessible. Run the following command:
+     </para>
+     <screen>&prompt.root;crowbarctl upgrade services</screen>
+     <para>
+      This step takes a while to finish. Monitor the process by running
+      <command>crowbarctl upgrade status</command>. Do not proceed before
+      <literal>steps.services.status</literal> is set to
+      <literal>passed</literal>.
+     </para>
+    </step>
+    <step>
+     <para>
+      The last step before upgrading the nodes is to make a backup of the
+      &ostack; &postgres; database. The database dump will be stored on the
+      &admserv; and can be used to restore the database in case something goes
+      wrong during the upgrade.
+     </para>
+     <screen>&prompt.root;crowbarctl upgrade backup openstack</screen>
+    </step>
+    <step>
+     <para>
+      The final step of the upgrade procedure is upgrading the
+      nodes.  To start the process, enter:
+     </para>
+     <screen>&prompt.root;crowbarctl upgrade nodes all</screen>
+     <para>
+      The upgrade process runs in the background and can be queried with
+      <command>crowbarctl upgrade status</command>. Depending on the size of
+      your &cloud; it may take several hours, especially when performing a
+      non-disruptive update. In that case, the &compnode;s are updated
+      one-by-one after &vmguest;s have been live-migrated to other nodes.
+     </para>
+     <para>
+      Instead of upgrading <literal>all</literal> nodes you may also upgrade
+      the &contrnode;s first and individual &compnode;s afterwards. Refer to
+      <command>crowbarctl upgrade nodes --help</command> for details.
+     </para>
     </step>
    </procedure>
 
-   <para>
-    When all nodes have been upgraded, the &barcl;s need to be
-    re-applied:
-   </para>
-
-   <procedure>
-    <title>Part 4: Re-Applying the &barcl;s</title>
-    <step>
-     <para>
-      Go to the Dashboard on the &crow; &wi; <menuchoice>
-      <guimenu>Nodes</guimenu> <guimenu>Dashboard</guimenu> </menuchoice> and
-      check whether all nodes have been successfully updated&mdash;all nodes
-      should be listed in state <guimenu>Ready</guimenu>, indicated by a green
-      dot.
-     </para>
-    </step>
-    <step>
-     <para>
-      If nodes have not been upgraded successfully, they are marked with a
-      yellow or gray dot. Log in to those nodes (see <xref
-      linkend="var.depl.trouble.faq.ostack.login"/>) and check the log files
-      (see <xref linkend="cha.deploy.logs"/> for reasons. Fix the issues and
-      reboot the node to restart the upgrade process. For more information
-      also refer to <xref linkend="q.depl.trouble.faq.ostack.problem"/>.
-     </para>
-    </step>
-    <step>
-     <para>
-      When all nodes have bee upgraded successfully re-apply the &barcl;s. Go
-      to <menuchoice> <guimenu>Barclamps</guimenu> <guimenu>All
-      Barclamps</guimenu> </menuchoice> and apply the &barcl;s in the given
-      order. For each &barcl; the service configuration and the deployment configuration
-      is the same as on &productname; 5, since it was
-      restored from the data dump.
-     </para>
-    </step>
-    <step>
-     <para>
-      When all &barcl; have been successfully deployed, you can restart the
-      &vmguest;s on the &compnode;s.
-     </para>
-    </step>
-   </procedure>
+   <note>
+    <title>Dealing with Errors</title>
+    <para>
+     If an error occurs during the upgrade process, the output of the
+     <command>crowbarctl upgrade status</command> provides a detailed
+     description of the failure. In most cases, both the output and the error message offer
+     enough information for fixing the issue. When the problem has been solved,
+     run the previously issued upgrade command to resume the upgrade process.
+    </para>
+   </note>
   </sect2>
+
  </sect1>
  <sect1 xml:id="sec.depl.maintenance.hasetup">
   <title>Upgrading to an &haSetup;</title>
 
   <para>
-   When making an existing &cloud; deployment highly available (by setting
-   up HA clusters and moving roles to these clusters), there are a few issues
-   to pay attention to. To make existing services highly available, proceed
+   There are a few issues to pay attention to when making an existing &cloud; deployment highly available (by setting
+   up HA clusters and moving roles to these clusters). To make existing services highly available, proceed
    as follows. Note that moving to an &hasetup; cannot be done without
-   &cloud; service interruption, because it requires &ostack; services
+   &cloud; service interruption, because it requires &ostack; components
    to be restarted.
   </para>
 
@@ -576,7 +1313,7 @@
     <para>
      Make the HA repositories available on the &admserv; as described in
      <xref linkend="sec.depl.adm_conf.repos.scc"/>. Run the command
-     <command>chef-client</command> afterwards.
+     <command>chef-client</command> afterward.
     </para>
    </step>
    <step>
@@ -594,14 +1331,14 @@
     <substeps performance="required">
      <step>
       <para>
-       Log in to each node on which the role is deployed and stop its
-       associated service(s) (a role can have multiple services). Do so by
+       Log in to each node as &rootuser; on which the role is deployed and stop
+       its associated service(s) (a role can have multiple services). Do so by
        running the service's start/stop script with the stop argument, for
        example:
       </para>
-<screen>rcopenstack-keystone stop</screen>
+<screen>&prompt.root;rcopenstack-keystone stop</screen>
       <para>
-       See <xref linkend="app.deploy.services"/> for a list of roles,
+       See <xref linkend="sec.depl.services"/> for a list of roles,
        services and start/stop scripts.
       </para>
      </step>
@@ -619,14 +1356,14 @@
             Stop the database on the node the Database &barcl; is
             deployed with the command:
            </para>
-<screen>rcpostgresql stop</screen>
+<screen>&prompt.root;rcpostgresql stop</screen>
           </listitem>
           <listitem>
            <para>
             Copy <filename>/var/lib/pgsql</filename> to a temporary location
             on the node, for example:
            </para>
-<screen>cp -ax /var/lib/pgsql /tmp</screen>
+<screen>&prompt.root;cp -ax /var/lib/pgsql /tmp</screen>
           </listitem>
           <listitem>
            <para>
@@ -640,7 +1377,7 @@
             determine which cluster node runs the
             <systemitem class="resource">postgresql</systemitem> service:
            </para>
-<screen>crm_mon -1</screen>
+<screen>&prompt.root;crm_mon -1</screen>
           </listitem>
           <listitem>
            <para>
@@ -653,13 +1390,13 @@
             Stop the <systemitem class="resource">postgresql</systemitem>
             service:
            </para>
-<screen>crm resource stop postgresql</screen>
+<screen>&prompt.root;crm resource stop postgresql</screen>
           </listitem>
           <listitem>
            <para>
             Copy the data backed up earlier to the cluster node:
            </para>
-<screen>rsync -av --delete
+<screen>&prompt.root;rsync -av --delete
            <replaceable>NODE_WITH_BACKUP</replaceable>:/tmp/pgsql/ /var/lib/pgsql/</screen>
           </listitem>
           <listitem>
@@ -667,7 +1404,7 @@
             Restart the <systemitem class="resource">postgresql</systemitem>
             service:
            </para>
-<screen>crm resource start postgresql</screen>
+<screen>&prompt.root;crm resource start postgresql</screen>
           </listitem>
          </orderedlist>
          <para>
@@ -687,7 +1424,7 @@
           the nodes. Use a command similar to the following on the
           &admserv; as &rootuser;:
          </para>
-<screen>for NODE in <replaceable>NODE1</replaceable>
+<screen>&prompt.root;for NODE in <replaceable>NODE1</replaceable>
          <replaceable>NODE2</replaceable> <replaceable>NODE3</replaceable>; do
   ssh $NODE rm /var/cache/*/keystone-signing/*
 done</screen>
@@ -743,6 +1480,118 @@ done</screen>
   </important>
  </sect1>
 
+ <sect1 xml:id="sec.depl.maintenance.upgrade.faq">
+  <title>FAQ</title>
+
+  <para>
+    The following FAQ section offers tips and tricks related to the upgrade procedure.
+  </para>
+    <qandaset defaultlabel="qanda">
+        <qandaentry>
+          <question>
+            <para>
+              How can I override default timeouts for specific upgrade actions?
+            </para>
+          </question>
+          <answer>
+            <para>
+              It is possible to override the default timeout values for several
+              upgrade actions by creating the <systemitem>/etc/crowbar/upgrade_timeouts.yml</systemitem>
+              file and specify the desired actions and their values. Below is a
+              list of supported settings and their brief descriptions.
+            </para>
+            <variablelist>
+              <varlistentry>
+                <term>:prepare_repositories</term>
+                <listitem>
+                <para>
+                  Delete the old repositories and set the new repositories required for the upgrade
+                </para>
+                </listitem>
+              </varlistentry>
+              <varlistentry>
+                <term>:pre_upgrade</term>
+                <listitem>
+                <para>
+                  Prepare node resources for the upgrade
+                </para>
+                </listitem>
+              </varlistentry>
+              <varlistentry>
+                <term>:upgrade_os</term>
+                <listitem>
+                <para>
+                  Update all system packages
+                </para>
+                </listitem>
+              </varlistentry>
+              <varlistentry>
+                <term>:post_upgrade</term>
+                <listitem>
+                <para>
+                  Restore DRBD/Pacemaker actions after the packages have been upgraded to their original state
+                </para>
+                </listitem>
+              </varlistentry>
+              <varlistentry>
+                <term>:evacuate_host</term>
+                <listitem>
+                <para>
+                  Migrate all runnning instances from the &compnode; that is going to be upgraded
+                </para>
+                </listitem>
+              </varlistentry>
+              <varlistentry>
+                <term>:chef_upgraded</term>
+                <listitem>
+                <para>
+                  Rejoin &crow; and run the chef-client
+                </para>
+                </listitem>
+              </varlistentry>
+              <varlistentry>
+                <term>:router_migration</term>
+                <listitem>
+                <para>
+                  Migrate all &o_netw; routers
+                </para>
+                </listitem>
+              </varlistentry>
+              <varlistentry>
+                <term>:delete_pacemaker_resources</term>
+                <listitem>
+                <para>
+                  Delete old pacemaker resources in order to generate new ones for the upgrade
+                </para>
+                </listitem>
+              </varlistentry>
+              <varlistentry>
+                <term>:delete_cinder_services</term>
+                <listitem>
+                <para>
+                  Delete &o_blockstore; services in order to generate new ones for the upgrade
+                </para>
+                </listitem>
+              </varlistentry>
+            </variablelist>
+            <para>
+              Below is the list of supported options with their default values
+              in seconds:
+            </para>
+            <screen>:prepare_repositories: 120
+:pre_upgrade: 300
+:upgrade_os: 900
+:post_upgrade: 600
+:evacuate_host: 300
+:chef_upgraded: 900
+:router_migration: 600
+:delete_pacemaker_resources: 300
+:delete_cinder_services: 300</screen>
+          </answer>
+         </qandaentry>
+      </qandaset>
+ </sect1>
+
  <sect1 xml:id="sec.depl.maintenance.backup.admin">
   <title>Backing Up and Restoring the &admserv;</title>
   <para>
@@ -765,10 +1614,10 @@ done</screen>
     <title>Backup and Restore: Initial Page View</title>
     <mediaobject>
      <imageobject role="fo">
-      <imagedata fileref="depl_backup_initial.png" width="75%" format="png"/>
+      <imagedata fileref="depl_backup_initial.png" width="75%" format="PNG"/>
      </imageobject>
      <imageobject role="html">
-      <imagedata fileref="depl_backup_initial.png" width="100%" format="png"/>
+      <imagedata fileref="depl_backup_initial.png" width="100%" format="PNG"/>
      </imageobject>
     </mediaobject>
    </figure>
@@ -814,10 +1663,10 @@ done</screen>
     <title>Backup and Restore: List of Backups</title>
     <mediaobject>
      <imageobject role="fo">
-      <imagedata fileref="depl_backup_list.png" width="75%" format="png"/>
+      <imagedata fileref="depl_backup_list.png" width="75%" format="PNG"/>
      </imageobject>
      <imageobject role="html">
-      <imagedata fileref="depl_backup_list.png" width="75%" format="png"/>
+      <imagedata fileref="depl_backup_list.png" width="75%" format="PNG"/>
      </imageobject>
     </mediaobject>
    </figure>
