@@ -813,7 +813,6 @@ cd ardana-0.35.0
 ansible-playbook -i hosts/localhost config-processor-run.yml
 ansible-playbook -i hosts/localhost ready-deployment.yml
 cd ~/scratch/ansible/next/ardana/ansible/
-sudo sed 's/:&amp;OPS-LM//' osconfig-iptables-rename.yml
 ansible-playbook -i hosts/verb_hosts osconfig-iptables-rename.yml
 ansible-playbook -i hosts/verb_hosts ardana-upgrade.yml</screen>
    </step>
@@ -842,18 +841,36 @@ sudo mount -a</screen>
    </step>
    <step>
     <para>
-     Add the contents of the ISO as a Zypper repository and begin installation:
+     Add the contents of the ISO as a Zypper repository:
     </para>
 <screen>sudo zypper ar -G -f file:/media/cloud Cloud
 sudo zypper refresh</screen>
    </step>
    <step>
     <para>
-     Begin the Ardana.Pike installation:
+     Begin the installation:
     </para>
 <screen>sudo zypper -n in patterns-cloud-ardana
 sudo su - ardana
 ARDANA_INIT_AUTO=1 /usr/bin/ardana-init</screen>
+   </step>
+   <step>
+    <para>
+     Through this process, the directory
+     <filename>/srv/www/suse-12.3/x86_64/repos/PTF</filename> will have been
+     created and installed as a software repository. This repository must be
+     manually populated with certain Program Temporary Fix (PTF) RPMs to enable
+     a successful migration, which will be supplied by SUSE via an active
+     L3 support contract.
+    </para>
+   </step>
+   <step>
+    <para>
+     Apply the PTF packages obtained in the previous step:
+    </para>
+<screen>sudo zypper refresh PTF
+sudo zypper dup --from PTF
+/usr/bin/ardana-init</screen>
    </step>
    <step>
     <para>
@@ -893,14 +910,7 @@ ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
      Prepare the servers for Pike infrastructure:
     </para>
 <screen>cd ~/scratch/ansible/next/ardana/ansible
-ansible-playbook -i hosts/verb_hosts FND-AP2-vhosts-transition.yml
-ansible-playbook -i hosts/verb_hosts tls-deploy.yml
-ansible -i hosts/verb_hosts FND-MDB --become \
-  -a "ln -s /var/lib/mysql/mysql.sock /run/mysql/mysql.sock"
-ansible -i hosts/verb_hosts NOV-CMP --become \
-  -a "sed -i 's/helion/ardana/' /etc/iproute2/rt_tables"
-ansible -i hosts/verb_hosts NOV-CMP --become \
-  -a "yum remove -y PyYAML-3.10-11.el7.x86_64 || true"</screen>
+ansible-playbook -i hosts/verb_hosts FND-AP2-vhosts-transition.yml</screen>
    </step>
    <step>
     <para>
@@ -910,35 +920,10 @@ ansible -i hosts/verb_hosts NOV-CMP --become \
 ansible-playbook -i hosts/verb_hosts ardana-replace-legacy-repos.yml</screen>
    </step>
    <step>
-    <para>
-     Apply manual updates to playbooks to enable proper upgrade behavior
-    </para>
-<screen>sed -i '61d' roles/powerdns-post-configure/tasks/db_configure.yml
-sed -i '64i\    - domains\' roles/powerdns-post-configure/tasks/db_configure.yml
-sed -i '60d' _ardana-upgrade-base.yml
-sed -i "60i\    shell: zypper repos | grep \"|\" | grep -v \"^#\" | \
-  cut -d'|' -f2\\" _ardana-upgrade-base.yml
-sed -i '26i\- file: path=/run/mysql/mysql.sock state=absent' \
-  roles/FND-MDB/tasks/_post_major_upgrade.yml
-sed -i '27i\  become: yes' roles/FND-MDB/tasks/_post_major_upgrade.yml
-sed -i '24i\  ignore_errors: yes' logging-upgrade.yml
-sed -i '26i\- hosts: NOV-CMP' nova-upgrade.yml
-sed -i '27i\  tasks:' nova-upgrade.yml
-sed -i '28i\    - yum: name=* state=latest' nova-upgrade.yml
-sed -i "29i\      when: ansible_os_family | lower == 'redhat'" nova-upgrade.yml
-sed -i '30i\      become: yes' nova-upgrade.yml
-sed -i '27i\  ignore_errors: yes' roles/ardana-upgrade-tools/tasks/configure.yml
-sed -i '55i\- pause: seconds=20' roles/neutron-common/tasks/common_install.yml
-sed -i '36i\      ignore_errors: yes' _osconfig-pre-upgrade.yml
-sed -i '36i\      ignore_errors: yes' _osconfig-post-upgrade.yml</screen>
-   </step>
-   <step>
    <para>
     Run the &productname; &productnumber; upgrade playbook:
    </para>
 <screen>ansible-playbook -i hosts/verb_hosts -vvv ardana-upgrade-from-legacy.yml</screen>
-   </step>
-   <step>
     <para>
      Note that the <filename>ardana-upgrade-from-legacy.yml</filename> playbook is
      not guaranteed to be idempotent, and re-running it upon a failure may produce
@@ -947,6 +932,14 @@ sed -i '36i\      ignore_errors: yes' _osconfig-post-upgrade.yml</screen>
      <filename>~/.ansible/ansible.log</filename> to determine appropriate next
      steps.
     </para>
+   </step>
+   <step>
+    <para>
+     Now that the base installation has completed, the PTF packages can be removed:
+    </para>
+<screen>sudo rm /srv/www/suse-12.3/x86_64/repos/PTF/*
+sudo zypper refresh PTF
+sudo zypper dup --from Cloud</screen>
    </step>
    <step>
     <para>
@@ -1008,5 +1001,55 @@ openstack role add --user admin --project admin nova_admin</screen>
     </para>
    </step>
   </procedure>
-  </sect1>
+ </sect1>
+ <sect1>
+  <title>Applying Product Updates</title>
+  <procedure>
+   <step>
+    <para>
+     Before applying updates to your cloud, you should replace the repositories
+     configured on each node during the migration with links to an &smt; server
+     set up to mirror the latest versions of your software.
+    </para>
+    <para>
+     The easiest way to provide the required repositories on the &lcm; Server is
+     to set up an &smt; server as described in
+     <xref linkend="app.deploy.smt_lcm"/>. Alternatives to setting up an
+     &smt; server are described in <xref linkend="cha.depl.repo_conf_lcm"/>.
+    </para>
+    <para>
+     Before continuing, you should ensure that the "Cloud" repository has been
+     replaced by the following repositories on all nodes:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       SLES12-SP3-Pool
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       SLES12-SP3-Updates
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       SUSE-OpenStack-Cloud-8-Pool
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       SUSE-OpenStack-Cloud-8-Updates
+      </para>
+     </listitem>
+    </itemizedlist>
+   </step>
+   <step>
+    <para>
+     Apply the latest versions of software packages using the process described in
+     <xref linkend="maintenance_update"/>.
+    </para>
+   </step>
+  </procedure>
+ </sect1>
 </article>
