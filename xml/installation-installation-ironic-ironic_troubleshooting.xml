@@ -421,5 +421,143 @@ IRN-CND -m copy -b -a 'src=/home/stack/undionly.kpxe dest=/tftpboot'
    binary with the increased timeout will be downloaded to the target node via
    TFTP.
   </para>
+ <section>
+  <title>Ironic Support and Limitations</title>
+  <para>
+   The following drivers are supported and tested:</para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      <systemitem>pxe_ipmitool</systemitem> (UEFI and Legacy BIOS mode, flat-network)
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <systemitem>pxe_ipmitool</systemitem> (UEFI and Legacy BIOS mode, flat-network)
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <systemitem>pxe_ilo</systemitem> (UEFI and Legacy BIOS mode, flat-network)
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <systemitem>agent_ipmitool</systemitem> (UEFI and Legacy BIOS mode, flat-network)
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <systemitem>agent_ilo</systemitem> (UEFI and Legacy BIOS mode, flat-network)
+     </para>
+    </listitem>
+   </itemizedlist>
+  <para>
+   When using the <systemitem>agent_ilo</systemitem> driver, provision will
+   fail if the size of the user image exceeds the free space
+   available on the ramdisk partition. This will produce an error in the Ironic
+   Conductor logs that may look like as follows
+  </para>
+<screen>"ERROR root [-] Command failed: prepare_image, error: Error downloading
+image: Download of image id 0c4d74e4-58f1-4f8d-8c1d-8a49129a2163 failed: Unable
+to write image to /tmp/0c4d74e4-58f1-4f8d-8c1d-8a49129a2163. Error: [Errno 28]
+No space left on device: ImageDownloadError: Error downloading image: Download
+of image id 0c4d74e4-58f1-4f8d-8c1d-8a49129a2163 failed: Unable to write image
+to /tmp/0c4d74e4-58f1-4f8d-8c1d-8a49129a2163. Error: [Errno 28] No space left
+on device"</screen>
+  <para>
+   By default, the total amount of space allocated to ramdisk is 4GB. To
+   increase the space allocated for the ramdisk, you can update the deploy
+   ISO image using the following workaround.
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Save the deploy ISO to a file:
+    </para>
+<screen>openstack image save --file deploy.iso<replaceable>IMAGE_ID</replaceable></screen>
+   <para>
+    Replace <replaceable>IMAGE_ID</replaceable> with the ID of the deploy ISO
+    stored in &o_img;. The ID can be obtained using the <command>openstack image list</command>.
+   </para>
+   </step>
+   <step>
+    <para>
+     Mount the saved ISO:
+    </para>
+<screen>mkdir /tmp/mnt
+sudo mount -t iso9660 -o loop deploy.iso /tmp/mnt</screen>
+    <para>
+     Since the mount directory is read-only, it is necessary to copy its
+     content to be able to make modifications.
+    </para>
+   </step>
+   <step>
+    <para>
+     Copy the content of the mount directory to a custom directory:
+    </para>
+<screen>mkdir /tmp/custom
+cp -aRvf /tmp/mnt/* /tmp/custom/</screen>
+   </step>
+   <step>
+    <para>
+     Modify the bootloader files to increase the size of the ramdisk:
+    </para>
+<screen>/tmp/custom/boot/x86_64/loader/isolinux.cfg
+/tmp/custom/EFI/BOOT/grub.cfg
+/tmp/custom/boot/grub2/grub.cfg</screen>
+    <para>
+     Find the <literal>openstack-ironic-image</literal> label and modify the
+     <literal>ramdisk_size</literal> parameter in the <literal>append</literal>
+     property. The <literal>ramdisk_size</literal> value must be specified in Kilobytes.
+    </para>
+<screen>label openstack-ironic-image
+  kernel linux
+  append initrd=initrd ramdisk_size=10485760 ramdisk_blocksize=4096 \
+boot_method=vmedia showopts</screen>
+     <para>
+      Make sure that your baremetal node has the
+      amount of RAM that equals or exceeds  the <literal>ramdisk_size</literal> value.
+     </para>
+   </step>
+   <step>
+    <para>
+     Repackage the ISO using the genisoimage tool:
+    </para>
+<screen>cd /tmp/custom
+genisoimage -b boot/x86_64/loader/isolinux.bin -R -J -pad -joliet-long \
+-iso-level 4 -A '0xaa2dab53' -no-emul-boot -boot-info-table \
+-boot-load-size 4 -c boot/x86_64/boot.catalog -hide boot/x86_64/boot.catalog \
+-hide-joliet boot/x86_64/boot.catalog -eltorito-alt-boot -b boot/x86_64/efi \
+-no-emul-boot -joliet-long -hide glump -hide-joliet glump -o /tmp/custom_deploy.iso ./</screen>    
+     <important>
+      <para>
+       When repackaging the ISO, make sure that you use the same label. You can
+       find the label file in the <filename>/tmp/custom/boot/</filename>
+       directory. The label begins with <literal>0x</literal>. For example, <literal>0x51e568cb</literal>.
+      </para>
+     </important>
+   </step>
+   <step>
+    <para>
+     Delete the existing deploy ISO in &o_img;:
+    </para>
+<screen>openstack image delete <replaceable>IMAGE_ID</replaceable></screen>
+   </step>
+   <step>
+    <para>
+     Create a new image with <literal>custom_deploy.iso</literal>:
+    </para>
+<screen>openstack image create --container-format bare \
+--disk-format iso --public --file custom_deploy.iso ir-deploy-iso-ARDANA5.0</screen>
+   </step>
+   <step>
+    <para>
+     Re-create or update the Ironic node, if needed. If you cannot use the same
+     image ID in the previous step, you must update the Ironic node with the same image ID.
+    </para>
+   </step>
+  </procedure>
+ </section>
  </section>
 </section>
