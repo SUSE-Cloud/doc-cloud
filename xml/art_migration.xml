@@ -117,21 +117,19 @@
      <command>mount</command>
      command to make its contents available on the existing deployer:
     </para>
-    <screen><prompt>(old-deployer)> </prompt>mkdir hos-5.scp
+<screen><prompt>(old-deployer)> </prompt>mkdir hos-5.scp
 <prompt>(old-deployer)> </prompt>sudo mount <replaceable>HOS5SCP_ISO_FILE</replaceable> hos-5.scp
-<prompt>(old-deployer)> </prompt>tar -xf hos-5.scp/hos/hlm-migration-tools.tar.gz ./
-    </screen>
+<prompt>(old-deployer)> </prompt>tar -xf hos-5.scp/hos/hlm-migration-tools.tar.gz ./</screen>
    </step>
    <step>
     <para>
      Run the validation playbook to ensure that the current cloud load and
      configuration is compatible with the migration process:
     </para>
-<screen><prompt>(old-deployer)> </prompt>cd hlm-migration-tools/ansible
+    <screen><prompt>(old-deployer)> </prompt>cd hlm-migration-tools/ansible
 <prompt>(old-deployer)> </prompt>ansible-playbook \
   -i ~/scratch/ansible/next/hos/ansible/hosts/verb_hosts \
-  pre-migration-validations.yml
-  </screen>
+  pre-migration-validations.yml</screen>
     <para>
      The validation playbook checks that:
     </para>
@@ -170,6 +168,14 @@
      </listitem>
     </itemizedlist>
    </step>
+   <warning>
+    <title>Check Validation Results</title>
+    <para>
+     Review the contents of /var/log/pre-migration-validations.log immediately
+     to discover if any errors were identified during the validation playbook.
+     Any identified issues must be resolved before proceeding with the migration.
+    </para>
+   </warning>
    <step>
     <para>
      Identify a candidate seed &contrnode; in the primary control plane. This
@@ -220,8 +226,7 @@
   size: 1%
   mount: /var/cassandra/commitlog
   fstype: ext4
-  mkfs-opts: -O large_file
-   </screen>
+  mkfs-opts: -O large_file</screen>
      </listitem>
      <listitem>
       <para>
@@ -250,7 +255,7 @@
       <para>
        Commit your changes to the Git model:
       </para>
-<screen><prompt>(deployer)> </prompt>git commit -a -m "Prepare for HOS 5.1 installation"</screen>
+<screen><prompt>(old-deployer)> </prompt>git commit -a -m "Prepare for HOS 5.1 installation"</screen>
      </listitem>
      <listitem>
       <para>
@@ -280,7 +285,10 @@
         <para>
          Normally, this leaves a 24-hour window for control plane downtime at
          any point before workload's DHCP leases run out and cannot be renewed.
-         This is enough for performing a migration.
+         While this is typically enough for performing a migration, increasing
+         the DHCP lease time to 144 hours is recommended to ensure that lease
+         expiration will not be a concern that affects your migration, even if
+         unexpected delays in the process are encountered.
         </para>
        </listitem>
        <listitem>
@@ -292,12 +300,12 @@
        </listitem>
        <listitem>
         <para>
-         If it is necessary to increase the DHCP lease time before migrating,
-         open the
+         To increase the DHCP lease time before migrating, open the
          <filename>~/helion/hos/ansible/roles/neutron-common/templates/neutron.conf.j2</filename>
          file and edit the <systemitem>dhcp_lease_duration</systemitem> parameter.
-         Commit the change, and run the
-         <filename>neutron-configure.yml</filename> playbook.
+         Commit the change, and run the <filename>neutron-configure.yml</filename> playbook.
+         Then, continue to monitor the upcoming DHCP lease expirations as described
+         above until all existing leases have been refreshed to a lengthier period.
         </para>
        </listitem>
       </itemizedlist>
@@ -325,7 +333,7 @@
        for example, <systemitem>ardana-cp1-c1-m2</systemitem>.
       </para>
       <important>
-       <title>No Migration Rollback</title>
+       <title>Host Selection</title>
        <para>
         For correct behavior, you must use the <command>--limit</command>
         argument to select the target seed host. This will output a success or
@@ -368,13 +376,27 @@
        Replace <replaceable>SEED_NODE_ID</replaceable> with the ID of the seed
        node from the <filename>servers.yml</filename> file.
       </para>
+      <para>
+       Cobbler will initialize the seed node's networking to use the IP address
+       of your original deployer as the default gateway. This will negatively
+       impact the network's operation later on in the migration, and should be
+       updated after the system is up and running. On the new seed node, edit the
+       file <filename>/etc/sysconfig/network/routes</filename> and change the address
+       in the line starting with "default" to point to your environment's actual
+       default gateway. (You may be able to copy this from the value specified in
+       your existing deployer.) Then, restart networking with:
+      </para>
+<screen><prompt>(seed)> </prompt>sudo systemctl restart network</screen>
      </listitem>
      <listitem>
       <para>
        Otherwise, if installing manually or using a proprietary tool for
        provisioning, reformat the primary partition (preserving the overall
        partitioning scheme based on the data model) and install the &sls; 12 SP3
-       operating system.
+       operating system. Follow the instructions as described in
+       <xref linkend="cha.depl.dep_inst"/>, but when creating the user account
+       and group, use the name <systemitem class="username">stack</systemitem>
+       instead of <systemitem class="username">ardana</systemitem>.
       </para>
      </listitem>
     </itemizedlist>
@@ -388,8 +410,8 @@
      <para>
       You should also perform installation on the root disk and avoid
       removing any disks and partitions during the install. This way, if the
-      seed node was originally a controller, the &o_objstore; data will
-      remain intact.
+      seed node also originally contained &o_objstore; data, it will be
+      left intact.
      </para>
     </important>
 
@@ -404,18 +426,6 @@
        Copy the entire home directory from the original deployer:
       </para>
 <screen><prompt>(old-deployer)> </prompt>rsync -avP ~ <replaceable>SEED_IP</replaceable>:/home</screen>
-     </listitem>
-     <listitem>
-      <para>
-       If your cloud includes &rhla; &compnode;s, ensure that
-       <filename>~/rhel7.iso</filename> was either transferred from the original
-       deployer or is downloaded to the user's home directory.
-      </para>
-      <para>
-       Ensure that <filename>~/sles12sp3sdk.iso</filename> was either
-       transferred from the original deployer or is downloaded to the user's home
-       directory.
-      </para>
      </listitem>
      <listitem>
       <para>
@@ -449,7 +459,8 @@
         <para>
          Kill the DHCP services running on the old deployer:
         </para>
-<screen><prompt>(old-deployer)> </prompt>sudo pkill dhcpd</screen>
+<screen><prompt>(old-deployer)> </prompt>sudo systemctl stop dhcpd
+<prompt>(old-deployer)> </prompt>sudo systemctl disable dhcpd</screen>
        </listitem>
       </itemizedlist>
      </listitem>
@@ -457,42 +468,50 @@
    </step>
    <step>
     <para>
-     Mount the <filename>~/sles12sp3.iso</filename> image to make it available
-     to the &hpecloud; installer.
+     Confirm the existence of package repository ISOs and mount the operating system
+     image to make it available to the &hpecloud; installer.
     </para>
     <itemizedlist>
      <listitem>
+      <important>
+       <title>ISO filenames</title>
+       <para>
+        For correct behavior, the filenames of the images described below must match
+        exactly their names in the user's home directory.
+       </para>
+      </important>
+      <para>
+       If your cloud includes &rhla; &compnode;s, ensure that
+       <filename>~/rhel7.iso</filename> was either transferred from the original
+       deployer or is downloaded to the user's home directory.
+      </para>
+      <para>
+       Ensure that <filename>~/sles12sp3sdk.iso</filename> was either
+       transferred from the original deployer or is downloaded to the user's home
+       directory. (Verify that its filename 
+      </para>
       <para>
        Ensure that <filename>~/sles12sp3.iso</filename> was either transferred
        from the original deployer or is downloaded to the home directory on the
-       seed node under the <filename>sles12sp3.iso</filename>:
+       seed node under the <filename>sles12sp3.iso</filename>. Then, mount it:
       </para>
 <screen><prompt>(seed)> </prompt>sudo mkdir -p /media/cdrom
 <prompt>(seed)> </prompt>echo /home/stack/sles12sp3.iso /media/cdrom iso9660 loop 0 0 \
-        | sudo tee -a /etc/fstab
+  | sudo tee -a /etc/fstab
 <prompt>(seed)> </prompt>sudo mount -a</screen>
       <para>
-       Edit the primary package repository on the new node so that it points
-       to the ISO media instead of a remote network location. If you installed
-       the seed node using cobbler from the original deployer as describe above,
-       the repository will be configured in
-      <filename>/etc/zypp/repos.d/SLES12-SP3-12.3-0.repo</filename>.
+       If you installed the seed node using cobbler from the original deployer,
+       edit the primary package repository on the new seed node to point it to
+       the ISO media instead of a remote network location.
       </para>
-<screen><prompt>(seed)> </prompt>sudo vi /etc/zypp/repos.d/SLES12-SP3-12.3-0.repo</screen>
-      <itemizedlist>
-       <listitem>
-        <para>
-         Update the <literal>baseurl</literal> line to read
-         <literal>baseurl=file:/media/cdrom</literal>.
-        </para>
-       </listitem>
-      </itemizedlist>
+<screen><prompt>(seed)> </prompt>sudo zypper rr SLES12-SP3-12.3-0
+<prompt>(seed)> </prompt>sudo zypper ar file:/media/cdrom SLES12-SP3-12.3-0</screen>
      </listitem>
     </itemizedlist>
    </step>
    <step>
     <para>
-     Install &hpecloud; 5.SCP on the new deployer by downloading and unpacking
+     Install &hpecloud; 5.SCP on the seed node by downloading and unpacking
      &hpecloud; 5.SCP installation content:
     </para>
 <screen><prompt>(seed)> </prompt>cd ~; tar -xf hos-5.scp/hos/hos-5.1.0-*.tar
@@ -508,19 +527,17 @@
       <para>
        On each &slsa; compute node, remove all repositories that point to the
        old deployer. To do this, run <command>zypper lr -u</command> and
-       remove the listing with the old IP address in them using
-       <command>zypper rr</command>.
+       remove any listings referring to the original deployer's IP address
+       using <command>zypper rr <replaceable>REPO_NAME</replaceable></command>.
       </para>
      </listitem>
      <listitem>
       <para>
-       On each &rhla; compute node, edit the file
-       <filename>/etc/yum.repos.d/cobbler-config.repo</filename> (if
-       &rhla; 7.3 was installed from scratch) or
-       <filename>/etc/yum.repos.d/rhel73.repo</filename> (if
-       &rhla; was upgraded to 7.3) and update any IP addresses previously
-       pointing to the original deployer so that they are directed to the
-       new seed node.
+       On each &rhla; compute node, edit the repositories located in either
+       <filename>/etc/yum.repos.d</filename> or <filename>/etc/yum/repos.d</filename>
+       to redirect any IP addresses from the old deployer to point to the new
+       seed node. (These references are likely to be found in the files
+       <filename>cobbler-config.repo</filename> or <filename>rhel73.repo</filename>.)
       </para>
       <para>
        Then, refresh the yum cache by running:
@@ -531,7 +548,7 @@
    </step>
    <step>
     <para>
-     Prepare for running playbooks:
+     Prepare for running the migration playbook:
     </para>
 <screen><prompt>(seed)> </prompt>cd ~/helion/hos/ansible
 <prompt>(seed)> </prompt>ansible-playbook -i hosts/localhost config-processor-run.yml
@@ -554,7 +571,9 @@
      </para>
     </note>
     <para>
-     Log into a node hosting the Keystone API service (or continue on the seed node if it hosts control plane services alongside the database) and run:
+     Flush the &o_ident; token cache by running the following command on a node
+     hosting the Keystone API service. (This may be the seed node in an entry-scale
+     environment, or a dedicated controller node in a mid-scale environment.)
     </para>
 <screen><prompt>(controller)> </prompt>sudo /opt/stack/service/keystone/venv/bin/keystone-manage token_flush</screen>
     <para>
@@ -614,23 +633,31 @@
 <prompt>(seed)> </prompt>ansible-playbook -i hosts/localhost bm-reimage.yml \
   -e nodelist=<replaceable>NODE_IDs</replaceable></screen>
       <para>
-       In a midscale cloud config, the drives that host the old database
-       files are located on the second drive. On these servers, you need to
-       run the <filename>wipe_disk.yml</filename> playbook after the database
-       nodes have been reimaged. For example:
+       In a mid-scale cloud topology, the original database content may have been
+       stored on the non-primary drive in the system. If this was the case,
+       the <filename>wipe_disk.yml</filename> playbook should be used after the
+       database nodes have been re-imaged to purge the old data. For example:
       </para>
 <screen>ansible-playbook -i hosts/verb_hosts wipe_disks.yml \
-  -e nodelist=dbmq-m1-mgmt,dbmq-m2-mgmt,dbmq-m3-mgmt</screen>
+  -e nodelist=dbmq-m1,dbmq-m2,dbmq-m3</screen>
       <para>
-       Replace <replaceable>NODE_IDs</replaceable> by a comma-separated list of
-       IDs of all non-seed control plane and deployer nodes in the
-       <filename>servers.yml</filename> file.
+       (Be sure to specify your own list of database nodes matching their
+       identifiers from the <filename>servers.yml</filename> file.)
+      </para>
+      <para>
+       Do not run the <filename>wipe_disk.yml</filename> playbook on any nodes
+       containing &o_objstore; object storage.
       </para>
      </listitem>
      <listitem>
       <para>
-       Otherwise reformat the disk using partitioning to match the current
-       configuration.
+       Otherwise, if installing manually or using a proprietary tool for
+       provisioning, reformat the primary partition (preserving the overall
+       partitioning scheme based on the data model) and install the &sls; 12 SP3
+       operating system. Follow the instructions as described in
+       <xref linkend="cha.depl.dep_inst"/>, but when creating the user account
+       and group, use the name <systemitem class="username">stack</systemitem>
+       instead of <systemitem class="username">ardana</systemitem>.
       </para>
      </listitem>
     </itemizedlist>
@@ -638,17 +665,10 @@
    <step>
     <para>
      Perform the &hpecloud; 5.SCP installation using flags to enable database
-     import:
+     import from the snapshot that was captured from the cloud:
     </para>
 <screen><prompt>(seed)> </prompt>cd ~/scratch/ansible/next/hos/ansible
 <prompt>(seed)> </prompt>ansible-playbook -i hosts/verb_hosts site.yml -e dbcontent=~/mysql_dump.sql</screen>
-   </step>
-   <step>
-    <para>
-     Optionally, if the <literal>3Par</literal> back-end was configured
-     previously, follow the procedures to enable it again according to the
-     &hpecloud; 5.0.x documentation.
-    </para>
    </step>
    <step>
     <para>
@@ -693,59 +713,97 @@
          Edit
          <filename>~/helion/my_cloud/definition/data/control_plane.yml</filename>
          and move the <systemitem>lifecycle-manager</systemitem> from its
-         current location into the new desired cluster service-components list.
-         Commit the change to Git:
+         current location into the new desired cluster's service-components list.
+         Commit the change:
         </para>
-<screen><prompt>(seed)> </prompt>git commit -a -m "Enable lifecycle-manager for targeted seed node"</screen>
+<screen><prompt>(seed)> </prompt>git commit -a -m "Enable lifecycle-manager for new deployer"</screen>
        </listitem>
        <listitem>
         <para>
-         Kill the DHCP services running on the current seed:
+         Execute these steps to prepare for running playbooks:
         </para>
-<screen><prompt>(seed)> </prompt>sudo pkill dhcpd</screen>
-       </listitem>
-       <listitem>
-        <para>
-         Prepare for running playbooks:
-        </para>
-<screen><prompt>(seed)> </prompt>cd ~/helion/hos/ansible
+<screen>
+<prompt>(seed)> </prompt>cd ~/helion/hos/ansible
 <prompt>(seed)> </prompt>ansible-playbook -i hosts/localhost config-processor-run.yml
 <prompt>(seed)> </prompt>ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
        </listitem>
        <listitem>
         <para>
          Install the <systemitem>lifecycle-manager</systemitem> services on the
-         new deployer:
+         new deployer and remove cloud-wide references to the seed:
         </para>
-<screen><prompt>(seed)> </prompt>ansible-playbook -i hosts/verb_hosts site.yml -l <replaceable>NEW_DEPLOYER_HOST</replaceable></screen>
+<screen><prompt>(seed)> </prompt> cd ~/scratch/ansible/next/hos/ansible
+<prompt>(seed)> </prompt>ansible-playbook -i hosts/verb_hosts site.yml -l <replaceable>NEW_DEPLOYER_HOST</replaceable>
+<prompt>(seed)> </prompt>ansible resources -i hosts/verb_hosts -a "zypper rr SLES12-SP3-12.3-0" --become</screen>
         <para>
-         <replaceable>NEW_DEPLOYER_HOST</replaceable> could be for example
-         <systemitem>ardana-cp1-c0-m1</systemitem>
+         <replaceable>NEW_DEPLOYER_HOST</replaceable> must match the node's identity in the
+         file hosts/verb_hosts (e.g. <systemitem>ardana-cp1-c0-m1</systemitem>)
         </para>
        </listitem>
       </itemizedlist>
      </listitem>
      <listitem>
       <para>
-       Copy the <filename>home</filename> directory from the seed to the new
-       deployer:
+       Stop the deployer-related services and repositories running on the current seed:
+      </para>
+<screen><prompt>(seed)> </prompt>sudo systemctl stop dhcpd
+<prompt>(seed)> </prompt>sudo systemctl disable dhcpd
+<prompt>(seed)> </prompt>sudo systemctl stop cobblerd
+<prompt>(seed)> </prompt>sudo systemctl disable cobblerd
+<prompt>(seed)> </prompt>sudo sed -i /sles12sp3.iso/d /etc/fstab
+<prompt>(seed)> </prompt>sudo umount /media/cdrom
+<prompt>(seed)> </prompt>sudo systemctl disable cobblerd</screen>
+     </listitem>
+     <listitem>
+      <para>
+       Copy the user's home directory from the seed to the new deployer:
       </para>
 <screen><prompt>(seed)> </prompt>rsync -avP ~ <replaceable>NEW_DEPLOYER_IP</replaceable>:/home</screen>
      </listitem>
      <listitem>
       <para>
-       Initialize the deployer node:
+       Connect to the new deployer and initialize it for use:
       </para>
-<screen><prompt>(new deployer)> </prompt>cd ~
+<screen><prompt>(new-deployer)> </prompt>cd ~
+<prompt>(new-deployer)> </prompt>sudo mkdir -p /media/cdrom
+<prompt>(new-deployer)> </prompt>echo /var/lib/ardana/sles12sp3.iso /media/cdrom iso9660 loop 0 0 \
+<prompt>(new-deployer)> </prompt>sudo mount -a
+  | sudo tee -a /etc/fstab
 <prompt>(new deployer)> </prompt>tar -xf hos-5.scp/hos/hos-5.1.0-*.tar
 <prompt>(new deployer)> </prompt>cd ~/hos-5.1.0
-<prompt>(new deployer)> </prompt>./hos-init.bash</screen>
+<prompt>(new deployer)> </prompt>./hos-init.bash
+<prompt>(new deployer)> </prompt>cd ~/helion/hos/ansible
+<prompt>(new deployer)> </prompt>ansible-playbook -i hosts/localhost cobbler-deploy.yml
+<prompt>(new-deployer)> </prompt>ansible-playbook -i hosts/localhost config-processor-run.yml
+<prompt>(new-deployer)> </prompt>ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+     </listitem>
+     <listitem>
       <para>
-       Once this installation has completed, run
-       <filename>cobbler-deploy.yml</filename> to initialize cobbler.
+       On each &slsa; compute node, remove all repositories that point to the
+       seed node. To do this, run <command>zypper lr -u</command> and
+       remove any listings referring to the original deployer's IP address
+       using <command>zypper rr <replaceable>REPO_NAME</replaceable></command>.
       </para>
-<screen>cd ~/helion/hos/ansible
-ansible-playbook -i hosts/localhost cobbler-deploy.yml</screen>
+     </listitem>
+     <listitem>
+      <para>
+       On each &rhla; compute node, edit the repositories located in either
+       <filename>/etc/yum.repos.d</filename> or <filename>/etc/yum/repos.d</filename>
+       to redirect any IP addresses from the seed node to point to the new
+       deployer. (These references are likely to be found in the files
+       <filename>cobbler-config.repo</filename> or <filename>rhel73.repo</filename>.)
+      </para>
+      <para>
+       Then, refresh the yum cache by running:
+      </para>
+<screen><prompt>(rhel-compute)> </prompt>sudo yum clean all</screen>
+     </listitem>
+     <listitem>
+      <para>
+       Use the new deployer to inform all other cloud nodes of its new role.
+      </para>
+<screen><prompt>(new-deployer)> </prompt>cd ~/scratch/ansible/next/hos/ansible
+<prompt>(new-deployer)> </prompt>ansible-playbook -i hosts/verb_hosts osconfig-run.yml</screen>
      </listitem>
     </itemizedlist>
    </step>
@@ -786,7 +844,7 @@ git checkout site</screen>
 <screen>rm -rf hos/ansible
 git checkout hos -- hos/ansible</screen>
     <para>
-     Reset the codebase to make it ready for Ardana, then refactor the rest of
+     Reset the codebase to make it ready for Ardana, then transform the rest of
      the repository:
     </para>
 <screen>
@@ -814,8 +872,14 @@ git merge ardana -m "Conversion to Ardana"
      Reinstate the changes that were originally made to the contents of the
      <filename>hos/ansible</filename> directory
     </para>
-<screen>sed 's/ \([ab]\?[\/]\?\)hos\/ansible/ \1ardana\/ansible/g' /tmp/hos.diff | git apply
-git add -A
+<screen>sed 's/ \([ab]\?[\/]\?\)hos\/ansible/ \1ardana\/ansible/g' /tmp/hos.diff | git apply</screen>
+    <para>
+     If merge conflicts are reported, some files may need to be edited manually
+     to reconcile the difference between the HOS and Ardana playbooks with
+     respect to manual changes previously made to the repository. Once this is
+     completed, continue to commit all updates:
+    </para>
+<screen>git add -A
 git commit -a -m "Reinstated hos playbook customizations (batch)"
 </screen>
    </step>
@@ -862,7 +926,7 @@ ansible -i hosts/verb_hosts resources --become \
   -a "sed -i 's/helion/ardana/' /etc/iproute2/rt_tables"</screen>
     <para>
      Because the OpenStack service versions are comparable between &hpecloud;
-     5.0.x and Ardana.Newton, it is not required to run the entire
+     5.0.x and Ardana.Newton, it is not necessary to run the entire
      deploy/upgrade playbook for Ardana.Newton at this time.
     </para>
    </step>
