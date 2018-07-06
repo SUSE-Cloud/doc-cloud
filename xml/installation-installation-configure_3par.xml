@@ -1,0 +1,488 @@
+<?xml version="1.0"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<section xml:id="config_3par"
+ xmlns="http://docbook.org/ns/docbook" version="5.1"
+ xmlns:xi="http://www.w3.org/2001/XInclude"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+ <title>Configuring for 3PAR Block Storage Backend</title>
+ <para>
+  This page describes how to configure your 3PAR backend for the &productname;
+  Entry-scale with KVM cloud model.
+ </para>
+  <section xml:id="idg-installation-installation-configure_3par-xml-7">
+  <title>Prerequisites</title>
+  <itemizedlist>
+   <listitem>
+    <para>
+     You must have the license for the following software before you start your
+     3PAR backend configuration for the &productname; Entry-scale with KVM cloud
+     model:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       Thin Provisioning
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Virtual Copy
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       System Reporter
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Dynamic Optimization
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Priority Optimization
+      </para>
+     </listitem>
+    </itemizedlist>
+   </listitem>
+   <listitem>
+    <para>
+     Your &productname; Entry-scale KVM Cloud should be up and running.
+     Installation steps can be found in
+     <xref linkend="install_kvm"/>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Your 3PAR Storage Array should be available in the cloud management
+     network or routed to the cloud management network and the 3PAR FC and
+     iSCSI ports configured.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     The 3PAR management IP and iSCSI port IPs must have connectivity from the
+     controller and compute nodes.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Please refer to the system requirements for 3PAR in the OpenStack
+     configuration guide, which can be found here:
+     <link xlink:href="http://docs.openstack.org/liberty/config-reference/content/hp-3par-sys-reqs.html">3PAR
+     System Requirements</link>.
+    </para>
+   </listitem>
+  </itemizedlist>
+ </section>
+ <section xml:id="idg-installation-installation-configure_3par-xml-9">
+  <title>Notes</title>
+  <para>
+   <emphasis role="bold">Encrypted 3Par Volume</emphasis>: Attaching an
+   encrypted 3Par volume is possible after installation by setting
+   <literal>volume_use_multipath = true</literal> under the libvirt stanza in
+   the <literal>nova/kvm-hypervisor.conf.j2</literal> file and reconfigure
+   nova.
+  </para>
+  <para>
+   <emphasis role="bold">Concerning using multiple backends:</emphasis> If you
+   are using multiple backend options, ensure that you specify each of the
+   backends you are using when configuring your
+   <literal>cinder.conf.j2</literal> file using a comma-delimited list.
+   Also create multiple volume types so you can specify a backend to utilize
+   when creating volumes. Instructions are included below.
+   <!-- the following documentation is not accurate; it doesn't show up in a
+   quick search 2018-02-27; csymons -->
+   <!-- In addition to our documentation, you can also read
+   the OpenStack documentation at
+   <link xlink:href="http://docs.openstack.org/admin-guide-cloud/blockstorage_multi_backend.html">Configure
+   multiple storage backends</link> as well. -->
+  </para>
+  <para>
+   <emphasis role="bold">Concerning iSCSI and Fiber Channel:</emphasis> You
+   should not configure cinder backends so that multipath volumes are exported
+   over both iSCSI and Fiber Channel from a 3PAR backend to the same Nova
+   compute server.
+  </para>
+  <para>
+   <emphasis role="bold">3PAR driver has updated name:</emphasis> In the
+   OpenStack Mitaka release, the 3PAR driver used for &productname; integration
+   had its name updated from <literal>HP3PARFCDriver</literal> and
+   <literal>HP3PARISCSIDriver</literal> to <literal>HPE3PARFCDriver</literal>
+   and <literal>HPE3PARISCSIDriver</literal>. To prevent issues when upgrading
+   from previous &kw-hos; releases, we left the names as-is in the release and
+   provided a mapping so that the integration would continue to work. This will
+   produce a warning in the <literal>cinder-volume.log</literal> file advising
+   you of the deprecated name. The warning will look similar to this:
+   <quote>Option "hp3par_api_url" from group
+   "&lt;<replaceable>YOUR_SECTION</replaceable>>" is
+   deprecated. Use option "hpe3par_api_url" from group
+   "&lt;<replaceable>YOUR_SECTION</replaceable>>"'</quote>.
+  </para>
+  <para>
+   These are just warnings and can be ignored.
+  </para>
+  <!-- FIXME: the following was commented in the DITA original. -->
+  <!--
+  <para>If you would like to remove these warnings, use the following steps:</para>
+  <procedure>
+     <step>Log in to the &lcm;.</step>
+     <step>Update the Cinder configuration file at the following
+       location:<screen>~/openstack/ardana/ansible/roles/_CND-CMN/templates/cinder.conf.j2</screen></step>
+     <step>Change each occurrence of <literal>hplefthand_</literal> to
+         <literal>hpelefthand_</literal> and each occurrence of <literal>hp3par_</literal> to
+         <literal>hpe3par_</literal> in the <literal>cinder.conf.j2</literal> file and save
+       it.</step>
+     <step>Commit your changes to
+       git:<screen>cd ~/openstack/ardana/ansible
+git add -A
+git commit -m "My config or other commit message"</screen></step>
+     <step>Update your deployment
+       directory:<screen>cd ~/openstack/ardana/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen></step>
+     <step>Use the following playbook to reconfigure the Cinder service to implement the
+       changes:<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts cinder-reconfigure.yml</screen></step>
+   </procedure>
+          -->
+ </section>
+ <section xml:id="sec.3par-multipath">
+  <title>Multipath Support</title>
+  <para>
+   If you want to enable multipath for Cinder volumes carved from 3PAR FC/iSCSI
+   storage system, please go through the
+   <filename>~/openstack/ardana/ansible/roles/multipath/README.md</filename>
+   file on the &lcm;. The <filename>README.md</filename> file contains
+   detailed procedures for configuring multipath for 3PAR FC/iSCSI Cinder
+   volumes.
+  </para>
+  <para>
+   We have also included an additional set of steps needed if you are using
+   3PAR FC/iSCSI multipath which is included below.
+  </para>
+  <para>
+   If you are using 3PAR FC/iSCSI multipath, an additional configuration is
+   required:
+  </para>
+  <para>
+   If you are planning on attaching an encrypted 3PAR volume after
+   installation, ensure that you <literal>volume_use_multipath =
+   true</literal> under the libvirt section in the
+   <literal>nova/kvm-hypervisor.conf.j2</literal> file before configuring
+   Cinder.
+  </para>
+
+  <procedure>
+   <step>
+    <para>
+     Log in to the &lcm;.
+    </para>
+   </step>
+   <step>
+    <para>
+     Edit the
+     <literal>~/openstack/my_cloud/config/nova/kvm-hypervisor.conf.j2</literal>
+     file add this line under the <literal>[libvirt]</literal> section:
+    </para>
+    <para>
+     Example:
+    </para>
+<screen>[libvirt]
+...
+iscsi_use_multipath=true</screen>
+   </step>
+   <step>
+    <para>
+     Edit the file
+     <literal>~/openstack/my_cloud/config/cinder/cinder.conf.j2</literal>
+     and add this line under the <literal>[DEFAULT]</literal> section:
+    </para>
+    <para>
+     Example:
+    </para>
+<screen>[DEFAULT]
+...
+use_multipath_for_image_xfer=true</screen>
+   </step>
+   <step>
+    <para>
+     Commit your configuration to the local git repo
+     (<xref linkend="using_git"/>), as follows:
+    </para>
+<screen>cd ~/openstack/ardana/ansible
+git add -A
+git commit -m "My config or other commit message"</screen>
+   </step>
+   <step>
+    <para>
+     Run the configuration processor:
+    </para>
+<screen>cd ~/openstack/ardana/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</screen>
+   </step>
+   <step>
+    <para>
+     Use the playbook below to create a deployment directory:
+    </para>
+<screen>cd ~/openstack/ardana/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+   </step>
+   <step>
+    <para>
+     Run the Nova reconfigure playbook:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts nova-reconfigure.yml</screen>
+   </step>
+  </procedure>
+ </section>
+ <section xml:id="config_fc">
+  <title>Configure 3PAR FC as a Cinder Backend</title>
+  <para>
+   You must modify the <literal>cinder.conf.j2</literal> to configure the FC
+   details.
+  </para>
+  <para>
+   Perform the following steps to configure 3PAR FC as Cinder backend:
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Log in to &lcm;.
+    </para>
+   </step>
+   <step>
+    <para>
+     Make the following changes to the
+     <literal>~/openstack/my_cloud/config/cinder/cinder.conf.j2</literal> file:
+    </para>
+     <substeps>
+      <step>
+      <para>
+       Add your 3PAR backend to the <literal>enabled_backends</literal>
+       section:
+      </para>
+<screen># Configure the enabled backends
+enabled_backends=3par_FC</screen>
+      <important>
+       <para>
+        If you are using multiple backend types, you can use a comma-delimited
+        list here.
+       </para>
+      </important>
+     </step>
+     <step>
+      <para>
+       <literal>[OPTIONAL]</literal> If you want your volumes to use a default
+       volume type, then enter the name of the volume type in the
+       <literal>[DEFAULT]</literal> section with the syntax below.
+       <emphasis role="bold">Remember this value for when you
+       create your volume type in the next section.</emphasis>
+      </para>
+      <important>
+       <para>
+        If you do not specify a default type then your volumes will default to
+        a non-redundant RAID configuration. It is recommended that you create a
+        volume type and specify it here that meets your environments needs.
+       </para>
+      </important>
+<screen>[DEFAULT]
+# Set the default volume type
+default_volume_type = &lt;your new volume type></screen>
+     </step>
+     <step>
+      <para>
+       Uncomment the <literal>StoreServ (3par) iscsi cluster</literal> section
+       and fill the values per your cluster information. Here is an example:
+      </para>
+<screen>[3par_FC]
+san_ip: &#60;3par-san-ipaddr>
+san_login: &#60;3par-san-username>
+san_password: &#60;3par-san-password>
+hp3par_username: &#60;3par-username>
+hp3par_password: &#60;hp3par_password>
+hp3par_api_url: https://&#60;3par-san-ipaddr>:8080/api/v1
+hp3par_cpg: &#60;3par-cpg-name-1>[,&#60;3par-cpg-name-2>, ...]
+volume_backend_name: &#60;3par-backend-name>
+volume_driver: cinder.volume.drivers.san.hp.hp_3par_fc.HP3PARFCDriver</screen>
+       </step>
+     </substeps>
+    <important>
+     <para>
+      Do not use <literal>backend_host</literal> variable in
+      <literal>cinder.conf</literal> file. If <literal>backend_host</literal>
+      is set, it will override the [DEFAULT]/host value which &kw-hos-phrase;
+      is dependent on.
+     </para>
+    </important>
+   </step>
+   <step>
+    <para>
+     Commit your configuration to the local git repo
+     (<xref linkend="using_git"/>), as follows:
+    </para>
+<screen>cd ~/openstack/ardana/ansible
+git add -A
+git commit -m "My config or other commit message"</screen>
+   </step>
+   <step>
+    <para>
+     Run the configuration processor:
+    </para>
+<screen>cd ~/openstack/ardana/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</screen>
+   </step>
+   <step>
+    <para>
+     Update your deployment directory:
+    </para>
+<screen>cd ~/openstack/ardana/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+   </step>
+   <step>
+    <para>
+     Run the following playbook to complete the configuration:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts cinder-reconfigure.yml</screen>
+   </step>
+  </procedure>
+  </section>
+ <section xml:id="config_iscsi">
+  <title>Configure 3PAR iSCSI as Cinder backend</title>
+  <para>
+   You must modify the <literal>cinder.conf.j2</literal> to configure the iSCSI
+   details.
+  </para>
+  <para>
+   Perform the following steps to configure 3PAR iSCSI as Cinder backend:
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Log in to &lcm;.
+    </para>
+   </step>
+   <step>
+    <para>
+     Make the following changes to the
+     <literal>~/openstack/my_cloud/config/cinder/cinder.conf.j2</literal> file:
+    </para>
+     <substeps>
+     <step>
+      <para>
+       Add your 3PAR backend to the <literal>enabled_backends</literal>
+       section:
+      </para>
+<screen># Configure the enabled backends
+enabled_backends=3par_iSCSI</screen>
+     </step>
+     <step>
+      <para>
+       Uncomment the <literal>StoreServ (3par) iscsi cluster</literal> section
+       and fill the values per your cluster information. Here is an example:
+      </para>
+<screen>
+<?dbsuse-fo font-size="0.70em"?>
+[3par_iSCSI]
+san_ip: &#60;3par-san-ipaddr>
+san_login: &#60;3par-san-username>
+san_password: &#60;3par-san-password>
+hp3par_username: &#60;3par-username>
+hp3par_password: &#60;hp3par_password>
+hp3par_api_url: https://&#60;3par-san-ipaddr>:8080/api/v1
+hp3par_cpg: &#60;3par-cpg-name-1>[,&#60;3par-cpg-name-2>, ...]
+volume_backend_name: &#60;3par-backend-name>
+volume_driver: cinder.volume.drivers.san.hp.hp_3par_iscsi.HP3PARISCSIDriver
+hp3par_iscsi_ips: &#60;3par-ip-address-1>[,&#60;3par-ip-address-2>,&#60;3par-ip-address-3>, ...]
+hp3par_iscsi_chap_enabled=true</screen>
+      <important>
+       <para>
+        Do not use <literal>backend_host</literal> variable in
+        <literal>cinder.conf</literal> file. If <literal>backend_host</literal>
+        is set, it will override the [DEFAULT]/host value which &kw-hos-phrase;
+        is dependent on.
+       </para>
+      </important>
+     </step>
+     </substeps>
+    </step>
+   <step>
+    <para>
+     Commit your configuration your local git repository:
+    </para>
+<screen>cd ~/openstack/ardana/ansible
+git add -A
+git commit -m "&lt;commit message>"</screen>
+   </step>
+   <step>
+    <para>
+     Run the configuration processor:
+    </para>
+<screen>cd ~/openstack/ardana/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</screen>
+    <para>
+     When you run the configuration processor you will be prompted for two
+     passwords. Enter the first password to make the configuration processor
+     encrypt its sensitive data, which consists of the random inter-service
+     passwords that it generates and the Ansible group_vars and host_vars that
+     it produces for subsequent deploy runs. You will need this key for
+     subsequent Ansible deploy runs and subsequent configuration processor
+     runs. If you wish to change an encryption password that you have already
+     used when running the configuration processor then enter the new password
+     at the second prompt, otherwise press <keycap function="enter"/>.
+    </para>
+    <para>
+     For CI purposes you can specify the required passwords on the ansible
+     command line. For example, the command below will disable encryption by
+     the configuration processor
+    </para>
+<screen>ansible-playbook -i hosts/localhost config-processor-run.yml \
+  -e encrypt="" -e rekey=""</screen>
+    <para>
+     If you receive an error during either of these steps then there is an
+     issue with one or more of your configuration files. We recommend that you
+     verify that all of the information in each of your configuration files is
+     correct for your environment and then commit those changes to git using
+     the instructions above.
+    </para>
+   </step>
+   <step>
+    <para>
+     Run the following command to create a deployment directory.
+    </para>
+<screen>cd ~/openstack/ardana/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+   </step>
+   <step>
+    <para>
+     Run the following command to complete the configuration:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts cinder-reconfigure.yml</screen>
+   </step>
+  </procedure>
+  </section>
+ <section xml:id="idg-installation-installation-configure_3par-xml-16">
+  <title>Post-Installation Tasks</title>
+  <para>
+   After configuring 3PAR as your Block Storage backend, perform the
+   following tasks:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     <xref linkend="creating_voltype"/>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <xref linkend="sec.verify_block_storage.volume"/>
+    </para>
+   </listitem>
+  </itemizedlist>
+ </section>
+</section>

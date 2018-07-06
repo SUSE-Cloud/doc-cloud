@@ -1,0 +1,727 @@
+<?xml version="1.0"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<section xml:id="ironic-provisioning"
+ xmlns="http://docbook.org/ns/docbook" version="5.1"
+ xmlns:xi="http://www.w3.org/2001/XInclude"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+ <title>Provisioning Bare-Metal Nodes with Flat Network Model</title>
+ <warning>
+  <para>
+   Providing bare-metal resources to an untrusted third party is not advised
+   as a malicious user can potentially modify hardware firmware.
+  </para>
+ </warning>
+ <important>
+  <para>
+   The steps outlined in <xref linkend="ironic-tls"/>
+   <emphasis>must</emphasis> be performed.
+  </para>
+ </important>
+ <para>
+  A number of drivers are available to provision and manage bare-metal
+  machines. The drivers are named based on the deployment mode and the power
+  management interface. &kw-hos; has been tested with the following drivers:
+ </para>
+ <itemizedlist>
+  <listitem>
+   <para>
+    agent_ilo
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    agent_ipmi
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    pxe_ilo
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    pxe_ipmi
+   </para>
+  </listitem>
+ </itemizedlist>
+ <para>
+  <phrase vendor="hpe">For &hpe; servers, <literal>agent_ipmitool</literal> and
+  <literal>agent_ilo</literal> drivers are supported.</phrase>
+ </para>
+ <para>
+  Before you start, you should be aware that:
+ </para>
+ <orderedlist>
+  <listitem>
+   <para>
+    Node Cleaning is enabled for all the drivers in &kw-hos-phrase;.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Node parameter settings must have matching flavors in terms of
+    <literal>cpus</literal>, <literal>local_gb</literal>, and
+    <literal>memory_mb</literal>, <literal>boot_mode</literal> and
+    <literal>cpu_arch</literal>.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    It is advisable that nodes enrolled for ipmitool drivers are pre-validated
+    in terms of BIOS settings, in terms of boot mode, prior to setting
+    capabilities.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Network cabling and interface layout should also be pre-validated in any
+    given particular boot mode or configuration that is registered.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    The use of <literal>agent_</literal> drivers is predicated upon &o_img;
+    images being backed by a &swift; image store, specifically the need for the
+    temporary file access features. Using the file system as a &o_img; back-end
+    image store means that the <literal>agent_</literal> drivers cannot be
+    used.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Manual Cleaning (RAID) and Node inspection is supported by ilo drivers
+    (<literal>agent_ilo</literal> and <literal>pxe_ilo)</literal>
+   </para>
+  </listitem>
+ </orderedlist>
+ <section xml:id="sec.ironic-provision.image">
+  <title>Supplied Images</title>
+  <para>
+   As part of the &productname; Entry-scale &o_iron; Cloud installation,
+   &o_iron; Python Agent (IPA) images are supplied and loaded into &o_img;.
+   To see the images that have been loaded, execute the following commands on
+   the deployer node:
+  </para>
+<screen>$ source ~/service.osrc
+glance image-list</screen>
+  <para>
+   This will produce output like the following example, showing three images
+   that have been added by &o_iron;:
+  </para>
+<screen>
++------------------+--------------------------+-----------------------------+
+| ID               | Name                     |                             |
++------------------+--------------------------+-----------------------------+
+| <replaceable>DEPLOY_UUID</replaceable>      | ir-deploy-iso-ARDANA5.0     |
+| <replaceable>KERNEL_UUID</replaceable>      | ir-deploy-kernel-ARDANA5.0  |
+| <replaceable>RAMDISK_UUID</replaceable>     | ir-deploy-ramdisk-ARDANA5.0 |
++------------------+--------------------------+-----------------------------+
+</screen>
+  <para>
+   The <literal>ir-deploy-ramdisk</literal> image is a traditional boot ramdisk
+   used by the <literal>agent_ipmitool</literal>,
+   <literal>pxe_ipmitool</literal>, and <literal>pxe_ilo</literal> drivers
+   while <literal>ir-deploy-iso</literal> is an ISO image that is supplied as
+   virtual media to the host when using the <literal>agent_ilo</literal>
+   driver.
+  </para>
+ </section>
+ <section xml:id="sec.ironic-provision.provision">
+  <title>Provisioning a Node</title>
+  <para>
+   The information required to provision a node varies slightly depending on
+   the driver used. In general the following details are required.
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     Network access information and credentials to connect to the management
+     interface of the node.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Sufficient properties to allow for &o_comp; flavor matching.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     A deployment image to perform the actual deployment of the guest operating
+     system to the bare-metal node.
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   A combination of the <literal>ironic node-create</literal> and
+   <literal>ironic node-update</literal> commands are used for registering a
+   node's characteristics with the &o_iron; service. In particular,
+   <literal>ironic node-update &lt;nodeid&gt;
+   <replaceable>add</replaceable></literal> and <literal>ironic node-update
+   &lt;nodeid&gt; <replaceable>replace</replaceable></literal> can be used to
+   modify the properties of a node after it has been created while
+   <literal>ironic node-update &lt;nodeid&gt;
+   <replaceable>remove</replaceable></literal> will remove a property.
+  </para>
+ </section>
+ <section xml:id="sec.ironic-provision.create-ilo">
+  <title>Creating a Node Using <command>agent_ilo</command></title>
+  <para>
+   If you want to use a boot mode of BIOS as opposed to UEFI, then you need to
+   ensure that the boot mode has been set correctly on the IPMI:
+  </para>
+  <para>
+   While the iLO driver can automatically set a node to boot in UEFI mode via
+   the <literal>boot_mode</literal> defined capability, it cannot set BIOS boot
+   mode once UEFI mode has been set.
+  </para>
+  <para>
+   Use the <literal>ironic node-create</literal> command to specify the
+   <literal>agent_ilo</literal> driver, network access and credential
+   information for the IPMI, properties of the node and the &o_img; ID of the
+   supplied ISO IPA image. Note that memory size is specified in megabytes while
+   disk size is specified in gigabytes.
+  </para>
+<screen>
+ironic node-create -d agent_ilo -i ilo_address=<replaceable>IP_ADDRESS</replaceable> -i \
+  ilo_username=Administrator -i ilo_password=<replaceable>PASSWORD</replaceable> \
+  -p cpus=2 -p cpu_arch=x86_64 -p memory_mb=64000 -p local_gb=99 \
+  -i ilo_deploy_iso=<replaceable>DEPLOY_UUID</replaceable>
+</screen>
+  <para>
+   This will generate output similar to the following:
+  </para>
+<screen>
++--------------+---------------------------------------------------------------+
+| Property     | Value                                                         |
++--------------+---------------------------------------------------------------+
+| uuid         | <replaceable>NODE_UUID</replaceable>                                                     |
+| driver_info  | {u'ilo_address': u'<replaceable>IP_ADDRESS</replaceable>', u'ilo_password': u'******',   |
+|              | u'ilo_deploy_iso': u'<replaceable>DEPLOY_UUID</replaceable>',                            |
+|              | u'ilo_username': u'Administrator'}                            |
+| extra        | {}                                                            |
+| driver       | agent_ilo                                                     |
+| chassis_uuid |                                                               |
+| properties   | {u'memory_mb': 64000, u'local_gb': 99, u'cpus': 2,            |
+|              | u'cpu_arch': u'x86_64'}                                       |
+| name         | None                                                          |
++--------------+---------------------------------------------------------------+
+</screen>
+  <para>
+   Now update the node with <literal>boot_mode</literal> and
+   <literal>boot_option</literal> properties:
+  </para>
+<screen>
+ironic node-update <replaceable>NODE_UUID</replaceable> add \
+  properties/capabilities="boot_mode:bios,boot_option:local"
+ </screen>
+  <para>
+   The <literal>ironic node-update</literal> command returns details for all of
+   the node's characteristics.
+  </para>
+<screen>
+<?dbsuse-fo font-size="0.70em"?>
++------------------------+------------------------------------------------------------------+
+| Property               | Value                                                            |
++------------------------+------------------------------------------------------------------+
+| target_power_state     | None                                                             |
+| extra                  | {}                                                               |
+| last_error             | None                                                             |
+| updated_at             | None                                                             |
+| maintenance_reason     | None                                                             |
+| provision_state        | available                                                        |
+| clean_step             | {}                                                               |
+| uuid                   | <replaceable>NODE_UUID</replaceable>                                                        |
+| console_enabled        | False                                                            |
+| target_provision_state | None                                                             |
+| provision_updated_at   | None                                                             |
+| maintenance            | False                                                            |
+| inspection_started_at  | None                                                             |
+| inspection_finished_at | None                                                             |
+| power_state            | None                                                             |
+| driver                 | agent_ilo                                                        |
+| reservation            | None                                                             |
+| properties             | {u'memory_mb': 64000, u'cpu_arch': u'x86_64', u'local_gb': 99,   |
+|                        | u'cpus': 2, u'capabilities': u'boot_mode:bios,boot_option:local'}|
+| instance_uuid          | None                                                             |
+| name                   | None                                                             |
+| driver_info            | {u'ilo_address': u'10.1.196.117', u'ilo_password': u'******',    |
+|                        | u'ilo_deploy_iso': u'<replaceable>DEPLOY_UUID</replaceable>',                               |
+|                        | u'ilo_username': u'Administrator'}                               |
+| created_at             | 2016-03-11T10:17:10+00:00                                        |
+| driver_internal_info   | {}                                                               |
+| chassis_uuid           |                                                                  |
+| instance_info          | {}                                                               |
++------------------------+------------------------------------------------------------------+
+</screen>
+ </section>
+ <section xml:id="sec.ironic-provision.create-ipmi">
+  <title>Creating a Node Using <command>agent_ipmi</command></title>
+  <para>
+   Use the <literal>ironic node-create</literal> command to specify the
+   <literal>agent_ipmi</literal> driver, network access and credential
+   information for the IPMI, properties of the node and the &o_img; IDs of the
+   supplied kernel and ramdisk images. Note that memory size is specified in
+   megabytes while disk size is specified in gigabytes.
+  </para>
+<screen>
+<?dbsuse-fo font-size="0.70em"?>
+ironic node-create -d <emphasis role="bold">agent_ipmitool</emphasis> \
+  -i ipmi_address=<replaceable>IP_ADDRESS</replaceable> \
+  -i ipmi_username=Administrator -i ipmi_password=<replaceable>PASSWORD</replaceable> \
+  -p cpus=2 -p memory_mb=64000 -p local_gb=99 -p cpu_arch=x86_64 \
+  -i deploy_kernel=<replaceable>KERNEL_UUID</replaceable> \
+  -i deploy_ramdisk=<replaceable>RAMDISK_UUID</replaceable>
+</screen>
+  <para>
+   This will generate output similar to the following:
+  </para>
+<screen>
+<?dbsuse-fo font-size="0.70em"?>
++--------------+-----------------------------------------------------------------------+
+| Property     | Value                                                                 |
++--------------+-----------------------------------------------------------------------+
+| uuid         | <replaceable>NODE2_UUID</replaceable>                                                            |
+| driver_info  | {u'deploy_kernel': u'<replaceable>KERNEL_UUID</replaceable>',                                    |
+|              | u'ipmi_address': u'<replaceable>IP_ADDRESS</replaceable>', u'ipmi_username': u'Administrator',   |
+|              | u'ipmi_password': u'******',                                          |
+|              | u'deploy_ramdisk': u'<replaceable>RAMDISK_UUID</replaceable>'}                                   |
+| extra        | {}                                                                    |
+| driver       | agent_ipmitool                                                        |
+| chassis_uuid |                                                                       |
+| properties   | {u'memory_mb': 64000, u'cpu_arch': u'x86_64', u'local_gb': 99,        |
+|              | u'cpus': 2}                                                           |
+| name         | None                                                                  |
++--------------+-----------------------------------------------------------------------+
+</screen>
+  <para>
+   Now update the node with <literal>boot_mode</literal> and
+   <literal>boot_option</literal> properties:
+  </para>
+<screen>
+ironic node-update <replaceable>NODE_UUID</replaceable> add \
+  properties/capabilities="boot_mode:bios,boot_option:local"
+</screen>
+  <para>
+   The <literal>ironic node-update</literal> command returns details for all of
+   the node's characteristics.
+  </para>
+<screen>
+<?dbsuse-fo font-size="0.70em"?>
++------------------------+-----------------------------------------------------------------+
+| Property               | Value                                                           |
++------------------------+-----------------------------------------------------------------+
+| target_power_state     | None                                                            |
+| extra                  | {}                                                              |
+| last_error             | None                                                            |
+| updated_at             | None                                                            |
+| maintenance_reason     | None                                                            |
+| provision_state        | available                                                       |
+| clean_step             | {}                                                              |
+| uuid                   | <replaceable>NODE2_UUID</replaceable>                                                      |
+| console_enabled        | False                                                           |
+| target_provision_state | None                                                            |
+| provision_updated_at   | None                                                            |
+| maintenance            | False                                                           |
+| inspection_started_at  | None                                                            |
+| inspection_finished_at | None                                                            |
+| power_state            | None                                                            |
+| driver                 | agent_ipmitool                                                  |
+| reservation            | None                                                            |
+| properties             | {u'memory_mb': 64000, u'cpu_arch': u'x86_64',                   |
+|                        | u'local_gb': 99, u'cpus': 2,                                    |
+|                        | u'capabilities': u'boot_mode:bios,boot_option:local'}           |
+| instance_uuid          | None                                                            |
+| name                   | None                                                            |
+| driver_info            | {u'ipmi_password': u'******', u'ipmi_address': u'<replaceable>IP_ADDRESS</replaceable>',   |
+|                        | u'ipmi_username': u'Administrator', u'deploy_kernel':           |
+|                        | u'<replaceable>KERNEL_UUID</replaceable>',                                                 |
+|                        | u'deploy_ramdisk': u'<replaceable>RAMDISK_UUID</replaceable>'}                             |
+| created_at             | 2016-03-11T14:19:18+00:00                                       |
+| driver_internal_info   | {}                                                              |
+| chassis_uuid           |                                                                 |
+| instance_info          | {}                                                              |
++------------------------+-----------------------------------------------------------------+
+</screen>
+  <para>
+   For more information on node enrollment, see the &ostack; documentation at
+   <link xlink:href="http://docs.openstack.org/developer/ironic/deploy/install-guide.html#enrollment"/>.
+  </para>
+ </section>
+ <section xml:id="sec.ironic-provision.flavor">
+  <title>Creating a Flavor</title>
+  <para>
+   Nova uses flavors when fulfilling requests for bare-metal nodes. The Nova
+   scheduler attempts to match the requested flavor against the properties of
+   the created &o_iron; nodes. So an administrator needs to set up flavors that
+   correspond to the available bare-metal nodes using the command
+   <command>nova flavor-create</command>:
+  </para>
+<screen>
+<?dbsuse-fo font-size="0.70em"?>
+nova flavor-create bmtest auto 64000  99 2
+
++----------------+--------+--------+------+-----------+------+-------+-------------+-----------+
+| ID             | Name   | Mem_MB | Disk | Ephemeral | Swap | VCPUs | RXTX_Factor | Is_Public |
++----------------+--------+--------+------+-----------+------+-------+-------------+-----------+
+| 645de0...b1348 | bmtest | 64000  | 99   | 0         |      | 2     | 1.0         | True      |
++----------------+--------+--------+------+-----------+------+-------+-------------+-----------+
+</screen>
+  <para>
+   To see a list of all the available flavors, run <command>nova
+   flavor-list</command>:
+  </para>
+<screen>
+<?dbsuse-fo font-size="0.70em"?>
+nova flavor-list
+
++-------------+--------------+--------+------+-----------+------+-------+--------+-----------+
+| ID          | Name         | Mem_MB | Disk | Ephemeral | Swap | VCPUs |  RXTX  | Is_Public |
+|             |              |        |      |           |      |       | Factor |           |
++-------------+--------------+--------+------+-----------+------+-------+--------+-----------+
+| 1           | m1.tiny      | 512    | 1    | 0         |      | 1     | 1.0    | True      |
+| 2           | m1.small     | 2048   | 20   | 0         |      | 1     | 1.0    | True      |
+| 3           | m1.medium    | 4096   | 40   | 0         |      | 2     | 1.0    | True      |
+| 4           | m1.large     | 8192   | 80   | 0         |      | 4     | 1.0    | True      |
+| 5           | m1.xlarge    | 16384  | 160  | 0         |      | 8     | 1.0    | True      |
+| 6           | m1.baremetal | 4096   | 80   | 0         |      | 2     | 1.0    | True      |
+| 645d...1348 | bmtest       | 64000  | 99   | 0         |      | 2     | 1.0    | True      |
++-------------+--------------+--------+------+-----------+------+-------+--------+-----------+
+</screen>
+  <para>
+   Now set the CPU architecture and boot mode and boot option capabilities:
+  </para>
+<screen>
+nova flavor-key 645de08d-2bc6-43f1-8a5f-2315a75b1348 set cpu_arch=x86_64
+nova flavor-key 645de08d-2bc6-43f1-8a5f-2315a75b1348 set capabilities:boot_option="local"
+nova flavor-key 645de08d-2bc6-43f1-8a5f-2315a75b1348 set capabilities:boot_mode="bios"
+</screen>
+  <para>
+   For more information on flavor creation, see the &ostack; documentation at
+   <link xlink:href="http://docs.openstack.org/developer/ironic/deploy/install-guide.html#flavor-creation"/>.
+  </para>
+ </section>
+ <section xml:id="sec.ironic-provision.net">
+  <title>Creating a Network Port</title>
+  <para>
+   Register the MAC addresses of all connected physical network interfaces
+   intended for use with the bare-metal node.
+  </para>
+<screen>ironic port-create -a 5c:b9:01:88:f0:a4 -n ea7246fd-e1d6-4637-9699-0b7c59c22e67</screen>
+ </section>
+ <section xml:id="sec.ironic-provision.glance-image">
+  <title>Creating a &o_img; Image</title>
+  <para>
+   You can create a complete disk image using the instructions at
+   <xref linkend="sec.ironic-provision.kiwi"/>.
+  </para>
+  <para>
+   The image you create can then be loaded into &o_img;:
+  </para>
+<screen>
+glance image-create --name='leap' --disk-format=raw \
+  --container-format=bare \
+  --file /tmp/myimage/LimeJeOS-Leap-42.3.x86_64-1.42.3.raw
+
++------------------+--------------------------------------+
+| Property         | Value                                |
++------------------+--------------------------------------+
+| checksum         | 45a4a06997e64f7120795c68beeb0e3c     |
+| container_format | bare                                 |
+| created_at       | 2018-02-17T10:42:14Z                 |
+| disk_format      | raw                                  |
+| id               | <emphasis role="bold">17e4915a-ada0-4b95-bacf-ba67133f39a7</emphasis> |
+| min_disk         | 0                                    |
+| min_ram          | 0                                    |
+| name             | leap                                 |
+| owner            | 821b7bb8148f439191d108764301af64     |
+| protected        | False                                |
+| size             | 372047872                            |
+| status           | active                               |
+| tags             | []                                   |
+| updated_at       | 2018-02-17T10:42:23Z                 |
+| virtual_size     | None                                 |
+| visibility       | private                              |
++------------------+--------------------------------------+
+
+</screen>
+  <para>
+   This image will subsequently be used to boot the bare-metal node.
+  </para>
+ </section>
+ <section xml:id="sec.ironic-provision.key">
+  <title>Generating a Key Pair</title>
+  <para>
+   Create a key pair that you will use when you login to the newly booted node:
+  </para>
+<screen>
+nova keypair-add <emphasis role="bold">ironic_kp</emphasis> &gt; ironic_kp.pem
+</screen>
+ </section>
+ <section xml:id="sec.ironic-provision.neutron-id">
+  <title>Determining the &o_netw; Network ID</title>
+<screen>
+<?dbsuse-fo font-size="0.70em"?>
+neutron net-list
+
++---------------+----------+----------------------------------------------------+
+| id            | name     | subnets                                            |
++---------------+----------+----------------------------------------------------+
+| <emphasis role="bold">c0102...1ca8c </emphasis>| flat-net | 709ee2a1-4110-4b26-ba4d-deb74553adb9 192.3.15.0/24 |
++---------------+----------+----------------------------------------------------+
+</screen>
+ </section>
+ <section xml:id="sec.ironic-provision.boot">
+  <title>Booting the Node</title>
+  <para>
+   Before booting, it is advisable to power down the node:
+  </para>
+<screen>
+ironic node-set-power-state ea7246fd-e1d6-4637-9699-0b7c59c22e67 off
+</screen>
+  <para>
+   You can now boot the bare-metal node with the information compiled in the
+   preceding steps, using the &o_netw; network ID, the whole disk image ID, the
+   matching flavor and the key name:
+  </para>
+<screen>
+nova boot --nic net-id=c010267c-9424-45be-8c05-99d68531ca8c \
+  --image 17e4915a-ada0-4b95-bacf-ba67133f39a7 \
+  --flavor 645de08d-2bc6-43f1-8a5f-2315a75b1348 \
+  --key-name ironic_kp leap
+</screen>
+  <para>
+   This command returns information about the state of the node that is booting:
+  </para>
+<screen>
++--------------------------------------+------------------------+
+| Property                             | Value                  |
++--------------------------------------+------------------------+
+| OS-EXT-AZ:availability_zone          |                        |
+| OS-EXT-SRV-ATTR:host                 | -                      |
+| OS-EXT-SRV-ATTR:hypervisor_hostname  | -                      |
+| OS-EXT-SRV-ATTR:instance_name        | instance-00000001      |
+| OS-EXT-STS:power_state               | 0                      |
+| OS-EXT-STS:task_state                | scheduling             |
+| OS-EXT-STS:vm_state                  | building               |
+| OS-SRV-USG:launched_at               | -                      |
+| OS-SRV-USG:terminated_at             | -                      |
+| accessIPv4                           |                        |
+| accessIPv6                           |                        |
+| adminPass                            | adpHw3KKTjHk           |
+| config_drive                         |                        |
+| created                              | 2018-03-11T11:00:28Z   |
+| flavor                               | bmtest (645de...b1348) |
+| hostId                               |                        |
+| id                                   | a9012...3007e          |
+| image                                | leap (17e49...f39a7)   |
+| key_name                             | ironic_kp              |
+| metadata                             | {}                     |
+| name                                 | leap                   |
+| os-extended-volumes:volumes_attached | []                     |
+| progress                             | 0                      |
+| security_groups                      | default                |
+| status                               | BUILD                  |
+| tenant_id                            | d53bcaf...baa60dd      |
+| updated                              | 2016-03-11T11:00:28Z   |
+| user_id                              | e580c64...4aaf990      |
++--------------------------------------+------------------------+
+</screen>
+  <para>
+   The boot process can take up to 10 minutes. Monitor the progress with the
+   IPMI console or with <literal>nova list</literal>, <literal>nova show
+   &lt;nova_node_id&gt;</literal>, and <literal>ironic node-show
+   &lt;ironic_node_id&gt;</literal> commands.
+  </para>
+<screen>
+<?dbsuse-fo font-size="0.70em"?>
+nova list
+
++---------------+--------+--------+------------+-------------+----------------------+
+| ID            | Name   | Status | Task State | Power State | Networks             |
++---------------+--------+--------+------------+-------------+----------------------+
+| a9012...3007e | leap   | BUILD  | spawning   | NOSTATE     | flat-net=192.3.15.12 |
++---------------+--------+--------+------------+-------------+----------------------+
+</screen>
+  <para>
+   During the boot procedure, a login prompt will appear for &slsa;:
+  </para>
+  <para>
+   Ignore this login screen and wait for the login screen of your target
+   operating system to appear:
+  </para>
+  <para>
+   If you now run the command <command>nova list</command>, it should show the
+   node in the running state:
+  </para>
+<screen>
+<?dbsuse-fo font-size="0.70em"?>
+nova list
++---------------+--------+--------+------------+-------------+----------------------+
+| ID            | Name   | Status | Task State | Power State | Networks             |
++---------------+--------+--------+------------+-------------+----------------------+
+| a9012...3007e | leap   | ACTIVE | -          | Running     | flat-net=<emphasis role="bold">192.3.15.14</emphasis> |
++---------------+--------+--------+------------+-------------+----------------------+
+</screen>
+  <para>
+   You can now log in to the booted node using the key you generated earlier.
+   (You may be prompted to change the permissions of your private key files, so
+   that they are not accessible by others).
+  </para>
+<screen>ssh leap@192.3.15.14 -i ironic_kp.pem</screen>
+ </section>
+ <section xml:id="sec.ironic-provision.kiwi">
+  <title>Building &o_img; Images Using &kiwi;</title>
+  <para>
+   The following sections show you how to create your own images using &kiwi;,
+   the command line utility to build Linux system appliances. For information
+   on installing &kiwi;, see <link
+   xlink:href="https://suse.github.io/kiwi/installation.html"/>.
+  </para>
+  <para>
+   &kiwi; creates images in a two-step process:
+  </para>
+  <orderedlist>
+   <listitem>
+    <para>
+     The <literal>prepare</literal> operation generates an unpacked image tree
+     using the information provided in the image description.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     The <literal>create</literal> operation creates the packed image based on
+     the unpacked image and the information provided in the configuration file
+     (<filename>config.xml</filename>).
+    </para>
+   </listitem>
+  </orderedlist>
+  <para>
+   Instructions for installing &kiwi; are available at
+   <link xlink:href="https://suse.github.io/kiwi/installation.html"/>.
+  </para>
+  <para>
+   Image creation with &kiwi; is automated and does not require any user
+   interaction. The information required for the image creation process is
+   provided by the image description.
+  </para>
+  <para>
+   To use and run &kiwi; requires:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     A recent Linux distribution such as:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       &opensuse; Leap 42.3
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       &sle; 12 SP3
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       &opensuse; Tumbleweed
+      </para>
+     </listitem>
+    </itemizedlist>
+   </listitem>
+   <listitem>
+    <para>
+     Enough free disk space to build and store the image (a minimum of 10 GB is
+     recommended).
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Python version 2.7, 3.4 or higher. &kiwi; supports both Python 2 and 3
+     versions
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Git (package <package>git-core</package>) to clone a repository.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Virtualization technology to start the image (QEMU is recommended).
+    </para>
+   </listitem>
+  </itemizedlist>
+ </section>
+ <section xml:id="sec.ironic-provision.opensuse">
+  <title>Creating an openSUSE Image with &kiwi;</title>
+  <para>
+   The following example shows how to build an &opensuse; Leap image that is
+   ready to run in QEMU.
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Retrieve the example image descriptions.
+    </para>
+<screen>git clone https://github.com/SUSE/kiwi-descriptions</screen>
+   </step>
+   <step>
+    <para>
+     Build the image with &kiwi;:
+    </para>
+<screen>sudo kiwi-ng --type vmx system build \
+  --description kiwi-descriptions/suse/x86_64/suse-leap-42.3-JeOS \
+  --target-dir /tmp/myimage
+    </screen>
+    <para>
+     A <filename>.raw</filename> image will be built in the
+     <filename>/tmp/myimage</filename> directory.
+    </para>
+   </step>
+   <step>
+    <para>
+     Test the live image with QEMU:
+    </para>
+<screen>qemu \
+  -drive file=LimeJeOS-Leap-42.3.x86_64-1.42.3.raw,format=raw,if=virtio \
+  -m 4096</screen>
+   </step>
+   <step>
+    <para>
+     With a successful test, the image is complete.
+    </para>
+   </step>
+  </procedure>
+  <para>
+   By default, &kiwi; generates a file in the <filename>.raw</filename> format.
+   The <filename>.raw</filename> file is a disk image with a structure
+   equivalent to a physical hard disk. <filename>.raw</filename> images are
+   supported by any hypervisor, but are not compressed and do not offer the
+   best performance.
+  </para>
+  <para>
+   Virtualization systems support their own formats (such as
+   <literal>qcow2</literal> or <literal>vmdk</literal>) with compression and
+   improved I/O performance. To build an image in a format other than
+   <filename>.raw</filename>, add the format attribute to the type definition
+   in the preferences section of <filename>config.xml</filename>. Using
+   <literal>qcow2</literal> for example:
+  </para>
+<screen>&lt;image ...&gt;
+  &lt;preferences&gt;
+    &lt;type format="qcow2" .../&gt;
+    ...
+  &lt;/preferences&gt;
+  ...
+&lt;/image
+  </screen>
+  <para>
+   More information about &kiwi; is at
+   <link xlink:href="https://suse.github.io/kiwi/"/>.
+  </para>
+ </section>
+</section>

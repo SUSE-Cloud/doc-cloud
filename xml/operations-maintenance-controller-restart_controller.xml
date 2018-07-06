@@ -1,0 +1,299 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="recover_downed_cluster">
+ <title>Restarting Controller Nodes After a Reboot</title>
+ <para>
+  Steps to follow if one or more of your controller nodes lose network
+  connectivity or power, which includes if the node is either rebooted or needs
+  hardware maintenance.
+ </para>
+<!-- Comment from DITA original: -->
+<!-- WHEN, WHY? -->
+ <para>
+  When a controller node is rebooted, needs hardware maintenance, loses
+  network connectivity or loses power, these steps will help you recover the
+  node.
+ </para>
+ <para>
+  These steps may also be used if the Host Status (ping) alarm is triggered
+  for one or more of your controller nodes. Here is what the alarm looks like
+  in the &opscon;:
+ </para>
+<!-- Comment from DITA original: -->
+<!-- HOW, WHO, WHERE -->
+ <section xml:id="idg-all-operations-maintenance-controller-restart_controller-xml-7">
+  <title>Prerequisites</title>
+  <para>
+   The following conditions must be true in order to perform these steps
+   successfully:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     Each of your controller nodes should be powered on.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Each of your controller nodes should have network connectivity, verified
+     by SSH connectivity from the &lcm; to them.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     The operator who performs these steps will need access to the lifecycle
+     manager.
+    </para>
+   </listitem>
+  </itemizedlist>
+ </section>
+ <section xml:id="mysql">
+  <title>Recovering the &mariadb; Database</title>
+  <para>
+   The recovery process for your &mariadb; database cluster will depend on how
+   many of your controller nodes need to be recovered. We will cover three
+   scenarios:
+  </para>
+  <para>
+   <emphasis role="bold">Scenario 1: Recovering one or two of your controller
+   nodes but not the entire cluster</emphasis>
+  </para>
+  <para>
+   Follow these steps to recover one or two of your controller nodes but not the
+   entire cluster, then use these steps:
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Ensure the controller nodes have power and are booted to the command
+     prompt.
+    </para>
+   </step>
+   <step>
+    <para>
+     If the &mariadb; service is not started, start it with this command:
+    </para>
+<screen>sudo service mysql start</screen>
+   </step>
+   <step>
+    <para>
+     If &mariadb; fails to start, proceed to the next section which covers the
+     bootstrap process.
+    </para>
+   </step>
+  </procedure>
+  <para>
+   <emphasis role="bold">Scenario 2: Recovering the entire controller cluster
+   with the bootstrap playbook</emphasis>
+  </para>
+  <para>
+   If the scenario above failed or if you need to recover your entire control
+   plane cluster, use the process below to recover the &mariadb; database.
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Make sure no <literal>mysqld</literal> daemon is running on any node in
+     the cluster before you continue with the steps in this procedure. If there
+     is a <literal>mysqld</literal> daemon running, then use the command below
+     to shut down the daemon.
+    </para>
+    <screen>sudo systemctl stop mysql</screen>
+    <para>
+     If the mysqld daemon does not go down following the service stop, then
+     kill the daemon using <literal>kill -9</literal> before continuing.
+    </para>
+   </step>
+   <step>
+    <para>
+     On the deployer node, execute the
+     <filename>galera-bootstrap.yml</filename> playbook which will
+     automatically determine the log sequence number, bootstrap the main node,
+     and start the database cluster.
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts galera-bootstrap.yml</screen>
+   </step>
+   <step>
+    <para>
+     If this process fails to recover the database cluster, proceed to the next
+     section which covers the process of manually starting the database.
+    </para>
+   </step>
+  </procedure>
+  <para>
+   <emphasis role="bold">Scenario 3: Recovering the database
+   manually</emphasis>
+  </para>
+  <para>
+   If the scenarios above failed, use the manual process below to recover the
+   &mariadb; database.
+  </para>
+  <para>
+   The node that you perform these steps on should be the last node to go
+   down. So if only one of your controller nodes went down, then you would skip
+   to step three and run the commands on that node. If multiple controller
+   nodes went down, then you should use the instructions in step two to
+   determine which node was the last to go down and then to run the rest of the
+   steps on that node.
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Make sure no <literal>mysqld</literal> daemon is running on any node in
+     the cluster before you continue with the steps in this procedure. If there
+     is a <literal>mysqld</literal> daemon running, then use the command below
+     to shut down the daemon.
+    </para>
+<screen>sudo systemctl stop mysql</screen>
+    <para>
+     If the mysqld daemon does not go down following the stop command, then
+     kill the daemon using <literal>kill -9</literal> before continuing.
+    </para>
+   </step>
+   <step>
+    <para>
+     SSH into each controller node that went down and use the commands below to
+     get the log sequence number:
+    </para>
+<screen>sudo /usr/bin/mysqld_safe --wsrep-recover
+sudo grep --text 'Recovered position' /var/log/mysql/error.log| tail -1</screen>
+    <para>
+     The following example shows the bolded log sequence numbers from a
+     three-controller node cluster:
+    </para>
+<screen>stack@ardana-cp-c1-m1-mgmt:~$ sudo /usr/bin/mysqld_safe --wsrep-recover
+stack@ardana-cp-c1-m1-mgmt:~$ sudo grep --text 'Recovered position' /var/log/mysql/error.log| tail -1
+151119 14:37:12 32123 [Note] WSREP: Recovered position: a0cd6b29-f027-11e5-b9e3-fb0ed503c0ac:<emphasis role="bold">165002105</emphasis>
+
+stack@ardana-cp-c1-m2-mgmt:~$ sudo /usr/bin/mysqld_safe --wsrep-recover
+stack@ardana-cp-c1-m2-mgmt:~$ sudo grep --text 'Recovered position' /var/log/mysql/error.log| tail -1
+151119 14:37:1214:37:52 32336 [Note] WSREP: Recovered position: a0cd6b29-f027-11e5-b9e3-fb0ed503c0ac:<emphasis role="bold">165252407</emphasis>
+
+stack@ardana-cp-c1-m3-mgmt:~$  sudo /usr/bin/mysqld_safe --wsrep-recover
+stack@ardana-cp-c1-m3-mgmt:~$ sudo grep --text 'Recovered position' /var/log/mysql/error.log| tail -1
+151119 14:37:1214:37:52 32332 [Note] WSREP: Recovered position: a0cd6b29-f027-11e5-b9e3-fb0ed503c0ac:<emphasis role="bold">165252407</emphasis></screen>
+   </step>
+   <step>
+    <para>
+     Choose the node with the highest log sequence number to bootstrap the
+     database manually.
+    </para>
+    <important>
+     <para>
+      In the example shown, there are two nodes with the same highest sequence
+      number. This means you can run the manual bootstrap on either of those
+      nodes, but the bootstrap command can only be run once and only on one
+      node.
+     </para>
+    </important>
+   </step>
+   <step>
+    <para>
+     Bootstrap the cluster manually with the following command:
+    </para>
+<screen>sudo galera_new_cluster mysql</screen>
+   </step>
+   <step>
+    <para>
+     While this node is starting the cluster, login to the other controllers
+     and start their databases so they can join the cluster:
+    </para>
+ <screen>sudo systemctl start mysql</screen>
+   </step>
+   <step>
+    <para>
+     When the other controllers are up, log back into bootstrap controller to
+     kill the hung process and then restart the database:
+    </para>
+    <screen>sudo pkill -SIGQUIT mysqld
+    sudo systemctl start mysql</screen>
+   </step>
+   <step>
+    <para>
+     Wait for a few minutes for the services to be fully up and synced.
+    </para>
+   </step>
+  </procedure>
+ </section>
+ <section xml:id="cassandra">
+  <title>Recovering the Cassandra Database</title>
+  <para>
+   To recover your Cassandra databases, run the following playbook:
+  </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts monasca-cassandra-recovery.yml</screen>
+  <para>
+   or if you have encryption enabled, use:
+  </para>
+<screen>ansible-playbook -i hosts/verb_hosts monasca-cassandra-recovery.yml --ask-vault-pass</screen>
+ </section>
+ <section xml:id="hlm">
+  <title>Restarting Services on the Controller Nodes</title>
+  <para>
+   From the &lcm; you should execute the
+   <literal>ardana-start.yml</literal> playbook for each node that was brought
+   down so the services can be started back up.
+  </para>
+  <para>
+   If you have a dedicated (separate) &lcm; node you can use this
+   syntax:
+  </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts ardana-start.yml --limit=&lt;hostname_of_node&gt;</screen>
+  <para>
+   If you have a shared &lcm;/controller setup and need to restart
+   services on this shared node, you can use <literal>localhost</literal> to
+   indicate the shared node, like this:
+  </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts ardana-start.yml --limit=&lt;hostname_of_node&gt;,localhost</screen>
+  <note>
+   <para>
+    If you leave off the <literal>--limit</literal> switch, the playbook will
+    be run against all nodes.
+   </para>
+  </note>
+ </section>
+ <section xml:id="monasca">
+  <title>Restart the Monitoring Agents</title>
+  <para>
+   As part of the recovery process, you should also restart the
+   <literal>monasca-agent</literal> and these steps will show you how:
+  </para>
+  <orderedlist>
+   <listitem>
+    <para>
+     Log in to the &lcm;.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Stop the <literal>monasca-agent</literal>:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts monasca-agent-stop.yml</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Restart the <literal>monasca-agent</literal>:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts monasca-agent-start.yml</screen>
+   </listitem>
+   <listitem>
+    <para>
+     You can then confirm the status of the <literal>monasca-agent</literal>
+     with this playbook:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts monasca-agent-status.yml</screen>
+   </listitem>
+  </orderedlist>
+ </section>
+</section>

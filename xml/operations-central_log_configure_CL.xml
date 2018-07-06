@@ -1,0 +1,460 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="central_log_configure_settings">
+ <title>Configuring Centralized Logging</title>
+ <para>
+  You can adjust the settings for centralized logging when you are
+  troubleshooting problems with a service or to decrease log size and retention
+  to save on disk space. For steps on how to configure logging settings, refer
+  to the following tasks:
+ </para>
+ <itemizedlist>
+  <listitem>
+   <para>
+    <xref linkend="CL_config_files"/>
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    <xref linkend="CL_general_config"/>
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    <xref linkend="CL_BU_Elasticsearch"/>
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    <xref linkend="restore_elastic_logs"/>
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    <xref linkend="tuning_logging_parameters"/>
+   </para>
+  </listitem>
+ </itemizedlist>
+ <section xml:id="CL_config_files">
+  <title>Configuration Files</title>
+  <para>
+   Centralized Logging settings are stored in the configuration files in the
+   following directory on the &lcm;:
+   <literal>~/openstack/my_cloud/config/logging/</literal>
+  </para>
+  <para>
+   The configuration files and their use are described below:
+  </para>
+  <informaltable colsep="1" rowsep="1">
+   <tgroup cols="2">
+    <colspec colname="c1" colnum="1"/>
+    <colspec colname="c2" colnum="2"/>
+    <thead>
+     <row>
+      <entry>File</entry>
+      <entry>Description</entry>
+     </row>
+    </thead>
+    <tbody>
+     <row>
+      <entry>main.yml</entry>
+      <entry>Main configuration file for all centralized logging components.</entry>
+     </row>
+     <row>
+      <entry>elasticsearch.yml.j2</entry>
+      <entry>Main configuration file for &elasticsearch;.</entry>
+     </row>
+     <row>
+      <entry>elasticsearch-default.j2</entry>
+      <entry>Default overrides for the &elasticsearch; init script.</entry>
+     </row>
+     <row>
+      <entry>kibana.yml.j2</entry>
+      <entry>Main configuration file for Kibana.</entry>
+     </row>
+     <row>
+      <entry>kibana-apache2.conf.j2</entry>
+      <entry>Apache configuration file for Kibana.</entry>
+     </row>
+     <row>
+      <entry>logstash.conf.j2</entry>
+      <entry>Logstash inputs/outputs configuration.</entry>
+     </row>
+     <row>
+      <entry>logstash-default.j2</entry>
+      <entry>Default overrides for the Logstash init script.</entry>
+     </row>
+     <row>
+      <entry>beaver.conf.j2</entry>
+      <entry>Main configuration file for Beaver.</entry>
+     </row>
+     <row>
+      <entry>vars</entry>
+      <entry>Path to logrotate configuration files.</entry>
+     </row>
+    </tbody>
+   </tgroup>
+  </informaltable>
+ </section>
+ <section xml:id="CL_general_config">
+  <title>Planning Resource Requirements</title>
+  <para>
+   The Centralized Logging service needs to have enough resources available to
+   it to perform adequately for different scale environments. The base logging
+   levels are tuned during installation according to the amount of RAM
+   allocated to your control plane nodes to ensure optimum performance.
+  </para>
+<!-- FIXME for SOC 9: DiskCalculator, quo vadis? - sknorr, 2018-03-29 -->
+<!-- <important>
+   <para>
+    To help you estimate the required disk size for the &elasticsearch; volume,
+    <link xlink:href="../../hos-html/diskCalc.html">Use the disk sizing
+    tool</link>.
+   </para>
+  </important> -->
+  <para>
+   These values can be viewed and changed in the
+   <literal>~/openstack/my_cloud/config/logging/main.yml</literal> file, but you
+   will need to run a reconfigure of the Centralized Logging service if changes
+   are made.
+  </para>
+  <warning>
+   <para>
+    The total process memory consumption for &elasticsearch; will be the above
+    allocated heap value (in
+    <literal>~/openstack/my_cloud/config/logging/main.yml</literal>) plus any Java
+    Virtual Machine (JVM) overhead.
+   </para>
+  </warning>
+  <para>
+   <emphasis role="bold">Setting Disk Size Requirements</emphasis>
+  </para>
+  <para>
+   In the entry-scale models, the disk partition sizes on your controller nodes
+   for the logging and &elasticsearch; data are set as a percentage of your total
+   disk size. You can see these in the following file on the &lcm;
+   (deployer):
+   <literal>~/openstack/my_cloud/definition/data/&lt;controller_disk_files_used&gt;</literal>
+  </para>
+  <para>
+   Sample file settings:
+  </para>
+<screen># Local Log files.
+- name: log
+  size: 13%
+  mount: /var/log
+  fstype: ext4
+  mkfs-opts: -O large_file
+
+# Data storage for centralized logging. This holds log entries from all
+# servers in the cloud and hence can require a lot of disk space.
+- name: elasticsearch
+  size: 30%
+  mount: /var/lib/elasticsearch
+  fstype: ext4</screen>
+  <important>
+   <para>
+    The disk size is set automatically based on the hardware configuration. If
+    you need to adjust it, you can set it manually with the following steps.
+   </para>
+  </important>
+  <para>
+   To set disk sizes:
+  </para>
+  <orderedlist>
+   <listitem>
+    <para>
+     Log in to the &lcm; (deployer).
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Open the following file:
+    </para>
+<screen>~/openstack/my_cloud/definition/data/disks.yml</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Make any desired changes.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Save the changes to the file.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     To commit the changes to your local git repository:
+    </para>
+<screen>cd ~/openstack/ardana/ansible
+git add -A git
+commit -m "My config or other commit message"</screen>
+   </listitem>
+   <listitem>
+    <para>
+     To run the configuration processor:
+    </para>
+<screen>cd ~/openstack/ardana/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</screen>
+   </listitem>
+   <listitem>
+    <para>
+     To create a deployment directory:
+    </para>
+<screen>cd ~/openstack/ardana/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+   </listitem>
+   <listitem>
+    <para>
+     To run the logging reconfigure playbook:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts kronos-reconfigure.yml</screen>
+   </listitem>
+  </orderedlist>
+ </section>
+ <section xml:id="CL_BU_Elasticsearch">
+  <title>Backing Up &elasticsearch; Log Indices</title>
+  <para>
+   The log files that are centrally collected in &kw-hos; are stored by
+   &elasticsearch; on disk in the <literal>/var/lib/elasticsearch</literal>
+   partition. However, this is distributed across each of the &elasticsearch;
+   cluster nodes as shards. A cron job runs periodically to see if the disk
+   partition runs low on space, and, if so, it runs curator to delete the old
+   log indices to make room for new logs. This deletion is permanent and the
+   logs are lost forever. If you want to backup old logs, for example to comply
+   with certain regulations, you can configure automatic backup of
+   &elasticsearch; indices.
+  </para>
+  <important>
+   <para>
+    If you need to restore data that was archived prior to &kw-hos-phrase; and
+    used the older versions of &elasticsearch;, then this data will need to be
+    restored to a separate deployment of &elasticsearch;.
+   </para>
+   <para>
+    This can be accomplished using the following steps:
+   </para>
+   <orderedlist>
+    <listitem>
+     <para>
+      Deploy a separate distinct &elasticsearch; instance version matching the
+      version in &kw-hos;.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Configure the backed-up data using NFS or some other share mechanism to
+      be available to the &elasticsearch; instance matching the version in
+      &kw-hos;.
+     </para>
+    </listitem>
+   </orderedlist>
+  </important>
+  <para>
+   Before enabling automatic back-ups, make sure you understand how much disk
+   space you will need, and configure the disks that will store the data. Use
+   the following checklist to prepare your deployment for enabling automatic
+   backups:
+  </para>
+  <informaltable colsep="1" rowsep="1">
+   <tgroup cols="2">
+    <colspec colname="c1" colnum="1" colwidth="1*"/>
+    <colspec colname="c2" colnum="2" colwidth="19*"/>
+    <thead>
+     <row>
+      <entry>☐</entry>
+      <entry>Item</entry>
+     </row>
+    </thead>
+    <tbody>
+     <row>
+      <entry>☐</entry>
+      <entry>
+       <para>
+        Add a shared disk partition to each of the &elasticsearch; controller
+        nodes.
+       </para>
+       <para>
+        The default partition name used for backup is
+       </para>
+<screen>/var/lib/esbackup</screen>
+       <para>
+        You can change this by:
+       </para>
+       <orderedlist>
+        <listitem>
+         <para>
+          Open the following file:
+          <literal>my_cloud/config/logging/main.yml</literal>
+         </para>
+        </listitem>
+        <listitem>
+         <para>
+          Edit the following variable <literal>curator_es_backup_partition
+          </literal>
+         </para>
+        </listitem>
+       </orderedlist>
+      </entry>
+     </row>
+     <row>
+      <entry>☐</entry>
+      <entry>
+       <para>
+        Ensure the shared disk has enough storage to retain backups for the
+        desired retention period.
+       </para>
+      </entry>
+     </row>
+    </tbody>
+   </tgroup>
+  </informaltable>
+  <para>
+   To enable automatic back-up of centralized logs to &elasticsearch;:
+  </para>
+  <orderedlist>
+   <listitem>
+    <para>
+     Log in to the &lcm; (deployer node).
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Open the following file in a text editor:
+    </para>
+<screen>~/openstack/my_cloud/config/logging/main.yml</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Find the following variables:
+    </para>
+<screen>curator_backup_repo_name: "es_{{host.my_dimensions.cloud_name}}"
+curator_es_backup_partition: /var/lib/esbackup</screen>
+   </listitem>
+   <listitem>
+    <para>
+     To enable backup, change the
+     <emphasis role="bold">curator_enable_backup</emphasis> value to
+     <emphasis role="bold">true</emphasis> in the curator section:
+    </para>
+<screen>curator_enable_backup: true</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Save your changes and re-run the configuration processor:
+    </para>
+<screen>$ cd ~/openstack
+$ git add -A
+# Verify the added files
+$ git status
+$ git commit -m "Enabling &elasticsearch; Backup"
+
+$ cd ~/openstack/ardana/ansible
+$ ansible-playbook -i hosts/localhost config-processor-run.yml
+$ ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+   </listitem>
+   <listitem>
+    <para>
+     To re-configure logging:
+    </para>
+<screen>$ cd ~/scratch/ansible/next/ardana/ansible
+$ ansible-playbook -i hosts/verb_hosts kronos-reconfigure.yml</screen>
+   </listitem>
+   <listitem>
+    <para>
+     To verify that the indices are backed up, check the contents of the
+     partition:
+    </para>
+<screen>ls /var/lib/esbackup</screen>
+   </listitem>
+  </orderedlist>
+ </section>
+ <section xml:id="restore_elastic_logs">
+  <title>Restoring Logs From an &elasticsearch; Backup</title>
+  <para>
+   To restore logs from an &elasticsearch; backup, see
+   <link xlink:href="https://www.elastic.co/guide/en/elasticsearch/reference/2.4/modules-snapshots.html"/>.
+  </para>
+  <note>
+   <para>
+    We do not recommend restoring to the original &kw-hos; Centralized Logging
+    cluster as it may cause storage/capacity issues. We rather recommend setting
+    up a separate ELK cluster of the same version and restoring the logs there.
+   </para>
+  </note>
+ </section>
+ <section xml:id="tuning_logging_parameters">
+  <title>Tuning Logging Parameters</title>
+  <para>
+   When centralized logging is installed in &kw-hos;, parameters for
+   &elasticsearch; heap size and logstash heap size are automatically configured
+   based on the amount of RAM on the system. These values are typically the
+   required values, but they may need to be adjusted if performance issues
+   arise, or disk space issues are encountered. These values may also need to
+   be adjusted if hardware changes are made after an installation.
+  </para>
+  <para>
+   These values are defined at the top of the following file
+   <literal>.../logging-common/defaults/main.yml</literal>. An example of the
+   contents of the file is below:
+  </para>
+<screen>1. Select heap tunings based on system RAM
+#-------------------------------------------------------------------------------
+threshold_small_mb: 31000
+threshold_medium_mb: 63000
+threshold_large_mb: 127000
+tuning_selector: " {% if ansible_memtotal_mb &lt; threshold_small_mb|int %}
+demo
+{% elif ansible_memtotal_mb &lt; threshold_medium_mb|int %}
+small
+{% elif ansible_memtotal_mb &lt; threshold_large_mb|int %}
+medium
+{% else %}
+large
+{%endif %}
+"
+
+logging_possible_tunings:
+2. RAM &lt; 32GB
+demo:
+elasticsearch_heap_size: 512m
+logstash_heap_size: 512m
+3. RAM &lt; 64GB
+small:
+elasticsearch_heap_size: 8g
+logstash_heap_size: 2g
+4. RAM &lt; 128GB
+medium:
+elasticsearch_heap_size: 16g
+logstash_heap_size: 4g
+5. RAM &gt;= 128GB
+large:
+elasticsearch_heap_size: 31g
+logstash_heap_size: 8g
+logging_tunings: "{{ logging_possible_tunings[tuning_selector] }}"</screen>
+  <para>
+   This specifies thresholds for what a <emphasis role="bold">small</emphasis>,
+   <emphasis role="bold">medium</emphasis>, or
+   <emphasis role="bold">large</emphasis> system would look like, in terms of
+   memory. To see what values will be used, see what RAM your system uses, and
+   see where it fits in with the thresholds to see what values you will be
+   installed with. To modify the values, you can either adjust the threshold
+   values so that your system will change from a
+   <emphasis role="bold">small</emphasis> configuration to a
+   <emphasis role="bold">medium</emphasis> configuration, for example, or keep
+   the threshold values the same, and modify the heap_size variables directly
+   for the selector that your system is set for. For example, if your
+   configuration is a <emphasis role="bold">medium</emphasis> configuration,
+   which sets heap_sizes to 16 GB for &elasticsearch; and 4 GB for logstash, and
+   you want twice as much set aside for logstash, then you could increase the
+   4 GB for logstash to 8 GB.
+  </para>
+ </section>
+</section>

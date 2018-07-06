@@ -10,17 +10,17 @@
  <itemizedlist>
   <listitem>
    <para>
-    Elasticsearch database
+    Elasticsearch database for historic log data.
    </para>
   </listitem>
   <listitem>
    <para>
-    InfluxDB database
+    InfluxDB database for historic metrics data.
    </para>
   </listitem>
   <listitem>
    <para>
-    MariaDB database
+    MariaDB database for historic configuration information.
    </para>
   </listitem>
  </itemizedlist>
@@ -28,21 +28,46 @@
   It is recommended that backup and restore operations for databases are
   carried out by experienced operators only.
  </para>
+<bridgehead renderas="sect4">Preparations</bridgehead>
+<para> 
+Before backing up and restoring a database, we recommend stopping the Monitoring 
+API and the Log API on the <literal>monasca-server</literal> node, and check that all data is processed. 
+This ensures that no data is written to a database during a backup and restore operation. 
+After backing up and restoring a database, restart the APIs.
+</para>
+<para>
+To stop the Monitoring API and the Log API, use the following command:
+</para>
+<screen>systemctl stop apache2</screen>
+<para>
+To check that all Kafka queues are empty, list the existing consumer groups and 
+check the LAG column for each group. It should be 0. For example:
+</para>
+<screen>
+kafka-consumer-groups.sh --zookeeper 192.168.56.81:2181 --list
+kafka-consumer-groups.sh --zookeeper 192.168.56.81:2181 --describe \
+ --group 1_metrics | column -t -s ','
+kafka-consumer-groups.sh --zookeeper 192.168.56.81:2181 --describe \
+ --group transformer-logstash-consumer | column -t -s ','
+kafka-consumer-groups.sh --zookeeper 192.168.56.81:2181 --describe \
+ --group thresh-metric | column -t -s ','
+ </screen>
+ <para> 
+To restart the Monitoring API and the Log API, use the following command:
+</para>
+<screen>systemctl start apache2</screen>
  <bridgehead renderas="sect4">Elasticsearch Database</bridgehead>
  <para>
-  For backing up and restoring your Elasticsearch database, you can use the
+  For backing up and restoring your Elasticsearch database, use the
   Snapshot and Restore module of Elasticsearch.
  </para>
  <para>
-  To make a backup of the database, proceed as follows:
+  To create a backup of the database, proceed as follows:
  </para>
  <orderedlist>
   <listitem>
    <para>
-    Make sure that <literal>curl</literal> is installed. If this is not the
-    case, download and install it, for example, from the following Web site:
-    <ulink url="http://curl.haxx.se/download.html">
-    http://curl.haxx.se/download.html </ulink>.
+    Make sure that <command>curl</command> is installed, <command>zypper in curl</command>.
    </para>
   </listitem>
   <listitem>
@@ -52,12 +77,12 @@
   </listitem>
   <listitem>
    <para>
-    Create a snapshot repository.
+    Create a snapshot repository. You need the Elasticsearch bind address for 
+    all commands. run <command>grep network.bind_host /etc/elasticsearch/elasticsearch.yml</command> 
+    to find the bind address, and replace <replaceable>IP</replaceable> in the 
+    following commands with this address. For example:
    </para>
-   <para>
-    Example:
-   </para>
-<screen>curl -XPUT http://localhost:9200/_snapshot/my_backup -d '{
+<screen>curl -XPUT http://<replaceable>IP</replaceable>:9200/_snapshot/my_backup -d '{
   "type": "fs",
   "settings": {
        "location": "/mount/backup/elasticsearch1/my_backup",
@@ -67,37 +92,35 @@
    <para>
     The example registers a shared file system repository (<literal>"type":
     "fs"</literal>) that uses the
-    <literal>/mount/backup/elasticsearch1</literal> directory for storing
+    <filename>/mount/backup/elasticsearch1</filename> directory for storing
     snapshots.
    </para>
    <note>
     <para>
-     The directory for storing snapshots must be specified as configured during
-     the installation of the Monitoring Service in the Monasca barclamp
-     (see the server-side settings for elasticsearch in the raw
-     mode, parameter <parameter>repo_dir</parameter>. For details, see
-     the <citetitle>Deployment Guide</citetitle>, chapter
-     <citetitle>Deploying the OpenStack Services</citetitle>, section
-     <citetitle>Deploying Monasca</citetitle>). The directory must be
-     manually mounted before creating the snapshot. The
-     <literal>elastic</literal> user must be specified as the owner of the
-     directory.
+        The directory for storing snapshots must be configured in the <literal>elasticsearch/repo_dir</literal> 
+     setting in the Monasca barclamp (see the <ulink url="https://www.suse.com/documentation/suse-openstack-cloud-7/singlehtml/book_cloud_deploybook_cloud_deploy.html#sec.depl.ostack.monasca/">&clouddeploy-bare;</ulink>).  
+     The directory must be manually mounted before creating the snapshot. The 
+     <literal>elasticsearch</literal> user must be specified as the owner of the directory.
     </para>
    </note>
    <para>
     <literal>compress</literal> is turned on to compress the metadata files.
    </para>
+   <!-- Request from Johannes: If available, please provide a ballpark estimate of 
+   how much space the backup takes up in a common scenario (e.g. 10 node cloud), 
+   both compressed and uncompressed.
+   Proposal from Fujitsu: Maybe it would help to include a reference to the db 
+   disk size requirements in the Deployment Guide?We checked the Elastisearch and 
+   the InfluxDB documentation. There is no info given on the space rqmts for backup. -->
   </listitem>
   <listitem>
    <para>
-    Check whether the repository was created successfully.
+    Check whether the repository was created successfully:
    </para>
+
+   <screen>curl -XGET http://<replaceable>IP</replaceable>:9200/_snapshot/my_backup</screen>
    <para>
-    Example:
-   </para>
-<screen>curl -XGET http://localhost:9200/_snapshot/my_backup</screen>
-   <para>
-    Example response for a successfully created repository:
+    This example response shows a successfully created repository:
    </para>
 <screen>{
   "my_backup": {
@@ -113,12 +136,9 @@
    <para>
     Create a snapshot of your database that contains all indices. A repository
     can contain multiple snapshots of the same database. The name of a snapshot
-    must be unique within the snapshots created for your database.
+    must be unique within the snapshots created for your database, for example:
    </para>
-   <para>
-    Example:
-   </para>
-<screen>curl -XPUT http://localhost:9200/_snapshot/my_backup/snapshot_1?wait_for_completion=true</screen>
+   <screen>curl -XPUT http://<replaceable>IP</replaceable>:9200/_snapshot/my_backup/snapshot_1?wait_for_completion=true</screen>
    <para>
     The example creates a snapshot named <literal>snapshot_1</literal> for all
     indices in the <literal>my_backup</literal> repository.
@@ -131,21 +151,15 @@
  <orderedlist>
   <listitem>
    <para>
-    Close all indices of your database.
+    Close all indices of your database, for example:
    </para>
-   <para>
-    Example:
-   </para>
-<screen>curl -XPOST http://localhost:9200/_all/_close</screen>
+   <screen>curl -XPOST http://<replaceable>IP</replaceable>:9200/_all/_close</screen>
   </listitem>
   <listitem>
    <para>
-    Restore all indices from the snapshot you have created.
-   </para>
-   <para>
-    Example:
-   </para>
-<screen>curl -XPOST http://localhost:9200/_snapshot/my_backup/snapshot_1/_restore</screen>
+    Restore all indices from the snapshot you have created, for example:
+</para>
+<screen>curl -XPOST http://<replaceable>IP</replaceable>:9200/_snapshot/my_backup/snapshot_1/_restore</screen>
    <para>
     The example restores all indices from <literal>snapshot_1</literal> that is
     stored in the <literal>my_backup</literal> repository.
@@ -155,42 +169,38 @@
  <para>
   For additional information on backing up and restoring an Elasticsearch
   database, refer to the
-  <ulink url="https://www.elastic.co/guide/en/elasticsearch/reference/2.3/modules-snapshots.html">
-  Elasticsearch documentation </ulink>.
+  <ulink url="https://www.elastic.co/guide/en/elasticsearch/reference/2.3/modules-snapshots.html">Elasticsearch documentation</ulink>.
  </para>
  <bridgehead renderas="sect4">InfluxDB Database</bridgehead>
  <para>
   For backing up and restoring your InfluxDB database, you can use the InfluxDB
   shell. The shell is part of your InfluxDB distribution. If you installed
   InfluxDB via a package manager, the shell is, by default, installed in the
-  <literal>/usr/bin</literal> directory.
+  <filename>/usr/bin</filename> directory.
  </para>
  <para>
-  To make a backup of the database, proceed as follows:
+  To create a backup of the database, proceed as follows:
  </para>
  <orderedlist>
   <listitem>
    <para>
     Log in to the InfluxDB database as a user who is allowed to run the
-    <literal>influxdb</literal> service.
+    <literal>influxdb</literal> service, for example:
    </para>
-   <para>
-    Example:
-   </para>
-<screen>$ su influxdb </screen>
+<screen>su influxdb -s /bin/bash </screen>
   </listitem>
   <listitem>
    <para>
-    Back up the database.
+    Back up the database, for example:
    </para>
+<screen>influxd backup -database mon /mount/backup/mysnapshot</screen>
    <para>
-    Example:
-   </para>
-<screen>$ ./influxd backup -database &lt;db_name&gt; /mount/backup/mysnapshot</screen>
-   <para>
-    Replace <literal>&lt;db_name&gt;</literal> with the name of the database.
+       Monasca is using <literal>mon</literal> as the name of the database
     The example creates the backup for the database in
-    <literal>/mount/backup/mysnapshot</literal>.
+    <filename>/mount/backup/mysnapshot</filename>.
+    <!-- Request from Johannes: If available, please provide an estimate of how 
+    much space the backup takes up in a common scenario (e.g. 10 node cloud).
+    Proposal from Fujitsu: See above. -->
    </para>
   </listitem>
  </orderedlist>
@@ -201,96 +211,85 @@
  <orderedlist>
   <listitem>
    <para>
-    Stop the InfluxDB database service. Use the following command:
+    If required, delete all files not included in the backup by dropping the database 
+    before you carry out the restore operation. A restore operation restores all 
+    files included in the backup. Files created or merged at a later point in time 
+    are not affected. For example:
    </para>
-<screen>$ systemctl stop influxdb</screen>
+   <screen>influx -host <replaceable>IP</replaceable> -execute 'drop database mon;'</screen>
+   <para>
+       Replace <replaceable>IP</replaceable> with the IP address that the database 
+       is listening to. You can run <command>influxd config</command> and look up 
+       the IP address in the <literal>[http]</literal> section.
+       </para>
   </listitem>
+    <listitem>
+   <para>
+       Stop the InfluxDB database service:
+   </para>
+<screen>
+systemctl stop influxdb
+</screen>
+</listitem>
   <listitem>
    <para>
     Log in to the InfluxDB database as a user who is allowed to run the
-    <literal>influxdb</literal> service.
+    <literal>influxdb</literal> service:
    </para>
-   <para>
-    Example:
-   </para>
-<screen>$ su influxdb </screen>
+   <screen>su influxdb -s /bin/bash</screen>
   </listitem>
   <listitem>
    <para>
-    If required, delete all files not included in the backup by dropping the
-    database before you carry out the restore operation. A restore operation
-    restores all files included in the backup. Files created or merged at a
-    later point in time are not affected.
+   Restore the metastore:
    </para>
-   <para>
-    Example:
-   </para>
-<screen>$ ./influxd drop database &lt;db_name&gt;</screen>
-   <para>
-    Replace <literal>&lt;db_name&gt;</literal> with the name of the database.
-   </para>
+<screen>influxd restore -metadir /var/opt/influxdb/meta /mount/backup/mysnapshot</screen>
   </listitem>
   <listitem>
    <para>
-    Restore the metastore.
+    Restore the database, for example:
    </para>
-   <para>
-    Example:
-   </para>
-<screen>$ ./influxd restore -metadir /var/opt/influxdb/meta /mount/backup/mysnapshot</screen>
-  </listitem>
-  <listitem>
-   <para>
-    Restore the database.
-   </para>
-   <para>
-    Example:
-   </para>
-<screen>$ ./influxd restore -database &lt;db_name&gt; -datadir /var/opt/influxdb/data /mount/backup/mysnapshot</screen>
-   <para>
+<screen>influxd restore -database mon -datadir /var/opt/influxdb/data /mount/backup/mysnapshot</screen>
+  <para>
     The example restores the backup from
-    <literal>/mount/backup/mysnapshot</literal> to
-    <literal>/var/opt/influxdb/influxdb.conf</literal>.
+    <filename>/mount/backup/mysnapshot</filename> to
+    <filename>/var/opt/influxdb/influxdb.conf</filename>.
    </para>
   </listitem>
   <listitem>
    <para>
     Ensure that the file permissions for the restored database are set
-    correctly.
+    correctly:
    </para>
-<screen>sudo chown -R influxdb:influxdb /var/opt/influxdb</screen>
+<screen>chown -R influxdb:influxdb /var/opt/influxdb</screen>
   </listitem>
   <listitem>
    <para>
-    Start the InfluxDB database service. Use the following command:
+    Start the InfluxDB database service:
    </para>
-<screen>$ systemctl start influxdb</screen>
+<screen>systemctl start influxdb</screen>
   </listitem>
  </orderedlist>
  <para>
   For additional information on backing up and restoring an InfluxDB database,
   refer to the
-  <ulink url="https://docs.influxdata.com/influxdb/v1.1/administration/backup_and_restore/">
-  InfluxDB documentation </ulink>.
+  <ulink url="https://docs.influxdata.com/influxdb/v1.1/administration/backup_and_restore/">InfluxDB documentation</ulink>.
  </para>
+ 
  <bridgehead renderas="sect4">MariaDB Database</bridgehead>
  <para>
   For backing up and restoring your MariaDB database, you can use the
-  <literal>mysqldump</literal> utility program. <literal>mysqldump</literal>
+  <command>mysqldump</command> utility program. <command>mysqldump</command>
   performs a logical backup that produces a set of SQL statements. These
   statements can later be executed to restore the database.
  </para>
  <para>
   To back up your MariaDB database, you must be the owner of the database or a
-  user with superuser privileges. You can use the following command.
- </para>
- <para>
-  Example:
+  user with superuser privileges, for example:
  </para>
 <screen>mysqldump -u root -p mon &gt; dumpfile.sql</screen>
  <para>
   In addition to the name of the database, you have to specify the name and the
-  location where <literal>mysqldump</literal> stores its output.
+  location where <command>mysqldump</command> stores its output.
  </para>
  <para>
   To restore your MariaDB database, proceed as follows:
@@ -304,75 +303,43 @@
   </listitem>
   <listitem>
    <para>
-    Go to the directory where the <phrase>SUSE OpenStack Cloud
-    Monitoring</phrase> installation package is located.
+       Make sure that the <command>mariadb</command> service is running:
    </para>
-   <para>
-    Example:
-   </para>
-<screen>cd /opt/FJSVsvcmm</screen>
+   <screen>systemctl start mariadb</screen>
   </listitem>
   <listitem>
    <para>
-    Stop all agents and services.
-    <remark condition="clarity">
-     2017-05-31 - fs: @jgrassler: How? The CMM provides a script called
-     "services.sh" to do so, but this script is not shipped with SOCM.
-    </remark>
-   </para>
-  </listitem>
-  <listitem>
-   <para>
-    Start the <literal>mariadb</literal> service:
-   </para>
-<screen>systemctl start mariadb</screen>
-  </listitem>
-  <listitem>
-   <para>
-    Log in to the database you have backed up as a user with root privileges.
-   </para>
-   <para>
-    Example:
+    Log in to the database you have backed up as a user with root privileges, for example:
    </para>
 <screen>mysql -u root -p mon</screen>
   </listitem>
   <listitem>
    <para>
-    Remove and create the database:
+    Remove and then re-create the database:
    </para>
-<screen>&gt; DROP DATABASE mon;
-&gt; CREATE DATABASE mon;</screen>
+
+<screen>
+DROP DATABASE mon;
+CREATE DATABASE mon;</screen>
   </listitem>
   <listitem>
    <para>
-    Exit <literal>mariadb</literal>:
+Exit mariadb:
    </para>
-<screen>&gt; \q</screen>
+   <screen>\q</screen>
   </listitem>
   <listitem>
    <para>
-    Restore the database.
+    Restore the database, for example:
    </para>
-   <para>
-    Example:
-   </para>
+
 <screen>mysql -u root -p mon &lt; dumpfile.sql</screen>
-  </listitem>
-  <listitem>
-   <para>
-    Start all <phrase>SUSE OpenStack Cloud Monitoring</phrase> agents and
-    services.
-    <remark condition="clarity">
-     2017-05-31 - fs: @jgrassler How? The CMM provides a script called
-     "services.sh" to do so, but this script is not shipped for SOCM
-    </remark>
-   </para>
   </listitem>
  </orderedlist>
  <para>
   For additional information on backing up and restoring a MariaDB database
   with <literal>mysqldump</literal>, refer to the
-  <ulink url="https://mariadb.com/kb/en/mariadb/mysqldump/"> MariaDB
-  documentation </ulink>.
+  <ulink url="https://mariadb.com/kb/en/mariadb/mysqldump/">MariaDB
+  documentation</ulink>.
  </para>
 </section>

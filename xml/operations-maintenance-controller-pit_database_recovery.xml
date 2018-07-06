@@ -1,0 +1,331 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="pit_database_recovery">
+ <title>Point-in-Time &mariadb; Database Recovery</title>
+ <para>
+  In this scenario, everything is still running (&lcm;, cloud controller nodes,
+  and compute nodes) but you want to restore the &mariadb; database to a
+  previous state.
+ </para>
+ <section>
+  <title>Restore from a Swift backup</title>
+  <procedure>
+   <step>
+    <para>
+     Log in to the &lcm;.
+    </para>
+   </step>
+   <step>
+    <para>
+     Determine which node is the first host member in the
+     <literal>FND-MDB</literal> group, which will be the first node hosting the
+     &mariadb; service in your cloud. You can do this by using these commands:
+    </para>
+<screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;grep -A1 FND-MDB--first-member hosts/verb_hosts</screen>
+<para>The result will be similar to the following example:
+</para>
+<screen>[FND-MDB--first-member:children]
+ardana002-cp1-c1-m1</screen>
+    <para>
+     In this example, the host name of the node is
+     <literal>ardana002-cp1-c1-m1</literal>
+    </para>
+   </step>
+   <step xml:id="mariadb-nodes">
+    <para>
+     Find the host IP address which will be used to log in.
+    </para>
+<screen>&prompt.ardana;cat /etc/hosts | grep ardana002-cp1-c1-m1
+10.84.43.82      ardana002-cp1-c1-m1-extapi ardana002-cp1-c1-m1-extapi
+192.168.24.21    ardana002-cp1-c1-m1-mgmt ardana002-cp1-c1-m1-mgmt
+10.1.2.1         ardana002-cp1-c1-m1-guest ardana002-cp1-c1-m1-guest
+10.84.65.3       ardana002-cp1-c1-m1-EXTERNAL-VM ardana002-cp1-c1-m1-external-vm</screen>
+    <para>
+     In this example, <literal>192.168.24.21</literal> is the IP address for
+     the host.
+    </para>
+   </step>
+   <step>
+    <para>
+     SSH into the host.
+    </para>
+<screen>&prompt.ardana;ssh ardana@192.168.24.21</screen>
+   </step>
+   <step>
+    <para>
+     Source the backup file.
+    </para>
+<screen>&prompt.ardana;source /var/lib/ardana/backup.osrc</screen>
+   </step>
+   <step>
+    <para>
+     Find the <literal>Client ID</literal> for the host name from the beginning
+     of this procedure ( <literal>ardana002-cp1-c1-m1</literal> ) in this
+     example.
+    </para>
+<screen><?dbsuse-fo font-size="0.65em"?>&prompt.ardana;freezer client-list
++-----------------------------+----------------------------------+-----------------------------+-------------+
+| Client ID                   | uuid                             | hostname                    | description |
++-----------------------------+----------------------------------+-----------------------------+-------------+
+| ardana002-cp1-comp0001-mgmt | f4d9cfe0725145fb91aaf95c80831dd6 | ardana002-cp1-comp0001-mgmt |             |
+| ardana002-cp1-comp0002-mgmt | 55c93eb7d609467a8287f175a2275219 | ardana002-cp1-comp0002-mgmt |             |
+| ardana002-cp1-c0-m1-mgmt    | 50d26318e81a408e97d1b6639b9404b2 | ardana002-cp1-c0-m1-mgmt    |             |
+| ardana002-cp1-c1-m1-mgmt    | 78fe921473914bf6a802ad360c09d35b | ardana002-cp1-c1-m1-mgmt    |             |
+| ardana002-cp1-c1-m2-mgmt    | b2e9a4305c4b4272acf044e3f89d327f | ardana002-cp1-c1-m2-mgmt    |             |
+| ardana002-cp1-c1-m3-mgmt    | a3ceb80b8212425687dd11a92c8bc48e | ardana002-cp1-c1-m3-mgmt    |             |
++-----------------------------+----------------------------------+-----------------------------+-------------+</screen>
+    <para>
+     In this example, the <literal>hostname</literal> and the <literal>Client
+     ID</literal> are the same: <literal>ardana002-cp1-c1-m1-mgmt</literal>.
+    </para>
+   </step>
+   <step>
+    <para>
+     List the jobs
+    </para>
+<screen>&prompt.ardana;freezer job-list -C <replaceable>CLIENT ID</replaceable></screen>
+    <para>
+     Using the example in the previous step:
+    </para>
+<screen>&prompt.ardana;freezer job-list -C ardana002-cp1-c1-m1-mgmt</screen>
+   </step>
+   <step>
+    <para>
+     Get the corresponding job id for <literal>Ardana Default: mysql restore
+     from Swift</literal>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Launch the restore process with:
+    </para>
+<screen>&prompt.ardana;freezer job-start <replaceable>JOB-ID</replaceable></screen>
+   </step>
+   <step>
+    <para>
+     This will take some time. You can follow the progress by running
+     <command>tail -f /var/log/freezer/freezer-scheduler.log</command>. Wait
+     until the restore job is finished before doing the next step.
+    </para>
+   </step>
+   <step>
+    <para>
+     Log in to the &lcm;.
+    </para>
+   </step>
+   <step>
+    <para>
+     Stop the &mariadb; service.
+    </para>
+<screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts percona-stop.yml</screen>
+   </step>
+   <step>
+    <para>
+     Log back in to the first node running the &mariadb; service, the same node
+     as in <xref linkend="mariadb-nodes"/>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Clean the &mariadb; directory using this command:
+    </para>
+<screen>&prompt.sudo;rm -r /var/lib/mysql/*</screen>
+   </step>
+   <step>
+    <para>
+     Copy the restored files back to the &mariadb; directory:
+    </para>
+<screen>&prompt.sudo;cp -pr /tmp/mysql_restore/* /var/lib/mysql</screen>
+   </step>
+   <step>
+    <para>
+     Log in to each of the other nodes in your &mariadb; cluster, which were
+     determined in <xref linkend="mariadb-nodes"/>. Remove the
+     <literal>grastate.dat</literal> file from each of them.
+    </para>
+<screen>&prompt.sudo;rm /var/lib/mysql/grastate.dat</screen>
+    <warning>
+     <para>
+      Do not remove this file from the first node in your &mariadb; cluster.
+      Ensure you only do this from the other cluster nodes.
+     </para>
+    </warning>
+   </step>
+   <step>
+    <para>
+     Log back in to the &lcm;.
+    </para>
+   </step>
+   <step>
+    <para>
+     Start the &mariadb; service.
+    </para>
+<screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts galera-bootstrap.yml</screen>
+   </step>
+  </procedure>
+ </section>
+ <section>
+  <title>Restore from an SSH backup</title>
+  <para>
+   Follow the same procedure as the one for Swift but select the job
+   <literal>&lcm; Default: mysql restore from SSH</literal>.
+  </para>
+ </section>
+ <section>
+  <title>Restore &mariadb; manually</title>
+  <para>
+   If restoring &mariadb; fails during the procedure outlined above, you can
+   follow this procedure to manually restore &mariadb;:
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Log in to the &lcm;.
+    </para>
+   </step>
+   <step>
+    <para>
+     Stop the &mariadb; cluster:
+    </para>
+<screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts percona-stop.yml</screen>
+   </step>
+   <step>
+    <para>
+     On all of the nodes running the &mariadb; service, which should be all of
+     your controller nodes, run the following command to purge the old
+     database:
+    </para>
+<screen>&prompt.sudo;rm -r /var/lib/mysql/*</screen>
+   </step>
+   <step>
+    <para>
+     On the first node running the &mariadb; service restore the backup with
+     the command below. If you have already restored to a temporary directory,
+     copy the files again.
+    </para>
+<screen>&prompt.sudo;cp -pr /tmp/mysql_restore/* /var/lib/mysql</screen>
+   </step>
+   <step>
+    <para>
+     If you need to restore the files manually from SSH, follow these steps:
+    </para>
+    <substeps>
+     <step>
+      <para>
+       Create the <literal>/root/mysql_restore.ini</literal> file with the
+       contents below. Be careful to substitute the <literal>{{ values
+       }}</literal>. Note that the SSH information refers to the SSH server you
+       configured for backup before installing.
+      </para>
+<screen>[default]
+action = restore
+storage = ssh
+ssh_host = {{ freezer_ssh_host }}
+ssh_username = {{ freezer_ssh_username }}
+container = {{ freezer_ssh_base_dir }}/freezer_mysql_backup
+ssh_key = /etc/freezer/ssh_key
+backup_name = freezer_mysql_backup
+restore_abs_path = /var/lib/mysql/
+log_file = /var/log/freezer-agent/freezer-agent.log
+hostname = {{ hostname of the first &mariadb; node }}</screen>
+     </step>
+     <step>
+      <para>
+       Execute the restore job:
+      </para>
+<screen>&prompt.ardana;freezer-agent --config /root/mysql_restore.ini</screen>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     Also on the first node running the &mariadb; service, follow the next
+     steps to start the cluster.
+    </para>
+    <substeps>
+     <step>
+      <para>
+       When the last step executed successfully, start the &mariadb; cluster:
+      </para>
+<screen>&prompt.ardana;galera_new_cluster mysql</screen>
+     </step>
+     <step>
+      <para>
+       Start the process with systemctl to make sure the process is monitored
+       by upstard:
+      </para>
+<screen>&prompt.sudo;systemctl start mysql</screen>
+     </step>
+     <step>
+      <para>
+       Make sure the database process started successfully by getting the
+       status:
+      </para>
+<screen>&prompt.sudo;systemctl status mysql</screen>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     Log back in to the &lcm;.
+    </para>
+   </step>
+   <step>
+    <para>
+     From the &lcm;, execute the following playbook to start all &mariadb;
+     instances:
+    </para>
+<screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts percona-start.yml</screen>
+   </step>
+   <step>
+    <para>
+     &mariadb; cluster status can be checked using the
+     <literal>percona-status.yml </literal>playbook:
+    </para>
+<screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts percona-status.yml</screen>
+   </step>
+   <step>
+    <para>
+     On all of the nodes running the &mariadb; service, run the following
+     commands:
+    </para>
+<screen>&prompt.sudo;touch /var/lib/mysql/galera.initialised
+      &prompt.sudo;chown mysql:mysql /var/lib/mysql/galera.initialised</screen>
+   </step>
+   <step>
+    <para>
+     After approximately 10-15 minutes, the output of the
+     <literal>percona-status.yml</literal> playbook should show all the
+     &mariadb; nodes in sync. &mariadb; cluster status can be checked using
+     this playbook:
+    </para>
+<screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts percona-status.yml</screen>
+    <para>
+     An example output is as follows:
+    </para>
+<screen>TASK: [FND-MDB | status | Report status of "{{ mysql_service }}"] *************
+  ok: [ardana-cp1-c1-m1-mgmt] =&gt; {
+  "msg": "mysql is synced."
+  }
+  ok: [ardana-cp1-c1-m2-mgmt] =&gt; {
+  "msg": "mysql is synced."
+  }
+  ok: [ardana-cp1-c1-m3-mgmt] =&gt; {
+  "msg": "mysql is synced."
+  }</screen>
+   </step>
+  </procedure>
+ </section>
+</section>

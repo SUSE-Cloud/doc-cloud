@@ -1,0 +1,985 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="ldap">
+ <title>Integrating LDAP with the Identity Service</title>
+ <section>
+  <title>Integrating with an external LDAP server</title>
+  <para>
+   The Keystone identity service provides two primary functions: user
+   authentication and access authorization. The user authentication function
+   validates a user's identity. Keystone has a very basic user management
+   system that can be used to create and manage user login and password
+   credentials but this system is intended only for proof of concept
+   deployments due to the very limited password control functions. The internal
+   identity service user management system is also commonly used to store and
+   authenticate OpenStack-specific service account information.
+  </para>
+  <para>
+   The recommended source of authentication is external user management systems
+   such as LDAP directory services. The identity service can be configured to
+   connect to and use external systems as the source of user authentication.
+   The identity service domain construct is used to define different
+   authentication sources based on domain membership. For example, cloud
+   deployment could consist of as few as two domains:
+  </para>
+  <itemizedlist xml:id="ul_msq_q3h_4v">
+   <listitem>
+    <para>
+     The default domain that is pre-configured for the service account users
+     that are authenticated directly against the identity service internal user
+     management system
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     A customer-defined domain that contains all user projects and membership
+     definitions. This domain can then be configured to use an external LDAP
+     directory such as Microsoft Active Directory as the authentication source.
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   &kw-hos; can support multiple domains for deployments that support multiple
+   tenants. Multiple domains can be created with each domain configured to
+   either the same or different external authentication sources. This
+   deployment model is known as a "per-domain" model.
+  </para>
+  <para>
+   There are currently two ways to configure "per-domain" authentication
+   sources:
+  </para>
+  <itemizedlist xml:id="ul_nsq_q3h_4v">
+   <listitem>
+    <para>
+     File store – each domain configuration is created and stored in separate
+     text files. This is the older and current default method for defining
+     domain configurations.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Database store – each domain configuration can be created using either
+     the identity service manager utility (recommenced) or a
+     <link xlink:href="http://developer.openstack.org/api-ref-identity-v3.html#domains-config-v3">Domain
+     Admin API</link> (from OpenStack.org), and the results are stored in the
+     identity service &mariadb; database. This database store is a new method
+     introduced in the OpenStack Kilo release and now available in
+     &kw-hos;.
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   Instructions for initially creating per-domain configuration files and then
+   migrating to the Database store method via the identity service manager
+   utility are provided as follows.
+  </para>
+  <important>
+   <para>
+    We do not support enabling LDAP connection pool (that is,
+    <literal>use_pool: True</literal>) due
+    to an upstream bug. The <literal>use_pool</literal> parameter
+    must be present and must set to <literal>False</literal>.
+   </para>
+  </important>
+ </section>
+ <section xml:id="filestore">
+  <title>Set up domain-specific driver configuration - file store</title>
+  <para>
+   To update configuration to a specific LDAP domain:
+  </para>
+  <orderedlist>
+   <listitem>
+    <para>
+     Ensure that the following configuration options are in the main
+     configuration file template:
+     /var/lib/ardana/openstack/my_cloud/config/keystone/keystone.conf.j2
+    </para>
+<screen>[identity]
+domain_specific_drivers_enabled = True
+domain_configurations_from_database = False</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Create a YAML file that contains the definition of the LDAP server
+     connection. The sample file below is already provided as part of the
+     &lcm; in the <xref linkend="using_git"/>. It is available on
+     the &lcm; in the following file:
+    </para>
+<screen>/var/lib/ardana/openstack/my_cloud/config/keystone/keystone_configure_ldap_sample.yml</screen>
+    <para>
+     Save a copy of this file with a new name, for example:
+    </para>
+<screen>/var/lib/ardana/openstack/my_cloud/config/keystone/keystone_configure_ldap_my.yml</screen>
+    <note>
+     <para>
+      Please refer to the LDAP section of the
+      <link xlink:href="https://github.com/openstack/keystone/blob/stable/pike/etc/keystone.conf.sample">Keystone</link>
+      configuration example for OpenStack for the full option list and
+      description.
+     </para>
+    </note>
+    <para>
+     Below are samples of YAML configurations for identity service LDAP
+     certificate settings, optimized for Microsoft Active Directory server.
+    </para>
+    <para>
+     Sample YAML configuration keystone_configure_ldap_my.yml
+    </para>
+<screen>---
+keystone_domainldap_conf:
+
+    # CA certificates file content.
+    # Certificates are stored in Base64 PEM format. This may be entire LDAP server
+    # certificate (in case of self-signed certificates), certificate of authority
+    # which issued LDAP server certificate, or a full certificate chain (Root CA
+    # certificate, intermediate CA certificate(s), issuer certificate).
+    #
+    cert_settings:
+      cacert: |
+        -----BEGIN CERTIFICATE-----
+
+        certificate appears here
+
+        -----END CERTIFICATE-----
+
+    # A domain will be created in &mariadb; with this name, and associated with ldap back end.
+    # Installer will also generate a config file named /etc/keystone/domains/keystone.&lt;domain_name&gt;.conf
+    #
+    domain_settings:
+      name: ad
+      description: Dedicated domain for ad users
+
+    conf_settings:
+      identity:
+         driver: ldap
+
+
+      # For a full list and description of ldap configuration options, please refer to
+      # https://github.com/openstack/keystone/blob/master/etc/keystone.conf.sample or
+      # http://docs.openstack.org/liberty/config-reference/content/keystone-configuration-file.html.
+      #
+      # Please note:
+      #  1. LDAP configuration is read-only. Configuration which performs write operations (i.e. creates users, groups, etc)
+      #     is not supported at the moment.
+      #  2. LDAP is only supported for identity operations (reading users and groups from LDAP). Assignment
+      #     operations with LDAP (i.e. managing roles, projects) are not supported.
+      #  3. LDAP is configured as non-default domain. Configuring LDAP as a default domain is not supported.
+      #
+      ldap:
+        url: ldap://ad.hpe.net
+        suffix: DC=hpe,DC=net
+        query_scope: sub
+        user_tree_dn: CN=Users,DC=hpe,DC=net
+        user : CN=admin,CN=Users,DC=hpe,DC=net
+        password: REDACTED
+        user_objectclass: user
+        user_id_attribute: cn
+        user_name_attribute: cn
+        group_tree_dn: CN=Users,DC=hpe,DC=net
+        group_objectclass: group
+        group_id_attribute: cn
+        group_name_attribute: cn
+        use_pool: True
+        user_enabled_attribute: userAccountControl
+        user_enabled_mask: 2
+        user_enabled_default: 512
+        use_tls: True
+        tls_req_cert: demand
+        # if you are configuring multiple LDAP domains, and LDAP server certificates are issued
+        # by different authorities, make sure that you place certs for all the LDAP backend domains in the
+        # cacert parameter as seen in this sample yml file so that all the certs are combined in a single CA file
+        # and every LDAP domain configuration points to the combined CA file.
+        # Note:
+        # 1. Please be advised that every time a new ldap domain is configured, the single CA file gets overwritten
+        # and hence ensure that you place certs for all the LDAP backend domains in the cacert parameter.
+        # 2. There is a known issue on one cert per CA file per domain when the system processes
+        # concurrent requests to multiple LDAP domains. Using the single CA file with all certs combined
+        # shall get the system working properly*.
+
+        tls_cacertfile: /etc/keystone/ssl/certs/all_ldapdomains_ca.pem
+
+        # The issue is in the underlying SSL library. Upstream is not investing in python-ldap package anymore.
+        # It is also not python3 compliant.  </screen>
+<screen>keystone_domain_MSAD_conf:
+
+    # CA certificates file content.
+    # Certificates are stored in Base64 PEM format. This may be entire LDAP server
+    # certificate (in case of self-signed certificates), certificate of authority
+    # which issued LDAP server certificate, or a full certificate chain (Root CA
+    # certificate, intermediate CA certificate(s), issuer certificate).
+    #
+    cert_settings:
+      cacert: |
+        -----BEGIN CERTIFICATE-----
+
+        certificate appears here
+
+        -----END CERTIFICATE-----
+
+    # A domain will be created in &mariadb; with this name, and associated with ldap back end.
+    # Installer will also generate a config file named /etc/keystone/domains/keystone.&lt;domain_name&gt;.conf
+    #
+        domain_settings:
+          name: msad
+          description: Dedicated domain for msad users
+
+        conf_settings:
+          identity:
+            driver: ldap
+
+    # For a full list and description of ldap configuration options, please refer to
+    # https://github.com/openstack/keystone/blob/master/etc/keystone.conf.sample or
+    # http://docs.openstack.org/liberty/config-reference/content/keystone-configuration-file.html.
+    #
+    # Please note:
+    #  1. LDAP configuration is read-only. Configuration which performs write operations (i.e. creates users, groups, etc)
+    #     is not supported at the moment.
+    #  2. LDAP is only supported for identity operations (reading users and groups from LDAP). Assignment
+    #     operations with LDAP (i.e. managing roles, projects) are not supported.
+    #  3. LDAP is configured as non-default domain. Configuring LDAP as a default domain is not supported.
+    #
+    ldap:
+      # If the url parameter is set to ldap then typically use_tls should be set to True. If
+      # url is set to ldaps, then use_tls should be set to False
+      url: ldaps://10.16.22.5
+      use_tls: False
+      query_scope: sub
+      user_tree_dn: DC=l3,DC=local
+      # this is the user and password for the account that has access to the AD server
+      user: administrator@l3.local
+      password: OpenStack123
+      user_objectclass: user
+      # For a default Active Directory schema this is where to find the user name, openldap uses a different value
+      user_id_attribute: userPrincipalName
+      user_name_attribute: sAMAccountName
+      group_tree_dn: DC=l3,DC=local
+      group_objectclass: group
+      group_id_attribute: cn
+      group_name_attribute: cn
+      # An upstream defect requires use_pool to be set false
+      use_pool: False
+      user_enabled_attribute: userAccountControl
+      user_enabled_mask: 2
+      user_enabled_default: 512
+      tls_req_cert: allow
+      # Referals may contain urls that can't be resolved and will cause timeouts, ignore them
+      chase_referrals: False
+      # if you are configuring multiple LDAP domains, and LDAP server certificates are issued
+      # by different authorities, make sure that you place certs for all the LDAP backend domains in the
+      # cacert parameter as seen in this sample yml file so that all the certs are combined in a single CA file
+      # and every LDAP domain configuration points to the combined CA file.
+      # Note:
+      # 1. Please be advised that every time a new ldap domain is configured, the single CA file gets overwritten
+      # and hence ensure that you place certs for all the LDAP backend domains in the cacert parameter.
+      # 2. There is a known issue on one cert per CA file per domain when the system processes
+      # concurrent requests to multiple LDAP domains. Using the single CA file with all certs combined
+      # shall get the system working properly.
+
+      tls_cacertfile: /etc/keystone/ssl/certs/all_ldapdomains_ca.pem
+            </screen>
+   </listitem>
+   <listitem>
+    <para>
+     As suggested in <xref linkend="using_git"/>, commit the new file to the
+     local git repository, and rerun the configuration processor and ready
+     deployment playbooks:
+    </para>
+<screen>$ cd ~/openstack
+$ git checkout site
+$ git add my_cloud/config/keystone/keystone_configure_ldap_my.yml
+$ git commit -m "Adding LDAP server integration config"
+$ cd ~/openstack/ardana/ansible
+$ ansible-playbook -i hosts/localhost config-processor-run.yml
+$ ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Run the reconfiguration playbook in a deployment area, passing the YAML
+     file created in the previous step as a command-line option:
+    </para>
+<screen>$ cd ~/scratch/ansible/next/ardana/ansible
+$ ansible-playbook -i hosts/verb_hosts keystone-reconfigure.yml -e@/var/lib/ardana/openstack/my_cloud/config/keystone/keystone_configure_ldap_my.yml</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Follow these same steps for each LDAP domain with which you are
+     integrating the identity service, creating a YAML file for each and
+     running the reconfigure playbook once for each additional domain.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Ensure that a new domain was created for LDAP (Microsoft AD in this
+     example) and set environment variables for admin level access
+    </para>
+<screen>$ source keystone.osrc</screen>
+    <para>
+     Get a list of domains
+    </para>
+<screen>$ openstack domain list</screen>
+    <para>
+     As output here:
+    </para>
+<screen>+----------------------------------+---------+---------+----------------------------------------------------------------------+
+| ID                               | Name    | Enabled | Description                                                          |
++----------------------------------+---------+---------+----------------------------------------------------------------------+
+| 6740dbf7465a4108a36d6476fc967dbd | heat    | True    | Owns users and projects created by heat                              |
+| default                          | Default | True    | Owns users and tenants (i.e. projects) available on Identity API v2. |
+| b2aac984a52e49259a2bbf74b7c4108b | ad      | True    | Dedicated domain for users managed by Microsoft AD server            |
++----------------------------------+---------+---------+----------------------------------------------------------------------+</screen>
+    <note>
+     <para>
+      LDAP domain is read-only. This means that you cannot create new user or
+      group records in it.
+     </para>
+    </note>
+   </listitem>
+   <listitem>
+    <para>
+     Once the LDAP user is granted the appropriate role, he can authenticate
+     within the specified domain. Set environment variables for admin-level
+     access
+    </para>
+<screen>$ source keystone.osrc</screen>
+    <para>
+     Get user record within the ad (Active Directory) domain
+    </para>
+<screen>$ openstack user show testuser1 --domain ad</screen>
+    <para>
+     Note the output:
+    </para>
+<screen>+-----------+------------------------------------------------------------------+
+| Field     | Value                                                            |
++-----------+------------------------------------------------------------------+
+| domain_id | 143af847018c4dc7bd35390402395886                                 |
+| id        | e6d8c90abdc4510621271b73cc4dda8bc6009f263e421d8735d5f850f002f607 |
+| name      | testuser1                                                        |
++-----------+------------------------------------------------------------------+</screen>
+    <para>
+     Now, get list of LDAP groups:
+    </para>
+<screen>$ openstack group list --domain ad</screen>
+    <para>
+     Here you see testgroup1 and testgroup2:
+    </para>
+<screen>+------------------------------------------------------------------+------------+
+|  ID                                                              | Name       |
++------------------------------------------------------------------+------------+
+|  03976b0ea6f54a8e4c0032e8f756ad581f26915c7e77500c8d4aaf0e83afcdc6| testgroup1 |
+7ba52ee1c5829d9837d740c08dffa07ad118ea1db2d70e0dc7fa7853e0b79fcf   | testgroup2 |
++------------------------------------------------------------------+------------+</screen>
+    <para>
+     Create a new role. Note that the role is not bound to the domain.
+    </para>
+<screen>$ openstack role create testrole1</screen>
+    <para>
+     Testrole1 has been created:
+    </para>
+<screen>+-------+----------------------------------+
+| Field | Value                            |
++-------+----------------------------------+
+| id    | 02251585319d459ab847409dea527dee |
+| name  | testrole1                        |
++-------+----------------------------------+</screen>
+    <para>
+     Grant the user a role within the domain by executing the code below. Note
+     that due to a current OpenStack CLI limitation, you must use the user ID
+     rather than the user name when working with a non-default domain.
+    </para>
+<screen>$ openstack role add testrole1 --user e6d8c90abdc4510621271b73cc4dda8bc6009f263e421d8735d5f850f002f607 --domain ad</screen>
+    <para>
+     Verify that the role was successfully granted, as shown here:
+    </para>
+<screen>$ openstack role assignment list --user e6d8c90abdc4510621271b73cc4dda8bc6009f263e421d8735d5f850f002f607 --domain ad
++----------------------------------+------------------------------------------------------------------+-------+---------+----------------------------------+
+| Role                             | User                                                             | Group | Project | Domain                           |
++----------------------------------+------------------------------------------------------------------+-------+---------+----------------------------------+
+| 02251585319d459ab847409dea527dee | e6d8c90abdc4510621271b73cc4dda8bc6009f263e421d8735d5f850f002f607 |       |         | 143af847018c4dc7bd35390402395886 |
++----------------------------------+------------------------------------------------------------------+-------+---------+----------------------------------+</screen>
+    <para>
+     Authenticate (get a domain-scoped token) as a new user with a new role.
+     The --os-* command-line parameters specified below override the respective
+     OS_* environment variables set by the keystone.osrc script to provide
+     admin access. To ensure that the command below is executed in a clean
+     environment, you may want log out from the node and log in again.
+    </para>
+<screen>$ openstack --os-identity-api-version 3 \
+            --os-username testuser1 \
+            --os-password testuser1_password \
+            --os-auth-url http://10.0.0.6:35357/v3 \
+            --os-domain-name ad \
+            --os-user-domain-name ad \
+            token issue</screen>
+    <para>
+     Here is the result:
+    </para>
+<screen>+-----------+------------------------------------------------------------------+
+| Field     | Value                                                            |
++-----------+------------------------------------------------------------------+
+| domain_id | 143af847018c4dc7bd35390402395886                                 |
+| expires   | 2015-09-09T21:36:15.306561Z                                      |
+| id        | 6f8f9f1a932a4d01b7ad9ab061eb0917                                 |
+| user_id   | e6d8c90abdc4510621271b73cc4dda8bc6009f263e421d8735d5f850f002f607 |
++-----------+------------------------------------------------------------------+</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Users can also have a project within the domain and get a project-scoped
+     token. To accomplish this, set environment variables for admin level
+     access:
+    </para>
+<screen>$ source keystone.osrc</screen>
+    <para>
+     Then create a new project within the domain:
+    </para>
+<screen>$ openstack project create testproject1 --domain ad</screen>
+    <para>
+     The result shows that they have been created:
+    </para>
+<screen>+-------------+----------------------------------+
+| Field       | Value                            |
++-------------+----------------------------------+
+| description |                                  |
+| domain_id   | 143af847018c4dc7bd35390402395886 |
+| enabled     | True                             |
+| id          | d065394842d34abd87167ab12759f107 |
+| name        | testproject1                     |
++-------------+----------------------------------+</screen>
+    <para>
+     Grant the user a role with a project, re-using the role created in the
+     previous example. Note that due to a current OpenStack CLI limitation, you
+     must use user ID rather than user name when working with a non-default
+     domain.
+    </para>
+<screen>$ openstack role add testrole1 --user e6d8c90abdc4510621271b73cc4dda8bc6009f263e421d8735d5f850f002f607 --project testproject1</screen>
+    <para>
+     Verify that the role was successfully granted by generating a list:
+    </para>
+<screen>$ openstack role assignment list --user e6d8c90abdc4510621271b73cc4dda8bc6009f263e421d8735d5f850f002f607 --project testproject1</screen>
+    <para>
+     The output shows the result:
+    </para>
+<screen>+----------------------------------+------------------------------------------------------------------+-------+----------------------------------+--------+
+| Role                             | User                                                             | Group | Project                          | Domain |
++----------------------------------+------------------------------------------------------------------+-------+----------------------------------+--------+
+| 02251585319d459ab847409dea527dee | e6d8c90abdc4510621271b73cc4dda8bc6009f263e421d8735d5f850f002f607 |       | d065394842d34abd87167ab12759f107 |        |
++----------------------------------+------------------------------------------------------------------+-------+----------------------------------+--------+</screen>
+    <para>
+     Authenticate (get a project-scoped token) as the new user with a new role.
+     The --os-* command line parameters specified below override their
+     respective OS_* environment variables set by keystone.osrc to provide
+     admin access. To ensure that the command below is executed in a clean
+     environment, you may want log out from the node and log in again. Note
+     that both the --os-project-domain-name and --os-project-user-name
+     parameters are needed to verify that both user and project are not in the
+     default domain.
+    </para>
+<screen>$ openstack --os-identity-api-version 3 \
+            --os-username testuser1 \
+            --os-password testuser1_password \
+            --os-auth-url http://10.0.0.6:35357/v3 \
+            --os-project-name testproject1 \
+            --os-project-domain-name ad \
+            --os-user-domain-name ad \
+            token issue</screen>
+    <para>
+     Below is the result:
+    </para>
+<screen>+------------+------------------------------------------------------------------+
+| Field      | Value                                                            |
++------------+------------------------------------------------------------------+
+| expires    | 2015-09-09T21:50:49.945893Z                                      |
+| id         | 328e18486f69441fb13f4842423f52d1                                 |
+| project_id | d065394842d34abd87167ab12759f107                                 |
+| user_id    | e6d8c90abdc4510621271b73cc4dda8bc6009f263e421d8735d5f850f002f607 |
++------------+------------------------------------------------------------------+</screen>
+   </listitem>
+  </orderedlist>
+ </section>
+ <section>
+  <title>Set up or switch to domain-specific driver configuration using a database store</title>
+  <para>
+   To make the switch, execute the steps below. Remember, you must have already
+   set up the configuration for a file store as explained in
+   <xref linkend="filestore"/>, and it must be working properly.
+  </para>
+  <orderedlist>
+   <listitem>
+    <para>
+     Ensure that the following configuration options are set in the main
+     configuration file,
+     /var/lib/ardana/openstack/my_cloud/config/keystone/keystone.conf.j2:
+    </para>
+<screen>[identity]
+domain_specific_drivers_enabled = True
+domain_configurations_from_database = True
+
+[domain_config]
+driver = sql</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Once the template is modified, commit the change to the local git
+     repository, and rerun the configuration processor / deployment area
+     preparation playbooks (as suggested at Using Git for Configuration
+     Management):
+    </para>
+<screen>$ cd ~/openstack
+$ git checkout site
+$ git add -A</screen>
+    <para>
+     Verify that the files have been added using git status:
+    </para>
+<screen>$ git status</screen>
+    <para>
+     Then commit the changes:
+    </para>
+<screen>$ git commit -m "Use Domain-Specific Driver Configuration - Database Store: more description here..."</screen>
+    <para>
+     Next, run the configuration processor and ready deployment playbooks:
+    </para>
+<screen>$ cd ~/openstack/ardana/ansible
+$ ansible-playbook -i hosts/localhost config-processor-run.yml
+$ ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Run the reconfiguration playbook in a deployment area:
+    </para>
+<screen>$ cd ~/scratch/ansible/next/ardana/ansible
+$ ansible-playbook -i hosts/verb_hosts keystone-reconfigure.yml</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Upload the domain-specific config files to the database if they have not
+     been loaded. If they have already been loaded and you want to switch back
+     to database store mode, then skip this upload step and move on to step 5.
+    </para>
+    <orderedlist xml:id="ol_tff_px4_mv">
+     <listitem>
+      <para>
+       Go to one of the controller nodes where Keystone is deployed.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Verify that domain-specific driver configuration files are located under
+       the directory (default /etc/keystone/domains) with the format:
+       keystone.&lt;domain name&gt;.conf Use the Keystone manager utility to
+       load domain-specific config files to the database. There are two options
+       for uploading the files:
+      </para>
+      <orderedlist xml:id="ol_uff_px4_mv">
+       <listitem>
+        <para>
+         Option 1: Upload all configuration files to the SQL database:
+        </para>
+<screen>$ keystone-manage domain_config_upload --all</screen>
+       </listitem>
+       <listitem>
+        <para>
+         Option 2: Upload individual domain-specific configuration files by
+         specifying the domain name one by one:
+        </para>
+<screen>$ keystone-manage domain_config_upload --domain-name &lt;domain name&gt;</screen>
+        <para>
+         Here is an example:
+        </para>
+<screen>keystone-manage domain_config_upload --domain-name ad </screen>
+        <para>
+         Note that the Keystone manager utility does not upload the
+         domain-specific driver configuration file the second time for the same
+         domain. For the management of the domain-specific driver configuration
+         in the database store, you may refer to
+         <link xlink:href="http://developer.openstack.org/api-ref-identity-v3.html#domains-config-v3">OpenStack
+         Identity API - Domain Configuration</link>.
+        </para>
+       </listitem>
+      </orderedlist>
+     </listitem>
+    </orderedlist>
+   </listitem>
+   <listitem>
+    <para>
+     Verify that the switched domain driver configuration for LDAP (Microsoft
+     AD in this example) in the database store works properly. Then set the
+     environment variables for admin level access:
+    </para>
+<screen>$ source keystone.osrc</screen>
+    <para>
+     Get a list of domain users:
+    </para>
+<screen>$ openstack user list --domain ad</screen>
+    <para>
+     Note the three users returned:
+    </para>
+<screen>+------------------------------------------------------------------+------------+
+| ID                                                               | Name       |
++------------------------------------------------------------------+------------+
+| e7dbec51ecaf07906bd743debcb49157a0e8af557b860a7c1dadd454bdab03fe | testuser1  |
+| 8a09630fde3180c685e0cd663427e8638151b534a8a7ccebfcf244751d6f09bd | testuser2  |
+| ea463d778dadcefdcfd5b532ee122a70dce7e790786678961420ae007560f35e | testuser3  |
++------------------------------------------------------------------+------------+</screen>
+    <para>
+     Get user records within the ad domain:
+    </para>
+<screen> $ openstack user show testuser1 --domain ad</screen>
+    <para>
+     Here testuser1 is returned:
+    </para>
+<screen>+-----------+------------------------------------------------------------------+
+| Field     | Value                                                            |
++-----------+------------------------------------------------------------------+
+| domain_id | 143af847018c4dc7bd35390402395886                                 |
+| id        | e6d8c90abdc4510621271b73cc4dda8bc6009f263e421d8735d5f850f002f607 |
+| name      | testuser1                                                        |
++-----------+------------------------------------------------------------------+</screen>
+    <para>
+     Get a list of LDAP groups:
+    </para>
+<screen>$ openstack group list --domain ad</screen>
+    <para>
+     Note that testgroup1 and testgroup2 are returned:
+    </para>
+<screen>+------------------------------------------------------------------+------------+
+| ID                                                               | Name       |
++------------------------------------------------------------------+------------+
+| 03976b0ea6f54a8e4c0032e8f756ad581f26915c7e77500c8d4aaf0e83afcdc6 | testgroup1 |
+| 7ba52ee1c5829d9837d740c08dffa07ad118ea1db2d70e0dc7fa7853e0b79fcf | testgroup2 |
++------------------------------------------------------------------+------------+</screen>
+    <note>
+     <para>
+      LDAP domain is read-only. This means that you cannot create new user or
+      group records in it.
+     </para>
+    </note>
+   </listitem>
+  </orderedlist>
+ </section>
+ <section>
+  <title>Domain-specific driver configuration. Switching from a database to a file store</title>
+  <para>
+   Following is the procedure to switch a domain-specific driver configuration
+   from a database store to a file store. It is assumed that:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     The domain-specific driver configuration with a database store has been
+     set up and is working properly.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Domain-specific driver configuration files with the format:
+     keystone.&lt;domain name&gt;.conf have already been located and verified
+     in the specific directory (by default, /etc/keystone/domains/) on all of
+     the controller nodes.
+    </para>
+   </listitem>
+  </itemizedlist>
+  <orderedlist>
+   <listitem>
+    <para>
+     Ensure that the following configuration options are set in the main
+     configuration file template in
+     /var/lib/ardana/openstack/my_cloud/config/keystone/keystone.conf.j2:
+    </para>
+<screen>[identity]
+ domain_specific_drivers_enabled = True
+ domain_configurations_from_database = False
+
+[domain_config]
+# driver = sql</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Once the template is modified, commit the change to the local git
+     repository, and rerun the configuration processor / deployment area
+     preparation playbooks (as suggested at Using Git for Configuration
+     Management):
+    </para>
+<screen>$ cd ~/openstack
+$ git checkout site
+$ git add -A</screen>
+    <para>
+     Verify that the files have been added using git status, then commit the
+     changes:
+    </para>
+<screen>$ git status
+$ git commit -m "Domain-Specific Driver Configuration - Switch From Database Store to File Store: more description here..."</screen>
+    <para>
+     Then run the configuration processor and ready deployment playbooks:
+    </para>
+<screen>$ cd ~/openstack/ardana/ansible
+$ ansible-playbook -i hosts/localhost config-processor-run.yml
+$ ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Run reconfiguration playbook in a deployment area:
+    </para>
+<screen>$ cd ~/scratch/ansible/next/ardana/ansible
+$ ansible-playbook -i hosts/verb_hosts keystone-reconfigure.yml</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Verify that the switched domain driver configuration for LDAP (Microsoft
+     AD in this example) using file store works properly: Set environment
+     variables for admin level access
+    </para>
+<screen>$ source keystone.osrc</screen>
+    <para>
+     Get list of domain users:
+    </para>
+<screen>$ openstack user list --domain ad</screen>
+    <para>
+     Here you see the three users:
+    </para>
+<screen>+------------------------------------------------------------------+------------+
+| ID                                                               | Name       |
++------------------------------------------------------------------+------------+
+| e7dbec51ecaf07906bd743debcb49157a0e8af557b860a7c1dadd454bdab03fe | testuser1  |
+| 8a09630fde3180c685e0cd663427e8638151b534a8a7ccebfcf244751d6f09bd | testuser2  |
+| ea463d778dadcefdcfd5b532ee122a70dce7e790786678961420ae007560f35e | testuser3  |
++------------------------------------------------------------------+------------+</screen>
+    <para>
+     Get user records within the ad domain:
+    </para>
+<screen>$ openstack user show testuser1 --domain ad</screen>
+    <para>
+     Here is the result:
+    </para>
+<screen>+-----------+------------------------------------------------------------------+
+| Field     | Value                                                            |
++-----------+------------------------------------------------------------------+
+| domain_id | 143af847018c4dc7bd35390402395886                                 |
+| id        | e6d8c90abdc4510621271b73cc4dda8bc6009f263e421d8735d5f850f002f607 |
+| name      | testuser1                                                        |
++-----------+------------------------------------------------------------------+</screen>
+    <para>
+     Get a list of LDAP groups:
+    </para>
+<screen>$ openstack group list --domain ad</screen>
+    <para>
+     Here are the groups returned:
+    </para>
+<screen>+------------------------------------------------------------------+------------+
+| ID                                                               | Name       |
++------------------------------------------------------------------+------------+
+| 03976b0ea6f54a8e4c0032e8f756ad581f26915c7e77500c8d4aaf0e83afcdc6 | testgroup1 |
+| 7ba52ee1c5829d9837d740c08dffa07ad118ea1db2d70e0dc7fa7853e0b79fcf | testgroup2 |
++------------------------------------------------------------------+------------+</screen>
+    <para>
+     Note: Note: LDAP domain is read-only. This means that you can not create
+     new user or group record in it.
+    </para>
+   </listitem>
+  </orderedlist>
+ </section>
+ <section>
+  <title>Update LDAP CA certificates</title>
+  <para>
+   There is a chance that LDAP CA certificates may expire or for some reason
+   not work anymore. Below are steps to update the LDAP CA certificates on the
+   identity service side. Follow the steps below to make the updates.
+  </para>
+  <orderedlist>
+   <listitem>
+    <para>
+     Locate the file keystone_configure_ldap_certs_sample.yml
+    </para>
+<screen>/var/lib/ardana/openstack/my_cloud/config/keystone/keystone_configure_ldap_certs_sample.yml</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Save a copy of this file with a new name, for example:
+    </para>
+<screen>/var/lib/ardana/openstack/my_cloud/config/keystone/keystone_configure_ldap_certs_all.yml</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Edit the file and specify the correct single file path name for the ldap
+     certificates. This file path name has to be consistent with the one
+     defined in tls_cacertfile of the domain-specific configuration. Edit the
+     file and populate or update it with LDAP CA certificates for all LDAP
+     domains.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     As suggested in <xref linkend="using_git"/>, add the new file to the local
+     git repository:
+    </para>
+<screen>$ cd ~/openstack
+$ git checkout site
+$ git add -A</screen>
+    <para>
+     Verify that the files have been added using git status and commit the
+     file:
+    </para>
+<screen>$ git status
+$ git commit -m "Update LDAP CA certificates: more description here..."</screen>
+    <para>
+     Then run the configuration processor and ready deployment playbooks:
+    </para>
+<screen>$ cd ~/openstack/ardana/ansible
+$ ansible-playbook -i hosts/localhost config-processor-run.yml
+$ ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Run the reconfiguration playbook in the deployment area:
+    </para>
+<screen>$ cd ~/scratch/ansible/next/ardana/ansible
+$ ansible-playbook -i hosts/verb_hosts keystone-reconfigure.yml -e@/var/lib/ardana/openstack/my_cloud/config/keystone/keystone_configure_ldap_certs_all.yml </screen>
+   </listitem>
+  </orderedlist>
+ </section>
+ <section>
+  <title>Limitations</title>
+  <para>
+   &kw-hos-phrase; domain-specific configuration:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     No Global User Listing: Once domain-specific driver configuration is
+     enabled, listing all users and listing all groups are not supported
+     operations. Those calls require a specific domain filter and a
+     domain-scoped token for the target domain.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     You cannot have both a file store and a database store for domain-specific
+     driver configuration in a single identity service instance. Once a
+     database store is enabled within the identity service instance, any file
+     store will be ignored, and vice versa.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     The identity service allows a list limit configuration to globally set the
+     maximum number of entities that will be returned in an identity collection
+     per request but it does not support per-domain list limit setting at this
+     time.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Each time a new domain is configured with LDAP integration the single CA
+     file gets overwritten. Ensure that you place certs for all the LDAP
+     back-end domains in the cacert parameter. Detailed CA file inclusion
+     instructions are provided in the comments of the sample YAML configuration
+     file <filename>keystone_configure_ldap_my.yml</filename>
+     (<xref linkend="filestore"/>).
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     LDAP is only supported for identity operations (reading users and groups
+     from LDAP).
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Keystone assignment operations from LDAP records such as managing or
+     assigning roles and projects, are not currently supported.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     The &kw-hos; 'default' domain is pre-configured to store service account
+     users and is authenticated locally against the identity service. Domains
+     configured for external LDAP integration are non-default domains.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     When using the current OpenStackClient CLI you must use the user ID rather
+     than the user name when working with a non-default domain.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Each LDAP connection with the identity service is for read-only
+     operations. Configurations that require identity service write operations
+     (to create users, groups, etc.) are not currently supported.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     LDAP is only supported for identity operations (reading users and groups
+     from LDAP). Keystone assignment operations from LDAP records such as
+     managing or assigning roles and projects, are not currently supported.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     When using the current OpenStackClient CLI you must use the user ID rather
+     than the user name when working with a non-default domain.
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   &kw-hos-phrase; API-based domain-specific configuration management
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     No GUI dashboard for domain-specific driver configuration management
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     API-based Domain specific config does not check for type of option.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     API-based Domain specific config does not check for option values
+     supported.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     API-based Domain config method does not provide retrieval of default
+     values of domain-specific configuration options.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Status: Domain-specific driver configuration database store is a non-core
+     feature for &kw-hos-phrase;.
+    </para>
+   </listitem>
+  </itemizedlist>
+  <note>
+   <para>
+    When integrating with an external identity provider, cloud security is
+    dependent upon the security of that identify provider. You should examine
+    the security of the identity provider, and in particular the SAML 2.0 token
+    generation process and decide what security properties you need to ensure
+    adequate security of your cloud deployment. More information about SAML can
+    be found at
+    <link xlink:href="https://www.owasp.org/index.php/SAML_Security_Cheat_Sheet"/>.
+   </para>
+  </note>
+ </section>
+<!-- Commented in DITA: -->
+<!--<section id="encrypt"><title>Transport Layer Security (TLS) Support</title>
+  <p> The Identity service supports various encryption options when an external LDAP or
+    Microsoft Active Directory is configured for external authentication including: </p>
+  <ul>
+    <li>External authentication with LDAP and Microsoft Active Directory systems</li>
+    <li>LDAPS specific support</li>
+    <li>STARTTLS</li>
+  </ul>
+</section>-->
+</section>

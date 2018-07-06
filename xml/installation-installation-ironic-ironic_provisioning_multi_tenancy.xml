@@ -1,0 +1,377 @@
+<?xml version="1.0"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<section xml:id="ironic-provisioning-multi-tenancy"
+ xmlns="http://docbook.org/ns/docbook" version="5.1"
+ xmlns:xi="http://www.w3.org/2001/XInclude"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+ <title>Provisioning Baremetal Nodes with Multi-Tenancy</title>
+ <procedure>
+  <step>
+   <para>
+    Create a network and a subnet:
+   </para>
+<screen>$ neutron net-create guest-net-1
+Created a new network:
++---------------------------+--------------------------------------+
+| Field                     | Value                                |
++---------------------------+--------------------------------------+
+| admin_state_up            | True                                 |
+| availability_zone_hints   |                                      |
+| availability_zones        |                                      |
+| created_at                | 2017-06-10T02:49:56Z                 |
+| description               |                                      |
+| id                        | 256d55a6-9430-4f49-8a4c-cc5192f5321e |
+| ipv4_address_scope        |                                      |
+| ipv6_address_scope        |                                      |
+| mtu                       | 1500                                 |
+| name                      | guest-net-1                          |
+| project_id                | 57b792cdcdd74d16a08fc7a396ee05b6     |
+| provider:network_type     | vlan                                 |
+| provider:physical_network | physnet1                             |
+| provider:segmentation_id  | 1152                                 |
+| revision_number           | 2                                    |
+| router:external           | False                                |
+| shared                    | False                                |
+| status                    | ACTIVE                               |
+| subnets                   |                                      |
+| tags                      |                                      |
+| tenant_id                 | 57b792cdcdd74d16a08fc7a396ee05b6     |
+| updated_at                | 2017-06-10T02:49:57Z                 |
++---------------------------+--------------------------------------+
+
+$ neutron  subnet-create guest-net-1 200.0.0.0/24
+Created a new subnet:
++-------------------+----------------------------------------------+
+| Field             | Value                                        |
++-------------------+----------------------------------------------+
+| allocation_pools  | {"start": "200.0.0.2", "end": "200.0.0.254"} |
+| cidr              | 200.0.0.0/24                                 |
+| created_at        | 2017-06-10T02:53:08Z                         |
+| description       |                                              |
+| dns_nameservers   |                                              |
+| enable_dhcp       | True                                         |
+| gateway_ip        | 200.0.0.1                                    |
+| host_routes       |                                              |
+| id                | 53accf35-ae02-43ae-95d8-7b5efed18ae9         |
+| ip_version        | 4                                            |
+| ipv6_address_mode |                                              |
+| ipv6_ra_mode      |                                              |
+| name              |                                              |
+| network_id        | 256d55a6-9430-4f49-8a4c-cc5192f5321e         |
+| project_id        | 57b792cdcdd74d16a08fc7a396ee05b6             |
+| revision_number   | 2                                            |
+| service_types     |                                              |
+| subnetpool_id     |                                              |
+| tenant_id         | 57b792cdcdd74d16a08fc7a396ee05b6             |
+| updated_at        | 2017-06-10T02:53:08Z                         |
++-------------------+----------------------------------------------+</screen>
+  </step>
+  <step>
+   <para>
+    Review glance image list
+   </para>
+<screen>$ glance image-list
++--------------------------------------+--------------------------+
+| ID                                   | Name                     |
++--------------------------------------+--------------------------+
+| 0526d2d7-c196-4c62-bfe5-a13bce5c7f39 | cirros-0.4.0-x86_64      |
++--------------------------------------+--------------------------+
+</screen>
+  </step>
+  <step>
+   <para>
+    Create Ironic node
+   </para>
+<screen>
+<?dbsuse-fo font-size="0.70em"?>
+$ ironic --ironic-api-version 1.22 node-create -d agent_ipmitool \
+  -n test-node-1 -i ipmi_address=192.168.9.69 -i ipmi_username=ipmi_user \
+  -i ipmi_password=XXXXXXXX --network-interface neutron -p  memory_mb=4096 \
+  -p cpu_arch=x86_64 -p local_gb=80 -p cpus=2 \
+  -p capabilities=boot_mode:bios,boot_option:local \
+  -p root_device='{"name":"/dev/sda"}' \
+  -i deploy_kernel=db3d131f-2fb0-4189-bb8d-424ee0886e4c \
+  -i deploy_ramdisk=304cae15-3fe5-4f1c-8478-c65da5092a2c
+
++-------------------+-------------------------------------------------------------------+
+| Property          | Value                                                             |
++-------------------+-------------------------------------------------------------------+
+| chassis_uuid      |                                                                   |
+| driver            | agent_ipmitool                                                    |
+| driver_info       | {u'deploy_kernel': u'db3d131f-2fb0-4189-bb8d-424ee0886e4c',       |
+|                   | u'ipmi_address': u'192.168.9.69',                                 |
+|                   | u'ipmi_username': u'gozer', u'ipmi_password': u'******',          |
+|                   | u'deploy_ramdisk': u'304cae15-3fe5-4f1c-8478-c65da5092a2c'}       |
+| extra             | {}                                                                |
+| name              | test-node-1                                                       |
+| network_interface | neutron                                                           |
+| properties        | {u'cpu_arch': u'x86_64', u'root_device': {u'name': u'/dev/sda'},  |
+|                   | u'cpus': 2, u'capabilities': u'boot_mode:bios,boot_option:local', |
+|                   | u'memory_mb': 4096, u'local_gb': 80}                              |
+| resource_class    | None                                                              |
+| uuid              | cb4dda0d-f3b0-48b9-ac90-ba77b8c66162                              |
++-------------------+-------------------------------------------------------------------+
+</screen>
+   <para>
+    ipmi_address, ipmi_username and ipmi_password are IPMI access parameters for
+    baremetal Ironic node. Adjust memory_mb, cpus, local_gb to your node size
+    requirements. They also need to be reflected in flavor setting (see below).
+    Use capabilities boot_mode:bios for baremetal nodes operating in Legacy
+    BIOS mode. For UEFI baremetal nodes, use boot_mode:uefi lookup
+    deploy_kernel and deploy_ramdisk in glance image list output above.
+   </para>
+   <important>
+    <para>
+     Since we are using Ironic API version 1.22, node is created initial state
+     <emphasis role="bold">enroll</emphasis>. It needs to be explicitly moved
+     to <emphasis role="bold">available</emphasis> state. This behavior changed
+     in API version 1.11
+    </para>
+   </important>
+  </step>
+  <step>
+   <para>
+    Create port
+   </para>
+<screen>
+<?dbsuse-fo font-size="0.70em"?>
+$ ironic --ironic-api-version 1.22 port-create --address f0:92:1c:05:6c:40 \
+  --node cb4dda0d-f3b0-48b9-ac90-ba77b8c66162 -l switch_id=e8:f7:24:bf:07:2e -l \
+  switch_info=hp59srv1-a-11b -l port_id="Ten-GigabitEthernet 1/0/34" \
+  --pxe-enabled true
++-----------------------+--------------------------------------------+
+| Property              | Value                                      |
++-----------------------+--------------------------------------------+
+| address               | f0:92:1c:05:6c:40                          |
+| extra                 | {}                                         |
+| local_link_connection | {u'switch_info': u'hp59srv1-a-11b',        |
+|                       | u'port_id': u'Ten-GigabitEthernet 1/0/34', |
+|                       | u'switch_id': u'e8:f7:24:bf:07:2e'}        |
+| node_uuid             | cb4dda0d-f3b0-48b9-ac90-ba77b8c66162       |
+| pxe_enabled           | True                                       |
+| uuid                  | a49491f3-5595-413b-b4a7-bb6f9abec212       |
++-----------------------+--------------------------------------------+</screen>
+   <itemizedlist>
+    <listitem>
+     <para>
+      for <option>--address</option>, use MAC of 1st NIC of ironic baremetal
+      node, which will be used for PXE boot
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      for <option>--node</option>, use ironic node uuid (see above)
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      for <option>-l switch_id</option>, use switch management interface MAC
+      address. It can be
+      retrieved by pinging switch management IP and looking up MAC address in
+      'arp -l -n' command output.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      for <option>-l switch_info</option>, use switch_id from
+      <filename>data/ironic/ironic_config.yml</filename>
+      file. If you have several switch config definitions, use the right switch
+      your baremetal node is connected to.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      for -l port_id, use port ID on the switch
+     </para>
+    </listitem>
+   </itemizedlist>
+  </step>
+  <step>
+   <para>
+    Move ironic node to manage and then available state
+   </para>
+<screen>$ ironic node-set-provision-state test-node-1 manage
+$ ironic node-set-provision-state test-node-1 provide</screen>
+  </step>
+  <step>
+   <para>
+    Once node is successfully moved to available state, its resources should
+    be included into Nova hypervisor statistics
+   </para>
+<screen>$ nova hypervisor-stats
++----------------------+-------+
+| Property             | Value |
++----------------------+-------+
+| count                | 1     |
+| current_workload     | 0     |
+| disk_available_least | 80    |
+| free_disk_gb         | 80    |
+| free_ram_mb          | 4096  |
+| local_gb             | 80    |
+| local_gb_used        | 0     |
+| memory_mb            | 4096  |
+| memory_mb_used       | 0     |
+| running_vms          | 0     |
+| vcpus                | 2     |
+| vcpus_used           | 0     |
++----------------------+-------+</screen>
+  </step>
+  <step>
+   <para>
+    Prepare a keypair, which will be used for logging into the node
+   </para>
+<screen>$ nova keypair-add ironic_kp &gt; ironic_kp.pem</screen>
+  </step>
+  <step>
+   <para>
+    Obtain user image and upload it to glance. Please refer to OpenStack
+    documentation on user image creation:
+    <link xlink:href="https://docs.openstack.org/project-install-guide/baremetal/draft/configure-glance-images.html">https://docs.openstack.org/project-install-guide/baremetal/draft/configure-glance-images.html</link>.
+   </para>
+   <note>
+    <para>
+     Deployed images are already populated by &kw-hos; installer.
+    </para>
+   </note>
+<screen>$ glance image-create --name='Ubuntu Trusty 14.04' --disk-format=qcow2 \
+  --container-format=bare --file ~/ubuntu-trusty.qcow2
++------------------+--------------------------------------+
+| Property         | Value                                |
++------------------+--------------------------------------+
+| checksum         | d586d8d2107f328665760fee4c81caf0     |
+| container_format | bare                                 |
+| created_at       | 2017-06-13T22:38:45Z                 |
+| disk_format      | qcow2                                |
+| id               | 9fdd54a3-ccf5-459c-a084-e50071d0aa39 |
+| min_disk         | 0                                    |
+| min_ram          | 0                                    |
+| name             | Ubuntu Trusty 14.04                  |
+| owner            | 57b792cdcdd74d16a08fc7a396ee05b6     |
+| protected        | False                                |
+| size             | 371508736                            |
+| status           | active                               |
+| tags             | []                                   |
+| updated_at       | 2017-06-13T22:38:55Z                 |
+| virtual_size     | None                                 |
+| visibility       | private                              |
++------------------+--------------------------------------+
+
+$ glance image-list
++--------------------------------------+---------------------------+
+| ID                                   | Name                      |
++--------------------------------------+---------------------------+
+| 0526d2d7-c196-4c62-bfe5-a13bce5c7f39 | cirros-0.4.0-x86_64       |
+| 83eecf9c-d675-4bf9-a5d5-9cf1fe9ee9c2 | ir-deploy-iso-<replaceable>EXAMPLE</replaceable>     |
+| db3d131f-2fb0-4189-bb8d-424ee0886e4c | ir-deploy-kernel-<replaceable>EXAMPLE</replaceable>  |
+| 304cae15-3fe5-4f1c-8478-c65da5092a2c | ir-deploy-ramdisk-<replaceable> EXAMPLE</replaceable> |
+| 9fdd54a3-ccf5-459c-a084-e50071d0aa39 | Ubuntu Trusty 14.04       |
++--------------------------------------+---------------------------+</screen>
+  </step>
+  <step>
+   <para>
+    Create a baremetal flavor and set flavor keys specifying requested node
+    size, architecture and boot mode. A flavor can be re-used for several nodes
+    having the same size, architecture and boot mode
+   </para>
+<screen>
+<?dbsuse-fo font-size="0.70em"?>
+$ nova flavor-create m1.ironic auto 4096 80 2
++-------------+-----------+--------+------+---------+------+-------+-------------+-----------+
+| ID          | Name      | Mem_MB | Disk | Ephemrl | Swap | VCPUs | RXTX_Factor | Is_Public |
++-------------+-----------+--------+------+---------+------+-------+-------------+-----------+
+| ab69...87bf | m1.ironic | 4096   | 80   | 0       |      | 2     | 1.0         | True      |
++-------------+-----------+--------+------+---------+------+-------+-------------+-----------+
+
+$ nova flavor-key ab6988...e28694c87bf set cpu_arch=x86_64
+$ nova flavor-key ab6988...e28694c87bf set capabilities:boot_option="local"
+$ nova flavor-key ab6988...e28694c87bf set capabilities:boot_mode="bios"</screen>
+   <para>
+    Parameters must match parameters of ironic node above. Use
+    <literal>capabilities:boot_mode="bios"</literal> for Legacy BIOS nodes. For
+    UEFI nodes, use <literal>capabilities:boot_mode="uefi"</literal>
+   </para>
+  </step>
+  <step>
+   <para>
+    Boot the node
+   </para>
+<screen>
+<?dbsuse-fo font-size="0.70em"?>
+$ nova boot --flavor m1.ironic --image 9fdd54a3-ccf5-459c-a084-e50071d0aa39 \
+  --key-name ironic_kp --nic net-id=256d55a6-9430-4f49-8a4c-cc5192f5321e \
+  test-node-1
++--------------------------------------+-------------------------------------------------+
+| Property                             | Value                                           |
++--------------------------------------+-------------------------------------------------+
+| OS-DCF:diskConfig                    | MANUAL                                          |
+| OS-EXT-AZ:availability_zone          |                                                 |
+| OS-EXT-SRV-ATTR:host                 | -                                               |
+| OS-EXT-SRV-ATTR:hypervisor_hostname  | -                                               |
+| OS-EXT-SRV-ATTR:instance_name        |                                                 |
+| OS-EXT-STS:power_state               | 0                                               |
+| OS-EXT-STS:task_state                | scheduling                                      |
+| OS-EXT-STS:vm_state                  | building                                        |
+| OS-SRV-USG:launched_at               | -                                               |
+| OS-SRV-USG:terminated_at             | -                                               |
+| accessIPv4                           |                                                 |
+| accessIPv6                           |                                                 |
+| adminPass                            | XXXXXXXXXXXX                                    |
+| config_drive                         |                                                 |
+| created                              | 2017-06-14T21:25:18Z                            |
+| flavor                               | m1.ironic (ab69881...5a-497d-93ae-6e28694c87bf) |
+| hostId                               |                                                 |
+| id                                   | f1a8c63e-da7b-4d9a-8648-b1baa6929682            |
+| image                                | Ubuntu Trusty 14.04 (9fdd54a3-ccf5-4a0...0aa39) |
+| key_name                             | ironic_kp                                       |
+| metadata                             | {}                                              |
+| name                                 | test-node-1                                     |
+| os-extended-volumes:volumes_attached | []                                              |
+| progress                             | 0                                               |
+| security_groups                      | default                                         |
+| status                               | BUILD                                           |
+| tenant_id                            | 57b792cdcdd74d16a08fc7a396ee05b6                |
+| updated                              | 2017-06-14T21:25:17Z                            |
+| user_id                              | cc76d7469658401fbd4cf772278483d9                |
++--------------------------------------+-------------------------------------------------+</screen>
+   <itemizedlist>
+    <listitem>
+     <para>
+      for <option>--image</option>, use the ID of user image created at
+      previous step
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      for <option>--nic net-id</option>, use ID of
+      the tenant network created at the beginning
+     </para>
+    </listitem>
+   </itemizedlist>
+   <note>
+    <para>
+     During the node provisioning, the following is happening in the
+     background:
+    </para>
+    <para>
+     Neutron connects to switch management interfaces and assigns provisioning
+     VLAN to baremetal node port on the switch. Ironic powers up the node using
+     IPMI interface. Node is booting IPA image via PXE. IPA image is writing
+     provided user image onto specified root device
+     (<filename>/dev/sda</filename>) and powers node
+     down. Neutron connects to switch management interfaces and assigns tenant
+     VLAN to baremetal node port on the switch. A VLAN ID is selected from
+     provided range. Ironic powers up the node using IPMI interface. Node is
+     booting user image from disk.
+    </para>
+   </note>
+  </step>
+  <step>
+   <para>
+    Once provisioned, node will join the private tenant network. Access to
+    private network from other networks is defined by switch configuration.
+   </para>
+  </step>
+ </procedure>
+</section>

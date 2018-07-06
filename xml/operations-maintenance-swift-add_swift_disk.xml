@@ -1,0 +1,220 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="add_swift_disk">
+ <title>Adding Additional Disks to a Swift Node</title>
+ <para>
+  Steps for adding additional disks to any nodes hosting Swift services.
+ </para>
+ <para>
+  You may have a need to add additional disks to a node for Swift usage and we
+  can show you how. These steps work for adding additional disks to Swift
+  object or proxy, account, container (PAC) nodes. It can also apply to adding
+  additional disks to a controller node that is hosting the Swift service, like
+  you would see if you are using one of the entry-scale example models.
+ </para>
+ <para>
+  Read through the notes below before beginning the process.
+ </para>
+ <para>
+  You can add multiple disks at the same time, there is no need to do it one at
+  a time.
+ </para>
+ <important>
+  <title>Add the Same Number of Disks</title>
+  <para>
+   You must add the <emphasis>same</emphasis> number of disks to each server
+   that the disk model applies to. For example, if you have a single cluster of
+   three Swift servers and you want to increase capacity and decide to add two
+   additional disks, you must add two to each of your three Swift servers.
+  </para>
+ </important>
+ <section>
+  <title>Adding additional disks to your Swift servers</title>
+  <procedure>
+   <step>
+    <para>
+     Verify the general health of the Swift system and that it is safe to
+     rebalance your rings. See <xref linkend="topic_ohx_j1t_4t"/> for details
+     on how to do this.
+    </para>
+   </step>
+   <step>
+    <para>
+     Perform the disk maintenance.
+    </para>
+    <substeps>
+     <step xml:id="st.swift.add-disk.shutdown">
+      <para>
+       Shut down the first Swift server you wish to add disks to.
+      </para>
+     </step>
+     <step>
+      <para>
+       Add the additional disks to the physical server. The disk drives that
+       are added should be clean. They should either contain no partitions or a
+       single partition the size of the entire disk. It should not contain a
+       file system or any volume groups. Failure to comply will cause errors
+       and the disk will not be added.
+      </para>
+      <para>
+       For more details, see <xref linkend="topic_d1s_hht_tt"/>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Power the server on.
+      </para>
+     </step>
+     <step>
+      <para>
+       While the server was shutdown, data that normally would have been placed
+       on the server is placed elsewhere. When the server is rebooted, the
+       Swift replication process will move that data back onto the server.
+       Monitor the replication process to determine when it is complete. See
+       <xref linkend="topic_ohx_j1t_4t"/> for details on how to do this.
+      </para>
+     </step>
+     <step>
+      <para>
+       Repeat the steps from <xref linkend="st.swift.add-disk.shutdown"/> for
+       each of the Swift servers you are adding the disks to, one at a time.
+      </para>
+       <note>
+        <para>
+         If the additional disks can be added to the Swift servers online
+         (for example, via hotplugging) then there is no need to perform the
+         last two steps.
+         <!-- FIXME: Which steps are meant here? Previous steps or following
+         steps? - sknorr, 2018-05-08 -->
+        </para>
+       </note>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     On the &lcm;, update your cloud configuration with the details
+     of your additional disks.
+    </para>
+    <substeps>
+     <step>
+      <para>
+       Edit the disk configuration file that correlates to the type of server
+       you are adding your new disks to.
+      </para>
+      <para>
+       Path to the typical disk configuration files:
+      </para>
+<screen>~/openstack/my_cloud/definition/data/disks_swobj.yml
+~/openstack/my_cloud/definition/data/disks_swpac.yml
+~/openstack/my_cloud/definition/data/disks_controller_*.yml</screen>
+      <para>
+       Example showing the addition of a single new disk, indicated by the
+       <literal>/dev/sdd</literal>, in bold:
+      </para>
+<screen>device-groups:
+  - name: SwiftObject
+    devices:
+      - name: "/dev/sdb"
+      - name: "/dev/sdc"
+      <emphasis role="bold">- name: "/dev/sdd"</emphasis>
+    consumer:
+      name: swift
+      ...</screen>
+       <note>
+        <para>
+         For more details on how the disk model works, see
+         <xref linkend="configurationobjects"/>.
+        </para>
+       </note>
+     </step>
+     <step>
+      <para>
+       Configure the Swift weight-step value in the
+       <literal>~/openstack/my_cloud/definition/data/swift/rings.yml</literal>
+       file. See <xref linkend="swift_weight_att"/> for details on how to do
+       this.
+      </para>
+     </step>
+     <step>
+      <para>
+       Commit the changes to Git:
+      </para>
+<screen>cd ~/openstack
+git commit -a -m "adding additional Swift disks"</screen>
+     </step>
+     <step>
+      <para>
+       Run the configuration processor:
+      </para>
+<screen>cd ~/openstack/ardana/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</screen>
+     </step>
+     <step>
+      <para>
+       Update your deployment directory:
+      </para>
+<screen>cd ~/openstack/ardana/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     Run the <literal>osconfig-run.yml</literal> playbook against the Swift
+     nodes you have added disks to. Use the <literal>--limit</literal> switch
+     to target the specific nodes:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts osconfig-run.yml --limit &lt;hostnames&gt;</screen>
+    <para>
+     You can use a wildcard when specifying the hostnames with the
+     <literal>--limit</literal> switch. If you added disks to all of the Swift
+     servers in your environment and they all have the same prefix (for
+     example, <literal>ardana-cp1-swobj...</literal>) then you can use a
+     wildcard like <literal>ardana-cp1-swobj*</literal>. If you only added
+     disks to a set of nodes but not all of them, you can use a comma
+     deliminated list and enter the hostnames of each of the nodes you added
+     disks to.
+    </para>
+   </step>
+   <step>
+    <para>
+     Validate your Swift configuration with this playbook which will also
+     provide details of each drive being added:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts swift-compare-model-rings.yml --extra-vars "drive_detail=yes"</screen>
+   </step>
+   <step>
+    <para>
+     Verify that Swift services are running on all of your servers:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts swift-status.yml</screen>
+   </step>
+   <step>
+    <para>
+     If everything looks okay with the Swift status, then apply the changes to
+     your Swift rings with this playbook:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts swift-deploy.yml</screen>
+   </step>
+   <step>
+    <para>
+     At this point your Swift rings will begin rebalancing. You should wait
+     until replication has completed or min-part-hours has elapsed (whichever
+     is longer), as described in <xref linkend="topic_ohx_j1t_4t"/> and then
+     follow the "Weight Change Phase of Ring Rebalance" process as described in
+     <xref linkend="change_swift_rings"/>.
+    </para>
+   </step>
+  </procedure>
+ </section>
+</section>

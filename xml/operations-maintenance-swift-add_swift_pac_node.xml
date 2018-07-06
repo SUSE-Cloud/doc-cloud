@@ -1,0 +1,244 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="adding_proxy">
+ <title>Adding a Swift Proxy, Account, Container (PAC) Node</title>
+ <para>
+  Steps for adding additional PAC nodes to your Swift system.
+ </para>
+ <para>
+  This topic describes how to add additional Swift proxy, account, and
+  container (PAC) servers to an existing system.
+ </para>
+ <section>
+  <title>Adding a new node</title>
+  <para>
+   To add a new node to your cloud, you will need to add it to
+   <literal>servers.yml</literal>, and then run the scripts that update your
+   cloud configuration. To begin, access the <literal>servers.yml
+   file</literal> by checking out the Git branch where you are required to make
+   the changes:
+<!-- Commented in DITA original: -->
+<!-- You must add a new node details in the <codeph>server.yml</codeph> file.
+-->
+  </para>
+  <para>
+   Then, perform the following steps to add a new node:
+  </para>
+  <orderedlist>
+   <listitem>
+    <para>
+     Log in to the &lcm;.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Get the <literal>servers.yml</literal> file stored in Git:
+    </para>
+<screen>cd ~/openstack/my_cloud/definition/data
+git checkout site</screen>
+   </listitem>
+   <listitem>
+    <para>
+     If not already done, set the weight-step attribute. For instructions, see
+     <xref linkend="swift_weight_att"/>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Add details of new nodes to the <literal>servers.yml</literal> file:
+    </para>
+<screen>servers:
+...
+- id: swpac4
+  role: SWPAC-ROLE
+  server-group: &lt;server-group-name&gt;
+  mac-addr: &lt;mac-address&gt;
+  nic-mapping: &lt;nic-mapping-name&gt;
+  ip-addr: &lt;ip-address&gt;
+  ilo-ip: &lt;ilo-ip-address&gt;
+  ilo-user: &lt;ilo-username&gt;
+  ilo-password: &lt;ilo-password&gt;</screen>
+    <para>
+     In the above example, only one new server
+     <emphasis role="bold">swpac6</emphasis> is added. However, you can add
+     multiple servers by providing the server details in the
+     <literal>servers.yml</literal> file.
+    </para>
+    <para>
+     In the entry-scale configurations there is no dedicated Swift PAC cluster.
+     Instead, there is a cluster using servers that have a role of
+     <literal>CONTROLLER-ROLE</literal>. You cannot add
+     <literal>swpac4</literal> to this cluster because that would change the
+     <literal>member-count</literal>. If your system does not already have a
+     dedicated Swift PAC cluster you will need to add it to the configuration
+     files. For details on how to do this, see
+     <xref linkend="topic_rvj_21c_jt"/>.
+    </para>
+    <para>
+     If using a new PAC nodes you must add the PAC node's configuration details
+     in the following yaml files:
+    </para>
+<screen>control_plane.yml
+disks_pac.yml
+net_interfaces.yml
+servers.yml
+server_roles.yml</screen>
+    <para>
+     You can see a good example of this in the example configurations for the
+     mid-scale model in the <literal>~/openstack/tech-preview/mid-scale</literal>
+     directory.
+    </para>
+    <para>
+     The following steps assume that you have already created a dedicated Swift
+     PAC cluster and that it has two members
+     (<emphasis role="bold">swpac4</emphasis> and
+     <emphasis role="bold">swpac5</emphasis>).
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Increase the member count of the Swift PAC cluster, as appropriate. For
+     example, if you are adding <emphasis role="bold">swpac6</emphasis> and you
+     previously had two Swift PAC nodes, the increased member count should be 3
+     as shown in the following example:
+    </para>
+<screen>control-planes:
+    - name: control-plane-1
+      control-plane-prefix: cp1
+
+  . . .
+  clusters:
+  . . .
+     - name: ....
+       cluster-prefix: c2
+       server-role: SWPAC-ROLE
+       member-count: 3
+   . . .
+   <!-- Commented in DITA original: -->
+       <!--allocation-policy: strict
+       service-components:
+         - ntp-client
+         - swift-ring-builder
+         - swift-proxy
+         - swift-account
+         - swift-container
+         - swift-client--></screen>
+   </listitem>
+   <listitem>
+    <para>
+     Commit your changes:
+    </para>
+<screen>git add -A
+git commit -m "Add Node &lt;name&gt;"</screen>
+    <note>
+     <para>
+      Before you run any playbooks, remember that you need to export the
+      encryption key in the following environment variable:
+     </para>
+     <screen>export HOS_USER_PASSWORD_ENCRYPT_KEY=<replaceable>ENCRYPTION_KEY</replaceable></screen>
+     <para>
+      For instructions, see <xref linkend="install_swift"/>.
+     </para>
+    </note>
+   </listitem>
+   <listitem>
+    <para>
+     Run the configuration processor:
+    </para>
+<screen>cd ~/openstack/ardana/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Create a deployment directory:
+    </para>
+<screen>cd ~/openstack/ardana/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Configure Cobbler to include the new node and reimage the node (if you are
+     adding several nodes, use a comma-separated list for the
+     <literal>nodelist</literal> argument):
+    </para>
+<screen>ansible-playbook -i hosts/localhost cobbler-deploy.yml
+ansible-playbook -i hosts/localhost bm-reimage.yml -e nodelist=&lt;server-id&gt;</screen>
+    <para>
+     In the following example, the server id is
+     <emphasis role="bold">swpac6</emphasis> (mentioned in step 3):
+    </para>
+<screen>ansible-playbook -i hosts/localhost cobbler-deploy.yml
+ansible-playbook -i hosts/localhost bm-reimage.yml -e nodelist=swpac6</screen>
+    <note>
+     <para>
+      You must use the server id as it appears in the file
+      <filename>servers.yml</filename> in the field
+      <literal>server-id</literal>.
+     </para>
+    </note>
+   </listitem>
+   <listitem>
+    <para>
+     Review the <literal>cloudConfig.yml</literal> and
+     <literal>data/control_plane.yml</literal> files to get the host prefix
+     (for example, openstack) and the control plane name (for example, cp1). This
+     gives you the hostname of the node. Configure the operating system:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts osconfig-run.yml --limit &lt;hostname&gt;</screen>
+    <para>
+     For example, for <emphasis role="bold">swpac6</emphasis>, the hostname is
+     <emphasis role="bold">ardana-cp1-c2-m3-mgmt</emphasis>:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts osconfig-run.yml --limit ardana-cp1-c2-m3-mgmt</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Validate that the disk drives of the new node are compatible with the disk
+     model used by the node:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts swift-compare-model-rings.yml</screen>
+    <para>
+     If any errors occur, correct them. For instructions, see
+     <xref linkend="sec.input-swift.error"/>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Run the following playbook to ensure that all other server's host file are
+     updated with the new server:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts site.yml --tags "generate_hosts_file"</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Run the <literal>ardana-deploy.yml</literal> playbook to rebalance the rings
+     to include the node, deploy the rings, and configure the new node. Do not
+     limit this to just the node (<emphasis role="bold">swpac6</emphasis>) that
+     you are adding:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts ardana-deploy.yml </screen>
+   </listitem>
+   <listitem>
+    <para>
+     You may need to perform further rebalances of the rings. For instructions,
+     see the "Weight Change Phase of Ring Rebalance" and the "Final Rebalance
+     Phase" sections of <xref linkend="change_swift_rings"/>.
+    </para>
+<!-- Commented in DITA original: -->
+<!-- After you have added a new node/server to the system, you must enure
+that the Swift rings are updated with the new node/server(s) details and the
+rings are distributed to all Swift servers. -->
+   </listitem>
+  </orderedlist>
+ </section>
+</section>

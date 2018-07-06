@@ -1,0 +1,524 @@
+<?xml version="1.0"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<section xml:id="ironic_oneview_integration"
+ xmlns="http://docbook.org/ns/docbook" version="5.1"
+ xmlns:xi="http://www.w3.org/2001/XInclude"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+ <title>Ironic &oneview; Integration</title>
+ <para>
+  &kw-hos-phrase; supports integration of &o_iron; (Baremetal) service with
+  &oneview; using <emphasis>agent_pxe_oneview</emphasis> driver. Please refer to
+  <link xlink:href="https://docs.openstack.org/developer/ironic/drivers/oneview.html">OpenStack
+  Documentation</link> for more information.
+ </para>
+ <section>
+  <title>Prerequisites</title>
+  <orderedlist xml:id="prereq_list">
+   <listitem>
+    <para>
+     Installed &kw-hos-phrase; with entry-scale-ironic-flat-network or
+     entry-scale-ironic-multi-tenancy model.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     &oneview; 3.0 instance is running and connected to management network.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     &oneview; configuration is set into
+     <literal>definition/data/ironic/ironic_config.yml</literal> (and
+     <literal>ironic-reconfigure.yml</literal> playbook ran if needed). This
+     should enable <emphasis>agent_pxe_oneview</emphasis> driver in ironic
+     conductor.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Managed node(s) should support PXE booting in legacy BIOS mode.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Managed node(s) should have PXE boot NIC listed first. That is, embedded
+     1Gb NIC must be disabled (otherwise it always goes first).
+    </para>
+   </listitem>
+  </orderedlist>
+ </section>
+ <section>
+  <title>Integrating with &oneview;</title>
+  <procedure>
+   <step>
+    <para>
+     On the &lcm;, open the file
+     <literal>~/openstack/my_cloud/definition/data/ironic/ironic_config.yml</literal>
+    </para>
+<screen>~$ cd ~/openstack
+vi my_cloud/definition/data/ironic/ironic_config.yml</screen>
+   </step>
+   <step>
+    <para>
+     Modify the settings listed below:
+    </para>
+     <substeps>
+       <step>
+      <para>
+       <literal>enable_oneview</literal>: should be set to "true" for &oneview;
+       integration
+      </para>
+     </step>
+     <step>
+      <para>
+       <literal>oneview_manager_url</literal>: HTTPS endpoint of &oneview;
+       management interface, for example:
+       <emphasis role="bold">https://10.0.0.10/</emphasis>
+      </para>
+     </step>
+     <step>
+      <para>
+       <literal>oneview_username</literal>: &oneview; username, for example:
+       <emphasis role="bold">Administrator</emphasis>
+      </para>
+     </step>
+     <step>
+      <para>
+       <literal>oneview_encrypted_password</literal>: &oneview; password in
+       encrypted or clear text form. The encrypted form is distinguished by
+       presence of <literal>@ardana@</literal> at the beginning of the
+       string. The encrypted form can be created by running the
+       <command>ardanaencrypt.py</command>
+       program. This program is shipped as part of &kw-hos; and can be found in
+       <filename>~/openstack/ardana/ansible</filename> directory on &lcm;.
+      </para>
+     </step>
+     <step>
+      <para>
+       <literal>oneview_allow_insecure_connections</literal>: should be set to
+       "true" if &oneview; is using self-generated certificate.
+      </para>
+       </step>
+     </substeps>
+    </step>
+   <step>
+    <para>
+     Once you have saved your changes and exited the editor, add files, commit
+     changes to local git repository, and run
+     <literal>config-processor-run.yml</literal> and
+     <literal>ready-deployment.yml</literal> playbooks, as described in
+     <xref linkend="using_git"/>.
+    </para>
+<screen>
+~/openstack$ git add my_cloud/definition/data/ironic/ironic_config.yml
+~/openstack$ cd ardana/ansible
+~/openstack/ardana/ansible$ ansible-playbook -i hosts/localhost \
+  config-processor-run.yml
+...
+~/openstack/ardana/ansible$ ansible-playbook -i hosts/localhost \
+  ready-deployment.yml</screen>
+   </step>
+   <step>
+    <para>
+     Run ironic-reconfigure.yml playbook.
+    </para>
+<screen>
+<?dbsuse-fo font-size="0.70em"?>
+$ cd ~/scratch/ansible/next/ardana/ansible/
+
+# This is needed if password was encrypted in ironic_config.yml file
+~/scratch/ansible/next/ardana/ansible$ export ARDANA_USER_PASSWORD_ENCRYPT_KEY=your_password_encrypt_key
+~/scratch/ansible/next/ardana/ansible$ ansible-playbook -i hosts/verb_hosts ironic-reconfigure.yml
+...</screen>
+   </step>
+  </procedure>
+  </section>
+ <section>
+  <title>Registering Node in &oneview;</title>
+  <para>
+   In the &oneview; web interface:
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Navigate to
+     <menuchoice><guimenu>Menu</guimenu><guimenu>Server Hardware</guimenu></menuchoice>.
+     Add new <guimenu>Server Hardware</guimenu> item, using
+     managed node IPMI IP and credentials. If this is the first node of this
+     type being added, corresponding
+     <guimenu>Server Hardware Type</guimenu> will be created automatically.
+    </para>
+   </step>
+   <step>
+    <para>
+     Navigate to
+     <menuchoice><guimenu>Menu</guimenu><guimenu>Server Profile Template</guimenu></menuchoice>.
+     Add <guimenu>Server Profile Template</guimenu>. Use
+     <guimenu>Server Hardware Type</guimenu> corresponding to node being
+     registered. In <guimenu>BIOS Settings</guimenu> section, set
+     <guimenu>Manage Boot Mode</guimenu> and <guimenu>Manage Boot
+     Order</guimenu> options must be turned on:
+    </para>
+    <informalfigure>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="media-ironic-OneViewWebRegister.png" width="75%" format="PNG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="media-ironic-OneViewWebRegister.png"/>
+     </imageobject>
+    </mediaobject>
+    </informalfigure>
+   </step>
+   <step>
+    <para>
+     Verify that node is powered off. Power the node off if needed.
+    </para>
+    <warning vendor="hpe">
+     <para>
+      &oneview; does not support managing boot order for HPE DL servers in UEFI
+      mode. Therefore, HPE DL servers can be only managed in Legacy BIOS mode .
+     </para>
+ </warning>
+   </step>
+  </procedure>
+  </section>
+ <section>
+  <title>Provisioning &o_iron; Node</title>
+  <procedure>
+   <step>
+    <para>
+     Login to the &lcm; and source respective credentials file
+     (for example <filename>service.osrc</filename> for admin account).
+    </para>
+   </step>
+   <step>
+    <para>
+     Review glance images with <literal>glance image-list</literal>
+    </para>
+<screen>$ glance image-list
++--------------------------------------+--------------------------+
+| ID                                   | Name                     |
++--------------------------------------+--------------------------+
+| c61da588-622c-4285-878f-7b86d87772da | cirros-0.3.4-x86_64      |
++--------------------------------------+--------------------------+</screen>
+    <para>
+     &o_iron; deploy images (boot image,
+     <literal>ir-deploy-kernel</literal>, <literal>ir-deploy-ramdisk</literal>,
+     <literal>ir-deploy-iso</literal>) are created automatically. The
+     <systemitem>agent_pxe_oneview</systemitem> &o_iron; driver requires
+     <systemitem>ir-deploy-kernel</systemitem> and
+     <systemitem>ir-deploy-ramdisk</systemitem> images.
+    </para>
+   </step>
+   <step>
+    <para>
+     Create node using <literal>agent_pxe_oneview</literal> driver.
+    </para>
+<screen>
+<?dbsuse-fo font-size="0.65em"?>
+$ ironic --ironic-api-version 1.22 node-create -d agent_pxe_oneview --name test-node-1 \
+  --network-interface neutron -p memory_mb=131072 -p cpu_arch=x86_64 -p local_gb=80 -p cpus=2 \
+  -p 'capabilities=boot_mode:bios,boot_option:local,server_hardware_type_uri:\
+     /rest/server-hardware-types/E5366BF8-7CBF-48DF-A752-8670CF780BB2,server_profile_template_uri:\
+     /rest/server-profile-templates/00614918-77f8-4146-a8b8-9fc276cd6ab2' \
+  -i 'server_hardware_uri=/rest/server-hardware/32353537-3835-584D-5135-313930373046' \
+  -i dynamic_allocation=True \
+  -i deploy_kernel=633d379d-e076-47e6-b56d-582b5b977683 \
+  -i deploy_ramdisk=d5828785-edf2-49fa-8de2-3ddb7f3270d5
+
++-------------------+--------------------------------------------------------------------------+
+| Property          | Value                                                                    |
++-------------------+--------------------------------------------------------------------------+
+| chassis_uuid      |                                                                          |
+| driver            | agent_pxe_oneview                                                        |
+| driver_info       | {u'server_hardware_uri': u'/rest/server-                                 |
+|                   | hardware/32353537-3835-584D-5135-313930373046', u'dynamic_allocation':   |
+|                   | u'True', u'deploy_ramdisk': u'd5828785-edf2-49fa-8de2-3ddb7f3270d5',     |
+|                   | u'deploy_kernel': u'633d379d-e076-47e6-b56d-582b5b977683'}               |
+| extra             | {}                                                                       |
+| name              | test-node-1                                                              |
+| network_interface | neutron                                                                  |
+| properties        | {u'memory_mb': 131072, u'cpu_arch': u'x86_64', u'local_gb': 80, u'cpus': |
+|                   | 2, u'capabilities':                                                      |
+|                   | u'boot_mode:bios,boot_option:local,server_hardware_type_uri:/rest        |
+|                   | /server-hardware-types/E5366BF8-7CBF-                                    |
+|                   | 48DF-A752-8670CF780BB2,server_profile_template_uri:/rest/server-profile- |
+|                   | templates/00614918-77f8-4146-a8b8-9fc276cd6ab2'}                         |
+| resource_class    | None                                                                     |
+| uuid              | c202309c-97e2-4c90-8ae3-d4c95afdaf06                                     |
++-------------------+--------------------------------------------------------------------------+</screen>
+    <note>
+     <itemizedlist>
+      <listitem>
+       <para>
+        For deployments created via Ironic/&oneview; integration,
+        <literal>memory_mb</literal> property must reflect physical amount of
+        RAM installed in the managed node. That is, for a server with 128 Gb of RAM
+        it works out to 132*1024=13072.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Boot mode in capabilities property must reflect boot mode used by the
+        server, that is 'bios' for Legacy BIOS and 'uefi' for UEFI.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Values for <literal>server_hardware_type_uri</literal>,
+        <literal>server_profile_template_uri</literal> and
+        <literal>server_hardware_uri</literal> can be grabbed from browser URL
+        field while navigating to respective objects in &oneview; UI. URI
+        corresponds to the part of URL which starts form the token
+        <literal>/rest</literal>.
+        That is, the URL
+        <literal>https://oneview.mycorp.net/#/profile-templates/show/overview/r/rest/server-profile-templates/12345678-90ab-cdef-0123-012345678901</literal>
+        corresponds to the URI
+        <literal>/rest/server-profile-templates/12345678-90ab-cdef-0123-012345678901</literal>.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Grab IDs of <literal>deploy_kernel</literal> and
+        <literal>deploy_ramdisk</literal> from <emphasis role="bold">glance
+        image-list</emphasis> output above.
+       </para>
+      </listitem>
+     </itemizedlist>
+    </note>
+   </step>
+   <step>
+    <para>
+     Create port.
+    </para>
+<screen>
+<?dbsuse-fo font-size="0.65em"?>
+$ ironic --ironic-api-version 1.22 port-create \
+  --address aa:bb:cc:dd:ee:ff \
+  --node c202309c-97e2-4c90-8ae3-d4c95afdaf06 \
+  -l switch_id=ff:ee:dd:cc:bb:aa \
+  -l switch_info=MY_SWITCH \
+  -l port_id="Ten-GigabitEthernet 1/0/1" \
+  --pxe-enabled true
++-----------------------+----------------------------------------------------------------+
+| Property              | Value                                                          |
++-----------------------+----------------------------------------------------------------+
+| address               | 8c:dc:d4:b5:7d:1c                                              |
+| extra                 | {}                                                             |
+| local_link_connection | {u'switch_info': u'C20DATA', u'port_id': u'Ten-GigabitEthernet |
+|                       | 1/0/1',    u'switch_id': u'ff:ee:dd:cc:bb:aa'}                 |
+| node_uuid             | c202309c-97e2-4c90-8ae3-d4c95afdaf06                           |
+| pxe_enabled           | True                                                           |
+| uuid                  | 75b150ef-8220-4e97-ac62-d15548dc8ebe                           |
++-----------------------+----------------------------------------------------------------+</screen>
+    <warning>
+     <para>
+      &o_iron; Multi-Tenancy networking model is used in this example.
+      Therefore, ironic port-create command contains information about the
+      physical switch. &oneview; integration can also be performed using the
+      &o_iron; Flat Networking model. For more information, see
+      <xref linkend="ironic_examples"/>.
+     </para>
+    </warning>
+   </step>
+   <step>
+    <para>
+     Move node to manageable provisioning state. The connectivity between
+     &o_iron; and &oneview; will be verified, Server Hardware Template settings
+     validated, and Server Hardware power status retrieved from &oneview; and set
+     into the &o_iron; node.
+    </para>
+<screen>$ ironic node-set-provision-state test-node-1 manage</screen>
+   </step>
+   <step>
+    <para>
+     Verify that node power status is populated.
+    </para>
+<screen>
+<?dbsuse-fo font-size="0.65em"?>
+$ ironic node-show test-node-1
++-----------------------+-----------------------------------------------------------------------+
+| Property              | Value                                                                 |
++-----------------------+-----------------------------------------------------------------------+
+| chassis_uuid          |                                                                       |
+| clean_step            | {}                                                                    |
+| console_enabled       | False                                                                 |
+| created_at            | 2017-06-30T21:00:26+00:00                                             |
+| driver                | agent_pxe_oneview                                                     |
+| driver_info           | {u'server_hardware_uri': u'/rest/server-                              |
+|                       | hardware/32353537-3835-584D-5135-313930373046', u'dynamic_allocation':|
+|                       | u'True', u'deploy_ramdisk': u'd5828785-edf2-49fa-8de2-3ddb7f3270d5',  |
+|                       | u'deploy_kernel': u'633d379d-e076-47e6-b56d-582b5b977683'}            |
+| driver_internal_info  | {}                                                                    |
+| extra                 | {}                                                                    |
+| inspection_finished_at| None                                                                  |
+| inspection_started_at | None                                                                  |
+| instance_info         | {}                                                                    |
+| instance_uuid         | None                                                                  |
+| last_error            | None                                                                  |
+| maintenance           | False                                                                 |
+| maintenance_reason    | None                                                                  |
+| name                  | test-node-1                                                           |
+| network_interface     |                                                                       |
+| power_state           | power off                                                             |
+| properties            | {u'memory_mb': 131072, u'cpu_arch': u'x86_64', u'local_gb': 80,       |
+|                       | u'cpus': 2, u'capabilities':                                          |
+|                       | u'boot_mode:bios,boot_option:local,server_hardware_type_uri:/rest     |
+|                       | /server-hardware-types/E5366BF8-7CBF-                                 |
+|                       | 48DF-A752-86...BB2,server_profile_template_uri:/rest/server-profile-  |
+|                       | templates/00614918-77f8-4146-a8b8-9fc276cd6ab2'}                      |
+| provision_state       | manageable                                                            |
+| provision_updated_at  | 2017-06-30T21:04:43+00:00                                             |
+| raid_config           |                                                                       |
+| reservation           | None                                                                  |
+| resource_class        |                                                                       |
+| target_power_state    | None                                                                  |
+| target_provision_state| None                                                                  |
+| target_raid_config    |                                                                       |
+| updated_at            | 2017-06-30T21:04:43+00:00                                             |
+| uuid                  | c202309c-97e2-4c90-8ae3-d4c95afdaf06                                  |
++-----------------------+-----------------------------------------------------------------------+</screen>
+   </step>
+   <step>
+    <para>
+     Move node to available provisioning state. The &o_iron; node will be
+     reported to Nova as available.
+    </para>
+<screen>$ ironic node-set-provision-state test-node-1 provide</screen>
+   </step>
+   <step>
+    <para>
+     Verify that node resources were added to Nova hypervisor stats.
+    </para>
+<screen>$ nova hypervisor-stats
++----------------------+--------+
+| Property             | Value  |
++----------------------+--------+
+| count                | 1      |
+| current_workload     | 0      |
+| disk_available_least | 80     |
+| free_disk_gb         | 80     |
+| free_ram_mb          | 131072 |
+| local_gb             | 80     |
+| local_gb_used        | 0      |
+| memory_mb            | 131072 |
+| memory_mb_used       | 0      |
+| running_vms          | 0      |
+| vcpus                | 2      |
+| vcpus_used           | 0      |
++----------------------+--------+</screen>
+   </step>
+   <step>
+    <para>
+     Create Nova flavor.
+    </para>
+<screen>
+<?dbsuse-fo font-size="0.65em"?>
+$ nova flavor-create m1.ironic auto 131072 80 2
++-------------+-----------+--------+------+-----------+------+-------+-------------+-----------+
+| ID          | Name      | Mem_MB | Disk | Ephemeral | Swap | VCPUs | RXTX_Factor | Is_Public |
++-------------+-----------+--------+------+-----------+------+-------+-------------+-----------+
+| 33c8...f8d8 | m1.ironic | 131072 | 80   | 0         |      | 2     | 1.0         | True      |
++-------------+-----------+--------+------+-----------+------+-------+-------------+-----------+
+$ nova flavor-key m1.ironic set capabilities:boot_mode="bios"
+$ nova flavor-key m1.ironic set capabilities:boot_option="local"
+$ nova flavor-key m1.ironic set cpu_arch=x86_64</screen>
+    <note>
+     <para>
+      All parameters (specifically, amount of RAM and boot mode) must
+      correspond to ironic node parameters.
+     </para>
+    </note>
+   </step>
+   <step>
+    <para>
+     Create Nova keypair if needed.
+    </para>
+<screen>$ nova keypair-add ironic_kp --pub-key ~/.ssh/id_rsa.pub</screen>
+   </step>
+   <step>
+    <para>
+     Boot Nova instance.
+    </para>
+<screen>
+<?dbsuse-fo font-size="0.70em"?>
+$ nova boot --flavor m1.ironic --image d6b5...e942 --key-name ironic_kp \
+  --nic net-id=5f36...dcf3 test-node-1
++-------------------------------+-----------------------------------------------------+
+| Property                      | Value                                               |
++-------------------------------+-----------------------------------------------------+
+| OS-DCF:diskConfig             | MANUAL                                              |
+| OS-EXT-AZ:availability_zone   |                                                     |
+| OS-EXT-SRV-ATTR:host          | -                                                   |
+| OS-EXT-SRV-ATTR:              |                                                     |
+|       hypervisor_hostname     | -                                                   |
+| OS-EXT-SRV-ATTR:instance_name |                                                     |
+| OS-EXT-STS:power_state        | 0                                                   |
+| OS-EXT-STS:task_state         | scheduling                                          |
+| OS-EXT-STS:vm_state           | building                                            |
+| OS-SRV-USG:launched_at        | -                                                   |
+| OS-SRV-USG:terminated_at      | -                                                   |
+| accessIPv4                    |                                                     |
+| accessIPv6                    |                                                     |
+| adminPass                     | pE3m7wRACvYy                                        |
+| config_drive                  |                                                     |
+| created                       | 2017-06-30T21:08:42Z                                |
+| flavor                        | m1.ironic (33c81884-b8aa-46...3b72f8d8)             |
+| hostId                        |                                                     |
+| id                            | b47c9f2a-e88e-411a-abcd-6172aea45397                |
+| image                         | Ubuntu Trusty 14.04 BIOS (d6b5d971-42...5f2d88e942) |
+| key_name                      | ironic_kp                                           |
+| metadata                      | {}                                                  |
+| name                          | test-node-1                                         |
+| os-extended-volumes:          |                                                     |
+|       volumes_attached        | []                                                  |
+| progress                      | 0                                                   |
+| security_groups               | default                                             |
+| status                        | BUILD                                               |
+| tenant_id                     | c8573f7026d24093b40c769ca238fddc                    |
+| updated                       | 2017-06-30T21:08:42Z                                |
+| user_id                       | 2eae99221545466d8f175eeb566cc1b4                    |
++-------------------------------+-----------------------------------------------------+
+</screen>
+    <para>
+     During nova instance boot, the following operations will be performed by
+     &o_iron; via &oneview; REST API.
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       In &oneview;, new Server Profile is generated for specified Server
+       Hardware, using specified Server Profile Template. Boot order in Server
+       Profile is set to list PXE as the first boot source.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       The managed node is powered on and boots IPA image from PXE.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       IPA image writes user image onto disk and reports success back to
+       &o_iron;.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       &o_iron; modifies Server Profile in &oneview; to list 'Disk' as default boot
+       option.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       &o_iron; reboots the node (via &oneview; REST API call).
+      </para>
+     </listitem>
+    </itemizedlist>
+   </step>
+  </procedure>
+ </section>
+</section>

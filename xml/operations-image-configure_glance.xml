@@ -1,0 +1,222 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="configure_glance">
+ <title>Configuring the Image Service</title>
+ <para>
+  The image service, based on &ostack; &o_img;, works out of the box and does
+  not need any special configuration. However, we show you how to enable
+  &o_img; image caching as well as how to configure your environment to allow
+  the &o_img; copy-from feature if you choose to do so. A few features
+  detailed below will require some additional configuration if you choose to
+  use them.
+ </para>
+ <warning xml:id="image_warning">
+  <para>
+   &o_img; images are assigned IDs upon creation, either automatically or
+   specified by the user. The ID of an image should be unique, so if a user
+   assigns an ID which already exists, a conflict (409) will occur.
+  </para>
+  <para>
+   This only becomes a problem if users can publicize or share images with
+   others. If users can share images AND cannot publicize images then your
+   system is not vulnerable. If the system has also been purged (via
+   <literal>glance-manage db purge</literal>) then it is possible for deleted image IDs to be
+   reused.
+  </para>
+  <para>
+   If deleted image IDs can be reused then recycling of public and shared
+   images becomes a possibility. This means that a new (or modified) image can
+   replace an old image, which could be malicious.
+  </para>
+  <para>
+   If this is a problem for you, please contact &serviceteam;.
+  </para>
+ </warning>
+ <section xml:id="idg-all-operations-image-configure_glance-xml-6">
+  <title>How to enable &o_img; image caching</title>
+  <para>
+   In &kw-hos-phrase;, by default, the &o_img; image caching option is not
+   enabled. You have the option to have image caching enabled and these steps
+   will show you how to do that.
+  </para>
+  <para>
+   The main benefits to using image caching is that it will allow the &o_img;
+   service to return the images faster and it will cause less load on other
+   services to supply the image.
+  </para>
+  <para>
+   In order to use the image caching option you will need to supply a logical
+   volume for the service to use for the caching.
+  </para>
+  <para>
+   If you wish to use the &o_img; image caching option, you will see the
+   section below in your
+   <literal>~/openstack/my_cloud/definition/data/disks_controller.yml</literal>
+   file. You will specify the mount point for the logical volume you wish to
+   use for this.
+  </para>
+  <orderedlist>
+   <listitem>
+    <para>
+     Log in to the &lcm;.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Edit your
+     <literal>~/openstack/my_cloud/definition/data/disks_controller.yml</literal>
+     file and specify the volume and mount point for your <literal>glance-cache</literal>. Here is
+     an example:
+    </para>
+<screen># &o_img; cache: if a logical volume with consumer usage glance-cache
+# is defined &o_img; caching will be enabled. The logical volume can be
+# part of an existing volume group or a dedicated volume group.
+ - name: glance-vg
+   physical-volumes:
+     - /dev/sdx
+   logical-volumes:
+     - name: glance-cache
+       size: 95%
+       mount: /var/lib/glance/cache
+       fstype: ext4
+       mkfs-opts: -O large_file
+       consumer:
+         name: glance-api
+         usage: glance-cache</screen>
+    <para>
+     If you are enabling image caching during your initial installation, prior
+     to running <literal>site.yml</literal> the first time, then continue with
+     the installation steps. However, if you are making this change
+     post-installation then you will need to commit your changes with the steps
+     below.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Commit your configuration to the Git repository
+     (<xref linkend="using_git"/>), as follows:
+    </para>
+<screen>cd ~/openstack/ardana/ansible
+git add -A
+git commit -m "My config or other commit message"</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Run the configuration processor:
+    </para>
+<screen>cd ~/openstack/ardana/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Update your deployment directory:
+    </para>
+<screen>cd ~/openstack/ardana/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Run the &o_img; reconfigure playbook:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts glance-reconfigure.yml</screen>
+   </listitem>
+  </orderedlist>
+ </section>
+ <section xml:id="copyfrom">
+  <title>Allowing the &o_img; copy-from option in your environment</title>
+  <para>
+   When creating images, one of the options you have is to copy the image from
+   a remote location to your local &o_img; store. You do this by specifying the
+   <literal>--copy-from</literal> option when creating the image. To use this
+   feature though you need to ensure the following conditions are met:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     The server hosting the &o_img; service must have network access to the
+     remote location that is hosting the image.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     There cannot be a proxy between &o_img; and the remote location.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     The &o_img; v1 API must be enabled, as v2 does not currently support the
+     <literal>copy-from</literal> function.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     The http &o_img; store must be enabled in the environment, following the
+     steps below.
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   <emphasis role="bold">Enabling the HTTP &o_img; Store</emphasis>
+  </para>
+  <orderedlist>
+   <listitem>
+    <para>
+     Log in to the &lcm;.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Edit the
+     <literal>~/openstack/my_cloud/config/glance/glance-api.conf.j2</literal>
+     file and add <literal>http</literal> to the list of &o_img; stores in the
+     <literal>[glance_store]</literal> section as seen below in bold:
+    </para>
+<screen>[glance_store]
+stores = {{ glance_stores }}<emphasis role="bold">, http</emphasis></screen>
+   </listitem>
+   <listitem>
+    <para>
+     Commit your configuration to the Git repository
+     (<xref linkend="using_git"/>), as follows:
+    </para>
+<screen>cd ~/openstack/ardana/ansible
+git add -A
+git commit -m "My config or other commit message"</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Run the configuration processor:
+    </para>
+<screen>cd ~/openstack/ardana/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Update your deployment directory:
+    </para>
+<screen>cd ~/openstack/ardana/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Run the &o_img; reconfigure playbook:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts glance-reconfigure.yml</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Run the Horizon reconfigure playbook:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts horizon-reconfigure.yml</screen>
+   </listitem>
+  </orderedlist>
+ </section>
+</section>

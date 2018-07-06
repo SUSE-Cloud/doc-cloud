@@ -1,0 +1,184 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="add_storage_policy">
+ <title>Adding a New Swift Storage Policy</title>
+ <para>
+  This page describes how to add an additional storage policy to an existing
+  system. For an overview of storage policies, see
+  <xref linkend="swift_storage_policies"/>.
+ </para>
+ <para>
+  <emphasis role="bold">To Add a Storage Policy</emphasis>
+ </para>
+ <para>
+  Perform the following steps to add the storage policy to an existing system.
+ </para>
+ <orderedlist>
+  <listitem>
+   <para>
+    Log in to the &lcm;.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Select a storage policy index and ring name.
+   </para>
+   <para>
+    For example, if you already have object-0 and object-1 rings in your
+    ring-specifications (usually in the
+    <literal>~/openstack/my_cloud/definition/data/swift/rings.yml</literal> file),
+    the next index is 2 and the ring name is object-2.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Select a user-visible name so that you can see when you examine container
+    metadata or when you want to specify the storage policy used when you
+    create a container. The name should be a single word (hyphen and dashes are
+    allowed).
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Decide if this new policy will be the default for all new containers.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Decide on other attributes such as <literal>partition-power</literal> and
+    <literal>replica-count</literal> if you are using a standard replication
+    ring. However, if you are using an erasure coded ring, you also need to
+    decide on other attributes: <literal>ec-type</literal>,
+    <literal>ec-num-data-fragments</literal>,
+    <literal>ec-num-parity-fragments</literal>, and
+    <literal>ec-object-segment-size</literal>. For more details on the required
+    attributes, see <xref linkend="ring-specification"/>.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Edit the <literal>ring-specifications</literal> attribute (usually in the
+    <literal>~/openstack/my_cloud/definition/data/swift/rings.yml</literal> file)
+    and add the new ring specification. If this policy is to be the default
+    storage policy for new containers, set the <literal>default</literal>
+    attribute to <emphasis role="bold">yes</emphasis>.
+   </para>
+   <note>
+    <orderedlist>
+     <listitem>
+      <para>
+       Ensure that only one object ring has the
+       <literal>default</literal> attribute set to <literal>yes</literal>. If
+       you set two rings as default, Swift processes will not start.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Do not specify the <literal>weight-step</literal> attribute for the new
+       object ring. Since this is a new ring there is no need to gradually
+       increase device weights.
+      </para>
+     </listitem>
+    </orderedlist>
+   </note>
+  </listitem>
+  <listitem>
+   <para>
+    Update the appropriate disk model to use the new storage policy (for
+    example, the <literal>data/disks_swobj.yml</literal> file). The following
+    sample shows that the <emphasis role="bold">object-2</emphasis> has been
+    added to the list of existing rings that use the drives:
+   </para>
+<screen>disk-models:
+- name: SWOBJ-DISKS
+  ...
+  device-groups:
+  - name: swobj
+    devices:
+       ...
+    consumer:
+        name: swift
+        attrs:
+            rings:
+            - object-0
+            - object-1
+            - <emphasis role="bold">object-2</emphasis>
+  ...</screen>
+   <note>
+    <para>
+     You must use the new object ring on at least one node that runs the
+     <literal>swift-object</literal> service. If you skip this step and
+     continue to run the <literal>swift-compare-model-rings.yml</literal> or
+     <literal>swift-deploy.yml</literal> playbooks, they will fail with an
+     error <emphasis>There are no devices in this ring, or all devices have
+     been deleted</emphasis>, as shown below:
+    </para>
+<screen>TASK: [swiftlm-ring-supervisor | build-rings | Build ring (make-delta, rebalance)] ***
+failed: [padawan-ccp-c1-m1-mgmt] =&gt; {"changed": true, "cmd": ["swiftlm-ring-supervisor", "--make-delta", "--rebalance"], "delta": "0:00:03.511929", "end": "2015-10-07 14:02:03.610226", "rc": 2, "start": "2015-10-07 14:02:00.098297", "warnings": []}
+...
+Running: swift-ring-builder /etc/swiftlm/builder_dir/region-region1/object-2.builder rebalance 999
+ERROR: -------------------------------------------------------------------------------
+An error has occurred during ring validation. Common
+causes of failure are rings that are empty or do not
+have enough devices to accommodate the replica count.
+Original exception message:
+There are no devices in this ring, or all devices have been deleted
+-------------------------------------------------------------------------------</screen>
+ </note>
+  </listitem>
+  <listitem>
+   <para>
+    Commit your configuration:
+   </para>
+<screen>git add -A
+git commit -m "commit message"</screen>
+  </listitem>
+  <listitem>
+   <para>
+    Run the configuration processor:
+   </para>
+<screen>cd ~/openstack/ardana/ansible
+ansible-playbook -i hosts/localhost config-processor-run.yml</screen>
+  </listitem>
+  <listitem>
+   <para>
+    Create a deployment directory:
+   </para>
+<screen>cd ~/openstack/ardana/ansible
+ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+  </listitem>
+  <listitem>
+   <para>
+    Validate the changes by running the
+    <literal>swift-compare-model-rings.yml</literal> playbook:
+   </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts swift-compare-model-rings.yml</screen>
+   <para>
+    If any errors occur, correct them. For instructions, see
+    <xref linkend="sec.input-swift.error"/>. Then, re-run steps
+    <emphasis role="bold">5 - 10</emphasis>.
+    <!-- FIXME: <xref>: add reference to (correct) steps 5-10. - sknorr,
+    2018-03-27 -->
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Create the new ring (for example, object-2). Then verify the Swift service
+    status and reconfigure the Swift node to use a new storage policy, by
+    running these playbooks:
+   </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts swift-status.yml
+ansible-playbook -i hosts/verb_hosts swift-deploy.yml</screen>
+  </listitem>
+ </orderedlist>
+ <para>
+  After adding a storage policy, there is no need to rebalance the ring.
+ </para>
+</section>

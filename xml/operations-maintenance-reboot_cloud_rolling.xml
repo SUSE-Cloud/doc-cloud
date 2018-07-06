@@ -1,0 +1,655 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude"
+ xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="rebootNodes">
+ <title>Rolling Reboot of the Cloud</title>
+ <para>
+  If you have a planned maintenance and need to bring down your entire cloud
+  and restart services while minimizing downtime, follow the steps here to
+  safely restart your cloud.
+ </para>
+ <para>
+  If you have a planned maintenance and need to bring down your entire cloud
+  and restart services while minimizing downtime, follow the steps here to
+  safely restart your cloud. If you do not mind your services being down, then
+  another option for planned maintenance can be found at
+  <xref linkend="stop_restart"/>.
+ </para>
+ <section xml:id="idg-all-operations-maintenance-reboot_cloud_rolling-xml-5">
+  <title>Recommended node reboot order</title>
+  <para>
+   To ensure that rebooted nodes reintegrate into the cluster, the key is
+   having enough time between controller reboots.
+  </para>
+  <para>
+   The recommended way to achieve this is as follows:
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Reboot controller nodes one-by-one with a suitable interval in between. If
+     you alternate between controllers and compute nodes you will gain more
+     time between the controller reboots.
+    </para>
+   </step>
+   <step>
+    <para>
+     Reboot of compute nodes (if present in your cloud).
+    </para>
+   </step>
+   <step>
+    <para>
+     Reboot of &swift; nodes (if present in your cloud).
+    </para>
+   </step>
+   <step>
+    <para>
+     Reboot of ESX nodes (if present in your cloud).
+    </para>
+   </step>
+  </procedure>
+ </section>
+ <section xml:id="idg-all-operations-maintenance-reboot_cloud_rolling-xml-7">
+  <title>Rebooting controller nodes</title>
+  <para>
+   <emphasis role="bold">Turn off the Keystone Fernet Token-Signing Key
+   Rotation</emphasis>
+  </para>
+  <para>
+   Before rebooting any controller node, you need to ensure that the Keystone
+   Fernet token-signing key rotation is turned off. Run the following command:
+  </para>
+  <screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts keystone-stop-fernet-auto-rotation.yml</screen>
+
+  <para>
+   <emphasis role="bold">Migrate singleton services first</emphasis>
+  </para>
+  <note>
+   <para>
+    If you have previously rebooted your &lcm; for any reason, ensure that
+    the <systemitem>apache2</systemitem> service is running before
+    continuing. To start the <systemitem>apache2</systemitem> service, use
+    this command:
+   </para>
+   <screen>sudo systemctl start apache2</screen>
+  </note>
+  <para>
+   The first consideration before rebooting any controller nodes is that there
+   are a few services that run as singletons (non-HA), thus they will be
+   unavailable while the controller they run on is down. Typically this is a
+   very small window, but if you want to retain the service during the reboot
+   of that server you should take special action to maintain service, such as
+   migrating the service.
+  </para>
+  <para>
+   For these steps, if your singleton services are running on controller1 and
+   you move them to controller2, then ensure you move them back to controller1
+   before proceeding to reboot controller2.
+  </para>
+  <para>
+   <emphasis role="bold">For the <literal>cinder-volume</literal> singleton
+   service:</emphasis>
+  </para>
+  <para>
+   Execute the following command on each controller node to determine which
+   node is hosting the cinder-volume singleton. It should be running on only
+   one node:
+  </para>
+<screen>ps auxww | grep cinder-volume | grep -v grep</screen>
+  <para>
+   Run the <literal>cinder-migrate-volume.yml</literal> playbook - details
+   about the Cinder volume and backup migration instructions can be found in
+   <xref linkend="sec.operation.manage-block-storage"/>.
+  </para>
+  <para>
+   <emphasis role="bold">For the <literal>nova-consoleauth</literal> singleton
+   service:</emphasis>
+  </para>
+  <para>
+   The <literal>nova-consoleauth</literal> component runs by default on the
+   first controller node, that is, the host with
+   <literal>consoleauth_host_index=0</literal>. To move it to another
+   controller node before rebooting controller 0, run the ansible playbook
+   <literal>nova-start.yml</literal> and pass it the index of the next
+   controller node. For example, to move it to controller 2 (index of 1), run:
+  </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts nova-start.yml --extra-vars "consoleauth_host_index=1"</screen>
+  <para>
+   After you run this command you may now see two instances of the
+   <literal>nova-consoleauth</literal> service, which will show as being in
+   <literal>disabled</literal> state, when you run the <literal>nova
+   service-list</literal> command. You can then delete the service using these
+   steps.
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Obtain the service ID for the duplicated nova-consoleauth service:
+    </para>
+<screen>nova service-list</screen>
+    <para>
+     Example:
+    </para>
+<screen>$ nova service-list
++----+------------------+---------------------------+----------+----------+-------+----------------------------+-----------------+
+| Id | Binary           | Host                      | Zone     | Status   | State | Updated_at                 | Disabled Reason |
++----+------------------+---------------------------+----------+----------+-------+----------------------------+-----------------+
+| 1  | nova-conductor   | ...a-cp1-c1-m1-mgmt    | internal | enabled  | up    | 2016-08-25T12:11:48.000000 | -               |
+| 10 | nova-conductor   | ...a-cp1-c1-m3-mgmt    | internal | enabled  | up    | 2016-08-25T12:11:47.000000 | -               |
+| 13 | nova-conductor   | ...a-cp1-c1-m2-mgmt    | internal | enabled  | up    | 2016-08-25T12:11:48.000000 | -               |
+| 16 | nova-scheduler   | ...a-cp1-c1-m1-mgmt    | internal | enabled  | up    | 2016-08-25T12:11:39.000000 | -               |
+| 19 | nova-scheduler   | ...a-cp1-c1-m2-mgmt    | internal | enabled  | up    | 2016-08-25T12:11:41.000000 | -               |
+| 22 | nova-scheduler   | ...a-cp1-c1-m3-mgmt    | internal | enabled  | up    | 2016-08-25T12:11:44.000000 | -               |
+| 25 | nova-consoleauth | ...a-cp1-c1-m1-mgmt    | internal | enabled  | up    | 2016-08-25T12:11:45.000000 | -               |
+| 49 | nova-compute     | ...a-cp1-comp0001-mgmt | nova     | enabled  | up    | 2016-08-25T12:11:48.000000 | -               |
+| 52 | nova-compute     | ...a-cp1-comp0002-mgmt | nova     | enabled  | up    | 2016-08-25T12:11:41.000000 | -               |
+| 55 | nova-compute     | ...a-cp1-comp0003-mgmt | nova     | enabled  | up    | 2016-08-25T12:11:43.000000 | -               |
+<emphasis role="bold">| 70 | nova-consoleauth | ...a-cp1-c1-m3-mgmt    | internal | disabled | down  | 2016-08-25T12:10:40.000000 | -               |</emphasis>
++----+------------------+---------------------------+----------+----------+-------+----------------------------+-----------------+</screen>
+   </step>
+   <step>
+    <para>
+     Delete the disabled duplicate service with this command:
+    </para>
+<screen>nova service-delete &lt;service_ID&gt;</screen>
+    <para>
+     Given the example in the previous step, the command could be:
+    </para>
+<screen>nova service-delete 70</screen>
+   </step>
+  </procedure>
+  <para>
+   <emphasis role="bold">For the SNAT namespace singleton service:</emphasis>
+  </para>
+  <para>
+   If you reboot the controller node hosting the SNAT namespace service on it,
+   Compute instances without floating IPs will lose network connectivity when
+   that controller is rebooted. To prevent this from happening, you can use
+   these steps to determine which controller node is hosting the SNAT namespace
+   service and migrate it to one of the other controller nodes while that node
+   is rebooted.
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Locate the SNAT node where the router is providing the active
+     <literal>snat_service</literal>:
+    </para>
+    <substeps>
+     <step>
+      <para>
+       From the &lcm;, list out your ports to determine which port
+       is serving as the router gateway:
+      </para>
+<screen>source ~/service.osrc
+neutron port-list --device_owner network:router_gateway</screen>
+      <para>
+       Example:
+      </para>
+<screen>$ neutron port-list --device_owner network:router_gateway
++--------------------------------------+------+-------------------+-------------------------------------------------------------------------------------+
+| id                                   | name | mac_address       | fixed_ips                                                                           |
++--------------------------------------+------+-------------------+-------------------------------------------------------------------------------------+
+| 287746e6-7d82-4b2c-914c-191954eba342 |      | fa:16:3e:2e:26:ac | {"subnet_id": "f4152001-2500-4ebe-ba9d-a8d6149a50df", "ip_address": "10.247.96.29"} |
++--------------------------------------+------+-------------------+-------------------------------------------------------------------------------------+</screen>
+     </step>
+     <step>
+      <para>
+       Look at the details of this port to determine what the
+       <literal>binding:host_id</literal> value is, which will point to the
+       host in which the port is bound to:
+      </para>
+<screen>neutron port-show &lt;port_id&gt;</screen>
+      <para>
+       Example, with the value you need in bold:
+      </para>
+<screen>$ neutron port-show 287746e6-7d82-4b2c-914c-191954eba342
++-----------------------+--------------------------------------------------------------------------------------------------------------+
+| Field                 | Value                                                                                                        |
++-----------------------+--------------------------------------------------------------------------------------------------------------+
+| admin_state_up        | True                                                                                                         |
+| allowed_address_pairs |                                                                                                              |
+<emphasis role="bold">| binding:host_id       | ardana-cp1-c1-m2-mgmt</emphasis>                                                                                        |
+| binding:profile       | {}                                                                                                           |
+| binding:vif_details   | {"port_filter": true, "ovs_hybrid_plug": true}                                                               |
+| binding:vif_type      | ovs                                                                                                          |
+| binding:vnic_type     | normal                                                                                                       |
+| device_id             | e122ea3f-90c5-4662-bf4a-3889f677aacf                                                                         |
+| device_owner          | network:router_gateway                                                                                       |
+| dns_assignment        | {"hostname": "host-10-247-96-29", "ip_address": "10.247.96.29", "fqdn": "host-10-247-96-29.openstacklocal."} |
+| dns_name              |                                                                                                              |
+| extra_dhcp_opts       |                                                                                                              |
+| fixed_ips             | {"subnet_id": "f4152001-2500-4ebe-ba9d-a8d6149a50df", "ip_address": "10.247.96.29"}                          |
+| id                    | 287746e6-7d82-4b2c-914c-191954eba342                                                                         |
+| mac_address           | fa:16:3e:2e:26:ac                                                                                            |
+| name                  |                                                                                                              |
+| network_id            | d3cb12a6-a000-4e3e-82c4-ee04aa169291                                                                         |
+| security_groups       |                                                                                                              |
+| status                | DOWN                                                                                                         |
+| tenant_id             |                                                                                                              |
++-----------------------+--------------------------------------------------------------------------------------------------------------+</screen>
+      <para>
+       In this example, the <literal>ardana-cp1-c1-m2-mgmt</literal> is the
+       node hosting the SNAT namespace service.
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     SSH to the node hosting the SNAT namespace service and check the SNAT
+     namespace, specifying the router_id that has the interface with the subnet
+     that you are interested in:
+    </para>
+<screen>ssh &lt;IP_of_SNAT_namespace_host&gt;
+sudo ip netns exec snat-&lt;router_ID&gt; bash</screen>
+    <para>
+     Example:
+    </para>
+<screen>sudo ip netns exec snat-e122ea3f-90c5-4662-bf4a-3889f677aacf bash</screen>
+   </step>
+   <step>
+    <para>
+     Obtain the ID for the L3 Agent for the node hosting your SNAT namespace:
+    </para>
+<screen>source ~/service.osrc
+neutron agent-list</screen>
+    <para>
+     Example, with the entry you need given the examples above:
+    </para>
+<screen>$ neutron agent-list
++--------------------------------------+----------------------+--------------------------+-------+----------------+---------------------------+
+| id                                   | agent_type           | host                     | alive | admin_state_up | binary                    |
++--------------------------------------+----------------------+--------------------------+-------+----------------+---------------------------+
+| 0126bbbf-5758-4fd0-84a8-7af4d93614b8 | DHCP agent           | ardana-cp1-c1-m3-mgmt    | :-)   | True           | neutron-dhcp-agent        |
+| 33dec174-3602-41d5-b7f8-a25fd8ff6341 | Metadata agent       | ardana-cp1-c1-m2-mgmt    | :-)   | True           | neutron-metadata-agent    |
+| 3bc28451-c895-437b-999d-fdcff259b016 | L3 agent             | ardana-cp1-c1-m1-mgmt    | :-)   | True           | neutron-vpn-agent         |
+| 4af1a941-61c1-4e74-9ec1-961cebd6097b | L3 agent             | ardana-cp1-comp0001-mgmt | :-)   | True           | neutron-l3-agent          |
+| 58f01f34-b6ca-4186-ac38-b56ee376ffeb | Loadbalancerv2 agent | ardana-cp1-comp0001-mgmt | :-)   | True           | neutron-lbaasv2-agent     |
+| 65bcb3a0-4039-4d9d-911c-5bb790953297 | Open vSwitch agent   | ardana-cp1-c1-m1-mgmt    | :-)   | True           | neutron-openvswitch-agent |
+| 6981c0e5-5314-4ccd-bbad-98ace7db7784 | L3 agent             | ardana-cp1-c1-m3-mgmt    | :-)   | True           | neutron-vpn-agent         |
+| 7df9fa0b-5f41-411f-a532-591e6db04ff1 | Metadata agent       | ardana-cp1-comp0001-mgmt | :-)   | True           | neutron-metadata-agent    |
+| 92880ab4-b47c-436c-976a-a605daa8779a | Metadata agent       | ardana-cp1-c1-m1-mgmt    | :-)   | True           | neutron-metadata-agent    |
+<emphasis role="bold">| a209c67d-c00f-4a00-b31c-0db30e9ec661 | L3 agent             | ardana-cp1-c1-m2-mgmt</emphasis>    | :-)   | True           | neutron-vpn-agent         |
+| a9467f7e-ec62-4134-826f-366292c1f2d0 | DHCP agent           | ardana-cp1-c1-m1-mgmt    | :-)   | True           | neutron-dhcp-agent        |
+| b13350df-f61d-40ec-b0a3-c7c647e60f75 | Open vSwitch agent   | ardana-cp1-c1-m2-mgmt    | :-)   | True           | neutron-openvswitch-agent |
+| d4c07683-e8b0-4a2b-9d31-b5b0107b0b31 | Open vSwitch agent   | ardana-cp1-comp0001-mgmt | :-)   | True           | neutron-openvswitch-agent |
+| e91d7f3f-147f-4ad2-8751-837b936801e3 | Open vSwitch agent   | ardana-cp1-c1-m3-mgmt    | :-)   | True           | neutron-openvswitch-agent |
+| f33015c8-f4e4-4505-b19b-5a1915b6e22a | DHCP agent           | ardana-cp1-c1-m2-mgmt    | :-)   | True           | neutron-dhcp-agent        |
+| fe43c0e9-f1db-4b67-a474-77936f7acebf | Metadata agent       | ardana-cp1-c1-m3-mgmt    | :-)   | True           | neutron-metadata-agent    |
++--------------------------------------+----------------------+--------------------------+-------+----------------+---------------------------+</screen>
+   </step>
+   <step>
+    <para>
+     Also obtain the ID for the L3 Agent of the node you are going to move the
+     SNAT namespace service to using the same commands as the previous step.
+    </para>
+   </step>
+   <step>
+    <para>
+     Use these commands to move the SNAT namespace service, with the
+     <literal>qrouter_id</literal> being the same value as the ID for router:
+    </para>
+    <substeps>
+     <step>
+      <para>
+       Remove the L3 Agent for the old host:
+      </para>
+<screen>neutron l3-agent-router-remove &lt;agent_id_of_snat_namespace_host&gt; &lt;qrouter_uuid&gt;</screen>
+      <para>
+       Example:
+      </para>
+<screen>$ neutron l3-agent-router-remove a209c67d-c00f-4a00-b31c-0db30e9ec661 e122ea3f-90c5-4662-bf4a-3889f677aacf
+Removed router e122ea3f-90c5-4662-bf4a-3889f677aacf from L3 agent</screen>
+     </step>
+     <step>
+      <para>
+       Remove the SNAT namespace:
+      </para>
+<screen>sudo ip netns delete snat-&lt;router_id&gt;</screen>
+      <para>
+       Example:
+      </para>
+<screen>$ sudo ip netns delete snat-e122ea3f-90c5-4662-bf4a-3889f677aacf</screen>
+     </step>
+     <step>
+      <para>
+       Create a new L3 Agent for the new host:
+      </para>
+<screen>neutron l3-agent-router-add &lt;agent_id_of_new_snat_namespace_host&gt; &lt;qrouter_uuid&gt;</screen>
+      <para>
+       Example:
+      </para>
+<screen>$ neutron l3-agent-router-add 3bc28451-c895-437b-999d-fdcff259b016 e122ea3f-90c5-4662-bf4a-3889f677aacf
+Added router e122ea3f-90c5-4662-bf4a-3889f677aacf to L3 agent</screen>
+     </step>
+    </substeps>
+    <para>
+     Confirm that it has been moved by listing the details of your port from step
+     1b above, noting the value of <literal>binding:host_id</literal> which
+     should be updated to the host you moved your SNAT namespace to:
+    </para>
+<screen>neutron port-show &lt;port_ID&gt;</screen>
+    <para>
+     Example:
+    </para>
+<screen>$ neutron port-show 287746e6-7d82-4b2c-914c-191954eba342
++-----------------------+--------------------------------------------------------------------------------------------------------------+
+| Field                 | Value                                                                                                        |
++-----------------------+--------------------------------------------------------------------------------------------------------------+
+| admin_state_up        | True                                                                                                         |
+| allowed_address_pairs |                                                                                                              |
+<emphasis role="bold">| binding:host_id       | ardana-cp1-c1-m1-mgmt</emphasis>                                                                                        |
+| binding:profile       | {}                                                                                                           |
+| binding:vif_details   | {"port_filter": true, "ovs_hybrid_plug": true}                                                               |
+| binding:vif_type      | ovs                                                                                                          |
+| binding:vnic_type     | normal                                                                                                       |
+| device_id             | e122ea3f-90c5-4662-bf4a-3889f677aacf                                                                         |
+| device_owner          | network:router_gateway                                                                                       |
+| dns_assignment        | {"hostname": "host-10-247-96-29", "ip_address": "10.247.96.29", "fqdn": "host-10-247-96-29.openstacklocal."} |
+| dns_name              |                                                                                                              |
+| extra_dhcp_opts       |                                                                                                              |
+| fixed_ips             | {"subnet_id": "f4152001-2500-4ebe-ba9d-a8d6149a50df", "ip_address": "10.247.96.29"}                          |
+| id                    | 287746e6-7d82-4b2c-914c-191954eba342                                                                         |
+| mac_address           | fa:16:3e:2e:26:ac                                                                                            |
+| name                  |                                                                                                              |
+| network_id            | d3cb12a6-a000-4e3e-82c4-ee04aa169291                                                                         |
+| security_groups       |                                                                                                              |
+| status                | DOWN                                                                                                         |
+| tenant_id             |                                                                                                              |
++-----------------------+--------------------------------------------------------------------------------------------------------------+</screen>
+   </step>
+  </procedure>
+  <para>
+   <emphasis role="bold">Reboot the controllers</emphasis>
+  </para>
+  <para>
+   In order to reboot the controller nodes, you must first retrieve a list of
+   nodes in your cloud running control plane services.
+  </para>
+<screen>for i in $(grep -w cluster-prefix ~/openstack/my_cloud/definition/data/control_plane.yml | awk '{print $2}'); do grep $i ~/scratch/ansible/next/ardana/ansible/hosts/verb_hosts | grep ansible_ssh_host | awk '{print $1}'; done</screen>
+  <para>
+   Then perform the following steps from your &lcm; for each of
+   your controller nodes:
+  </para>
+  <procedure>
+   <step>
+    <para>
+     If any singleton services are active on this node, they will be
+     unavailable while the node is down. If you want to retain the service
+     during the reboot, you should take special action to maintain the service,
+     such as migrating the service as appropriate as noted above.
+    </para>
+   </step>
+   <step>
+    <para>
+     Stop all services on the controller node that you are rebooting first:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts ardana-stop.yml --limit &lt;controller node&gt;</screen>
+   </step>
+   <step>
+    <para>
+     Reboot the controller node, e.g. run the following command on the
+     controller itself:
+    </para>
+<screen>sudo reboot</screen>
+    <para>
+     Note that the current node being rebooted could be hosting the lifecycle
+     manager.
+    </para>
+   </step>
+   <step>
+    <para>
+     Wait for the controller node to become ssh-able and allow an additional
+     minimum of five minutes for the controller node to settle. Start all
+     services on the controller node:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts ardana-start.yml --limit &lt;controller node&gt;</screen>
+   </step>
+   <step>
+    <para>
+     Verify that the status of all services on that is OK on the controller
+     node:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts ardana-status.yml --limit &lt;controller node&gt;</screen>
+   </step>
+   <step>
+    <para>
+     When above start operation has completed successfully, you may proceed to
+     the next controller node. Ensure that you migrate your singleton services
+     off the node first.
+    </para>
+   </step>
+  </procedure>
+  <note>
+   <para>
+    It is important that you not begin the reboot procedure for a new
+    controller node until the reboot of the previous controller node has been
+    completed successfully (that is, the ardana-status playbook has completed
+    without error).
+   </para>
+  </note>
+  <para>
+   <emphasis role="bold">
+    Reenable the Keystone Fernet Token-Signing Key Rotation
+   </emphasis>
+  </para>
+  <para>
+   After all the controller nodes are successfully updated and back online, you
+   need to re-enable the Keystone Fernet token-signing key rotation job by
+   running the <filename>keystone-reconfigure.yml</filename> playbook. On the
+   deployer, run:
+  </para>
+  <screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts keystone-reconfigure.yml</screen>
+ </section>
+ <section xml:id="idg-all-operations-maintenance-reboot_cloud_rolling-xml-9">
+  <title>Rebooting compute nodes</title>
+  <para>
+   To reboot a compute node the following operations will need to be performed:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     Disable provisioning of the node to take the node offline to prevent
+     further instances being scheduled to the node during the reboot.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Identify instances that exist on the compute node, and then either:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       Live migrate the instances off the node before actioning the reboot. OR
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Stop the instances
+      </para>
+     </listitem>
+    </itemizedlist>
+   </listitem>
+   <listitem>
+    <para>
+     Reboot the node
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Restart the Nova services
+    </para>
+   </listitem>
+  </itemizedlist>
+  <procedure>
+   <step>
+    <para>
+     Disable provisioning:
+    </para>
+<screen>nova service-disable --reason "&lt;describe reason&gt;" &lt;node name&gt; nova-compute</screen>
+    <para>
+     If the node has existing instances running on it these instances will need
+     to be migrated or stopped prior to re-booting the node.
+    </para>
+   </step>
+   <step>
+    <para>
+     Live migrate existing instances. Identify the instances on the compute
+     node. Note: The following command must be run with nova admin credentials.
+    </para>
+<screen>nova list --host &lt;hostname&gt; --all-tenants</screen>
+   </step>
+   <step>
+    <para>
+     Migrate or Stop the instances on the compute node.
+    </para>
+    <para>
+     Migrate the instances off the node by running one of the following
+     commands for each of the instances:
+    </para>
+    <para>
+     If your instance is booted from a volume and has any number of Cinder
+     volume attached, use the nova live-migration command:
+    </para>
+<screen>nova live-migration &lt;instance uuid&gt; [&lt;target compute host&gt;]</screen>
+    <para>
+     If your instance has local (ephemeral) disk(s) only, you can use the
+     --block-migrate option:
+    </para>
+<screen>nova live-migration --block-migrate &lt;instance uuid&gt; [&lt;target compute host&gt;]</screen>
+    <para>
+     Note: The [&lt;target compute host&gt;] option is optional. If you do not
+     specify a target host then the nova scheduler will choose a node for you.
+    </para>
+    <para>
+     OR
+    </para>
+    <para>
+     Stop the instances on the node by running the following command for each
+     of the instances:
+    </para>
+<screen>nova stop &lt;instance-uuid&gt;</screen>
+   </step>
+   <step>
+    <para>
+     Stop all services on the Compute node:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts ardana-stop.yml --limit &lt;compute node&gt;</screen>
+   </step>
+   <step>
+    <para>
+     SSH to your Compute nodes and reboot them:
+    </para>
+<screen>sudo reboot</screen>
+    <para>
+     The operating system cleanly shuts down services and then automatically
+     reboots. If you want to be very thorough, run your backup jobs just before
+     you reboot.
+    </para>
+   </step>
+   <step>
+    <para>
+     Run the ardana-start.yml playbook from the &lcm;. If needed, use
+     the bm-power-up.yml playbook to restart the node. Specify just the node(s)
+     you want to start in the 'nodelist' parameter arguments, that is,
+     nodelist=&lt;node1&gt;[,&lt;node2&gt;][,&lt;node3&gt;].
+    </para>
+<screen>cd ~/openstack/ardana/ansible
+ansible-playbook -i hosts/localhost bm-power-up.yml -e nodelist=&lt;compute node&gt;</screen>
+   </step>
+   <step>
+    <para>
+     Execute the <emphasis role="bold">ardana-start.yml </emphasis>playbook.
+     Specifying the node(s) you want to start in the 'limit' parameter
+     arguments. This parameter accepts wildcard arguments and also
+     '@&lt;filename&gt;' to process all hosts listed in the file.
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts ardana-start.yml --limit &lt;compute node&gt;</screen>
+   </step>
+   <step>
+    <para>
+     Re-enable provisioning on the node:
+    </para>
+<screen>nova service-enable &lt;node-name&gt; nova-compute</screen>
+   </step>
+   <step>
+    <para>
+     Restart any instances you stopped.
+    </para>
+<screen>nova start &lt;instance-uuid&gt;</screen>
+   </step>
+  </procedure>
+ </section>
+ <section xml:id="idg-all-operations-maintenance-reboot_cloud_rolling-xml-10">
+  <title>Rebooting &swift; nodes</title>
+  <para>
+   If your &swift; services are on controller node, please follow the controller
+   node reboot instructions above.
+  </para>
+  <para>
+   For a dedicated &swift; PAC cluster or &swift; Object resource node:
+  </para>
+  <para>
+   For each &swift; host
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Stop all services on the &swift; node:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts ardana-stop.yml --limit &lt;&swift; node&gt;</screen>
+   </step>
+   <step>
+    <para>
+     Reboot the &swift; node by running the following command on the &swift; node
+     itself:
+    </para>
+<screen>sudo reboot</screen>
+   </step>
+   <step>
+    <para>
+     Wait for the node to become ssh-able and then start all services on the
+     &swift; node:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts ardana-start.yml --limit &lt;swift node&gt; </screen>
+   </step>
+  </procedure>
+ </section>
+ <section xml:id="idg-all-operations-maintenance-reboot_cloud_rolling-xml-14">
+  <title>Get list of status playbooks</title>
+  <para>
+   Running the following command will yield a list of status playbooks:
+  </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ls *status*</screen>
+  <para>
+   Here is the list:
+  </para>
+<screen>ls *status*
+bm-power-status.yml          heat-status.yml      logging-producer-status.yml
+ceilometer-status.yml        FND-AP2-status.yml   ardana-status.yml
+FND-CLU-status.yml           horizon-status.yml   logging-status.yml
+cinder-status.yml            freezer-status.yml   ironic-status.yml
+cmc-status.yml               glance-status.yml    keystone-status.yml
+galera-status.yml            memcached-status.yml nova-status.yml
+logging-server-status.yml    monasca-status.yml   ops-console-status.yml
+monasca-agent-status.yml     neutron-status.yml   rabbitmq-status.yml
+swift-status.yml             zookeeper-status.yml</screen>
+ </section>
+</section>
