@@ -1,0 +1,944 @@
+<?xml version="1.0"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude"
+        xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="troubleshooting_blockstorage">
+ <title>Block Storage Troubleshooting</title>
+ <para>
+  The block storage service utilizes OpenStack Cinder and can integrate with
+  multiple backends including VSA, or 3Par. Failures may exist at the Cinder
+  API level, an operation may fail, or you may see an alarm trigger in the
+  monitoring service. These may be caused by configuration problems, network
+  issues, or issues with your servers or storage backends. The purpose of this
+  page and section is to describe how the service works, where to find
+  additional information, some of the common problems that come up, and how to
+  address them.
+ </para>
+ <section xml:id="logs">
+  <title>Where to find information</title>
+  <para>
+   When debugging block storage issues it is helpful to understand the
+   deployment topology and know where to locate the logs with additional
+   information.
+  </para>
+  <para>
+   The Cinder service consists of:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     An API service, typically deployed and active on the controller nodes.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     A scheduler service, also typically deployed and active on the controller
+     nodes.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     A volume service, which is deployed on all of the controller nodes but
+     only active on one of them.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     A backup service, which is deployed on the same controller node as the
+     volume service.
+    </para>
+   </listitem>
+  </itemizedlist>
+  <informalfigure>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="media-hos.docs-troubleshooting-cinder_topology.png" width="75%"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="media-hos.docs-troubleshooting-cinder_topology.png"/>
+    </imageobject>
+   </mediaobject>
+  </informalfigure>
+  <para>
+   You can refer to your configuration files (usually located in
+   <literal>~/openstack/my_cloud/definition/</literal> on the &lcm;)
+   for specifics about where your services are located. They will usually be
+   located on the controller nodes.
+  </para>
+  <para>
+   Cinder uses a MySQL database and communicates between components by
+   consuming messages from a RabbitMQ message service.
+  </para>
+  <para>
+   The Cinder API service is layered underneath a HAProxy service and accessed
+   using a virtual IP address maintained using keepalived.
+  </para>
+  <para>
+   If any of the Cinder components is not running on its intended host then an
+   alarm will be raised. Details on how to resolve these alarms can be found on
+   our <xref linkend="alarmdefinitions"/> page. You should check the logs for
+   the service on the appropriate nodes. All Cinder logs are stored in
+   <literal>/var/log/cinder/</literal> and all log entries above
+   <literal>INFO</literal> level are also sent to the centralized logging
+   service. For details on how to change the logging level of the Cinder
+   service, see <xref linkend="central_log_configure_services"/>.
+  </para>
+  <para>
+   In order to get the full context of an error you may need to examine the
+   full log files on individual nodes. Note that if a component runs on more
+   than one node you will need to review the logs on each of the nodes that
+   component runs on. Also remember that as logs rotate that the time interval
+   you are interested in may be in an older log file.
+  </para>
+  <para>
+   <emphasis role="bold">Log locations:</emphasis>
+  </para>
+  <para>
+   <literal>/var/log/cinder/cinder-api.log</literal> - Check this log if you
+   have endpoint or connectivity issues
+  </para>
+  <para>
+   <literal>/var/log/cinder/cinder-scheduler.log</literal> - Check this log if
+   the system cannot assign your volume to a backend
+  </para>
+  <para>
+   <literal>/var/log/cinder/cinder-backup.log</literal> - Check this log if you
+   have backup or restore issues
+  </para>
+  <para>
+   <literal>/var/log/cinder-cinder-volume.log</literal> - Check here for
+   failures during volume creation
+  </para>
+  <para>
+   <literal>/var/log/nova/nova-compute.log</literal> - Check here for failures
+   with attaching volumes to compute instances
+  </para>
+  <para>
+   You can also check the logs for the database and/or the RabbitMQ service if
+   your cloud exhibits database or messaging errors.
+  </para>
+  <para>
+   If the API servers are up and running but the API is not reachable then
+   checking the HAProxy logs on the active keepalived node would be the place
+   to look.
+  </para>
+  <para>
+   If you have errors attaching volumes to compute instances using the Nova API
+   then the logs would be on the compute node associated with the instance. You
+   can use the following command to determine which node is hosting the
+   instance:
+  </para>
+<screen>nova show &lt;instance_uuid&gt;</screen>
+  <para>
+   Then you can check the logs located at
+   <literal>/var/log/nova/nova-compute.log</literal> on that compute node.
+  </para>
+ </section>
+ <section xml:id="volume_states">
+  <title>Understanding the Cinder volume states</title>
+  <para>
+   Once the topology is understood, if the issue with the Cinder service
+   relates to a specific volume then you should have a good understanding of
+   what the various states a volume can be in are. The states are:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     attaching
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     available
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     backing-up
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     creating
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     deleting
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     downloading
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     error
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     error attaching
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     error deleting
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     error detaching
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     error extending
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     error restoring
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     in-use
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     extending
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     restoring
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     restoring backup
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     retyping
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     uploading
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   The common states are <literal>in-use</literal> which indicates a volume is
+   currently attached to a compute instance and <literal>available</literal>
+   means the volume is created on a backend and is free to be attached to an
+   instance. All <literal>-ing</literal> states are transient and represent a
+   transition. If a volume stays in one of those states for too long indicating
+   it is stuck, or if it fails and goes into an error state, you should check
+   for failures in the logs.
+  </para>
+ </section>
+ <section xml:id="idg-all-operations-troubleshooting-ts_blockstorage-xml-7">
+  <title>Initial troubleshooting steps</title>
+  <para>
+   These should be the initial troubleshooting steps you go through.
+  </para>
+  <procedure>
+   <step>
+    <para>
+     If you've noticed an issue with the service, you should check your
+     monitoring system for any alarms that may have triggered. See
+     <xref linkend="alarmdefinitions"/> for resolution steps for those alarms.
+    </para>
+   </step>
+   <step>
+    <para>
+     Check if the Cinder API service is active by listing the available volumes
+     from the &lcm;:
+    </para>
+<screen>source ~/service.osrc
+openstack volume list</screen>
+   </step>
+   <step>
+    <para>
+     Run a basic diagnostic from the &lcm;:
+    </para>
+<screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts _cinder_post_check.yml</screen>
+    <para>
+     This ansible playbook will list all volumes, create a 1 GB volume and then
+     delete it using the v1 and v2 APIs, which will exercise basic Cinder
+     capability.
+    </para>
+   </step>
+  </procedure>
+ </section>
+ <section xml:id="common_issues">
+  <title>Common failures</title>
+  <para>
+   <emphasis role="bold">Alerts from the Cinder service</emphasis>
+  </para>
+  <para>
+   Check for alerts associated with the block storage service, noting that
+   these could include alerts related to the server nodes being down, alerts
+   related to the messaging and database services, or the HAProxy and
+   keepalived services, as well as alerts directly attributed to the block
+   storage service.
+  </para>
+  <para>
+   The Operations Console (Ops Console) provides a web UI method for checking
+   alarms. See <xref linkend="opsconsole"/> for details on how to connect to
+   the Ops Console.
+  </para>
+  <para>
+   <emphasis role="bold">Cinder volume service is down</emphasis>
+  </para>
+  <para>
+   The Cinder volume service could be down if the server hosting the volume
+   service fails. In this case you should follow the documented procedure
+   linked below to start the volume service on another controller node. See
+   <xref linkend="sec.operation.manage-block-storage"/> for details.
+  </para>
+  <para>
+   <emphasis role="bold">Creating a Cinder bootable volume fails</emphasis>
+  </para>
+  <para>
+   When creating a bootable volume from an image, your Cinder volume must be
+   larger than the Virtual Size (raw size) of your image or creation will fail
+   with an error.
+  </para>
+  <para>
+   An error like this error would appear in
+   <literal>cinder-volume.log</literal> file:
+  </para>
+<screen>'2016-06-14 07:44:00.954 25834 ERROR oslo_messaging.rpc.dispatcher ImageCopyFailure: Failed to copy image to volume: qemu-img: /dev/disk/by-path/ip-192.168.92.5:3260-iscsi-iqn.2003-10.com.lefthandnetworks:mg-vsa:146:volume-c0e75c66-a20a-4368-b797-d70afedb45cc-lun-0: error while converting raw: Device is too small
+2016-06-14 07:44:00.954 25834 ERROR oslo_messaging.rpc.dispatcher'</screen>
+  <para>
+   In an example where creating a 1GB bootable volume fails, your image may
+   look like this:
+  </para>
+<screen>$ qemu-img info /tmp/image.qcow2
+image: /tmp/image.qcow2
+file format: qcow2
+virtual size: 1.5G (1563295744 bytes)
+disk size: 354M
+cluster_size: 65536
+...</screen>
+  <para>
+   In this case, note that the image format is qcow2 and hte virtual size is
+   1.5GB, which is greater than the size of the bootable volume. Even though
+   the compressed image size is less than 1GB, this bootable volume creation
+   will fail.
+  </para>
+  <para>
+   When creating your disk model for nodes that will have the cinder volume
+   role make sure that there is sufficient disk space allocated for a temporary
+   space for image conversion if you will be creating bootable volumes. You
+   should allocate enough space to the filesystem as would be needed to cater
+   for the raw size of images to be used for bootable volumes - for example
+   Windows images can be quite large in raw format.
+  </para>
+  <para>
+   By default, Cinder uses <literal>/var/lib/cinder</literal> for image
+   conversion and this will be on the root filesystem unless it is explicitly
+   separated. You can ensure there is enough space by ensuring that the root
+   file system is sufficiently large, or by creating a logical volume mounted
+   at <literal>/var/lib/cinder</literal> in the disk model when installing the
+   system.
+  </para>
+  <para>
+   If your system is already installed, use these steps to update this:
+  </para>
+  <orderedlist>
+   <listitem>
+    <para>
+     Edit the configuration item <literal>image_conversion_dir</literal> in
+     <literal>cinder.conf.j2</literal> to point to another location with more
+     disk space. Make sure that the new directory location has the same
+     ownership and permissions as <literal>/var/lib/cinder</literal>
+     (owner:cinder group:cinder. mode 0750).
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Then run this playbook:
+    </para>
+<screen>cd ~/scratch/ansible/next/hos/ansible
+ansible-playbook -i hosts/verb_hosts cinder-reconfigure.yml</screen>
+   </listitem>
+  </orderedlist>
+  <para>
+   <emphasis role="bold">API-level failures</emphasis>
+  </para>
+  <para>
+   If the API is inaccessible, determine if the API service is running on the
+   target node. If it isn't, check to see why the API service isn't running in
+   the log files. If it is running okay, check if the HAProxy service is
+   functioning properly.
+  </para>
+  <note>
+   <para>
+    After a controller node is rebooted, you must make sure to run the
+    <literal>hlm-start.yml</literal> playbook to ensure all the services are up
+    and running. For more information, see
+    <xref linkend="recover_downed_cluster"/>.
+   </para>
+  </note>
+  <para>
+   If the API service is returning an error code, look for the error message in
+   the API logs on all API nodes. Successful completions would be logged like
+   this:
+  </para>
+<screen>2016-04-25 10:09:51.107 30743 INFO eventlet.wsgi.server [<emphasis role="bold">req-a14cd6f3-6c7c-4076-adc3-48f8c91448f6</emphasis>
+dfb484eb00f94fb39b5d8f5a894cd163 7b61149483ba4eeb8a05efa92ef5b197 - - -] 192.168.186.105 - - [25/Apr/2016
+10:09:51] "GET /v2/7b61149483ba4eeb8a05efa92ef5b197/volumes/detail HTTP/1.1" <emphasis role="bold">200</emphasis> 13915 0.235921</screen>
+  <para>
+   where <literal>200</literal> represents HTTP status 200 for a successful
+   completion. Look for a line with your status code and then examine all
+   entries associated with the request id. The request ID in the successful
+   completion is highlighted in bold above.
+  </para>
+  <para>
+   The request may have failed at the scheduler or at the volume or backup
+   service and you should also check those logs at the time interval of
+   interest, noting that the log file of interest may be on a different node.
+  </para>
+  <para>
+   <emphasis role="bold">Operations that do not complete</emphasis>
+  </para>
+  <para>
+   If you have started an operation, such as creating or deleting a volume,
+   that does not complete, the Cinder volume may be stuck in a state. You
+   should follow the procedures for detaling with stuck volumes.
+  </para>
+  <para>
+   There are six transitory states that a volume can get stuck in:
+  </para>
+  <informaltable colsep="1" rowsep="1">
+   <tgroup cols="2">
+    <colspec colname="c1" colnum="1"/>
+    <colspec colname="c2" colnum="2"/>
+    <thead>
+     <row>
+      <entry>State</entry>
+      <entry>Description</entry>
+     </row>
+    </thead>
+    <tbody>
+     <row>
+      <entry>creating</entry>
+      <entry>The Cinder volume manager has sent a request
+                                                  to a backend driver to create a volume, but has
+                                                  not received confirmation that the volume is
+                                                  available.</entry>
+     </row>
+     <row>
+      <entry>attaching</entry>
+      <entry>Cinder has received a request from Nova to
+                                                  make a volume available for attaching to an
+                                                  instance but has not received confirmation from
+                                                  Nova that the attachment is complete.</entry>
+     </row>
+     <row>
+      <entry>detaching</entry>
+      <entry>Cinder has received notification from Nova
+                                                  that it will detach a volume from an instance but
+                                                  has not received notification that the detachment
+                                                  is complete.</entry>
+     </row>
+     <row>
+      <entry>deleting</entry>
+      <entry>Cinder has received a request to delete a
+                                                  volume but has not completed the
+                                                  operation.</entry>
+     </row>
+     <row>
+      <entry>backing-up</entry>
+      <entry>Cinder backup manager has started to back a
+                                                  volume up to Swift, or some other backup target,
+                                                  but has not completed the operation.</entry>
+     </row>
+     <row>
+      <entry>restoring</entry>
+      <entry>Cinder backup manager has started to restore
+                                                  a volume from Swift, or some other backup target,
+                                                  but has not completed the operation.</entry>
+     </row>
+    </tbody>
+   </tgroup>
+  </informaltable>
+  <para>
+   At a high level, the steps that you would take to address any of these
+   states are similar:
+  </para>
+  <orderedlist>
+   <listitem>
+    <para>
+     Confirm that the volume is actually stuck, and not just temporarily
+     blocked.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Where possible, remove any resources being held by the volume. For
+     example, if a volume is stuck detaching it may be necessary to remove
+     associated iSCSI or DM devices on the compute node.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Reset the state of the volume to an appropriate state, for example to
+     <literal>available</literal> or <literal>error</literal>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Do any final cleanup. For example, if you reset the state to
+     <literal>error</literal> you can then delete the volume.
+    </para>
+   </listitem>
+  </orderedlist>
+  <para>
+   The next sections will describe specific steps you can take for volumes
+   stuck in each of the transitory states.
+  </para>
+  <para>
+   <emphasis role="bold">Volumes stuck in Creating</emphasis>
+  </para>
+  <para>
+   Broadly speaking, there are two possible scenarios where a volume would get
+   stuck in <literal>creating</literal>. The <literal>cinder-volume</literal>
+   service could have thrown an exception while it was attempting to create the
+   volume, and failed to handle the exception correctly. Or the volume backend
+   could have failed, or gone offline, after it received the request from
+   Cinder to create the volume.
+  </para>
+  <para>
+   These two cases are different in that for the second case you will need to
+   determine the reason the backend is offline and restart it. Often, when the
+   backend has been restarted, the volume will move from
+   <literal>creating</literal> to <literal>available</literal> so your issue
+   will be resolved.
+  </para>
+  <para>
+   If you can create volumes successfully on the same backend as the volume
+   stuck in <literal>creating</literal> then the backend is not down. So you
+   will need to reset the state for the volume and then delete it.
+  </para>
+  <para>
+   To reset the state of a volume you can use the <literal>cinder
+   reset-state</literal> command. You can use either the UUID or the volume
+   name of the stuck volume.
+  </para>
+  <para>
+   For example, here is a volume list where we have a stuck volume:
+  </para>
+<screen>$ cinder list
++--------------------------------------+-----------+------+------+-------------+------------+
+|                  ID                  |   Status  | Name | Size | Volume Type |Attached to |
++--------------------------------------+-----------+------+------+-------------+------------+
+| 14b76133-e076-4bd3-b335-fa67e09e51f6 | creating  | vol1 |  1   |      -      |            |
++--------------------------------------+-----------+------+------+-------------+------------+</screen>
+  <para>
+   You can reset the state by using the <literal>cinder reset-state</literal>
+   command, like this:
+  </para>
+<screen>cinder reset-state --state error 14b76133-e076-4bd3-b335-fa67e09e51f6</screen>
+  <para>
+   Confirm that with another listing:
+  </para>
+<screen>$ cinder list
++--------------------------------------+-----------+------+------+-------------+------------+
+|                  ID                  |   Status  | Name | Size | Volume Type |Attached to |
++--------------------------------------+-----------+------+------+-------------+------------+
+| 14b76133-e076-4bd3-b335-fa67e09e51f6 | error     | vol1 |  1   |      -      |            |
++--------------------------------------+-----------+------+------+-------------+------------+</screen>
+  <para>
+   You can then delete the volume:
+  </para>
+<screen>$ cinder delete 14b76133-e076-4bd3-b335-fa67e09e51f6
+Request to delete volume 14b76133-e076-4bd3-b335-fa67e09e51f6 has been accepted.</screen>
+  <para>
+   <emphasis role="bold">Volumes stuck in Deleting</emphasis>
+  </para>
+  <para>
+   If a volume is stuck in the deleting state then the request to delete the
+   volume may or may not have been sent to and actioned by the backend. If you
+   can identify volumes on the backend then you can examine the backend to
+   determine whether the volume is still there or not. Then you can decide
+   which of the following paths you can take. It may also be useful to
+   determine whether the backend is responding, either by checking for recent
+   volume create attempts, or creating and deleting a test volume.
+  </para>
+  <para>
+   The first option is to reset the state of the volume to
+   <literal>available</literal> and then attempt to delete the volume again.
+  </para>
+  <para>
+   The second option is to reset the state of the volume to
+   <literal>error</literal> and then delete the volume.
+  </para>
+  <para>
+   If you've reset the volume state to <literal>error</literal> then the volume
+   may still be consuming storage on the backend. If that is the case then you
+   will need to delete it from the backend using your backend's specific tool.
+  </para>
+  <para>
+   <emphasis role="bold">Volumes stuck in Attaching</emphasis>
+  </para>
+  <para>
+   The most complicated situation to deal with is where a volume is stuck
+   either in attaching or detaching, because as well as dealing with the state
+   of the volume in Cinder and the backend, you have to deal with exports from
+   the backend, imports to the compute node, and attachments to the compute
+   instance.
+  </para>
+  <para>
+   The two options you have here are to make sure that all exports and imports
+   are deleted and to reset the state of the volume to
+   <literal>available</literal> or to make sure all of the exports and imports
+   are correct and to reset the state of the volume to
+   <literal>in-use</literal>.
+  </para>
+  <para>
+   A volume that is in attaching state should never have been made available to
+   a compute instance and therefore should not have any data written to it, or
+   in any buffers between the compute instance and the volume backend. In that
+   situation, it is often safe to manually tear down the devices exported on
+   the backend and imported on the compute host and then reset the volume state
+   to <literal>available</literal>.
+  </para>
+  <para>
+   You can use the management features of the backend you're using to locate
+   the compute host to where the volume is being exported. The following
+   section describes how to do this for a VSA backend.
+  </para>
+  <para>
+   <emphasis role="bold">HP StoreVirtual Storage (VSA)</emphasis>
+  </para>
+  <para>
+   On most backend the volume name will be based on the Cinder UUID, so the
+   volume <literal>7237a7ea-c77f-4edb-9f4f-7928cb605f44</literal> will have the
+   name <literal>volume-7237a7ea-c77f-4edb-9f4f-7928cb605f44</literal> on the
+   backend. This is the case for VSA. On VSA you can get the IP address of the
+   compute host from the <literal>initiatorAddress</literal> field in the
+   output from the <literal>getVolumeInfo</literal> command. For example:
+  </para>
+<screen>$ ssh -p16022 192.168.185.3 -lstack 'getVolumeInfo volumeName=volume-7237a7ea-c77f-4edb-9f4f-7928cb605f44' | grep initiatorAddress
+Password:
+initiatorAddress 192.168.185.94</screen>
+  <para>
+   If there is no <literal>initiatorAddress</literal> line in the output from
+   <literal>getVolumeInfo</literal> then the volume has not been exported from
+   the backend and it is safe to reset the volume type to
+   <literal>available</literal> using the <literal>cinder reset-state</literal>
+   command as follows:
+  </para>
+<screen>$ cinder reset-state --state available --attach-status detached 7237a7ea-c77f-4edb-9f4f-7928cb605f44</screen>
+  <para>
+   If the volume has been exported to a compute host you can get the name of
+   the iSCSI target for the volume, using CLIQ this would be:
+  </para>
+<screen>$ ssh -p16022 192.168.185.3 -lstack 'getVolumeInfo volumeName=volume-7237a7ea-c77f-4edb-9f4f-7928cb605f44' | grep iscsiIqn
+Password:
+iscsiIqn                           iqn.2003-10.com.lefthandnetworks:vsacluster:423:volume-7237a7ea-c77f-4edb-9f4f-7928cb605f44</screen>
+  <para>
+   You can then log into the compute host, using the IP address from the
+   <literal>initiatorAddress</literal> field in the
+   <literal>getVolumeInfo</literal> output, <literal>192.168.185.94</literal>
+   in the example above, and check whether it is importing the volume. Search
+   the iSCSI target using <literal>iscsiadm</literal>. In the example below
+   we've used a substring from the iSCSI target reported by CLIQ. This is to
+   make the example easier to read and you can cut and paste the entire string:
+  </para>
+<screen>$ sudo iscsiadm -msession |grep volume-7237a7ea-c77f-4edb-9f4f-7928cb605f44
+tcp: [3] 192.168.185.3:3260,1 iqn.2003-10.com.lefthandnetworks:vsacluster:423:volume-7237a7ea-c77f-4edb-9f4f-7928cb605f44 (non-flash)</screen>
+  <para>
+   If the target is not present on the compute host then it is safe to use
+   CLIQ, or CMC, to disconnect the volume on the VSA server and then reset the
+   state of the volume to <literal>available</literal> using the
+   <literal>cinder reset-state</literal> command.
+  </para>
+  <para>
+   If the target is present on the compute host then you need to check whether
+   or not it has been attached to any running instance. You can get a list of
+   the instances running on the compute host using <literal>virsh</literal>:
+  </para>
+<screen>$ sudo virsh list
+ Id    Name                           State
+----------------------------------------------------
+ 4     instance-00000018              running</screen>
+  <para>
+   You can then check each of the instances to see whether the volume has been
+   imported. Using the same example, we use a substring from the iSCSI target:
+  </para>
+<screen>$ sudo virsh dumpxml 4|grep volume-7237a7ea-c77f-4edb-9f4f-7928cb605f44
+        &lt;source dev='/dev/disk/by-path/ip-192.168.185.3:3260-iscsi-iqn.2003-10.com.lefthandnetworks:vsacluster:423:volume-7237a7ea-c77f-4edb-9f4f-7928cb605f44-lun-0'/&gt;</screen>
+  <para>
+   If the iSCSI target does not appear in the XML representation of any of the
+   instances on the compute host then you can use <literal>iscsiadm</literal>
+   to log out from the scsi session, disconnect the volume on VSA as described
+   above, and reset the volume state to <literal>available</literal>.
+  </para>
+  <para>
+   To log out from the scsi session you need the session id, which is the
+   integer in square brackets in the output from <literal>iscsiadm
+   -msession</literal> which was <literal>3</literal> in the example above. So
+   the command to log out would be:
+  </para>
+<screen>$ sudo iscsiadm -m session -r 3 -u</screen>
+  <para>
+   However, if the volume has been imported by an instance then you must reset
+   the volume state to <literal>in-use</literal> and then attempt to detach the
+   volume from the instance. If the detach succeeds tehn the problem is
+   resolved. However, if the detach fails there may be a more fundamental
+   problem which is outside the scope of this document and you should contact
+   the Support team.
+  </para>
+  <para>
+   <emphasis role="bold">Volumes stuck in Detaching</emphasis>
+  </para>
+  <para>
+   The steps in dealing with a volume stuck in <literal>detaching</literal>
+   state are very similar to those for a volume stuck in
+   <literal>attaching</literal>. However, there is the added consideration that
+   the volume was attached to, and probably servicing, I/O from a compute
+   instance. So you must take care to ensure that all buffers are properly
+   flushed before detaching the volume.
+  </para>
+  <para>
+   When a volume is stuck in <literal>detaching</literal>, the output from a
+   <literal>cinder list</literal> command will include the UUID for the
+   instance to which the volume was attached. From that you can identify the
+   compute host that is running the instance using the <literal>nova
+   show</literal> command.
+  </para>
+  <para>
+   For example, here are some snippets:
+  </para>
+<screen>$ cinder list
++--------------------------------------+-----------+-----------------------+-----------------+
+|                  ID                  |   Status  |       Name            |   Attached to   |
++--------------------------------------+-----------+-----------------------+-----------------+
+| 85384325-5505-419a-81bb-546c69064ec2 | detaching |        vol1           | 4bedaa76-78ca-… |
++--------------------------------------+-----------+-----------------------+-----------------+</screen>
+<screen>$ nova show 4bedaa76-78ca-4fe3-806a-3ba57a9af361|grep host
+| OS-EXT-SRV-ATTR:host                 | mycloud-cp1-comp0005-mgmt
+| OS-EXT-SRV-ATTR:hypervisor_hostname  | mycloud-cp1-comp0005-mgmt
+| hostId                               | 61369a349bd6e17611a47adba60da317bd575be9a900ea590c1be816</screen>
+  <para>
+   The first thing to check in this case is whether the instance is still
+   importing the volume. Use <literal>virsh list</literal> and <literal>virsh
+   dumpxml</literal> as described in the section above. If the XML for the
+   instance has a reference to the device, then you should reset the volume
+   state to <literal>in-use</literal> and attempt the <literal>cinder
+   detach</literal> operation again.
+  </para>
+<screen>$ cinder reset-state --state in-use --attach-status attached 85384325-5505-419a-81bb-546c69064ec2</screen>
+  <para>
+   If the volume gets stuck detaching again, there may be a more fundamental
+   problem, which is outside the scope of this document and you should contact
+   the Support team.
+  </para>
+  <para>
+   If the volume is not referenced in the XML for the instance then you should
+   remove any devices on the compute node and backend and then reset the state
+   of the volume to <literal>available</literal>.
+  </para>
+<screen>$ cinder reset-state --state available --attach-status detached 85384325-5505-419a-81bb-546c69064ec2</screen>
+  <para>
+   You can use the management features of the backend you're using to locate
+   the compute host to where the volume is being exported. The following
+   section describes how to do this for a VSA backend.
+  </para>
+  <para>
+   <emphasis role="bold">HP StoreVirtual Storage (VSA)</emphasis>
+  </para>
+  <para>
+   Use the processes described in the <literal>attaching</literal> section
+   above to identify the devices on the compute host that should be deleted,
+   and the targets on the VSA node that should be removed.
+  </para>
+  <para>
+   <emphasis role="bold">Volumes stuck in backing-up</emphasis>
+  </para>
+  <para>
+   When a volume is backed up using <literal>cinder-backup</literal> the volume
+   is attached to the host running the <literal>cinder-backup</literal>
+   service, which reads data from the volume and stores it elsewhere.
+   Typically, backups are stored in Swift, but Cinder can be configured to
+   store them in a number of other repositories, including Ceph.
+  </para>
+  <para>
+   Volumes stuck in <literal>backing-up</literal> and
+   <literal>restoring</literal> are much more rare than volumes stuck in
+   <literal>attaching</literal> and <literal>detaching</literal>. The process
+   of attaching a volume to a Nova instance involves many stages of
+   communication between Nova and Cinder any of which can break down, but when
+   Cinder is backing up a volume the only communication between Cinder and the
+   storage server is simple PUT operations.
+  </para>
+  <para>
+   Be aware that the backup process can take a long time, up to several hours
+   for large volumes and narrow bandwidth. So you should take care to ensure
+   that the process is actually stuck and not just slow.
+  </para>
+  <para>
+   One way to do this is to examine the log file for the
+   <literal>cinder-backup</literal> process. To do that you need to SSH to the
+   controller node running the <literal>cinder-backup</literal> process. This
+   is usually the first controller node in your cluster. Confirm that you are
+   on the correct node by checking for the backup process using systemctl:
+  </para>
+<screen>systemctl status cinder-backup
+ cinder-backup.service - cinder-backup Service
+  Loaded: loaded (/usr/lib/systemd/system/cinder-backup.service; disabled)
+  Active: active (running) since Thu 2016-04-21 11:44:38 UTC; 1 day 3h ago
+ Main PID: 6689 (cinder-backup)
+  CGroup: /system.slice/cinder-backup.service
+        └─6689 /opt/stack/venv/cinder-20160405T101007Z/bin/pyt ...
+
+Apr 22 15:09:08 cirrusardana-cp1-c1-m1-mgmt sudo[29223]: cinder : ...
+Apr 22 15:09:08 cirrusardana-cp1-c1-m1-mgmt sudo[29223]: pam_unix ...
+Apr 22 15:09:11 cirrusardana-cp1-c1-m1-mgmt sudo[29300]: cinder : ...
+Apr 22 15:09:11 cirrusardana-cp1-c1-m1-mgmt sudo[29300]: pam_unix ...
+Apr 22 15:09:11 cirrusardana-cp1-c1-m1-mgmt sudo[29305]: cinder : ...
+Apr 22 15:09:11 cirrusardana-cp1-c1-m1-mgmt sudo[29305]: pam_unix ...
+Apr 22 15:09:11 cirrusardana-cp1-c1-m1-mgmt sudo[29308]: cinder : ...
+Apr 22 15:09:11 cirrusardana-cp1-c1-m1-mgmt sudo[29308]: pam_unix ...
+Apr 22 15:09:11 cirrusardana-cp1-c1-m1-mgmt sudo[29311]: cinder : ...
+Apr 22 15:09:11 cirrusardana-cp1-c1-m1-mgmt sudo[29311]: pam_unix ...
+Hint: Some lines were ellipsized, use -l to show in full.</screen>
+  <para>
+   Then, check whether the <literal>cinder-backup</literal> service is writing
+   data to a backup driver by tailing the <literal>cinder-backup.log</literal>
+   file. A log message is usually written every couple of seconds. Here is an
+   example, which we've truncated:
+  </para>
+<screen># tail -f /var/log/cinder/cinder-backup.log |grep 162de6d5-ba92-4e36-aba4-e37cac41081b
+2016-04-22 15:21:01.235 6689 DEBUG cinder.backup.drivers.swift [req-41d8f821-7fce-445f-a073-
+2016-04-22 15:21:01.235 6689 DEBUG cinder.backup.drivers.swift [req-41d8f821-7fce-445f-a073-
+2016-04-22 15:21:01.338 6689 DEBUG cinder.backup.chunkeddriver [req-41d8f821-7fce-445f-a073-
+2016-04-22 15:21:04.178 6689 DEBUG requests.packages.urllib3.connectionpool [req-7f7de8dc-3193-
+2016-04-22 15:21:04.179 6689 DEBUG swiftclient [req-7f7de8dc-3193-41e1-ac50-352a45c5565a - -
+2016-04-22 15:21:04.180 6689 DEBUG cinder.backup.drivers.swift [req-7f7de8dc-3193-41e1-ac50-
+2016-04-22 15:21:04.180 6689 DEBUG cinder.backup.drivers.swift [req-7f7de8dc-3193-41e1-ac50-
+2016-04-22 15:21:04.283 6689 DEBUG cinder.backup.chunkeddriver [req-7f7de8dc-3193-41e1-ac50-</screen>
+  <para>
+   If you determine that the volume is genuinely stuck in
+   <literal>backing-up</literal> then you will treat the volume similarly to
+   the way you would treat a volume that was stuck in
+   <literal>detaching</literal>. The difference would be that the volume will
+   be imported on a controller node and not on a compute node.
+  </para>
+  <para>
+   Identify the volume on the backend and then the devices importing the volume
+   on the controller node. Then remove the devices from the controller node as
+   described in the sections above and reset the state of the volume to
+   <literal>available</literal> and then <literal>volume
+   attach-status</literal> to <literal>detached</literal>. You can now repeat
+   the attempt to back up the volume. If the problem reoccurs then you may have
+   a more fundamental problem and you should contactt the Support team.
+  </para>
+  <para>
+   Note that you may now have a Cinder backup that is stuck in
+   <literal>creating</literal>, correcting this is outside the scope of this
+   document.
+  </para>
+  <para>
+   <emphasis role="bold">Volumes stuck in restoring</emphasis>
+  </para>
+  <para>
+   Restoring a Cinder volume from backup will be as slow as backing it up. So
+   you must confirm that the volume is actually stuck by examining the
+   <literal>cinder-backup.log</literal>. For example:
+  </para>
+<screen># tail -f cinder-backup.log |grep 162de6d5-ba92-4e36-aba4-e37cac41081b
+2016-04-27 12:39:14.612 6689 DEBUG swiftclient [req-0c65ec42-8f9d-430a-b0d5-05446bf17e34 - -
+2016-04-27 12:39:15.533 6689 DEBUG cinder.backup.chunkeddriver [req-0c65ec42-8f9d-430a-b0d5-
+2016-04-27 12:39:15.566 6689 DEBUG requests.packages.urllib3.connectionpool [req-0c65ec42-
+2016-04-27 12:39:15.567 6689 DEBUG swiftclient [req-0c65ec42-8f9d-430a-b0d5-05446bf17e34 - - -</screen>
+  <para>
+   If you determine that the volume is genuinely stuck in
+   <literal>detaching</literal> then you must follow the procedure described in
+   the detaching section above to remove any volumes that remain exported from
+   the backend and imported on the controller node. Remember that in this case
+   the volumes will be imported and mounted on the controller node running
+   <literal>cinder-backup</literal>. So you do not have to search for the
+   correct compute host. Also remember that no instances are involved so you do
+   not need to confirm that the volume is not imported to any instances.
+  </para>
+ </section>
+ <section xml:id="debugging_attachment">
+  <title>Debugging volume attachment</title>
+  <para>
+   In an error case, it is possible for a Cinder volume to fail to complete an
+   operation and revert back to its initial state. For example, attaching a
+   Cinder volume to a Nova instance, so you would follow the steps above to
+   examine the Nova compute logs for the attach request.
+  </para>
+ </section>
+ <section xml:id="errors_creating">
+  <title>Errors creating volumes</title>
+  <para>
+   If you are creating a volume and it goes into the <literal>ERROR</literal>
+   state, a common error to see is <literal>No valid host was found</literal>.
+   This means that the scheduler could not schedule your volume to a backend.
+   You should check that the volume service is up and running. You can use this
+   command:
+  </para>
+<screen>$ sudo cinder-manage service list
+Binary           Host                                 Zone             Status     State Updated At
+cinder-scheduler ha-volume-manager                    nova             enabled    :-)   2016-04-25 11:39:30
+cinder-volume    ha-volume-manager@vsa1               nova             enabled    XXX   2016-04-25 11:27:26
+cinder-backup    ha-volume-manager                    nova             enabled    :-)   2016-04-25 11:39:28
+cinder-volume    ha-volume-manager@ceph1              nova             enabled    :-)   2016-04-25 11:39:36</screen>
+  <para>
+   In this example, the state of <literal>XXX</literal> indicates that the
+   service is down.
+  </para>
+  <para>
+   If the service is up, next check that the backend has sufficient space. You
+   can use this command to show the available and total space on each backend:
+  </para>
+<screen>cinder get-pools –detail</screen>
+  <para>
+   If your deployment is using volume types, verify that the
+   <literal>volume_backend_name</literal> in your
+   <literal>cinder.conf</literal> file matches the
+   <literal>volume_backend_name</literal> for the volume type you selected.
+  </para>
+  <para>
+   You can verify the backend name on your volume type by using this command:
+  </para>
+<screen>openstack volume type list</screen>
+  <para>
+   Then list the details about your volume type. For example:
+  </para>
+<screen>$ openstack volume type show dfa8ecbd-8b95-49eb-bde7-6520aebacde0
++---------------------------------+--------------------------------------+
+| Field                           | Value                                |
++---------------------------------+--------------------------------------+
+| description                     | None                                 |
+| id                              | dfa8ecbd-8b95-49eb-bde7-6520aebacde0 |
+| is_public                       | True                                 |
+| name                            | my3par                               |
+| os-volume-type-access:is_public | True                                 |
+| properties                      | volume_backend_name='3par'           |
++---------------------------------+--------------------------------------+</screen>
+ </section>
+ <section xml:id="idg-all-operations-troubleshooting-ts_blockstorage-xml-12">
+  <title>Diagnosing backend issues</title>
+  <para>
+   You can find further troubleshooting steps for specific backend types by
+   vising these pages:
+  </para>
+ </section>
+<!-- VSA is gone in SOC8 <xi:include href="operations-troubleshooting-ts_vsa.xml"/> -->
+</section>
