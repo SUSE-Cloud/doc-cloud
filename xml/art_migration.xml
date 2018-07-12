@@ -98,13 +98,13 @@
      Any customizations to virtual environments used by &ostack; components will
      be lost during the upgrade process. These may include third party extensions,
      regardless of origin, that have not been included in
-     &productname; &productnumber;
+     &productname; &productnumber;.
     </para>
    </listitem>
    <listitem>
     <para>
      No significant issues or alarms are actively being reported by &o_monitor; and
-     &opscon;
+     &opscon;.
     </para>
    </listitem>
   </itemizedlist>
@@ -118,7 +118,7 @@
     </para>
 <screen><prompt>(old-deployer)> </prompt>mkdir hos-5.scp
 <prompt>(old-deployer)> </prompt>sudo mount <replaceable>HOS5SCP_ISO_FILE</replaceable> hos-5.scp
-<prompt>(old-deployer)> </prompt>tar -xf hos-5.scp/hos/hlm-migration-tools.tar.gz ./</screen>
+<prompt>(old-deployer)> </prompt>tar -xf hos-5.scp/hos/hlm-migration-tools.tar.gz</screen>
    </step>
    <step>
     <para>
@@ -170,7 +170,7 @@
      <title>Check Validation Results</title>
      <para>
       Review the contents of /var/log/pre-migration-validations.log immediately
-      to discover if any errors were identified during the validation playbook.
+      to discover if any errors were identified while running the validation playbook.
       Any identified issues must be resolved before proceeding with the migration.
      </para>
     </warning>
@@ -248,6 +248,13 @@
        Add a new entry for <systemitem>nova-placement-api</systemitem>
        alongside whichever cluster already includes
        <systemitem>nova-api</systemitem>.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Update the <filename>servers.yml</filename> entry for
+       all nodes in the control plane to specify <systemitem>distro-id:
+       sles12sp3-x86_64</systemitem> in each one.
       </para>
      </listitem>
      <listitem>
@@ -362,10 +369,7 @@
      </listitem>
      <listitem>
       <para>
-       If using cobbler, update the <filename>servers.yml</filename> entry for
-       all nodes in the control plane to specify <systemitem>distro-id:
-       sles12sp3-x86_64</systemitem> in each one, and commit the change to Git.
-       Then, run:
+       If using cobbler, begin the seed node re-imaging by running:
       </para>
 <screen><prompt>(old-deployer)> </prompt>cd ~/helion/hos/ansible
 <prompt>(old-deployer)> </prompt>sudo cobbler system remove --name <replaceable>SEED_NODE_ID</replaceable>
@@ -401,10 +405,11 @@
     </itemizedlist>
 
     <important>
-     <title>Manual Installation Is Recommended</title>
+     <title>Manual Installation</title>
      <para>
-      Although it is possible to use cobbler, we recommend performing a manual
-      installation as described in <xref linkend="book.install"/>.
+      If the server's boot mode is set to Legacy BIOS boot, then it is possible
+      to use cobbler. However, if the boot mode of the server is set to UEFI
+      boot, the operating system must be installed manually.
      </para>
      <para>
       You should also perform installation on the root disk and avoid
@@ -513,6 +518,7 @@
      &hpecloud; 5.SCP installation content:
     </para>
 <screen><prompt>(seed)> </prompt>cd ~; tar -xf hos-5.scp/hos/hos-5.1.0-*.tar
+<prompt>(seed)> </prompt>sudo mkdir -p /var/log/apache2
 <prompt>(seed)> </prompt>cd ~/hos-5.1.0; ./hos-init.bash</screen>
    </step>
    <step>
@@ -637,7 +643,7 @@
        database nodes have been re-imaged to purge the old data. For example:
       </para>
 <screen>ansible-playbook -i hosts/verb_hosts wipe_disks.yml \
-  -e nodelist=dbmq-m1,dbmq-m2,dbmq-m3</screen>
+  --limit dbmq-m1,dbmq-m2,dbmq-m3</screen>
       <para>
        (Be sure to specify your own list of database nodes matching their
        identifiers from the <filename>servers.yml</filename> file.)
@@ -735,7 +741,8 @@
 <prompt>(seed)> </prompt>ansible resources -i hosts/verb_hosts -a "zypper rr SLES12-SP3-12.3-0" --become</screen>
         <para>
          <replaceable>NEW_DEPLOYER_HOST</replaceable> must match the node's identity in the
-         file hosts/verb_hosts (e.g. <systemitem>ardana-cp1-c0-m1</systemitem>)
+         file <filename>hosts/verb_hosts</filename> (for example,
+         <systemitem>ardana-cp1-c0-m1</systemitem>)
         </para>
        </listitem>
       </itemizedlist>
@@ -755,7 +762,7 @@
       <para>
        Copy the user's home directory from the seed to the new deployer:
       </para>
-<screen><prompt>(seed)> </prompt>rsync -avP ~ <replaceable>NEW_DEPLOYER_IP</replaceable>:/home</screen>
+<screen><prompt>(seed)> </prompt>rsync -avP ~/ <replaceable>NEW_DEPLOYER_IP</replaceable>:/var/lib/ardana/</screen>
      </listitem>
      <listitem>
       <para>
@@ -764,8 +771,8 @@
 <screen><prompt>(new-deployer)> </prompt>cd ~
 <prompt>(new-deployer)> </prompt>sudo mkdir -p /media/cdrom
 <prompt>(new-deployer)> </prompt>echo /var/lib/ardana/sles12sp3.iso /media/cdrom iso9660 loop 0 0 \
-<prompt>(new-deployer)> </prompt>sudo mount -a
   | sudo tee -a /etc/fstab
+<prompt>(new-deployer)> </prompt>sudo mount -a
 <prompt>(new deployer)> </prompt>tar -xf hos-5.scp/hos/hos-5.1.0-*.tar
 <prompt>(new deployer)> </prompt>cd ~/hos-5.1.0
 <prompt>(new deployer)> </prompt>./hos-init.bash
@@ -977,11 +984,23 @@ ARDANA_INIT_AUTO=1 /usr/bin/ardana-init</screen>
    </step>
    <step>
     <para>
-     Apply the PTF packages obtained in the previous step:
+     Apply the PTF packages obtained in the previous step and confirm
+     that they install correctly:
     </para>
 <screen>sudo zypper refresh PTF
 sudo zypper dup --from PTF
-/usr/bin/ardana-init</screen>
+rpm -qa | grep PTF</screen>
+    <para>
+     Ensure that all migration RPMs available to you via your &suse; support
+     contract are present in the resulting list. If any are missing, repeat
+     the above process or contact technical support before continuing.
+    </para>
+   </step>
+   <step>
+    <para>
+     Apply the updates received via PTF packages to your active cloud:
+    </para>
+<screen>/usr/bin/ardana-init</screen>
    </step>
    <step>
     <para>
