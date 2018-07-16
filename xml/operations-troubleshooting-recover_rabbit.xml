@@ -1,392 +1,283 @@
 <?xml version="1.0"?>
 <!DOCTYPE section [
- <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+<!ENTITY % entities SYSTEM "entities.ent"> %entities;
 ]>
 <section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude"
-        xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="recoverrabbit">
- <title>Understanding and Recovering RabbitMQ after Failure</title>
+         xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="recoverrabbit">
+ <title>故障后理解和恢复 RabbitMQ</title>
  <para>
-  RabbitMQ is the message queue service that runs on each of your controller
-  nodes and brokers communication between multiple services in your
-  &kw-hos-phrase; cloud environment. It is important for cloud operators to
-  understand how different troubleshooting scenarios affect RabbitMQ so they
-  can minimize downtime in their environments. We are going to discuss multiple
-  scenarios and how it affects RabbitMQ. We will also explain how you can
-  recover from them if there are issues.
+  RabbitMQ 是在每个控制器节点上运行的消息队列服务，并且代理在 &kw-hos-phrase; 云环境中的多个服务之间的通信。云管理员必须了解 RabbitMQ 相关的不同的故障排除方案，以便最大限度地减少环境中的停机时间。我们将讨论多个场景以及它如何影响 RabbitMQ。我们还将解释如何从问题中恢复。
  </para>
-<!---->
+ <!---->
  <section xml:id="idg-all-operations-troubleshooting-recover_rabbit-xml-6">
-  <title>About RabbitMQ</title>
+  <title>关于 RabbitMQ</title>
   <para>
-   RabbitMQ is the message queue service that runs on each of your controller
-   nodes and brokers communication between multiple services in your
-   &kw-hos-phrase; cloud environment. It is important for cloud operators to
-   understand how different troubleshooting scenarios affect RabbitMQ so they
-   can minimize downtime in their environments. We are going to discuss
-   multiple scenarios and how it affects RabbitMQ. We will also explain how you
-   can recover from them if there are issues.
+   RabbitMQ 是在每个控制器节点上运行的消息队列服务，并且代理在 &kw-hos-phrase; 云环境中的多个服务之间的通信。云管理员必须了解 RabbitMQ 相关的不同的故障排除方案，以便最大限度地减少环境中的停机时间。我们将讨论多个场景以及它如何影响 RabbitMQ。我们还将解释如何从问题中恢复。
   </para>
  </section>
  <section xml:id="idg-all-operations-troubleshooting-recover_rabbit-xml-7">
-  <title>How upgrades affect RabbitMQ</title>
-  <para>
-   There are two types of upgrades within &kw-hos; -- major and minor. The
-   effect that the upgrade process has on RabbitMQ depends on these types.
+  <title>升级如何影响 RabbitMQ</title>
+   &kw-hos; 有两种类型的升级 - 主要和次要。升级过程对 RabbitMQ 的影响取决于这些类型。
   </para>
   <para>
-   A major upgrade is defined by an erlang change or major version upgrade of
-   RabbitMQ. A minor upgrade would be an upgrade where RabbitMQ stays within
-   the same version, such as v3.4.3 to v.3.4.6.
+   主要升级是 RabbitMQ 的 erlang 更改或主要版本升级。次要升级是 RabbitMQ 保持在同一版本内的升级，例如 v3.4.3 到 v.3.4.6。
   </para>
   <para>
-   During both types of upgrades there may be minor blips in the authentication
-   process of client services as the accounts are recreated.
+   在两种类型的升级期间，随着帐户的重新创建，客户端服务的身份验证过程中可能会出现轻微的问题。
   </para>
   <para>
-   <emphasis role="bold">RabbitMQ during a major upgrade</emphasis>
+   <emphasis role="bold">RabbitMQ 主要升级时</emphasis>
   </para>
   <para>
-   There will be a RabbitMQ service outage while the upgrade is performed.
+   执行升级时将发生 RabbitMQ 服务中断。
   </para>
   <para>
-   During the upgrade, high availability consistency is compromised -- all but
-   the primary node will go down and will be reset, meaning their database
-   copies are deleted. The primary node is not taken down until the last step
-   and then it is upgrade. The database of users and permissions is maintained
-   during this process. Then the other nodes are brought back into the cluster
-   and resynchronized.
+   在升级过程中，高可用一致性会被破坏 - 主节点以外的所有节点都将关闭并被重置，这意味着它们的数据库副本将被删除。主节点在最后一步之前不会关闭，然后被升级。此过程保持用户和权限数据库。然后其他节点回到集群并重新同步。
   </para>
   <para>
-   <emphasis role="bold">RabbitMQ during a minor upgrade</emphasis>
+   <emphasis role="bold">RabbitMQ 次要升级时</emphasis>
   </para>
   <para>
-   Minor upgrades are performed node by node. This "rolling" process means
-   there should be no overall service outage becauuse each node is taken out of
-   its cluster in turn, its database is reset, and then it's added back to the
-   cluster and resynchronized.
+   次要升级是逐个节点执行的。这种“滚动”过程意味着不应该存在整体服务中断，因为每个节点依次从其集群中退出，其数据库被重置，然后将其添加回集群并重新同步。
   </para>
  </section>
  <section xml:id="idg-all-operations-troubleshooting-recover_rabbit-xml-8">
-  <title>How RabbitMQ is affected by other operational processes</title>
+  <title>RabbitMQ 如何受到其他运行操作的影响</title>
   <para>
-   There are operational tasks, such as <xref linkend="stop_restart"/>, where
-   you use the <literal>ardana-stop.yml</literal> and
-   <literal>ardana-start.yml</literal> playbooks to gracefully restart your cloud.
-   If you use these playbooks, and there are no errors associated with them
-   forcing you to troubleshoot further, then RabbitMQ is brought down
-   gracefully and brought back up. There is nothing special to note regarding
-   RabbitMQ in these normal operational processes.
+   有一些操作任务，例如 <xref linkend="stop_restart"/>，当您使用 <literal>ardana-stop.yml</literal> 和 <literal>ardana-start.yml</literal> 来重新启动您的云。如果您使用这些剧本，并且没有任何与之相关的错误迫使您进一步排除故障，那么 RabbitMQ 会被重新启动。RabbitMQ 在这些正常的操作过程中没有什么特别需要注意的地方。
   </para>
   <para>
-   However, there are other scenarios where an understanding of RabbitMQ is
-   important when a graceful shutdown did not occur.
+   但是，还有当其他一些场景没有正常关机时，理解RabbitMQ很重要。
   </para>
   <para>
-   These examples that follow assume you are using one of the entry-scale
-   models where RabbitMQ is hosted on your controller node cluster. If you are
-   using a mid-scale model or have a dedicated cluster that RabbitMQ lives on
-   you may need to alter the steps accordingly. To determine which nodes
-   RabbitMQ is on you can use the <literal>rabbit-status.yml</literal> playbook
-   from your &lcm;.
+   以下这些示例假设您正在使用一个入门级模型，其中 RabbitMQ 托管在您的控制器节点集群上。如果您使用的是中型模型或 RabbitMQ 存在与一个独立集群上，则可能需要相应地更改步骤。要确定 RabbitMQ 所在的节点，您可以使用 &lcm; 中的 rabbit-status.yml 剧本。
   </para>
-<screen>cd ~/scratch/ansible/next/hos/ansible
-ansible-playbook -i hosts/verb_hosts rabbitmq-status.yml</screen>
+  <screen>cd ~/scratch/ansible/next/hos/ansible
+   ansible-playbook -i hosts/verb_hosts rabbitmq-status.yml</screen>
   <para>
-   <emphasis role="bold">Your entire control plane cluster goes down</emphasis>
+   <emphasis role="bold">您的整个控制平面集群都已下线</emphasis>
   </para>
   <para>
-   If you have a scenario where all of your controller nodes went down, either
-   manually or via another process such as a power outage, then an
-   understanding of how RabbitMQ should be brought back up is important. Follow
-   these steps to recover RabbitMQ on your controller node cluster in these
-   cases:
+   如果您的所有控制器节点都已下线，无论是手动还是其他原因（例如断电），那么了解 RabbitMQ 应如何重新启动非常重要。在这些情况下，请按照以下步骤在控制器节点集群上恢复 RabbitMQ：
   </para>
   <procedure>
    <step>
     <para>
-     The order in which the nodes went down is key here. Locate the last node
-     to go down as this will be used as the primary node when bringing the
-     RabbitMQ cluster back up. You can review the timestamps in the
-     <literal>/var/log/rabbitmq</literal> log file to determine what the last
-     node was.
+     节点关闭的顺序是关键。找到最后一个关闭的节点，因为这将在重新启动 RabbitMQ 集群时被用作主节点。您可以查看 <literal>/var/log/rabbitmq</literal> 日志文件中的时间戳，以确定最后一个节点是哪个。
     </para>
    </step>
    <step>
     <para>
-     Run the <literal>ardana-start.yml</literal> playbook specifying the primary
-     node (aka the last node down determined in the first step):
-    </para>
-<screen>cd ~/scratch/ansible/next/hos/ansible
-ansible-playbook -i hosts/verb_hosts ardana-start.yml -e rabbit_primary_hostname=&lt;hostname&gt;</screen>
+     运行的 <literal>ardana-start.yml</literal> 剧本，并指定主节点（也就是在第一步中确定的最后一个节点）：
+    <screen>cd ~/scratch/ansible/next/hos/ansible
+     ansible-playbook -i hosts/verb_hosts ardana-start.yml -e rabbit_primary_hostname=&lt;hostname&gt;</screen>
    </step>
   </procedure>
   <para>
-   <emphasis role="bold">If one of your controller nodes goes down</emphasis>
+   <emphasis role="bold">如果其中一个控制器节点下线</emphasis>
   </para>
   <para>
-   First step here is to determine whether the controller that went down is the
-   primary RabbitMQ host or not. The primary host is going to be the first host
-   member in the <literal>FND-RMQ</literal> group in the file below on your
-   &lcm;:
+   这里的第一步是确定下线的控制器是否是主 RabbitMQ 主机。主主机是 &lcm; 下面文件中 FND-RMQ 组中的第一个主机成员：
   </para>
-<screen>~/scratch/ansible/next/hos/ansible/hosts/verb_hosts</screen>
+  <screen>~/scratch/ansible/next/hos/ansible/hosts/verb_hosts</screen>
   <para>
-   In this example below, <literal>ardana-cp1-c1-m1-mgmt</literal> would be the
-   primary:
+   在下面的这个例子中，<literal>ardana-cp1-c1-m1-mgmt</literal> 是主主机：
   </para>
-<screen>[FND-RMQ-ccp-cluster1:children]
-ardana-cp1-c1-m1-mgmt
-ardana-cp1-c1-m2-mgmt
-ardana-cp1-c1-m3-mgmt</screen>
+  <screen>[FND-RMQ-ccp-cluster1:children]
+   ardana-cp1-c1-m1-mgmt
+   ardana-cp1-c1-m2-mgmt
+   ardana-cp1-c1-m3-mgmt</screen>
   <para>
-   If your primary RabbitMQ controller node has gone down and you need to bring
-   it back up, you can follow these steps. In this playbook you are using the
-   <literal>rabbit_primary_hostname</literal> parameter to specify the hostname
-   for one of the other controller nodes in your environment hosting RabbitMQ,
-   which will service as the primary node in the recovery. You will also use
-   the <literal>--limit</literal> parameter to specify the controller node you
-   are attempting to bring back up.
+   如果您的主 RabbitMQ 控制器节点已下线并且您需要将其重新启动，则可以按照以下步骤操作。在此剧本中，您使用 <literal>rabbit_primary_hostname</literal> 参数指定托管 RabbitMQ 的环境中其中一个控制器节点的主机名，作为恢复中的主节点。您还将使用 <literal>--limit</literal> 参数指定您尝试重新启动的控制器节点。
   </para>
-<screen>cd ~/scratch/ansible/next/hos/ansible
-ansible-playbook -i hosts/verb_hosts ardana-start.yml -e rabbit_primary_hostname=&lt;new_primary_hostname&gt; --limit &lt;hostname_of_node_you_are_bringing_up&gt;</screen>
+  <screen>cd ~/scratch/ansible/next/hos/ansible
+   ansible-playbook -i hosts/verb_hosts ardana-start.yml -e rabbit_primary_hostname=&lt;new_primary_hostname&gt; --limit &lt;hostname_of_node_you_are_bringing_up&gt;</screen>
   <para>
-   If the node you need to bring back is <emphasis role="bold">not</emphasis>
-   the primary RabbitMQ node then you can just run the
-   <literal>ardana-start.yml</literal> playbook with the
-   <literal>--limit</literal> parameter and your node should recover:
+   如果您需要带回的节点<emphasis role="bold">不是</emphasis>主 RabbitMQ 节点，那么您可以使用 <literal>--limit</literal> 参数运行 <literal>ardana-start.yml</literal> 剧本，这样您的节点应该会恢复：
   </para>
-<screen>cd ~/scratch/ansible/next/hos/ansible
-ansible-playbook -i hosts/verb_hosts ardana-start.yml --limit &lt;hostname_of_node_you_are_bringing_up&gt;</screen>
+  <screen>cd ~/scratch/ansible/next/hos/ansible
+   ansible-playbook -i hosts/verb_hosts ardana-start.yml --limit &lt;hostname_of_node_you_are_bringing_up&gt;</screen>
   <para>
-   <emphasis role="bold">If you are replacing one or more of your controller
-   nodes</emphasis>
+   <emphasis role="bold">如果要替换一个或多个控制器节点</emphasis>
   </para>
   <para>
-   The same general process noted above is used if you are removing or
-   replacing one or more of your controller nodes.
+   如果要删除或替换一个或多个控制器节点，一般使用与上述大致相同的过程。
   </para>
   <para>
-   If your node needs minor hardware repairs, but doesn't need to be replaced
-   with a new node, you should use the <literal>ardana-stop.yml</literal> playbook
-   with the <literal>--limit</literal> parameter to stop services on that node
-   prior to removing it from the cluster.
+   如果您的节点需要较小的硬件修复，但不需要用新节点替换，则应使用带有 <literal>--limit</literal> 参数的 <literal>ardana-stop.yml</literal> 剧本在从集群中移除节点之前停止该节点上的服务。
   </para>
   <procedure>
    <step>
     <para>
-     Log into the &lcm;.
+     登入 &lcm;。
     </para>
    </step>
    <step>
     <para>
-     Run the <literal>rabbitmq-stop.yml</literal> playbook, specifying the
-     hostname of the node you are removing, which will remove the node from the
-     RabbitMQ cluster:
+     运行 <literal>rabbitmq-stop.yml</literal> 剧本，指定要删除的节点的主机名，这将从 RabbitMQ 集群中删除该节点：
     </para>
-<screen>cd ~/scratch/ansible/next/hos/ansible
-ansible-playbook -i hosts/verb_hosts rabbitmq-stop.yml --limit &lt;hostname_of_node_you_are_removing&gt;</screen>
+    <screen>cd ~/scratch/ansible/next/hos/ansible
+     ansible-playbook -i hosts/verb_hosts rabbitmq-stop.yml --limit &lt;hostname_of_node_you_are_removing&gt;</screen>
    </step>
    <step>
     <para>
-     Run the <literal>ardana-stop.yml</literal> playbook, again specifying the
-     hostname of the node you are removing, which will stop the rest of the
-     services and prepare it to be removed:
+     运行 <literal>ardana-stop.yml</literal> 剧本，再次指定要删除的节点的主机名，这将停止其余服务并准备将其删除：
     </para>
-<screen>cd ~/scratch/ansible/next/hos/ansible
-ansible-playbook -i hosts/verb_hosts ardana-stop.yml --limit &lt;hostname_of_node_you_are_removing&gt;</screen>
+    <screen>cd ~/scratch/ansible/next/hos/ansible
+     ansible-playbook -i hosts/verb_hosts ardana-stop.yml --limit &lt;hostname_of_node_you_are_removing&gt;</screen>
    </step>
   </procedure>
   <para>
-   If your node cannot be repaired and needs to be replaced with another
-   baremetal node, the RabbitMQ cluster needs any references to the node
-   removed from it. This is because RabbitMQ associates a cookie with each node
-   in the cluster which is derived, in part, by the specific hardware.
-   Replacing a hard drive in a node should be fine, but an exchanged
-   motherboard or replacing it with another node entirely will potentially
-   trigger a breakage. Under these circumstances, the running RabbitMQ cluster
-   must be edited from a running RabbitMQ node with these steps:
+   如果您的节点无法修复并需要用另一个裸机节点替换，则 RabbitMQ 集群需要删除其对该节点的任何引用。这是因为 RabbitMQ 将集群中的每个节点与部分由硬件派生的 cookie 相关联。更换节点中的硬盘应该没问题，但更换的主板或完全用另一个节点替换它可能会导致破损。在这些情况下，必须使用以下步骤从正在运行的 RabbitMQ 节点编辑正在运行的 RabbitMQ 集群：
   </para>
   <procedure>
    <step>
     <para>
-     SSH to a running RabbitMQ cluster node.
+     SSH 连接一个正在运行的 RabbitMQ 集群节点。
     </para>
    </step>
    <step>
     <para>
-     Run this command to force the cluster to forget the node you are removing,
-     which will remove all refernces to it:
+     用这个指令强制集群忘记您想移除的节点，这会移除所有对该节点的引用：
     </para>
-<screen>sudo rabbitmqctl forget_cluster_node rabbit@&lt;hostname_of_node_you_are_removing&gt;</screen>
+    <screen>sudo rabbitmqctl forget_cluster_node rabbit@&lt;hostname_of_node_you_are_removing&gt;</screen>
    </step>
    <step>
     <para>
-     You can then confirm that the node has been removed with this command:
+     接下来您可以用以下命令确认该节点已被移除：
     </para>
-<screen>sudo rabbitmqctl cluster_status</screen>
+    <screen>sudo rabbitmqctl cluster_status</screen>
    </step>
   </procedure>
   <para>
-   If the node you are removing/replacing is your primary host then when you
-   are adding it to your cluster then you will want to ensure that you specify
-   a new primary host when doing so, as follows:
+   如果您移除或替换的是主主机，那么您需要确保在添加主机时指定新的主主机，如下：
   </para>
-<screen>cd ~/scratch/ansible/next/hos/ansible
-ansible-playbook -i hosts/verb_hosts hlm-start.yml -e rabbit_primary_hostname=&lt;new_primary_hostname&gt; --limit &lt;hostname_of_node_you_are_adding&gt;</screen>
+  <screen>cd ~/scratch/ansible/next/hos/ansible
+   ansible-playbook -i hosts/verb_hosts hlm-start.yml -e rabbit_primary_hostname=&lt;new_primary_hostname&gt; --limit &lt;hostname_of_node_you_are_adding&gt;</screen>
   <para>
-   If the node you are removing/replacing is not your primary host then you can
-   add it as follows:
+   如果您移除或替换的不是主主机，您可以用以下命令添加：
   </para>
-<screen>cd ~/scratch/ansible/next/hos/ansible
-ansible-playbook -i hosts/verb_hosts hlm-start.yml --limit &lt;hostname_of_node_you_are_adding&gt;</screen>
+  <screen>cd ~/scratch/ansible/next/hos/ansible
+   ansible-playbook -i hosts/verb_hosts hlm-start.yml --limit &lt;hostname_of_node_you_are_adding&gt;</screen>
   <para>
-   <emphasis role="bold">If one of your controller nodes has rebooted or
-   temporarily lost power</emphasis>
+   <emphasis role="bold">如果一个控制节点重启或暂时断电</emphasis>
   </para>
   <para>
-   After a single reboot, RabbitMQ will not automatically restart. This is by
-   design to protect your RabbitMQ cluster. To restart RabbitMQ, you should
-   follow the process below.
+   在一次重启之后，RabbitMQ 不会自动重新启动。这是为了保护您的 RabbitMQ 集群而设计的。要重启 RabbitMQ，您应该遵循以下的步骤：
   </para>
   <para>
-   If the rebooted node was your primary RabbitMQ host, you will specify a
-   different primary hostname using one of the other nodes in your cluster:
+   如果重启的是您的主 RabbitMQ 主机，您需要指定集群中一个不同的节点作为主主机：
   </para>
-<screen>cd ~/scratch/ansible/next/hos/ansible
-ansible-playbook -i hosts/verb_hosts hlm-start.yml -e rabbit_primary_hostname=&lt;new_primary_hostname&gt; --limit &lt;hostname_of_node_that_rebooted&gt;</screen>
+  <screen>cd ~/scratch/ansible/next/hos/ansible
+   ansible-playbook -i hosts/verb_hosts hlm-start.yml -e rabbit_primary_hostname=&lt;new_primary_hostname&gt; --limit &lt;hostname_of_node_that_rebooted&gt;</screen>
   <para>
-   If the rebooted node was not the primary RabbitMQ host then you can just
-   start it back up with this playbook:
+   如果重启的节点不是主 RabbitMQ 主机，那么您可以直接用这个剧本重新启动它：
   </para>
-<screen>cd ~/scratch/ansible/next/hos/ansible
-ansible-playbook -i hosts/verb_hosts hlm-start.yml --limit &lt;hostname_of_node_that_rebooted&gt;</screen>
+  <screen>cd ~/scratch/ansible/next/hos/ansible
+   ansible-playbook -i hosts/verb_hosts hlm-start.yml --limit &lt;hostname_of_node_that_rebooted&gt;</screen>
  </section>
  <section xml:id="recovery">
-  <title>Recovering RabbitMQ</title>
+  <title>恢复 RabbitMQ</title>
   <para>
-   In this section we will show you how to check the status of RabbitMQ and how
-   to do a variety of disaster recovery procedures.
+   本章节中我们会向您展示如何检查 RabbitMQ 的状态以及如何进行各种灾难恢复程序。
   </para>
   <para>
-   <emphasis role="bold">Verifying the status of RabbitMQ</emphasis>
+   <emphasis role="bold">检查 RabbitMQ 的状态</emphasis>
   </para>
   <para>
-   You can verify the status of RabbitMQ on each of your controller nodes by
-   using the following steps:
+   您可以在您的控制节点上用以下的步骤来检查 RabbitMQ 的状态：
   </para>
   <procedure>
    <step>
     <para>
-     Log in to the &lcm;.
+     登入 &lcm;.
     </para>
    </step>
    <step>
     <para>
-     Run the <literal>rabbitmq-status.yml</literal> playbook:
+     运行 <literal>rabbitmq-status.yml</literal> 剧本：
     </para>
-<screen>cd ~/scratch/ansible/next/hos/ansible
-ansible-playbook -i hosts/verb_hosts rabbitmq-status.yml</screen>
+    <screen>cd ~/scratch/ansible/next/hos/ansible
+     ansible-playbook -i hosts/verb_hosts rabbitmq-status.yml</screen>
    </step>
    <step>
     <para>
-     If all is well, you should see an output similar to the following:
+     如果一切正常，您应该看到类似于以下内容的输出：
     </para>
-<screen>PLAY RECAP ********************************************************************
-rabbitmq | status | Check RabbitMQ running hosts in cluster ------------- 2.12s
-rabbitmq | status | Check RabbitMQ service running ---------------------- 1.69s
-rabbitmq | status | Report status of RabbitMQ --------------------------- 0.32s
--------------------------------------------------------------------------------
-Total: ------------------------------------------------------------------ 4.36s
-ardana-cp1-c1-m1-mgmt  : ok=2    changed=0    unreachable=0    failed=0
-ardana-cp1-c1-m2-mgmt  : ok=2    changed=0    unreachable=0    failed=0
-ardana-cp1-c1-m3-mgmt  : ok=2    changed=0    unreachable=0    failed=0</screen>
+    <screen>PLAY RECAP ********************************************************************
+     rabbitmq | status | Check RabbitMQ running hosts in cluster ------------- 2.12s
+     rabbitmq | status | Check RabbitMQ service running ---------------------- 1.69s
+     rabbitmq | status | Report status of RabbitMQ --------------------------- 0.32s
+     -------------------------------------------------------------------------------
+     Total: ------------------------------------------------------------------ 4.36s
+     ardana-cp1-c1-m1-mgmt  : ok=2    changed=0    unreachable=0    failed=0
+     ardana-cp1-c1-m2-mgmt  : ok=2    changed=0    unreachable=0    failed=0
+     ardana-cp1-c1-m3-mgmt  : ok=2    changed=0    unreachable=0    failed=0</screen>
    </step>
   </procedure>
   <para>
-   If one or more of your controller nodes are having RabbitMQ issues then
-   continue reading, looking for the scenario that best matches yours.
+   如果您的一些控制节点有 RabbitMQ 问题，请继续阅读，寻找与您的情况最符合的场景。
   </para>
   <para>
-   <emphasis role="bold">RabbitMQ recovery after a small network
-   outage</emphasis>
+   <emphasis role="bold">小规模断网后的 RabbitMQ 恢复</emphasis>
   </para>
   <para>
-   In the case of a transient network outage, the version of RabbitMQ included
-   with &kw-hos-phrase; is likely to recover automatically without any further
-   action needed. However, if yours doesn't and the
-   <literal>rabbitmq-status.yml</literal> playbook is reporting an issue then
-   use the scenarios below to resolve your issues.
+   在短时间网络中断的情况下，&kw-hos-phrase; 附带的 RabbitMQ 版本可能会自动恢复，无需任何进一步的操作。但是，如果您的没有，并且 <literal>rabbitmq-status.yml</literal> 剧本报告问题，那么请使用以下方案解决您的问题。
   </para>
   <para>
-   <emphasis role="bold">All of your controller nodes have gone down and using
-   other methods have not brought RabbitMQ back up</emphasis>
+   <emphasis role="bold">所有控制器节点都已下线，并且使用其他方法未将 RabbitMQ 重新启动</emphasis>
   </para>
   <para>
-   If your RabbitMQ cluster is irrecoverable and you need rapid service
-   recovery because other methods either can't resolve the issue or you don't
-   have time to investigate more nuanced approaches then we provide a disaster
-   recovery playbook for you to use. This playbook will tear down and reset any
-   RabbitMQ services. This does have an extreme effect on your services. The
-   process will ensure that the RabbitMQ cluster is recreated.
+   如果您的 RabbitMQ 集群无法恢复，并且您需要快速恢复服务，因为其他方法无法解决问题，或者您没有时间研究更细微的方法，那么我们提供灾难恢复剧本供您使用。该剧本将拆除并重置所有 RabbitMQ 服务。这会对您的服务产生极大影响。但该过程将确保重新创建 RabbitMQ 集群。
   </para>
   <procedure>
    <step>
     <para>
-     Log in to your &lcm;.
+     登入 &lcm;。
     </para>
    </step>
    <step>
     <para>
-     Run the RabbitMQ disaster recovery playbook. This generally takes around
-     two minutes.
+     运行 RabbitMQ 灾难恢复剧本。这通常会花费大约两分钟。
     </para>
-<screen>cd ~/scratch/ansible/next/hos/ansible
-ansible-playbook -i hosts/verb_hosts rabbitmq-disaster-recovery.yml</screen>
+    <screen>cd ~/scratch/ansible/next/hos/ansible
+     ansible-playbook -i hosts/verb_hosts rabbitmq-disaster-recovery.yml</screen>
    </step>
    <step>
     <para>
-     Run the reconfigure playbooks for both Cinder (Block Storage) and Heat
-     (Orchestration), if those services are present in your cloud. These
-     services are affected when the fan-out queues are not recovered correctly.
-     The reconfigure generally takes around five minutes.
+     运行 Cinder（块存储）和 Heat（编配）的重配置剧本，如果您的云有这些服务。当扇出队列没有正确恢复时这些服务会被影响。重新配置通常需要大约五分钟。
     </para>
-<screen>cd ~/scratch/ansible/next/hos/ansible
-ansible-playbook -i hosts/verb_hosts cinder-reconfigure.yml
-ansible-playbook -i hosts/verb_hosts heat-reconfigure.yml
-ansible-playbook -i hosts/verb_hosts logging-server-configure.yml</screen>
+    <screen>cd ~/scratch/ansible/next/hos/ansible
+     ansible-playbook -i hosts/verb_hosts cinder-reconfigure.yml
+     ansible-playbook -i hosts/verb_hosts heat-reconfigure.yml
+     ansible-playbook -i hosts/verb_hosts logging-server-configure.yml</screen>
    </step>
    <step>
     <para>
-     If you need to do a safe recovery of all the services in your environment
-     then you can use this playbook. This is a more lengthy process as all
-     services are inspected.
+     如果您需要安全的恢复您的环境中的所有服务，您可以使用这个剧本。鉴于所有服务都要被检查，这可能会花费更多时间。
     </para>
-<screen>cd ~/scratch/ansible/next/hos/ansible
-ansible-playbook -i hosts/verb_hosts hlm-reconfigure.yml</screen>
+    <screen>cd ~/scratch/ansible/next/hos/ansible
+     ansible-playbook -i hosts/verb_hosts hlm-reconfigure.yml</screen>
    </step>
   </procedure>
   <para>
-   <emphasis role="bold">One of your controller nodes has gone down and using
-   other methods have not brought RabbitMQ back up</emphasis>
+   <emphasis role="bold">一个控制器节点下线，并且使用其他方法未将 RabbitMQ 重新启动</emphasis>
   </para>
   <para>
-   This disaster recovery procedure has the same caveats as the preceding one,
-   but the steps differ.
+   此灾难恢复过程与前一个过程具有相同的注意事项，但步骤不同。
   </para>
   <para>
-   If your primary RabbitMQ controller node has gone down and you need to
-   perform a disaster recovery, use this playbook from your &lcm;:
+   如果您的主 RabbitMQ 控制器节点已下线并且您需要执行灾难恢复，请使用 &lcm; 中的此剧本：
   </para>
-<screen>cd ~/scratch/ansible/next/hos/ansible
-ansible-playbook -i hosts/verb_hosts rabbitmq-disaster-recovery.yml -e rabbit_primary_hostname=&lt;new_primary_hostname&gt; --limit &lt;hostname_of_node_that_needs_recovered&gt;</screen>
+  <screen>cd ~/scratch/ansible/next/hos/ansible
+   ansible-playbook -i hosts/verb_hosts rabbitmq-disaster-recovery.yml -e rabbit_primary_hostname=&lt;new_primary_hostname&gt; --limit &lt;hostname_of_node_that_needs_recovered&gt;</screen>
   <para>
-   If the controller node is not your primary, you can use this playbook:
+   如果该节点不是主 RabbitMQ 控制器节点，请使用此剧本：
   </para>
-<screen>cd ~/scratch/ansible/next/hos/ansible
-ansible-playbook -i hosts/verb_hosts rabbitmq-disaster-recovery.yml --limit &lt;hostname_of_node_that_needs_recovered&gt;</screen>
+  <screen>cd ~/scratch/ansible/next/hos/ansible
+   ansible-playbook -i hosts/verb_hosts rabbitmq-disaster-recovery.yml --limit &lt;hostname_of_node_that_needs_recovered&gt;</screen>
   <para>
-   No reconfigure playbooks are needed because all of the fan-out exchanges are
-   maintained by the running members of your RabbitMQ cluster.
+   不需要运行重新配置剧本，因为所有扇出交换都由 RabbitMQ 集群正在运行的成员维护。
   </para>
  </section>
 </section>
