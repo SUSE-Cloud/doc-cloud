@@ -69,13 +69,15 @@
   <para>
    <emphasis role="bold">Sample Ceilometer Polling Agent file:</emphasis>
   </para>
-<screen>#File:    ~/opt/stack/service/ceilometer-common/etc/pipeline-agent-central.yaml
+<screen>#File: ~/opt/stack/service/ceilometer-polling/etc/pipeline-polling.yaml
 ---
 sources:
-    - name: meter_source
-      interval: 600
+    - name: swift_source
+      interval: 3600
       meters:
-          - "!*"
+          - "storage.objects"
+          - "storage.objects.size"
+          - "storage.objects.containers"
       resources:
       discovery:
       sinks:
@@ -89,7 +91,7 @@ sinks:
    <emphasis role="bold">Sample Ceilometer Notification Agent(notification
    agent) file:</emphasis>
   </para>
-<screen>#File:    ~/opt/stack/service/ceilometer-common/etc/pipeline.yaml
+<screen>#File:    ~/opt/stack/service/ceilometer-agent-notification/etc/pipeline-agent-notification.yaml
 ---
 sources:
     - name: meter_source
@@ -162,26 +164,36 @@ sinks:
     <para>
      To find the polling agent configuration file, run:
     </para>
-<screen>cd ~/opt/stack/service/ceilometer-common/etc</screen>
+<screen>cd ~/opt/stack/service/ceilometer-polling/etc</screen>
    </step>
    <step>
     <para>
      In a text editor, open the following file:
     </para>
-<screen>pipeline-agent-central.yaml</screen>
+<screen>pipeline-polling.yaml</screen>
    </step>
    <step>
     <para>
      In the following section, change the value of <literal>interval</literal>
      to the desired amount of time:
     </para>
-<screen>sources:
-    - name: meter_source
-      interval: 600
+<screen>---
+sources:
+    - name: swift_source
+      interval: 3600
       meters:
-          - "!*"
+          - "storage.objects"
+          - "storage.objects.size"
+          - "storage.objects.containers"
       resources:
-      discovery:</screen>
+      discovery:
+      sinks:
+          - meter_sink
+sinks:
+    - name: meter_sink
+      transformers:
+      publishers:
+         - notifier://</screen>
     <para>
      In the sample code above, the polling agent will collect data every 600
      seconds, or 10 minutes.
@@ -197,13 +209,13 @@ sinks:
     <para>
      To find the notification agent configuration file, run:
     </para>
-<screen>cd ~~/opt/stack/service/ceilometer-common/etc</screen>
+<screen>cd ~~/opt/stack/service/ceilometer-agent-notification</screen>
    </step>
    <step>
     <para>
      In a text editor, open the following file:
     </para>
-<screen>pipeline.yaml</screen>
+<screen>pipeline-agent-notification.yaml</screen>
    </step>
    <step>
     <para>
@@ -233,6 +245,12 @@ sinks:
     </para>
    </step>
   </procedure>
+  <note>
+   <para>
+    The <literal>pipeline-agent-notification.yaml</literal> file needs to be changed on all
+    controller nodes to change the white-listing and polling strategy.
+   </para>
+  </note>
  </section>
  <section xml:id="idg-all-metering-metering_notifications-xml-7">
   <title>Edit the List of Meters</title>
@@ -244,7 +262,7 @@ sinks:
    Polling Agent and the Notification Agent. Ceilometer Collector will also
    need to be restarted. The following code is an example of a compute-only
    Ceilometer Notification Agent (notification agent)
-   <emphasis role="bold">pipeline.yml </emphasis>file:
+   <emphasis role="bold">pipeline-agent-notification.yaml </emphasis>file:
   </para>
 <screen>---
 sources:
@@ -382,16 +400,15 @@ sinks:
     </listitem>
     <listitem>
      <para>
-      Identity meters are disabled by Keystone in &hpecloud; 3.0 and have
-      not been tested.
+      Identity meters are disabled by Keystone.
      </para>
     </listitem>
     <listitem>
      <para>
       To enable Ceilometer to start collecting meters, some services require
       you enable the meters you need in the service first before enabling them
-      in Ceilometer. One example is Ceph. Refer to the documentation for the
-      specific service before you add new meters or resource fields.
+      in Ceilometer. Refer to the documentation for the specific service before
+      you add new meters or resource fields.
      </para>
     </listitem>
    </itemizedlist>
@@ -409,7 +426,7 @@ sinks:
     <para>
      To change to the Ceilometer directory, run:
     </para>
-<screen>cd /var/lib/ardana/openstack/my_cloud/config/ceilometer </screen>
+<screen>&prompt.ardana;cd ~/openstack/my_cloud/config/ceilometer </screen>
    </step>
    <step>
     <para>
@@ -438,7 +455,7 @@ sinks:
     <para>
      To save your changes in &productname;, run:
     </para>
-<screen>cd /home/stack/helion
+<screen>&prompt.ardana;cd ~/openstack
 git add -A
 git commit -m "My config"</screen>
    </step>
@@ -446,13 +463,13 @@ git commit -m "My config"</screen>
     <para>
      If you added a new meter, reconfigure Ceilometer:
     </para>
-<screen>cd /home/stack/openstack/ardana/ansible/
+<screen>&prompt.ardana;cd ~/openstack/ardana/ansible/
 # To run the config-processor playbook:
-ansible-playbook -i hosts/localhost config-processor-run.yml
+&prompt.ardana;ansible-playbook -i hosts/localhost config-processor-run.yml
 #To run the ready-deployment playbook:
-ansible-playbook -i hosts/localhost ready-deployment.yml
-cd /home/stack/scratch/ansible/next/hos/ansible/
-ansible-playbook -i hosts/verb_hosts ceilometer-reconfigure.yml</screen>
+&prompt.ardana;ansible-playbook -i hosts/localhost ready-deployment.yml
+&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible/
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts ceilometer-reconfigure.yml</screen>
    </step>
   </procedure>
  </section>
@@ -487,7 +504,7 @@ ansible-playbook -i hosts/verb_hosts ceilometer-reconfigure.yml</screen>
    </listitem>
   </itemizedlist>
   <para>
-   Here is an example of <emphasis role="bold">pipeline.yml </emphasis>in which
+   Here is an example of <filename>pipeline.yml</filename> in which
    Swift polling is set to occur hourly.
   </para>
 <screen>---
@@ -511,8 +528,8 @@ ansible-playbook -i hosts/verb_hosts ceilometer-reconfigure.yml</screen>
    With this configuration above, we did not enable polling of container based
    meters and we only collect 3 messages for any given tenant, one for each
    meter listed in the configuration files. Since we have 3 messages only per
-   tenant, it doesn't create a heavy load on the MySQL database as it would
-   have if container-based meters were enabled. Hence, other APIs doesn't get
+   tenant, it does not create a heavy load on the MySQL database as it would
+   have if container-based meters were enabled. Hence, other APIs are not
    hit because of this data collection configuration.
   </para>
  </section>

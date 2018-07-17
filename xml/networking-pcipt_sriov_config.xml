@@ -17,11 +17,6 @@
  <para>
   This improves network I/O, decreases latency, and reduces processor overhead.
  </para>
- <important>
-  <para>
-   RHEL is not supported for SR-IOV and PCI-PT.
-  </para>
- </important>
  <section>
   <title>SR-IOV</title>
   <para>
@@ -224,6 +219,15 @@ connect-x3 Pro). Product part number: 779799-B21</li>-->
       </para>
      </listitem>
     </itemizedlist>
+    <note>
+     <para>
+      Because of Intel driver limitations, you cannot use a NIC port as an
+      SRIOV NIC as well as a physical NIC. Using the physical function to
+      carry the normal tenant traffic through the OVS bridge at the same time
+      as assigning the VFs from the same NIC device as passthrough to the
+      guest VM is not supported.
+     </para>
+    </note>
    </listitem>
   </orderedlist>
   <para>
@@ -393,7 +397,7 @@ connect-x3 Pro). Product part number: 779799-B21</li>-->
    <emphasis role="bold">nic_device_data.yml:</emphasis> This is the new file
    added with this release to support SRIOV and PCIPT configuration details. It
    contains information about the specifics of a nic, and is found here:
-   <literal>~/helion/hos/services/osconfig/nic_device_data.yml</literal>. The
+   <literal>~/openstack/ardana/services/osconfig/nic_device_data.yml</literal>. The
    fields in this file are as follows.
   </para>
   <orderedlist>
@@ -719,6 +723,34 @@ nic-device-families:
       network-groups:
       - GUEST1</screen>
    </listitem>
+   <listitem>
+    <para>
+     <emphasis role="bold">net_interfaces.yml</emphasis> for PCI-PT (<literal>hed1</literal> and
+     <literal>hed4</literal> refer to the DUAL ports of the PCI-PT NIC)
+    </para>
+<screen>    - name: COMPUTE-PCI-INTERFACES
+      network-interfaces:
+      - name: hed3
+        device:
+          name: hed3
+        network-groups:
+          - MANAGEMENT
+          - EXTERNAL-VM
+        forced-network-groups:
+          - EXTERNAL-API
+      - name: hed1
+        device:
+          name: hed1
+          pci-pt: true
+        network-groups:
+          - GUEST
+      - name: hed4
+        device:
+          name: hed4
+          pci-pt: true
+        network-groups:
+          - GUEST</screen>
+   </listitem>
   </orderedlist>
  </section>
 <!-- Commented in DITA original: -->
@@ -783,7 +815,7 @@ nic_mappings.yml
            name: hed2
          network-groups:
            - GUEST2
-            
+
        - name: hed1
          device:
            name: hed1
@@ -855,9 +887,9 @@ nic_mappings.yml
         </table>
         <note>
           <p><b>*</b>VMs will be unable to communicate with each other on the same network when booted for SR-IOV and Normal,
-            however the VMs will be able to communicate with other networks. 
+            however the VMs will be able to communicate with other networks.
           </p>
-          <p><b>**</b> PCI-PT Guest VM can only be booted on first interface For example, if you have eth4 and eth5 
+          <p><b>**</b> PCI-PT Guest VM can only be booted on first interface For example, if you have eth4 and eth5
             on a single Mellanox card, then eth4 should be used for the PCI-PT interface.
           </p>
         </note>
@@ -869,37 +901,39 @@ nic_mappings.yml
   <para>
    Provisioning a VM with SR-IOV NIC is a two-step process.
   </para>
-  <orderedlist>
-   <listitem>
+  <procedure>
+   <step>
     <para>
      Create a Neutron port with <literal>vnic_type = direct</literal>.
     </para>
 <screen>neutron port-create $net_id --name sriov_port --binding:vnic_type direct</screen>
-   </listitem>
-   <listitem>
+   </step>
+   <step>
     <para>
      Boot a VM with the created <literal>port-id</literal>.
     </para>
 <screen>nova boot --flavor m1.large --image ubuntu_14.04 --nic port-id=$port_id test-sriov</screen>
-   </listitem>
-  </orderedlist>
+   </step>
+  </procedure>
   <para>
-   Provisioning a VM with PCI PT NIC is also a two-step process.
+   Provisioning a VM with PCI-PT NIC is a two-step process.
   </para>
-  <orderedlist>
-   <listitem>
+  <procedure>
+   <step>
     <para>
-     Create a Neutron port with <literal>vnic_type = direct-physical</literal>.
+     Create two &o_netw; ports with <literal>vnic_type = direct-physical</literal>.
     </para>
-<screen>neutron port-create $net_id --name pci_port --binding:vnic_type direct-physical</screen>
-   </listitem>
-   <listitem>
+<screen>neutron port-create net1 --name pci-port1 --vnic_type=direct-physical
+neutron port-create net1 --name pci-port2  --vnic_type=direct-physical</screen>
+   </step>
+   <step>
     <para>
-     Boot a VM with the created <literal>port-id</literal>.
+     Boot a VM with the created ports.
     </para>
-<screen>nova boot --flavor m1.large --image ubuntu_14.04 --nic port-id=$port_id test-pcipt</screen>
-   </listitem>
-  </orderedlist>
+<screen>nova boot --flavor 4 --image opensuse --nic port-id pci-port1-port-id \
+--nic port-id pci-port2-port-id vm1-pci-passthrough</screen>
+   </step>
+  </procedure>
   <para>
    If PCI-PT VM gets stuck (hangs) at boot time when using an Intel NIC, the
    boot agent should be disabled.
@@ -939,6 +973,12 @@ nic_mappings.yml
     <para>
      Boot the PCI-PT VM and it should boot without getting stuck.
     </para>
+    <note>
+     <para>
+      Here even though VM console shows VM getting stuck at PXE boot, it is not
+      related to BIOS PXE settings.
+     </para>
+    </note>
    </listitem>
   </orderedlist>
  </section>
@@ -994,10 +1034,22 @@ git commit -m "your commit message goes here in quotes"</screen>
 <screen>cd ~/openstack/ardana/ansible
 ansible-playbook -i hosts/localhost config-processor-run.yml
 ansible-playbook -i hosts/localhost ready-deployment.yml
-cd ~/scratch/ansible/next/hos/ansible
+cd ~/scratch/ansible/next/ardana/ansible
 ansible-playbook -i hosts/verb_hosts site.yml</screen>
    </listitem>
   </orderedlist>
+  <note>
+   <para>
+    After running the site.yml playbook above, you must reboot the compute nodes
+    that are configured with Intel PCI devices.
+   </para>
+  </note>
+  <note>
+   <para>
+    When a VM is running on an SRIOV port on a given compute node,
+    reconfiguration is not supported.
+   </para>
+  </note>
   <para>
    You can set the number of virtual functions that must be enabled on a
    compute node at install time. You can update the number of virtual functions
@@ -1054,6 +1106,13 @@ ansible-playbook -i hosts/verb_hosts site.yml</screen>
    <listitem>
     <para>
      Neutron port-update when admin state is down will not work.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     &slsa; &compnode;s with dual-port PCI-PT NICs, both ports should always be
+     passed in the VM. It is not possible to split the dual port and pass
+     through just a single port.
     </para>
    </listitem>
   </itemizedlist>

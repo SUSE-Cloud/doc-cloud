@@ -79,12 +79,6 @@
    </para>
   </listitem>
   <listitem>
-<!-- Ceph -->
-   <para>
-    <xref linkend="sec.depl.ostack.ceph" xrefstyle="select:title nopage"/>
-   </para>
-  </listitem>
-  <listitem>
 <!-- Swift -->
    <para>
     <xref linkend="sec.depl.ostack.swift" xrefstyle="select:title nopage"/>
@@ -132,22 +126,10 @@
     <xref linkend="sec.depl.ostack.ceilometer" xrefstyle="select:title nopage"/>
    </para>
   </listitem>
-<!-- Aodh -->
-  <listitem>
-   <para>
-    <xref linkend="sec.depl.ostack.aodh" xrefstyle="select:title nopage"/>
-   </para>
-  </listitem>
 <!-- Manila -->
   <listitem>
    <para>
     <xref linkend="sec.depl.ostack.manila" xrefstyle="select:title nopage"/>
-   </para>
-  </listitem>
-<!-- Trove -->
-  <listitem>
-   <para>
-    <xref linkend="sec.depl.ostack.trove" xrefstyle="select:title nopage"/>
    </para>
   </listitem>
 <!-- Tempest -->
@@ -190,11 +172,15 @@
   <note>
    <title>Number of Cluster Nodes</title>
    <para>
-    To set up a cluster, at least two nodes are required. If you are setting up
+    To set up a cluster, at least two nodes are required. <!-- Since SOC 8
+    doesn't support DRBD this should be either removed or replaces wirh
+    something else.
+
+    If you are setting up
     a cluster for storage with replicated storage via DRBD (for example for a
     cluster for the database and RabbitMQ), exactly two nodes are required. For
     all other setups an odd number of nodes with a minimum of three nodes is
-    strongly recommended. See <xref linkend="sec.depl.reg.ha.general"/> for
+    strongly recommended. --> See <xref linkend="sec.depl.reg.ha.general"/> for
     more information.
    </para>
   </note>
@@ -360,8 +346,7 @@
           <para>
            Prepare the shared storage. The path to the shared storage device
            must be persistent and consistent across all nodes in the cluster.
-           The SBD device must not use host-based RAID, cLVM2, nor reside on a
-           DRBD* instance.
+           The SBD device must not use host-based RAID or cLVM2.
           </para>
          </listitem>
          <listitem>
@@ -410,11 +395,6 @@
            <row>
             <entry>Dell, Fujitsu, Lenovo (Intel TCO)</entry>
             <entry><systemitem class="resource">iTCO_wdt</systemitem>
-            </entry>
-           </row>
-           <row>
-            <entry>VM on z/VM on IBM mainframe</entry>
-            <entry><systemitem class="resource">vmwatchdog</systemitem>
             </entry>
            </row>
            <row>
@@ -487,7 +467,7 @@
          All nodes in the cluster use the same <guimenu>Fencing
          Agent</guimenu>, but can be configured with different parameters. This
          setup is, for example, required when nodes are in different chassis
-         and therefore need different iLO (integrated Lights Out) parameters.
+         and therefore need different IPMI parameters.
         </para>
         <para>
          To get a list of &stonith; devices which are supported by the High
@@ -537,8 +517,12 @@
      <para>
       When a node boots but not starts corosync because of this setting, then
       the node's status is in the <guimenu>Node Dashboard</guimenu> is set to
-      "<literal>Problem</literal>" (red dot). To make this node usable again,
-      see <xref linkend="sec.deploy.ha_recovery.contr.node.add"/>.
+      "<literal>Problem</literal>" (red dot).
+      <!-- dpopov 2018-05-24:
+     This should be updated once SOC7->SOC8 instructions are available
+
+     To make this node usable again,
+      see <xref linkend="sec.deploy.ha_recovery.contr.node.add"/>. -->
      </para>
     </listitem>
    </varlistentry>
@@ -554,6 +538,7 @@
      </para>
     </listitem>
    </varlistentry>
+   <!-- FIXME: Remove or replace DRDB
    <varlistentry>
     <term>DRBD: Prepare Cluster for DRBD</term>
     <listitem>
@@ -565,7 +550,7 @@
       option to <guimenu>False</guimenu>.
      </para>
     </listitem>
-   </varlistentry>
+   </varlistentry> -->
    <varlistentry>
     <term><guimenu>HAProxy: Public name for public virtual IP</guimenu>
     </term>
@@ -757,7 +742,7 @@
 
   <para>
    The very first service that needs to be deployed is the
-   <guimenu>Database</guimenu>. The database component is using PostgreSQL and
+   <guimenu>Database</guimenu>. The database component is using &mariadb; and
    is used by all other components. It must be installed on a &contrnode;. The
    Database can be made highly available by deploying it on a cluster.
   </para>
@@ -785,105 +770,9 @@
    </mediaobject>
   </figure>
 
-  <sect2 xml:id="sec.depl.ostack.db.ha">
-   <title>&haSetup; for the Database</title>
-   <para>
-    To make the database highly available, deploy it on a cluster instead of a
-    single &contrnode;. This also requires shared storage for the cluster that
-    hosts the database data. To achieve this, either set up a cluster with DRBD
-    support (see <xref linkend="sec.depl.ostack.pacemaker"/>), or use
-    <quote>traditional</quote> shared storage like an NFS share. We recommend
-    using a dedicated cluster to deploy the database together with RabbitMQ,
-    since both components require shared storage.
-   </para>
-   <para>
-    Deploying the database on a cluster makes an additional <guimenu>High
-    Availability</guimenu> section available in the
-    <guimenu>Attributes</guimenu> section of the proposal. Configure the
-    <guimenu>Storage Mode</guimenu> in this section. There are two options:
-   </para>
-   <variablelist>
-    <varlistentry>
-     <term><guimenu>DRBD</guimenu>
-     </term>
-     <listitem>
-      <para>
-       This option requires a two-node cluster that has been set up with DRBD.
-       Also specify the <guimenu>Size to Allocate for DRBD Device (in
-       Gigabytes)</guimenu>. The suggested value of 50 GB should be sufficient.
-      </para>
-     </listitem>
-    </varlistentry>
-    <varlistentry>
-     <term>Shared Storage</term>
-     <listitem>
-      <para>
-       Use a shared block device or an NFS mount for shared storage.
-       Concordantly with the mount command, you need to specify three
-       attributes: <guimenu>Name of Block Device or NFS Mount
-       Specification</guimenu> (the mount point), the <guimenu>Filesystem
-       Type</guimenu>, and the <guimenu>Mount Options</guimenu>. Refer to
-       <command>man 8 mount</command> for details on file system types and
-       mount options.
-      </para>
-     </listitem>
-    </varlistentry>
-   </variablelist>
-   <important>
-    <title>NFS Export Options for Shared Storage</title>
-    <para>
-     To use an NFS share as shared storage for a cluster, export it on the NFS
-     server with the following options:
-    </para>
-<screen>rw,async,insecure,no_subtree_check,no_root_squash</screen>
-    <para>
-     If mounting the NFS share on the cluster nodes fails, change the export
-     options and re-apply the proposal. However, before doing so, you need to
-     clean up the respective resources on the cluster nodes as described in
-     <link xmlns:xlink="http://www.w3.org/1999/xlink"
-      xlink:href="&suse-onlinedoc;/sle-ha-12/book_sleha/data/sec_ha_config_crm.html#sec_ha_manual_config_cleanup"/>.
-    </para>
-   </important>
-   <important>
-    <title>Ownership of a Shared NFS Directory</title>
-    <para>
-     The shared NFS directory that is used for the PostgreSQL database needs to
-     be owned by the same user ID and group ID as of the
-     <systemitem class="username">postgres</systemitem> user on the HA database
-     cluster.
-    </para>
-    <para>
-     To get the IDs, log in to one of the HA database cluster machines and
-     issue the following commands:
-    </para>
-<screen>id -g postgres
-getent group postgres | cut -d: -f3</screen>
-    <para>
-     The first command returns the numeric user ID, the second one the numeric
-     group ID. Now log in to the NFS server and change the ownership of the
-     shared NFS directory, for example:
-    </para>
-<screen>chown <replaceable>UID</replaceable>.<replaceable>GID</replaceable> /exports/cloud/db</screen>
-    <para>
-     Replace <replaceable>UID</replaceable> and <replaceable>GID</replaceable>
-     by the respective numeric values retrieved above.
-    </para>
-   </important>
-   <warning>
-    <title>Re-Deploying &cloud; with Shared Storage</title>
-    <para>
-     When re-deploying &cloud; and reusing a shared storage hosting database
-     files from a previous installation, the installation may fail due to the
-     old database being used. Always delete the old database from the shared
-     storage before re-deploying &cloud;.
-    </para>
-   </warning>
-  </sect2>
-
   <sect2 xml:id="sec.depl.ostack.db.mariadb">
     <title>Deploying &mariadb;</title>
-    <para>Instead of the default &postgres; database back end, it is also
-    possible to use &mariadb;.</para>
+    <para>Deploying the database requires the use of &mariadb;</para>
 
     <note>
       <title>&mariadb; and HA</title>
@@ -894,6 +783,64 @@ getent group postgres | cut -d: -f3</screen>
       </para>
     </note>
 
+    <sect3 xml:id="sec.depl.ostack.db.mariadb.ssl">
+      <title>SSL Configuration</title>
+
+      <para>
+        SSL can be enabled with either a stand-alone or cluster deployment.
+        The replication traffic between database nodes is not encrypted,
+        whilst traffic between the database server(s) and clients are, so
+        a separate network for the database servers is recommended.
+      </para>
+
+      <para>
+        Certificates can be provided, or the barcamp can generate self-signed
+        certificates. The certificate filenames are configurable in the
+        barclamp, and the directories <literal>/etc/mysql/ssl/certs</literal>
+        and <literal>/etc/mysql/ssl/private</literal> to use the defaults will
+        need to be created before the barclamp is applied. The CA certificate
+        and the certificate for &mariadb; to use both go into
+        <literal>/etc/mysql/ssl/certs</literal>. The appropriate private key
+        for the certificate is placed into the
+        <literal>/etc/mysql/ssl/private</literal> directory. As long as the
+        files are readable when the barclamp is deployed, permissions can be
+        tightened after a successful deployment once the appropriate UNIX
+        groups exist.
+      </para>
+
+      <para>
+        The Common Name (CN) for the SSL certificate must be <literal>fully
+        qualified server name</literal> for single host deployments, and
+        cluster-<literal>cluster name</literal>.<literal>full domain
+        name</literal> for cluster deployments.
+      </para>
+
+      <note>
+        <title>Certificate validation errors</title>
+        <para>
+          If certificate validation errors are causing issues with deploying
+          other barclamps (for example, when creating databases or users) you
+          can check the configuration with
+          <command>mysql --ssl-verify-server-cert</command> which will perform
+          the same verification that Crowbar does when connecting to the
+          database server.
+        </para>
+      </note>
+
+      <para>
+        If certificates are supplied, the CA certificate and its full trust
+        chain must be in the <literal>ca.pem</literal> file. The certificate
+        must be trusted by the machine (or all cluster members in a cluster
+        deployment), and it must be available on all client machines &mdash;
+        IE, if the OpenStack services are deployed on separate machines or
+        cluster members they will all require the CA certificate to be in
+        <literal>/etc/mysql/ssl/certs</literal> as well as trusted by the
+        machine.
+      </para>
+    </sect3>
+
+  <sect3>
+  <title>&mariadb; Configuration Options</title>
   <figure>
    <title>&mariadb; Configuration</title>
    <mediaobject>
@@ -966,6 +913,7 @@ getent group postgres | cut -d: -f3</screen>
         &o_monitor; uses its own &mariadb; instance.
       </para>
     </warning>
+  </sect3>
 
   </sect2>
  </sect1>
@@ -1030,57 +978,16 @@ getent group postgres | cut -d: -f3</screen>
    <para>
     To make RabbitMQ highly available, deploy it on a cluster instead of a
     single &contrnode;. This also requires shared storage for the cluster that
-    hosts the RabbitMQ data. To achieve this, either set up a cluster with DRBD
-    support (see <xref linkend="sec.depl.ostack.pacemaker"/>) or use
-    <quote>traditional</quote> shared storage like an NFS share. We recommend
-    using a dedicated cluster to deploy RabbitMQ together with the database,
+    hosts the RabbitMQ data. We recommend using a dedicated cluster to deploy
+    RabbitMQ together with the database,
     since both components require shared storage.
    </para>
    <para>
     Deploying RabbitMQ on a cluster makes an additional <guimenu>High
     Availability</guimenu> section available in the
     <guimenu>Attributes</guimenu> section of the proposal. Configure the
-    <guimenu>Storage Mode</guimenu> in this section. There are two options:
+    <guimenu>Storage Mode</guimenu> in this section.
    </para>
-   <variablelist>
-    <varlistentry>
-     <term><guimenu>DRBD</guimenu>
-     </term>
-     <listitem>
-      <para>
-       This option requires a two-node cluster that has been set up with DRBD.
-       Also specify the <guimenu>Size to Allocate for DRBD Device (in
-       Gigabytes)</guimenu>. The suggested value of 50 GB should be sufficient.
-      </para>
-     </listitem>
-    </varlistentry>
-    <varlistentry>
-     <term>Shared Storage</term>
-     <listitem>
-      <para>
-       Use a shared block device or an NFS mount for shared storage.
-       Concordantly with the mount command, you need to specify three
-       attributes: <guimenu>Name of Block Device or NFS Mount
-       Specification</guimenu> (the mount point), the <guimenu>Filesystem
-       Type</guimenu>, and the <guimenu>Mount Options</guimenu>.
-      </para>
-     </listitem>
-    </varlistentry>
-   </variablelist>
-   <important>
-    <title>NFS Export Options for Shared Storage</title>
-    <para>
-     An NFS share for use as a shared storage for a cluster needs to be
-     exported on the NFS server with the following options:
-    </para>
-<screen>rw,async,insecure,no_subtree_check,no_root_squash</screen>
-    <para>
-     If mounting the NFS share on the cluster nodes fails, change the export
-     options and re-apply the proposal. Before doing so, however, you need to
-     clean up the respective resources on the cluster nodes as described in
-     <link xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="&suse-onlinedoc;/sle-ha-12/book_sleha/data/sec_ha_config_crm.html#sec_ha_manual_config_cleanup"/>.
-    </para>
-   </important>
   </sect2>
 
   <sect2 xml:id="sec.depl.ostack.rabbitmq.ssl">
@@ -1132,7 +1039,7 @@ Verify return code: 18 (self signed certificate)
      <para>
       The last step is to configure client services to use SSL to access the
       RabbitMQ service. (See
-      <link xlink:href="https://docs.openstack.org/developer/oslo.messaging/newton/opts.html#oslo-messaging-rabbit"/> for a complete reference).
+      <link xlink:href="https://docs.openstack.org/oslo.messaging/pike/#oslo-messaging-rabbit"/> for a complete reference).
      </para>
     </step>
 </procedure>
@@ -1425,14 +1332,13 @@ Verify return code: 18 (self signed certificate)
 <sect2 xml:id="sec.depl.ostack.keystone.ldap">
  <title>Authenticating with LDAP</title>
  <para>
-     &cloud; 6 used a custom hybrid Keystone driver to support authenticating
-     users (e.g. the admin user or service users) from both database back-ends
-     and from LDAP servers. Upstream Keystone now has the ability to separate
-     identity backends by domains. &cloud; 7 uses the upstream method, and has
-     dropped the hybrid driver.
-     </para>
+  &o_ident; has the ability to separate
+  identity backends by domains. &cloud; 8 uses this method for
+  authenticating users.
+ </para>
  <para>
-     The &o_ident; &barcl; sets up a PostgreSQL database by default. Configuring an LDAP back-end is done in the <guimenu>Raw</guimenu> view.
+  The &o_ident; &barcl; sets up a &mariadb; database by default. Configuring
+  an LDAP back-end is done in the <guimenu>Raw</guimenu> view.
  </para>
  <procedure>
      <step>
@@ -1617,245 +1523,6 @@ and admins can see the available options in the barclamp -->
    <para>
     Making &o_ident; highly available requires no special
     configuration&mdash;it is sufficient to deploy it on a cluster.
-   </para>
-  </sect2>
- </sect1>
- <sect1 xml:id="sec.depl.ostack.ceph">
-  <title>Deploying &ceph; (optional)</title>
-
-  <para>
-   &ceph; (<link xlink:href="http://ceph.com/"/>) adds a redundant block
-   storage service to &cloud; for storing persistent devices that can be
-   mounted from &vmguest;s. It offers high data security by storing the data
-   redundantly on a pool of &stornode;s. Therefore &ceph; needs to be installed
-   on at least three dedicated nodes. All &ceph; nodes need to run &slsa; 12.
-   For detailed information on how to provide the required repositories, refer
-   to <xref
-    linkend="sec.depl.adm_conf.repos.scc"/>. If you are deploying
-   the optional Calamari server for &ceph; management and monitoring, an
-   additional node is required.
-  </para>
-
-  <tip>
-   <title>&storage;</title>
-   <para>
-    &storage; is a robust cluster solution based on &ceph;. Refer to
-    <link
-     xlink:href="https://www.suse.com/documentation/ses-4/"/> for
-    more information.
-   </para>
-  </tip>
-
-  <important>
-   <title>Changing &ceph; Client Network</title>
-   <para>
-    With &ceph; clusters, we recommend to have a separate public and cluster
-    networks. &ceph;'s <emphasis>cluster</emphasis> network is where internal
-    cluster processes occur, for example data replication. &ceph;'s
-    <emphasis>public</emphasis> network is the network on which all client
-    traffic occurs.
-   </para>
-   <para>
-    Since &cloud; 7, the &ceph; client network defaults to &crow;'s 'public'
-    network, while the cluster network remains on &crow;'s 'storage' network.
-    If you need to change the default client network name, open the &ceph;
-    &barcl; configuration in a <guimenu>Raw</guimenu> mode before first
-    applying the &ceph; proposal, and change the
-    <option>client_network</option> attribute to match the name of your
-    preferred network.
-   </para>
-  </important>
-
-  <para>
-   The &ceph; &barcl; has the following configuration options:
-  </para>
-
-  <variablelist>
-   <varlistentry>
-    <term><guimenu>Disk Selection Method</guimenu>
-    </term>
-    <listitem>
-     <para>
-      Choose whether to only use the first available disk or all available
-      disks. <quote>Available disks</quote> are all disks currently not used by
-      the system. Note that one disk (usually <filename>/dev/sda</filename>) of
-      every block storage node is already used for the operating system and is
-      not available for &ceph;.
-     </para>
-    </listitem>
-   </varlistentry>
-   <varlistentry>
-    <term><guimenu>Number of Replicas of an Object</guimenu>
-    </term>
-    <listitem>
-     <para>
-      For data security, stored objects are not only stored once, but
-      redundantly. Specify the number of copies that should be stored for each
-      object with this setting. The number includes the object itself. For
-      example, if you want the object plus two copies, specify 3. However, note
-      that the number cannot be higher than the number of available hard disks.
-     </para>
-    </listitem>
-   </varlistentry>
-   <varlistentry>
-    <term><guimenu>SSL Support for RadosGW</guimenu>
-    </term>
-    <listitem>
-     <para>
-      Choose whether to encrypt public communication (<guimenu>HTTPS</guimenu>)
-      or not (<guimenu>HTTP</guimenu>). If you choose <guimenu>HTTPS</guimenu>,
-      you need to specify the locations for the certificate key pair files.
-      Note that both trusted and self-signed certificates are accepted.
-     </para>
-    </listitem>
-   </varlistentry>
-   <varlistentry>
-    <term><guimenu>Calamari Credentials</guimenu>
-    </term>
-    <listitem>
-     <para>
-      Calamari is a Web front-end for managing and analyzing the &ceph;
-      cluster. Provide administrator credentials (user name, password, e-mail
-      address) in this section. When &ceph; has been deployed you can log in to
-      Calamari with these credentials. Deploying Calamari is
-      optional&mdash;leave these text boxes empty when not deploying Calamari.
-     </para>
-    </listitem>
-   </varlistentry>
-  </variablelist>
-
-  <figure>
-   <title>The &ceph; &Barcl;</title>
-   <mediaobject>
-    <imageobject role="fo">
-     <imagedata fileref="depl_barclamp_ceph.png" width="100%" format="png"/>
-    </imageobject>
-    <imageobject role="html">
-     <imagedata fileref="depl_barclamp_ceph.png" width="75%" format="png"/>
-    </imageobject>
-   </mediaobject>
-  </figure>
-
-  <para>
-   The &ceph; component consists of the following different roles:
-  </para>
-
-  <important>
-   <title>Dedicated Nodes</title>
-   <para>
-    We do not recommend sharing one node by multiple &ceph; components at the
-    same time. For example, running a <literal>ceph-mon</literal> service on
-    the same node as <literal>ceph-osd</literal> degrades the performance of
-    all services hosted on the shared node. This also applies to other
-    services, such as Calamari or RADOS Gateway.
-   </para>
-  </important>
-
-  <variablelist>
-   <varlistentry>
-    <term><guimenu>ceph-osd</guimenu>
-    </term>
-    <listitem>
-     <para>
-      The virtual block storage service. Install this role on all dedicated
-      &ceph; &stornode;s (at least three).
-     </para>
-    </listitem>
-   </varlistentry>
-   <varlistentry>
-    <term><guimenu>ceph-mon</guimenu>
-    </term>
-    <listitem>
-     <para>
-      Cluster monitor daemon for managing the storage map of the &ceph;
-      cluster. <guimenu>ceph-mon</guimenu> needs to be installed on at least
-      three nodes.
-     </para>
-    </listitem>
-   </varlistentry>
-   <varlistentry>
-    <term><guimenu>ceph-calamari</guimenu>
-    </term>
-    <listitem>
-     <para>
-      Sets up the Calamari Web interface for managing the &ceph; cluster.
-      Deploying it is optional. The Web interface can be accessed via
-      http://<replaceable>IP-ADDRESS</replaceable>/, where
-      <replaceable>IP-ADDRESS</replaceable> is the address of the machine where
-      <guimenu>ceph-calamari</guimenu> is deployed.
-     </para>
-    </listitem>
-   </varlistentry>
-   <varlistentry>
-    <term><guimenu>ceph-radosgw</guimenu>
-    </term>
-    <listitem>
-     <para>
-      The HTTP REST gateway for &ceph;. Visit
-      <link
-       xlink:href="https://www.suse.com/documentation/ses-4/book_storage_admin/data/cha_ceph_gw.html"/>
-      for more detailed information.
-     </para>
-     <tip>
-      <title>&rgw; HA Setup</title>
-      <para>
-       If you need to set up more &rgw;s (and thus create a backup instance in
-       case one &rgw; node fails), set up &rgw; on multiple nodes and put an
-       HTTP load balancer in front of them. You can choose your preferred
-       balancing solution, or use &sle; HA extension (refer to
-       <link
-        xlink:href="https://www.suse.com/documentation/sle-ha-12/"/>).
-      </para>
-     </tip>
-    </listitem>
-   </varlistentry>
-   <varlistentry>
-    <term><guimenu>ceph-mds</guimenu>
-    </term>
-    <listitem>
-     <para>
-      The metadata server for the &ceph;FS distributed file system. Install
-      this role on one to three nodes to enable &ceph;FS. A file system named
-      <literal>cephfs</literal> will automatically be created, along with
-      <literal>cephfs_metadata</literal> and <literal>cephfs_data</literal>
-      pools. Refer to
-      <link
-       xlink:href="https://www.suse.com/documentation/ses-4/book_storage_admin/data/cha_ceph_cephfs.html"/>
-      for more details.
-     </para>
-    </listitem>
-   </varlistentry>
-  </variablelist>
-
-  <important>
-   <title>Use Dedicated Nodes</title>
-   <para>
-    Never deploy &ceph; on a node that runs non-&ceph; &ostack; components. The
-    only services that may be deployed together on a &ceph; node are
-    <guimenu>ceph-osd</guimenu>, <guimenu>ceph-mon</guimenu>, and
-    <guimenu>ceph-radosgw</guimenu>. However, we recommend running each &ceph;
-    service on a dedicated host for performance reasons. All &ceph; nodes need
-    to run &slsa; 12.
-   </para>
-  </important>
-
-  <figure>
-   <title>The &ceph; &Barcl;: Node Deployment Example</title>
-   <mediaobject>
-    <imageobject role="fo">
-     <imagedata fileref="depl_barclamp_ceph_node_deployment.png" width="100%" format="png"/>
-    </imageobject>
-    <imageobject role="html">
-     <imagedata fileref="depl_barclamp_ceph_node_deployment.png" width="75%" format="png"/>
-    </imageobject>
-   </mediaobject>
-  </figure>
-
-  <sect2 xml:id="sec.depl.ostack.ceph.ha">
-   <title>&haSetup; for &ceph;</title>
-   <para>
-    &ceph; is HA-enabled by design, so there is no need for a special
-    &hasetup;.
    </para>
   </sect2>
  </sect1>
@@ -2774,7 +2441,7 @@ and admins can see the available options in the barclamp -->
 
   <para>
    For information on configuring the Hitachi HUSVM back-end, refer to
-   <link xlink:href="http://docs.openstack.org/newton/config-reference/block-storage/drivers/hitachi-storage-volume-driver.html"/>.
+   <link xlink:href="http://docs.openstack.org/ocata/config-reference/block-storage/drivers/hitachi-storage-volume-driver.html"/>.
   </para>
 
   <bridgehead renderas="sect2"><guimenu>NetApp</guimenu>
@@ -3869,95 +3536,6 @@ sudo neutron router-interface-add <replaceable>router2</replaceable> priv-net-su
     </listitem>
    </varlistentry>
    <varlistentry>
-    <term><guimenu>z/VM Configuration: xCAT Host/IP Address</guimenu>
-    </term>
-    <listitem>
-     <para>
-      IP address of the xCAT management interface.
-      <remark condition="accuracy">2017-01-02 - dpopov: DEVS FIXME Please check whether this is accurate.</remark>
-     </para>
-    </listitem>
-   </varlistentry>
-   <varlistentry>
-    <term><guimenu>z/VM Configuration: xCAT Username/Password</guimenu>
-    </term>
-    <listitem>
-     <para>
-      xCAT login credentials.
-      <remark condition="accuracy">2017-01-02 - dpopov: DEVS FIXME Please check whether this is accurate.</remark>
-     </para>
-    </listitem>
-   </varlistentry>
-   <varlistentry>
-    <term><guimenu>z/VM Configuration: z/VM disk pool for ephemeral disks</guimenu>
-    </term>
-    <listitem>
-     <para>
-      Name of the disk pool for ephemeral disks.
-      <remark condition="clarity">2017-01-02 - dpopov: DEVS FIXME More info required.</remark>
-     </para>
-    </listitem>
-   </varlistentry>
-   <varlistentry>
-    <term><guimenu>z/VM Configuration: z/VM disk pool type for ephemeral disks (ECKD or FBA)</guimenu>
-    </term>
-    <listitem>
-     <para>
-      Choose disk pool type for ephemeral disks.
-      <remark condition="clarity">2017-01-02 - dpopov: DEVS FIXME More info required.</remark>
-     </para>
-    </listitem>
-   </varlistentry>
-   <varlistentry>
-    <term><guimenu>z/VM Configuration: z/VM Host Managed By xCAT MN</guimenu>
-    </term>
-    <listitem>
-     <para>
-      z/VM host managed by xCAT Management Node.
-      <remark condition="clarity">2017-01-02 - dpopov: DEVS FIXME More info required.</remark>
-     </para>
-    </listitem>
-   </varlistentry>
-   <varlistentry>
-    <term><guimenu>z/VM Configuration: User profile for creating a z/VM userid</guimenu>
-    </term>
-    <listitem>
-     <para>
-      User profile to be used for creating a z/VM userid.
-      <remark condition="clarity">2017-01-02 - dpopov: DEVS FIXME More info required.</remark>
-     </para>
-    </listitem>
-   </varlistentry>
-   <varlistentry>
-    <term><guimenu>z/VM Configuration: Default zFCP SCSI Disk Pool</guimenu>
-    </term>
-    <listitem>
-     <para>
-      Default zFCP SCSI disk pool.
-      <remark condition="clarity">2017-01-02 - dpopov: DEVS FIXME More info required.</remark>
-     </para>
-    </listitem>
-   </varlistentry>
-   <varlistentry>
-    <term><guimenu>z/VM Configuration: The xCAT MN node name</guimenu>
-    </term>
-    <listitem>
-     <para>
-      Name of the xCAT Management Node.
-      <remark condition="accuracy">2017-01-02 - dpopov: DEVS FIXME Check whether this is accurate.</remark>
-     </para>
-    </listitem>
-   </varlistentry>
-   <varlistentry>
-    <term><guimenu>z/VM Configuration: The xCAT MN node public SSH key</guimenu>
-    </term>
-    <listitem>
-     <para>
-      Public SSH key of the xCAT Management Node.
-     </para>
-    </listitem>
-   </varlistentry>
-   <varlistentry>
     <term>&vmware; vCenter Settings</term>
     <listitem>
      <para>
@@ -3966,16 +3544,6 @@ sudo neutron router-interface-add <replaceable>router2</replaceable> priv-net-su
      </para>
     </listitem>
    </varlistentry>
-<!--
-   <varlistentry>
-    <term>z/VM Configuration</term>
-    <listitem>
-     <para>
-      FIXME
-     </para>
-    </listitem>
-   </varlistentry>
--->
    <varlistentry>
     <term>SSL Support: Protocol</term>
     <listitem>
@@ -4733,135 +4301,6 @@ sudo neutron router-interface-add <replaceable>router2</replaceable> priv-net-su
    </para>
   </sect2>
  </sect1>
- <sect1 xml:id="sec.depl.ostack.aodh">
-  <title>Deploying &aodh;</title>
-
-  <para>
-   &aodh; is part of OpenStack Telemetry services. &aodh; enables the ability
-   to provide alarms and notifications based on metrics collected by
-   Ceilometer. You can configure the following parameters of the &aodh;
-   &barcl;:
-  </para>
-
-  <variablelist>
-   <varlistentry>
-    <term><guimenu>Evaluation interval for threshold alarms (in seconds)</guimenu>
-    </term>
-    <listitem>
-     <para>
-      Period of evaluation cycle specified as an integer. This value should be
-      equal or greater than the configured pipeline interval for collection of
-      underlying meters.
-     </para>
-    </listitem>
-   </varlistentry>
-   <varlistentry>
-    <term>SSL Support: Protocol
-    </term>
-    <listitem>
-     <para>
-      Choose <guimenu>HTTPS</guimenu> to use SSL for encryption. See
-      <xref linkend="sec.depl.req.ssl"/> for background information and
-      <xref linkend="sec.depl.inst.nodes.post.ssl"/> for installation
-      instructions. The following additional configuration options will become
-      available when choosing <guimenu>HTTPS</guimenu>:
-     </para>
-     <variablelist>
-      <varlistentry>
-       <term><guimenu>Generate (self-signed) certificates (implies insecure)</guimenu>
-       </term>
-       <listitem>
-        <para>
-         When set to <literal>true</literal>, self-signed certificates are
-         automatically generated and copied to the correct locations. This
-         setting is for testing purposes only and should never be used in
-         production environments!
-        </para>
-       </listitem>
-      </varlistentry>
-      <varlistentry>
-       <term><guimenu>SSL Certificate File</guimenu> / <guimenu>SSL (Private) Key
-        File</guimenu>
-       </term>
-       <listitem>
-        <para>
-         Location of the certificate key pair files.
-        </para>
-       </listitem>
-      </varlistentry>
-      <varlistentry>
-       <term><guimenu>SSL Certificate is insecure (for instance, self-signed)</guimenu>
-       </term>
-       <listitem>
-        <para>
-         Set this option to <literal>true</literal> when using self-signed
-         certificates to disable certificate checks. This setting is for
-         testing purposes only and should never be used in production
-         environments!
-        </para>
-       </listitem>
-      </varlistentry>
-      <varlistentry>
-       <term><guimenu>Require Client Certificate</guimenu>
-       </term>
-       <listitem>
-        <para>
-         Set this option to <literal>true</literal> when using your own
-         certificate authority (CA) for signing. Having done so, you also need
-         to specify a path to the <guimenu>CA Certificates File</guimenu>. If
-         your certificates are signed by a trusted third party organization,
-         set <guimenu>Require Client Certificate</guimenu> to
-         <guimenu>false</guimenu>, since the <quote>official</quote>
-         certificate authorities (CA) are already known by the system.
-        </para>
-       </listitem>
-      </varlistentry>
-      <varlistentry>
-       <term><guimenu>SSL CA Certificates File</guimenu>
-       </term>
-       <listitem>
-        <para>
-         Specify the absolute path to the CA certificate here. This option can
-         only be changed if <guimenu>Require Client Certificate</guimenu> was
-         set to <literal>true</literal>.
-        </para>
-        <figure>
-         <title>The SSL Dialog</title>
-         <mediaobject>
-          <imageobject role="fo">
-           <imagedata fileref="depl_barclamp_aodh_ssl.png" width="100%" format="png"/>
-          </imageobject>
-          <imageobject role="html">
-           <imagedata fileref="depl_barclamp_aodh_ssl.png" width="75%" format="png"/>
-          </imageobject>
-         </mediaobject>
-        </figure>
-       </listitem>
-      </varlistentry>
-      <varlistentry>
-       <term><guimenu>Logging: Verbose Logging</guimenu>
-       </term>
-       <listitem>
-        <para>
-         Shows debugging output in the log files when set to
-         <guimenu>true</guimenu>.
-        </para>
-       </listitem>
-      </varlistentry>
-     </variablelist>
-    </listitem>
-   </varlistentry>
-  </variablelist>
-
- <sect2 xml:id="sec.depl.ostack.aodh.ha">
-  <title>&haSetup; for &aodh;</title>
-  <para>
-      Making &aodh; highly available requires no special
-    configuration&mdash;it is sufficient to deploy it on a cluster.
-</para>
-</sect2>
-  </sect1>
-
 
  <sect1 xml:id="sec.depl.ostack.manila">
   <title>Deploying &o_sharefs;</title>
@@ -4884,7 +4323,7 @@ sudo neutron router-interface-add <replaceable>router2</replaceable> priv-net-su
    <title>Limitations for CephFS Back-end</title>
    <para>
     &o_sharefs; uses some CephFS features that are currently
-    <emphasis>not</emphasis> supported by the &sle; 12 SP2 CephFS kernel
+    <emphasis>not</emphasis> supported by the &cloudos; CephFS kernel
     client:
    </para>
    <itemizedlist>
@@ -5161,85 +4600,7 @@ sudo neutron router-interface-add <replaceable>router2</replaceable> priv-net-su
    </para>
   </sect2>
  </sect1>
- <sect1 xml:id="sec.depl.ostack.trove">
-  <title>Deploying &o_dbaas; (Optional)</title>
 
-  <para>
-   &o_dbaas; is a Database-as-a-Service for &cloud;. It provides database
-   instances which can be used by all &vmguest;s. With &o_dbaas; being
-   deployed, &cloud; users no longer need to deploy and maintain their own
-   database applications. For more information about &o_dbaas;; refer to the
-   &ostack; documentation at
-   <link xlink:href="http://docs.openstack.org/developer/trove/"/>.
-  </para>
-
-  <important>
-   <title>Technology Preview</title>
-   <para>
-    &o_dbaas; is only included as a technology preview and not supported.
-   </para>
-  </important>
-
-  <para>
-   &o_dbaas; should be deployed on a dedicated &contrnode;.
-  </para>
-
-  <para>
-   The following attributes can be configured for &o_dbaas;:
-  </para>
-
-  <variablelist>
-   <varlistentry>
-    <term><guimenu>Enable Trove Volume Support</guimenu>
-    </term>
-    <listitem>
-     <para>
-      When enabled, &o_dbaas; will use a &o_blockstore; volume to store the
-      data.
-     </para>
-    </listitem>
-   </varlistentry>
-   <varlistentry>
-    <term><guimenu>Logging: Verbose</guimenu>
-    </term>
-    <listitem>
-     <para>
-      Increases the amount of information that is written to the log files when
-      set to <guimenu>true</guimenu>.
-     </para>
-    </listitem>
-   </varlistentry>
-   <varlistentry>
-    <term><guimenu>Logging: Debug</guimenu>
-    </term>
-    <listitem>
-     <para>
-      Shows debugging output in the log files when set to
-      <guimenu>true</guimenu>.
-     </para>
-    </listitem>
-   </varlistentry>
-  </variablelist>
-
-  <figure>
-   <title>The &o_dbaas; &Barcl;</title>
-   <mediaobject>
-    <imageobject role="fo">
-     <imagedata fileref="depl_barclamp_trove.png" width="100%" format="png"/>
-    </imageobject>
-    <imageobject role="html">
-     <imagedata fileref="depl_barclamp_trove.png" width="75%" format="png"/>
-    </imageobject>
-   </mediaobject>
-  </figure>
-
-  <sect2 xml:id="sec.depl.ostack.trove.ha">
-   <title>&haSetup; for &o_dbaas;</title>
-   <para>
-    An &haSetup; for &o_dbaas; is currently not supported.
-   </para>
-  </sect2>
- </sect1>
  <sect1 xml:id="sec.depl.ostack.tempest">
   <title>Deploying &o_testsuite; (Optional)</title>
 
@@ -6402,16 +5763,17 @@ monitoring</guimenu>
  </sect1>
 
 <sect1 xml:id="sec.depl.ostack.ironic">
-  <title>Deploying Ironic (optional)</title>
-  <para>
-    The Ironic &barcl; is included in &productname; as technology preview.
- Ironic is the OpenStack bare metal service for provisioning physical machines. Refer to the OpenStack <link
-     xlink:href="https://docs.openstack.org/ironic/latest/">developer and admin manual</link> for information on drivers, and administering Ironic.
-</para>
+ <title>Deploying &o_iron; (optional)</title>
+ <para>
+  &o_iron; is the OpenStack bare metal service for provisioning physical
+  machines. Refer to the OpenStack <link
+  xlink:href="https://docs.openstack.org/ironic/latest/">developer and admin
+  manual</link> for information on drivers, and administering &o_iron;.
+ </para>
 
-<para>
-    Deploying the Ironic &barcl; has five steps:
-</para>
+ <para>
+  Deploying the &o_iron; &barcl; is done in five steps:
+ </para>
 <itemizedlist>
   <listitem>
       <para>
@@ -7630,33 +6992,6 @@ Apply the &barcl; to a Control Node.
       <entry>
        <para>
         <systemitem class="service">openstack-swift-object</systemitem>
-       </para>
-      </entry>
-     </row>
-<!-- trove-server -->
-     <row>
-      <entry morerows="2">
-       <para>
-        trove-server
-       </para>
-      </entry>
-      <entry>
-       <para>
-        <systemitem class="service">openstack-trove-api</systemitem>
-       </para>
-      </entry>
-     </row>
-     <row>
-      <entry>
-       <para>
-        <systemitem class="service">openstack-trove-conductor</systemitem>
-       </para>
-      </entry>
-     </row>
-     <row>
-      <entry>
-       <para>
-        <systemitem class="service">openstack-trove-taskmanager</systemitem>
        </para>
       </entry>
      </row>
