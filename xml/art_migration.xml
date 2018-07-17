@@ -95,20 +95,19 @@
    </listitem>
    <listitem>
     <para>
-     Any customizations to virtual environments used by OpenStack components will
+     Any customizations to virtual environments used by &ostack; components will
      be lost during the upgrade process. These may include third party extensions,
      regardless of origin, that have not been included in
-     &productname; &productnumber;
+     &productname; &productnumber;.
     </para>
    </listitem>
    <listitem>
     <para>
-     No significant issues or alarms are actively being reported by Monasca and
-     OpsConsole
+     No significant issues or alarms are actively being reported by &o_monitor; and
+     &opscon;.
     </para>
    </listitem>
   </itemizedlist>
-
   <procedure>
    <title>Preparation Phase</title>
    <step>
@@ -119,7 +118,7 @@
     </para>
 <screen><prompt>(old-deployer)> </prompt>mkdir hos-5.scp
 <prompt>(old-deployer)> </prompt>sudo mount <replaceable>HOS5SCP_ISO_FILE</replaceable> hos-5.scp
-<prompt>(old-deployer)> </prompt>tar -xf hos-5.scp/hos/hlm-migration-tools.tar.gz ./</screen>
+<prompt>(old-deployer)> </prompt>tar -xf hos-5.scp/hos/hlm-migration-tools.tar.gz</screen>
    </step>
    <step>
     <para>
@@ -171,7 +170,7 @@
      <title>Check Validation Results</title>
      <para>
       Review the contents of /var/log/pre-migration-validations.log immediately
-      to discover if any errors were identified during the validation playbook.
+      to discover if any errors were identified while running the validation playbook.
       Any identified issues must be resolved before proceeding with the migration.
      </para>
     </warning>
@@ -249,6 +248,13 @@
        Add a new entry for <systemitem>nova-placement-api</systemitem>
        alongside whichever cluster already includes
        <systemitem>nova-api</systemitem>.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Update the <filename>servers.yml</filename> entry for
+       all nodes in the control plane to specify <systemitem>distro-id:
+       sles12sp3-x86_64</systemitem> in each one.
       </para>
      </listitem>
      <listitem>
@@ -363,10 +369,7 @@
      </listitem>
      <listitem>
       <para>
-       If using cobbler, update the <filename>servers.yml</filename> entry for
-       all nodes in the control plane to specify <systemitem>distro-id:
-       sles12sp3-x86_64</systemitem> in each one, and commit the change to Git.
-       Then, run:
+       If using cobbler, begin the seed node re-imaging by running:
       </para>
 <screen><prompt>(old-deployer)> </prompt>cd ~/helion/hos/ansible
 <prompt>(old-deployer)> </prompt>sudo cobbler system remove --name <replaceable>SEED_NODE_ID</replaceable>
@@ -402,10 +405,11 @@
     </itemizedlist>
 
     <important>
-     <title>Manual Installation Is Recommended</title>
+     <title>Manual Installation</title>
      <para>
-      Although it is possible to use cobbler, we recommend performing a manual
-      installation as described in <xref linkend="book.install"/>.
+      If the server's boot mode is set to Legacy BIOS boot, then it is possible
+      to use cobbler. However, if the boot mode of the server is set to UEFI
+      boot, the operating system must be installed manually.
      </para>
      <para>
       You should also perform installation on the root disk and avoid
@@ -514,6 +518,7 @@
      &hpecloud; 5.SCP installation content:
     </para>
 <screen><prompt>(seed)> </prompt>cd ~; tar -xf hos-5.scp/hos/hos-5.1.0-*.tar
+<prompt>(seed)> </prompt>sudo mkdir -p /var/log/apache2
 <prompt>(seed)> </prompt>cd ~/hos-5.1.0; ./hos-init.bash</screen>
    </step>
    <step>
@@ -524,10 +529,14 @@
     <itemizedlist>
      <listitem>
       <para>
-       On each &slsa; compute node, remove all repositories that point to the
-       old deployer. To do this, run <command>zypper lr -u</command> and
-       remove any listings referring to the original deployer's IP address
+       On each &slsa; compute node, remove outdated repositories that point
+       to the old deployer. To do this, run <command>zypper lr -u</command> and
+       remove listings referring to the original deployer's IP address
        using <command>zypper rr <replaceable>REPO_NAME</replaceable></command>.
+       Note that the repositories <systemitem>SLES-OS</systemitem> and
+       <systemitem>SLES-SDK</systemitem> should never be removed, as they are
+       system entries that will automatically be updated to point to the new
+       seed node during installation.
       </para>
      </listitem>
      <listitem>
@@ -638,7 +647,7 @@
        database nodes have been re-imaged to purge the old data. For example:
       </para>
 <screen>ansible-playbook -i hosts/verb_hosts wipe_disks.yml \
-  -e nodelist=dbmq-m1,dbmq-m2,dbmq-m3</screen>
+  --limit dbmq-m1,dbmq-m2,dbmq-m3</screen>
       <para>
        (Be sure to specify your own list of database nodes matching their
        identifiers from the <filename>servers.yml</filename> file.)
@@ -736,7 +745,8 @@
 <prompt>(seed)> </prompt>ansible resources -i hosts/verb_hosts -a "zypper rr SLES12-SP3-12.3-0" --become</screen>
         <para>
          <replaceable>NEW_DEPLOYER_HOST</replaceable> must match the node's identity in the
-         file hosts/verb_hosts (e.g. <systemitem>ardana-cp1-c0-m1</systemitem>)
+         file <filename>hosts/verb_hosts</filename> (for example,
+         <systemitem>ardana-cp1-c0-m1</systemitem>)
         </para>
        </listitem>
       </itemizedlist>
@@ -756,7 +766,7 @@
       <para>
        Copy the user's home directory from the seed to the new deployer:
       </para>
-<screen><prompt>(seed)> </prompt>rsync -avP ~ <replaceable>NEW_DEPLOYER_IP</replaceable>:/home</screen>
+<screen><prompt>(seed)> </prompt>rsync -avP ~/ <replaceable>NEW_DEPLOYER_IP</replaceable>:/var/lib/ardana/</screen>
      </listitem>
      <listitem>
       <para>
@@ -765,8 +775,8 @@
 <screen><prompt>(new-deployer)> </prompt>cd ~
 <prompt>(new-deployer)> </prompt>sudo mkdir -p /media/cdrom
 <prompt>(new-deployer)> </prompt>echo /var/lib/ardana/sles12sp3.iso /media/cdrom iso9660 loop 0 0 \
-<prompt>(new-deployer)> </prompt>sudo mount -a
   | sudo tee -a /etc/fstab
+<prompt>(new-deployer)> </prompt>sudo mount -a
 <prompt>(new deployer)> </prompt>tar -xf hos-5.scp/hos/hos-5.1.0-*.tar
 <prompt>(new deployer)> </prompt>cd ~/hos-5.1.0
 <prompt>(new deployer)> </prompt>./hos-init.bash
@@ -978,11 +988,23 @@ ARDANA_INIT_AUTO=1 /usr/bin/ardana-init</screen>
    </step>
    <step>
     <para>
-     Apply the PTF packages obtained in the previous step:
+     Apply the PTF packages obtained in the previous step and confirm
+     that they install correctly:
     </para>
 <screen>sudo zypper refresh PTF
 sudo zypper dup --from PTF
-/usr/bin/ardana-init</screen>
+rpm -qa | grep PTF</screen>
+    <para>
+     Ensure that all migration RPMs available to you via your &suse; support
+     contract are present in the resulting list. If any are missing, repeat
+     the above process or contact technical support before continuing.
+    </para>
+   </step>
+   <step>
+    <para>
+     Apply the updates received via PTF packages to your active cloud:
+    </para>
+<screen>/usr/bin/ardana-init</screen>
    </step>
    <step>
     <para>
@@ -1066,50 +1088,25 @@ sudo zypper dup --from Cloud</screen>
      user's privileges more tightly than in previous releases:
     </para>
     <para>
-     With this upgrade, the <filename>policy.json</filename> files have been
-     aligned with &ostack; Pike. This means that the admin user is assigned fewer
-     roles than in previous releases. If you have scripts or runbook
-     instructions which use the admin user may need to modify them to ensure that
-     the necessary privileges are available for their actions, or modify the
-     policies established in their environment.
+     With this upgrade, the policy.json files have been aligned with
+     &ostack-current;. When running &ostack; commands an operator may see
+     messages saying <literal>Policy doesn't allow ...</literal> such as:
     </para>
+    <screen>Policy doesn't allow volume_extension:services:index to be
+    performed</screen>
     <para>
-     As an example, sourcing the <filename>service.osrc</filename> file now
-     provides fewer roles than in previous releases. With this release, loading
-     the <filename>service.osrc</filename> and attempting to run <command>cinder
-     service-list</command> will result in the error "Policy doesn't allow
-     volume_extension:services:index to be performed" because the admin user of
-     the admin project no longer has the cinder_admin role by default, nor does it
-     have the nova_admin, glance_admin, or swiftoperator roles.
+     In this case the operator can be given permission by adding a role to the
+     user using the <command>openstack role add</command> command, for example:
     </para>
+    <screen>&prompt.ardana;openstack role add -/-user
+    <replaceable>USER_NAME</replaceable> -/-project
+    <replaceable>PROJECT_NAME</replaceable> cinder_admin</screen>
     <para>
-     We recommended determining which roles, if any, need to be
-     applied to particular users, and add only those roles. This will yield the
-     greatest security benefits and keep user privileges more distinct.
-    </para>
-    <para>
-     In an environment without security concerns or with few administrative users,
-     you may prefer to add in all of the removed roles to make the system
-     fully backwards-compatible. To do this for the admin user of the admin
-     project, the following commands can be used:
-    </para>
-<screen>openstack role add --user admin --project admin swiftoperator
-openstack role add --user admin --project admin glance_admin
-openstack role add --user admin --project admin cinder_admin
-openstack role add --user admin --project admin nova_admin</screen>
-    <para>
-     Executing the above commands restores the roles to administer &o_comp;,
-     &o_blockstore;, &o_img;, and &o_objstore; for the admin user of the
-     admin project. If you are using the admin user in other projects, or other
-     users in the admin project, may wish to add some or all of these roles for
-     the other users or projects; this needs to be determined on a case-by-case
-     basis for each user and project.
-    </para>
-    <para>
-     In an environment which requires separation of duties, these roles should not
-     all be assigned to one user; instead, each administrator should be assigned
-     only the roles they require to perform their duties and should use their own
-     user to perform their administrative tasks.
+     Role assignments should be carefully considered. In an environment which
+     requires separation of duties, each operator should be assigned only the
+     roles they require to perform their duties and should use their own user
+     account to perform their administrative tasks. For more information see
+     the <xref linkend="roleSegregation"/>.
     </para>
    </step>
   </procedure>
