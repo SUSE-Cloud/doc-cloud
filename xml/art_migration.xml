@@ -204,6 +204,59 @@
    </step>
    <step>
     <para>
+     Consider the effect of control plane downtime on existing DHCP leases:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       Default DHCP lease time is 48 hours as defined in the
+       <filename>~/helion/hos/ansible/roles/neutron-common/templates/neutron.conf.j2</filename>
+       file by the <systemitem>dhcp_lease_duration</systemitem> parameter.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       DHCP leases are administered by &o_netw; and dnsmasq. This
+       functionality will not be available during the control plane downtime.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       DHCP clients typically renew their leases either after 50% of the
+       lease time or upon reboot.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Normally, this leaves a 24-hour window for control plane downtime at
+       any point before workload's DHCP leases run out and cannot be renewed.
+       While this is typically enough for performing a migration, increasing
+       the DHCP lease time to 144 hours is recommended to ensure that lease
+       expiration will not be a concern that affects your migration, even if
+       unexpected delays in the process are encountered.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       To view the upcoming timeouts of DHCP leases, run the following
+       command from each &contrnode;:
+      </para>
+<screen>for i in $(cat /var/run/neutron/dhcp/*/leases | awk '{print $1}'); do date -d @$i; done</screen>
+     </listitem>
+     <listitem>
+      <para>
+       To increase the DHCP lease time before migrating, open the
+       <filename>~/helion/hos/ansible/roles/neutron-common/templates/neutron.conf.j2</filename>
+       file and edit the <systemitem>dhcp_lease_duration</systemitem> parameter.
+       Commit the change, and run the <filename>neutron-configure.yml</filename> playbook.
+       Then, continue to monitor the upcoming DHCP lease expirations as described
+       above until all existing leases have been refreshed to a lengthier period.
+      </para>
+     </listitem>
+    </itemizedlist>
+   </step>
+   <step>
+    <para>
      Prepare the cloud data model for migration:
     </para>
     <itemizedlist>
@@ -262,59 +315,6 @@
        Commit your changes to the Git model:
       </para>
 <screen><prompt>(old-deployer)> </prompt>git commit -a -m "Prepare for HOS 5.1 installation"</screen>
-     </listitem>
-     <listitem>
-      <para>
-       Consider the effect of control plane downtime on existing DHCP leases:
-      </para>
-      <itemizedlist>
-       <listitem>
-        <para>
-         Default DHCP lease time is 48 hours as defined in the
-         <filename>~/helion/hos/ansible/roles/neutron-common/templates/neutron.conf.j2</filename>
-         file by the <systemitem>dhcp_lease_duration</systemitem> parameter.
-        </para>
-       </listitem>
-       <listitem>
-        <para>
-         DHCP leases are administered by &o_netw; and dnsmasq. This
-         functionality will not be available during the control plane downtime.
-        </para>
-       </listitem>
-       <listitem>
-        <para>
-         DHCP clients typically renew their leases either after 50% of the
-         lease time or upon reboot.
-        </para>
-       </listitem>
-       <listitem>
-        <para>
-         Normally, this leaves a 24-hour window for control plane downtime at
-         any point before workload's DHCP leases run out and cannot be renewed.
-         While this is typically enough for performing a migration, increasing
-         the DHCP lease time to 144 hours is recommended to ensure that lease
-         expiration will not be a concern that affects your migration, even if
-         unexpected delays in the process are encountered.
-        </para>
-       </listitem>
-       <listitem>
-        <para>
-         To view the upcoming timeouts of DHCP leases, run the following
-         command from each &contrnode;:
-        </para>
-<screen>for i in $(cat /var/run/neutron/dhcp/*/leases | awk '{print $1}'); do date -d @$i; done</screen>
-       </listitem>
-       <listitem>
-        <para>
-         To increase the DHCP lease time before migrating, open the
-         <filename>~/helion/hos/ansible/roles/neutron-common/templates/neutron.conf.j2</filename>
-         file and edit the <systemitem>dhcp_lease_duration</systemitem> parameter.
-         Commit the change, and run the <filename>neutron-configure.yml</filename> playbook.
-         Then, continue to monitor the upcoming DHCP lease expirations as described
-         above until all existing leases have been refreshed to a lengthier period.
-        </para>
-       </listitem>
-      </itemizedlist>
      </listitem>
     </itemizedlist>
    </step>
@@ -1014,7 +1014,7 @@ ARDANA_INIT_AUTO=1 /usr/bin/ardana-init</screen>
      of <systemitem>vertica</systemitem> (continuing as
      <systemitem>ardana</systemitem> user):
     </para>
-<screen>cd /var/lib/ardana/openstack/ardana/ansible</screen>
+<screen>cd ~/openstack/ardana/ansible</screen>
     <para>
      Manually replace <literal>vertica</literal> with <literal>cassandra</literal>
      in the service-components list, and remove any entry for
@@ -1074,6 +1074,8 @@ ansible-playbook -i hosts/verb_hosts ardana-replace-legacy-repos.yml</screen>
      After the base installation has completed, the PTF packages can be removed:
     </para>
 <screen>sudo rm /srv/www/suse-12.3/x86_64/repos/PTF/*
+cd ~/openstack/ardana/ansible
+ansible-playbook -i hosts/localhost deployer-init.yml
 sudo zypper refresh PTF
 sudo zypper dup --from Cloud</screen>
    </step>
