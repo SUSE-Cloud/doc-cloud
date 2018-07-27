@@ -4,7 +4,6 @@
   <!ENTITY % entities SYSTEM "entity-decl.ent">
   %entities;
 ]>
-<!-- Converted by suse-upgrade version 1.1 -->
 <chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0" xml:id="cha.depl.maintenance">
  <title>&cloud; Maintenance</title>
  <info>
@@ -339,7 +338,7 @@
     <para>
      If the &compnode; failed, it should have been fenced. Verify that this is
      the case. Otherwise, check <filename>/var/log/pacemaker.log</filename> on
-     the Designated Coordinator to determine why the &compnode; was not fenced.
+     the &dc; to determine why the &compnode; was not fenced.
      The most likely reason is a problem with STONITH devices.
     </para>
    </step>
@@ -378,7 +377,7 @@
     <para>
      Check whether the remote node is registered and considered healthy by the
      core cluster. If this is not the case check
-     <filename>/var/log/pacemaker.log</filename> on the Designated Coordinator
+     <filename>/var/log/pacemaker.log</filename> on the &dc;
      to determine the cause. There should be a remote primitive running on the
      core cluster (active/passive). This primitive is responsible for
      establishing a TCP connection to the
@@ -388,8 +387,8 @@
      switches, firewalls etc.). One way to do this is to run the following
      commands:
     </para>
-<screen>&prompt.user; lsof -i tcp:3121
-&prompt.user; tcpdump tcp port 3121
+<screen>&prompt.user;lsof -i tcp:3121
+&prompt.user;tcpdump tcp port 3121
 </screen>
    </step>
    <step>
@@ -399,8 +398,11 @@
      group <literal>cl-g-nova-compute</literal> using the NovaCompute OCF
      resource agent. This cloned group will block startup of
      <systemitem>nova-evacuate</systemitem> until at least one clone is
-     started. Therefore the next section is necessary as a related but
-     different procedure. See also the next step.
+     started.
+    </para>
+    <para>
+     A necessary, related but different procedure is described in
+     <xref linkend="sec.depl.maintenance.bootstrap.compute.plane"/>.
     </para>
    </step>
    <step>
@@ -409,13 +411,21 @@
      correctly on the &compnode; by <systemitem>lrmd</systemitem>, but the
      <systemitem>openstack-nova-compute</systemitem> service is still not
      running. This usually happens when <systemitem>nova-evacuate</systemitem>
-     did not run correctly. If <systemitem>nova-evacuate</systemitem> is not
+     did not run correctly.
+    </para>
+    <para>
+     If <systemitem>nova-evacuate</systemitem> is not
      running on one of the core cluster nodes, make sure that the service is
      marked as started (<literal>target-role="Started"</literal>). If this is
      the case, then your cloud does not have any &compnode;s already running as
-     assumed by this procedure. In case <systemitem>nova-evacuate</systemitem>
-     is started but it is failing, check the &pacemaker; logs to determine the
-     cause. When <systemitem>nova-evacuate</systemitem> is started and
+     assumed by this procedure.
+    </para>
+    <para>
+     If <systemitem>nova-evacuate</systemitem> is started but it is
+     failing, check the &pacemaker; logs to determine the cause.
+    </para>
+    <para>
+     If <systemitem>nova-evacuate</systemitem> is started and
      functioning correctly, it should call &o_comp;'s
      <literal>evacuate</literal> API to release resources used by the
      &compnode; and resurrect elsewhere any VMs that died when it failed.
@@ -430,12 +440,12 @@
      <replaceable>SERVICE_ID</replaceable></command> command. If the service is
      forced down, run the following commands:
     </para>
-<screen>&prompt.user; fence_nova_param () {
+<screen>&prompt.user;fence_nova_param () {
     key="$1"
     cibadmin -Q -A "//primitive[@id='fence-nova']//nvpair[@name='$key']" | \
     sed -n '/.*value="/{s///;s/".*//;p}'
 }
-&prompt.user; fence_compute \
+&prompt.user;fence_compute \
     --auth-url=`fence_nova_param auth-url` \
     --endpoint-type=`fence_nova_param endpoint-type` \
     --tenant-name=`fence_nova_param tenant-name` \
@@ -450,15 +460,17 @@
 
   <para>
    The above steps should be performed automatically after the node is
-   booted. If that did not happen, try the following debugging techniques.
+   booted. If that does not happen, try the following debugging techniques.
   </para>
 
   <para>
    Check the <literal>evacuate</literal> attribute for the &compnode; in the
    &pacemaker; cluster's <systemitem>attrd</systemitem> service using the
-   <command>attrd_updater -p -n evacuate -N
-   <replaceable>NODE</replaceable></command> command. Below is a list of
-   possible results.
+   command:
+  </para>
+<screen>&prompt.user;attrd_updater -p -n evacuate -N <replaceable>NODE</replaceable></screen>
+  <para>
+   Possible results are the following:
   </para>
 
   <itemizedlist>
@@ -494,14 +506,14 @@
 
   <para>
    If the attribute is stuck with the wrong value, it can be set to
-   <literal>no</literal> using the <command>attrd_updater -n evacuate -U no -N
-   $node</command> command.
+   <literal>no</literal> using the command:
   </para>
+<screen>&prompt.user;attrd_updater -n evacuate -U no -N <replaceable>NODE</replaceable></screen>
 
   <para>
-   After normal fencing has been performed, the secondary fencing device
-   (<literal>fence-nova</literal>) should be activated using the
-   <systemitem>fence_compute</systemitem> fence agent. It does this by setting
+   After standard fencing has been performed, fence agent
+   <systemitem>fence_compute</systemitem> should activate the secondary
+   fencing device (<literal>fence-nova</literal>). It does this by setting
    the attribute to <literal>yes</literal> to mark the node as needing
    recovery. The agent also calls &o_comp;'s
    <systemitem>force_down</systemitem> API to notify it that the host is down.
