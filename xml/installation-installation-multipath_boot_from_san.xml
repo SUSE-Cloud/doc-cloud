@@ -61,18 +61,11 @@
      In each stanza of the <filename>servers.yml</filename> insert a line
      stating <literal>boot-from-san: true</literal>
     </para>
-<screen>
-    - id: controller2
+<screen>- id: controller2
       ip-addr: 192.168.10.4
       role: CONTROLLER-ROLE
       server-group: RACK2
-      nic-mapping: HP-DL360-4PORT
-      mac-addr: "8a:8e:64:55:43:76"
-      ilo-ip: 192.168.9.4
-      ilo-password: password
-      ilo-user: admin
-      <emphasis role="bold">boot-from-san: true</emphasis>
-</screen>
+      nic-mapping: HP-DL360-4PORT</screen>
     <para>
      This uses the disk <filename>/dev/mapper/mpatha</filename> as the default
      device on which to install the OS.
@@ -83,7 +76,7 @@
      In the disk input models, specify the devices that will be
      used via their multipath names (which will be of the form
      <filename>/dev/mapper/mpatha</filename>,
-     <filename>/dev/mapper/mpathb</filename> etc.).
+     <filename>/dev/mapper/mpathb</filename>, etc.).
     </para>
 <screen>
     volume-groups:
@@ -100,6 +93,126 @@
         physical-volumes:
           - /dev/mapper/mpathb
 </screen>
+   </step>
+  </procedure>
+  <para>
+   Instead of being able to using Cobbler, you need to provision a baremetal
+   node manually using the following procedure.
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Assign a static IP to the node.
+    </para>
+    <substeps>
+     <step>
+      <para>
+       Use the <command>ip addr</command> command to list active network
+       interfaces on your system:
+      </para>
+<screen>1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host
+       valid_lft forever preferred_lft forever
+2: eno1: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc mq state UP qlen 1000
+    link/ether f0:92:1c:05:89:70 brd ff:ff:ff:ff:ff:ff
+    inet 10.13.111.178/26 brd 10.13.111.191 scope global eno1
+       valid_lft forever preferred_lft forever
+    inet6 fe80::f292:1cff:fe05:8970/64 scope link
+       valid_lft forever preferred_lft forever
+3: eno2: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc mq state UP qlen 1000
+    link/ether f0:92:1c:05:89:74 brd ff:ff:ff:ff:ff:ff
+</screen>
+     </step>
+     <step>
+      <para>
+       Identify the network interface that matches the MAC address of your
+       server and edit the corresponding configuration file in
+       <filename>/etc/sysconfig/network-scripts</filename>. For example, for
+       the <systemitem>eno1</systemitem> interface, open the
+       <systemitem>/etc/sysconfig/network-scripts/ifcfg-eno1</systemitem> file
+       and edit <replaceable>IPADDR</replaceable> and
+       <replaceable>NETMASK</replaceable> values to match your
+       environment. Note that the <replaceable>IPADDR</replaceable> is used in
+       the corresponding stanza in <filename>servers.yml</filename>. You may
+       also need to set <literal>BOOTPROTO</literal> to
+       <literal>none</literal>:
+      </para>
+<screen>
+TYPE=Ethernet
+BOOTPROTO=none
+DEFROUTE=yes
+PEERDNS=yes
+PEERROUTES=yes
+IPV4_FAILURE_FATAL=no
+IPV6INIT=yes
+IPV6_AUTOCONF=yes
+IPV6_DEFROUTE=yes
+IPV6_PEERDNS=yes
+IPV6_PEERROUTES=yes
+IPV6_FAILURE_FATAL=no
+NAME=eno1
+UUID=36060f7a-12da-469b-a1da-ee730a3b1d7c
+DEVICE=eno1
+ONBOOT=yes
+NETMASK=255.255.255.192
+IPADDR=10.13.111.14
+</screen>
+     </step>
+     <step>
+      <para>
+       Reboot the &slsa; node and ensure that it can be accessed from the &lcm;.
+      </para>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     Add the <literal>ardana</literal> user and an initial home directory:
+    </para>
+<screen>
+&prompt.root;useradd -m ardana
+&prompt.root;passwd ardana
+</screen>
+   </step>
+   <step>
+    <para>
+     Add the <literal>ardana</literal> group and change the home directory:
+    </para>
+<screen>&prompt.root;groupadd ardana
+&prompt.root;mkdir /var/lib/ardana
+&prompt.root;chown ardana:ardana /var/lib/ardana
+&prompt.root;usermod -m -d /var/lib/ardana ardana
+</screen>
+   </step>
+   <step>
+    <para>
+     Allow the user <literal>ardana</literal> to run
+     <command>sudo</command> without a password by creating the
+     <filename>/etc/sudoers.d/ardana</filename> file with the following
+     configuration:
+    </para>
+<screen>ardana ALL=(ALL) NOPASSWD:ALL</screen>
+   </step>
+   <step>
+    <para>
+     When you start installation using the &lcm;, or if you are adding a &slsa;
+     node to an existing cloud, you need to copy the &lcm; public key to the
+     &slsa; node to enable passwordless SSH access. One way of doing this is to
+     copy the file <filename>/home/stack/.ssh/authorized_keys</filename> from
+     another node in the cloud to the same location on the &slsa; node. If you
+     are installing a new cloud, this file will be available on the nodes after
+     running the <filename>bm-reimage.yml</filename> playbook. Ensure that
+     there is global read access to the file
+     <filename>/var/lib/ardana/.ssh/authorized_keys</filename>.
+    </para>
+    <para>
+     Use the following command to test passwordless SSH from the deployer and
+     check the ability to remotely execute sudo commands:
+    </para>
+<screen>ssh stack@<replaceable>SLES_NODE_IP</replaceable> "sudo tail -5 /var/log/messages"</screen>
    </step>
   </procedure>
  </section>
@@ -217,11 +330,6 @@
 <screen>
 multipath=true partman-fcoe/interfaces=&lt;mac address1&gt;,&lt;mac address2&gt; disk-detect/fcoe/enable=true --- quiet
 </screen>
-    <para>
-     See the sections of installing from an ISO using
-     UEFI (<xref linkend="sec.san-uefi_fcoe"/>) and
-     BIOS (<xref linkend="sec.san-bios_fcoe"/>).
-    </para>
    </listitem>
   </itemizedlist>
   <para>
@@ -372,7 +480,6 @@ ansible-playbook -i hosts/verb_hosts fcoe-enable.yml
       <emphasis role="bold">fcoe-interfaces:
          - 6c:c2:17:33:4c:a1
          - 6c:c2:17:33:4c:a9</emphasis>
-
 </screen>
   <important xml:id="distro-id-multipath">
    <para>
@@ -403,144 +510,56 @@ ansible-playbook -i hosts/verb_hosts fcoe-enable.yml
     <filename>site.yml</filename>.
    </para>
   </note>
+  <para>
+   Install the operating system on a multipath device as described in Section
+   8.15 of <citetitle>Red Hat Enterprise Linux 7 Installation Guide</citetitle>
+   at <link xlink:href="https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/7/pdf/installation_guide/Red_Hat_Enterprise_Linux-7-Installation_Guide-en-US.pdf"/>.
+   After the operating system is installed, follow instructions in <xref
+   linkend="provisioning_rhel"/>.
+  </para>
  </section>
  <section xml:id="install_boot_from_san">
-  <title>Installing the &kw-hos-phrase; ISO for nodes that support Boot from SAN</title>
-  <para>
-   This section describes how to install the ISO on the &lcm; to support the
-   following configurations:
-  </para>
-  <itemizedlist>
-   <listitem>
+  <title>Installing the &kw-hos-phrase; ISO for Nodes That Support Boot From SAN</title>
+  <procedure>
+   <step>
     <para>
-     <xref linkend="sec.san-uefi"/>
+     During manual installation of &cloudos;, select the desired SAN
+     disk and create an LVM partitioning scheme that meets &productname;
+     requirements, that is it has an <literal>ardana-vg</literal> volume
+     group and an <literal>ardana-vg-root</literal> logical volume. For
+     further information on partitioning, see <xref
+     linkend="sec.depl.adm_inst.partitioning"/>.
     </para>
-   </listitem>
-   <listitem>
+   </step>
+   <step>
     <para>
-     <xref linkend="sec.san-uefi_fcoe"/>
+     After the installation is completed and the system is booted up, open the
+     file <filename>/etc/multipath.conf</filename> and edit the defaults
+     as follows:
     </para>
-   </listitem>
-   <listitem>
+<screen>defaults {
+    user_friendly_names yes
+    bindings_file "/etc/multipath/bindings"
+}</screen>
+   </step>
+   <step>
     <para>
-     <xref linkend="sec.san-bios"/>
-    </para>
-   </listitem>
-   <listitem>
+     Open the <filename>/etc/multipath/bindings</filename> file and map
+     the expected device name to the SAN disk selected during installation.
+     In &productname;, the naming convention is <literal>mpatha</literal>,
+     <literal>mpathb</literal>, and so on. For example:</para>
+<screen>mpatha-part1    360000000030349030-part1
+mpatha-part2    360000000030349030-part2
+mpatha-part3    360000000030349030-part3
+
+mpathb-part1    360000000030349000-part1
+mpathb-part2    360000000030349000-part2</screen>
+   </step>
+   <step>
     <para>
-     <xref linkend="sec.san-bios_fcoe"/>
+     Reboot the machine to enable the changes.
     </para>
-   </listitem>
-  </itemizedlist>
-  <para>
-   The &lcm; will then automatically handle the installation on nodes that
-   support Boot from SAN based on the configuration information in
-   <literal>servers.yml</literal> and the disk models, as described in the
-   preceding section.
-  </para>
-  <section xml:id="sec.san-uefi">
-   <title>UEFI Boot Mode</title>
-   <procedure>
-    <step>
-     <para>
-      On the installer boot menu, press <keycap>E</keycap> to enter the
-      <literal>Edit Selection</literal> screen.
-     </para>
-    </step>
-    <step>
-     <para>
-      On the line that starts with <literal>linux</literal>, enter the text
-      <literal>multipath=true</literal> before <literal>--- quiet</literal>.
-     </para>
-    </step>
-    <step>
-     <para>
-      Press <keycombo><keycap function="control"/><keycap>X</keycap></keycombo>
-      or <keycap>F10</keycap> to proceed with the installation.
-     </para>
-    </step>
-   </procedure>
-  </section>
-  <section xml:id="sec.san-uefi_fcoe">
-   <title>UEFI Boot Mode with QLogic FCoE</title>
-   <para>
-    In addition to inserting <literal>multipath=true</literal>, it is necessary
-    to supply details of the FCoE network interfaces.
-   </para>
-   <procedure>
-    <step>
-     <para>
-      At the installer boot menu, press <keycap>E</keycap> to enter the
-      <literal>Edit Selection</literal> screen.
-     </para>
-    </step>
-    <step>
-     <para>
-      On the line that starts with <literal>linux</literal>, enter the text
-      <literal>partman-fcoe/interfaces=6c:c2:17:33:4c:a1,6c:c2:17:33:4c:a9
-      disk-detect/fcoe/enable=true</literal> between
-      <literal>multipath=true</literal> and <literal> --- quiet</literal>.
-     </para>
-    </step>
-    <step>
-     <para>
-      Press <keycombo><keycap function="control"/><keycap>X</keycap></keycombo>
-      or <keycap>F10</keycap> to proceed with the installation.
-     </para>
-    </step>
-   </procedure>
-  </section>
-  <section xml:id="sec.san-bios">
-   <title>Legacy BIOS Boot Mode</title>
-   <procedure>
-    <step>
-     <para>
-      On the installer boot menu, navigate (using <keycap function="down"/>) to
-      the <literal>Advanced options</literal> entry and then press
-      <keycap function="enter"/>.
-     </para>
-    </step>
-    <step>
-     <para>
-      Navigate to the <literal>Multipath install</literal> entry and press
-      <keycap function="enter"/> to start the installation.
-     </para>
-    </step>
-   </procedure>
-  </section>
-  <section xml:id="sec.san-bios_fcoe">
-   <title>Legacy BIOS Boot Mode with QLogic FCoE</title>
-   <procedure>
-    <step>
-     <para>
-      On the installer boot menu, navigate (using <keycap function="down"/>) to
-      the <literal>Advanced options</literal> entry and then press
-      <keycap function="enter"/>.
-     </para>
-    </step>
-    <step>
-     <para>
-      Navigate to the <literal>Multipath install</literal> entry and press
-      <keycap function="tab"/> to edit the entry details. The kernel command
-      line is now displayed at the bottom of the screen and
-      <literal>multipath=true</literal> is already specified.
-     </para>
-    </step>
-    <step>
-     <para>
-      Edit the kernel command line to add the FCoE network interfaces before
-      <literal> --- quiet</literal>. Add
-      <literal>partman-fcoe/interfaces=6c:c2:17:33:4c:a1,6c:c2:17:33:4c:a9
-      disk-detect/fcoe/enable=true</literal> before
-      <literal> --- quiet</literal>.
-     </para>
-    </step>
-    <step>
-     <para>
-      Now press <keycap function="enter"/> to start the installation.
-     </para>
-    </step>
-   </procedure>
-  </section>
+   </step>
+  </procedure>
  </section>
 </chapter>

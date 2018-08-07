@@ -95,7 +95,7 @@
    </listitem>
    <listitem>
     <para>
-     Any customizations to virtual environments used by OpenStack components will
+     Any customizations to virtual environments used by &ostack; components will
      be lost during the upgrade process. These may include third party extensions,
      regardless of origin, that have not been included in
      &productname; &productnumber;.
@@ -103,14 +103,30 @@
    </listitem>
    <listitem>
     <para>
-     No significant issues or alarms are actively being reported by Monasca and
+     No significant issues or alarms are actively being reported by &o_monitor; and
      &opscon;.
     </para>
    </listitem>
   </itemizedlist>
-
+  <para>
+   Preparation Phase
+  </para>
   <procedure>
-   <title>Preparation Phase</title>
+   <step>
+    <para>
+     Because all Freezer content will be obsolete upon migrating to the new platform,
+     it is recommended to stop Freezer jobs and eliminate historic backups.
+    </para>
+<screen><prompt>(old-deployer)> </prompt>source ~/backup.osrc
+<prompt>(old-deployer)> </prompt>for id in $(freezer job-list -f value | awk '{print $1}')
+  do freezer job-stop $id
+done
+<prompt>(old-deployer)> </prompt>for container in $(openstack container list -f value)
+  for backup in $(openstack object list $container -f value)
+    do openstack object delete $container $backup
+  done
+done</screen>
+   </step>
    <step>
     <para>
      Obtain the &hpecloud; 5.SCP installation ISO and use the
@@ -205,6 +221,59 @@
    </step>
    <step>
     <para>
+     Consider the effect of control plane downtime on existing DHCP leases:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       Default DHCP lease time is 48 hours as defined in the
+       <filename>~/helion/hos/ansible/roles/neutron-common/templates/neutron.conf.j2</filename>
+       file by the <systemitem>dhcp_lease_duration</systemitem> parameter.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       DHCP leases are administered by &o_netw; and dnsmasq. This
+       functionality will not be available during the control plane downtime.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       DHCP clients typically renew their leases either after 50% of the
+       lease time or upon reboot.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Normally, this leaves a 24-hour window for control plane downtime at
+       any point before workload's DHCP leases run out and cannot be renewed.
+       While this is typically enough for performing a migration, increasing
+       the DHCP lease time to 144 hours is recommended to ensure that lease
+       expiration will not be a concern that affects your migration, even if
+       unexpected delays in the process are encountered.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       To view the upcoming timeouts of DHCP leases, run the following
+       command from each &contrnode;:
+      </para>
+<screen>for i in $(cat /var/run/neutron/dhcp/*/leases | awk '{print $1}'); do date -d @$i; done</screen>
+     </listitem>
+     <listitem>
+      <para>
+       To increase the DHCP lease time before migrating, open the
+       <filename>~/helion/hos/ansible/roles/neutron-common/templates/neutron.conf.j2</filename>
+       file and edit the <systemitem>dhcp_lease_duration</systemitem> parameter.
+       Commit the change, and run the <filename>neutron-configure.yml</filename> playbook.
+       Then, continue to monitor the upcoming DHCP lease expirations as described
+       above until all existing leases have been refreshed to a lengthier period.
+      </para>
+     </listitem>
+    </itemizedlist>
+   </step>
+   <step>
+    <para>
      Prepare the cloud data model for migration:
     </para>
     <itemizedlist>
@@ -263,59 +332,6 @@
        Commit your changes to the Git model:
       </para>
 <screen><prompt>(old-deployer)> </prompt>git commit -a -m "Prepare for HOS 5.1 installation"</screen>
-     </listitem>
-     <listitem>
-      <para>
-       Consider the effect of control plane downtime on existing DHCP leases:
-      </para>
-      <itemizedlist>
-       <listitem>
-        <para>
-         Default DHCP lease time is 48 hours as defined in the
-         <filename>~/helion/hos/ansible/roles/neutron-common/templates/neutron.conf.j2</filename>
-         file by the <systemitem>dhcp_lease_duration</systemitem> parameter.
-        </para>
-       </listitem>
-       <listitem>
-        <para>
-         DHCP leases are administered by &o_netw; and dnsmasq. This
-         functionality will not be available during the control plane downtime.
-        </para>
-       </listitem>
-       <listitem>
-        <para>
-         DHCP clients typically renew their leases either after 50% of the
-         lease time or upon reboot.
-        </para>
-       </listitem>
-       <listitem>
-        <para>
-         Normally, this leaves a 24-hour window for control plane downtime at
-         any point before workload's DHCP leases run out and cannot be renewed.
-         While this is typically enough for performing a migration, increasing
-         the DHCP lease time to 144 hours is recommended to ensure that lease
-         expiration will not be a concern that affects your migration, even if
-         unexpected delays in the process are encountered.
-        </para>
-       </listitem>
-       <listitem>
-        <para>
-         To view the upcoming timeouts of DHCP leases, run the following
-         command from each &contrnode;:
-        </para>
-<screen>for i in $(cat /var/run/neutron/dhcp/*/leases | awk '{print $1}'); do date -d @$i; done</screen>
-       </listitem>
-       <listitem>
-        <para>
-         To increase the DHCP lease time before migrating, open the
-         <filename>~/helion/hos/ansible/roles/neutron-common/templates/neutron.conf.j2</filename>
-         file and edit the <systemitem>dhcp_lease_duration</systemitem> parameter.
-         Commit the change, and run the <filename>neutron-configure.yml</filename> playbook.
-         Then, continue to monitor the upcoming DHCP lease expirations as described
-         above until all existing leases have been refreshed to a lengthier period.
-        </para>
-       </listitem>
-      </itemizedlist>
      </listitem>
     </itemizedlist>
    </step>
@@ -530,10 +546,14 @@
     <itemizedlist>
      <listitem>
       <para>
-       On each &slsa; compute node, remove all repositories that point to the
-       old deployer. To do this, run <command>zypper lr -u</command> and
-       remove any listings referring to the original deployer's IP address
+       On each &slsa; compute node, remove outdated repositories that point
+       to the old deployer. To do this, run <command>zypper lr -u</command> and
+       remove listings referring to the original deployer's IP address
        using <command>zypper rr <replaceable>REPO_NAME</replaceable></command>.
+       Note that the repositories <systemitem>SLES-OS</systemitem> and
+       <systemitem>SLES-SDK</systemitem> should never be removed, as they are
+       system entries that will automatically be updated to point to the new
+       seed node during installation.
       </para>
      </listitem>
      <listitem>
@@ -644,7 +664,7 @@
        database nodes have been re-imaged to purge the old data. For example:
       </para>
 <screen>ansible-playbook -i hosts/verb_hosts wipe_disks.yml \
-  -e nodelist=dbmq-m1,dbmq-m2,dbmq-m3</screen>
+  --limit dbmq-m1,dbmq-m2,dbmq-m3</screen>
       <para>
        (Be sure to specify your own list of database nodes matching their
        identifiers from the <filename>servers.yml</filename> file.)
@@ -838,13 +858,43 @@ cp -r helion openstack
 cd openstack
 git checkout site</screen>
     <para>
-     Save a record of all manual changes that have been previously committed
+     If your environment included a SES storage backend, remove all references
+     to it from your data model. This may be done by using <command>git revert
+     <replaceable>COMMIT-ID</replaceable></command> to revert a specific commit
+     including the SES backend definition, or <command>git checkout hos --
+     <replaceable>FILENAME</replaceable></command> to restore an entire file to
+     its original version (followed by <command>git diff --staged</command> to
+     inspect the difference between files and ensure that you ar satisfied with
+     the final condition of the configuration file.) Committing these edits will
+     be necessary for the following files in the <filename>~/openstack</filename>
+     git repository:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       <filename>hos/ansible/roles/_CND-CMN/templates/cinder.conf.j2</filename>
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <filename>hos/ansible/roles/NOV-CMP-KVM/templates/hypervisor.conf.j2</filename>
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       <filename>hos/ansible/roles/GLA-API/templates/glance-api.conf.j2</filename>
+       (if the SES backend was additionally configured for use with &o_img;)
+      </para>
+     </listitem>
+    </itemizedlist>
+    <para>
+     Save a record of all other manual changes that have been previously committed
      to the <filename>hos/ansible</filename> directory, as you will need to
      reapply them later:
     </para>
 <screen>git diff hos -- hos/ansible > /tmp/hos.diff</screen>
     <para>
-     Undo all manual changes:
+     Forcibly undo all the changes identified:
     </para>
 <screen>rm -rf hos/ansible
 git checkout hos -- hos/ansible</screen>
@@ -969,7 +1019,7 @@ sudo zypper refresh</screen>
     <para>
      Begin the installation:
     </para>
-<screen>sudo zypper -n in patterns-cloud-ardana
+<screen>sudo zypper -n in patterns-cloud-ardana ardana-ses
 sudo su - ardana
 ARDANA_INIT_AUTO=1 /usr/bin/ardana-init</screen>
    </step>
@@ -985,11 +1035,25 @@ ARDANA_INIT_AUTO=1 /usr/bin/ardana-init</screen>
    </step>
    <step>
     <para>
-     Apply the PTF packages obtained in the previous step:
+     Apply the PTF packages obtained in the previous step and confirm
+     that they install correctly:
     </para>
-<screen>sudo zypper refresh PTF
-sudo zypper dup --from PTF
-/usr/bin/ardana-init</screen>
+<screen>&prompt.ardana;cd ~/openstack/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/localhost deployer-init.yml
+&prompt.sudo;zypper refresh PTF
+&prompt.sudo;zypper dup --from PTF
+&prompt.ardana;rpm -qa | grep PTF</screen>
+    <para>
+     Ensure that all migration RPMs available to you via your &suse; support
+     contract are present in the resulting list. If any are missing, repeat
+     the above process or contact technical support before continuing.
+    </para>
+   </step>
+   <step>
+    <para>
+     Apply the updates received via PTF packages to your active cloud:
+    </para>
+<screen>/usr/bin/ardana-init</screen>
    </step>
    <step>
     <para>
@@ -997,7 +1061,7 @@ sudo zypper dup --from PTF
      of <systemitem>vertica</systemitem> (continuing as
      <systemitem>ardana</systemitem> user):
     </para>
-<screen>cd /var/lib/ardana/openstack/ardana/ansible</screen>
+<screen>cd ~/openstack/ardana/ansible</screen>
     <para>
      Manually replace <literal>vertica</literal> with <literal>cassandra</literal>
      in the service-components list, and remove any entry for
@@ -1012,6 +1076,13 @@ sudo zypper dup --from PTF
      <systemitem>cassandra_log</systemitem> partition definition:
     </para>
 <screen>vi ../../my_cloud/definition/data/disks_*</screen>
+    <para>
+     If your environment includes a SES backend, add configuration files to enable
+     it based on the <xref linkend="ses.integration"/> instructions. (However,
+     the <filename>site.yml</filename> and
+     <filename>ardana-reconfigure.yml</filename> playbooks should not be used at
+     this time.)
+    </para>
     <para>
      Save the updates to the data model:
     </para>
@@ -1036,6 +1107,8 @@ ansible-playbook -i hosts/verb_hosts FND-AP2-vhosts-transition.yml</screen>
      Set up package repositories for installation:
     </para>
 <screen>sudo ln -s /media/cloud /srv/www/suse-12.3/x86_64/repos/Cloud
+sudo ln -s /opt/hlm_packager/hlm/sles12/zypper/extras/sles12sp3-ceph-updates \
+  /srv/www/suse-12.3/x86_64/repos/sles12sp3-ceph-updates
 ansible-playbook -i hosts/verb_hosts ardana-replace-legacy-repos.yml</screen>
    </step>
    <step>
@@ -1054,9 +1127,16 @@ ansible-playbook -i hosts/verb_hosts ardana-replace-legacy-repos.yml</screen>
    </step>
    <step>
     <para>
-     After the base installation has completed, the PTF packages can be removed:
+     After the base installation has completed, the PTF and other temporary packages
+     can be removed:
     </para>
-<screen>sudo rm /srv/www/suse-12.3/x86_64/repos/PTF/*
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible -i hosts/verb_hosts resources --become -m shell \
+  -a "if [ -x /usr/bin/zypper ]; then zypper rr sles12sp3-ceph-updates; fi"
+sudo rm /srv/www/suse-12.3/x86_64/repos/sles12sp3-ceph-updates
+sudo rm /srv/www/suse-12.3/x86_64/repos/PTF/*
+cd ~/openstack/ardana/ansible
+ansible-playbook -i hosts/localhost deployer-init.yml
 sudo zypper refresh PTF
 sudo zypper dup --from Cloud</screen>
    </step>
@@ -1073,51 +1153,25 @@ sudo zypper dup --from Cloud</screen>
      user's privileges more tightly than in previous releases:
     </para>
     <para>
-     With this upgrade, the <filename>policy.json</filename> files have been
-     aligned with &ostack; Pike. This means that the admin user is assigned fewer
-     roles than in previous releases. If you have scripts or runbook
-     instructions which use the admin user may need to modify them to ensure that
-     the necessary privileges are available for their actions, or modify the
-     policies established in their environment.
+     With this upgrade, the policy.json files have been aligned with
+     &ostack-current;. When running &ostack; commands an operator may see
+     messages saying <literal>Policy doesn't allow ...</literal> such as:
     </para>
+    <screen>Policy doesn't allow volume_extension:services:index to be
+    performed</screen>
     <para>
-     As an example, sourcing the <filename>service.osrc</filename> file now
-     provides fewer roles than in previous releases. With this release, loading
-     the <filename>service.osrc</filename> and attempting to run <command>cinder
-     service-list</command> will result in the error <quote>Policy doesn't allow
-     volume_extension:services:index to be performed</quote> because the
-     admin user of
-     the admin project no longer has the cinder_admin role by default, nor does it
-     have the nova_admin, glance_admin, or swiftoperator roles.
+     In this case the operator can be given permission by adding a role to the
+     user using the <command>openstack role add</command> command, for example:
     </para>
+    <screen>&prompt.ardana;openstack role add -/-user
+    <replaceable>USER_NAME</replaceable> -/-project
+    <replaceable>PROJECT_NAME</replaceable> cinder_admin</screen>
     <para>
-     We recommended determining which roles, if any, need to be
-     applied to particular users, and add only those roles. This will yield the
-     greatest security benefits and keep user privileges more distinct.
-    </para>
-    <para>
-     In an environment without security concerns or with few administrative users,
-     you may prefer to add in all of the removed roles to make the system
-     fully backwards-compatible. To do this for the admin user of the admin
-     project, the following commands can be used:
-    </para>
-<screen>openstack role add --user admin --project admin swiftoperator
-openstack role add --user admin --project admin glance_admin
-openstack role add --user admin --project admin cinder_admin
-openstack role add --user admin --project admin nova_admin</screen>
-    <para>
-     Executing the above commands restores the roles to administer &o_comp;,
-     &o_blockstore;, &o_img;, and &o_objstore; for the admin user of the
-     admin project. If you are using the admin user in other projects, or other
-     users in the admin project, may wish to add some or all of these roles for
-     the other users or projects; this needs to be determined on a case-by-case
-     basis for each user and project.
-    </para>
-    <para>
-     In an environment which requires separation of duties, these roles should not
-     all be assigned to one user; instead, each administrator should be assigned
-     only the roles they require to perform their duties and should use their own
-     user to perform their administrative tasks.
+     Role assignments should be carefully considered. In an environment which
+     requires separation of duties, each operator should be assigned only the
+     roles they require to perform their duties and should use their own user
+     account to perform their administrative tasks. For more information see
+     the <xref linkend="roleSegregation"/>.
     </para>
    </step>
   </procedure>
