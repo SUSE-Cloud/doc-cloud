@@ -4,7 +4,6 @@
   <!ENTITY % entities SYSTEM "entity-decl.ent">
   %entities;
 ]>
-<!-- Converted by suse-upgrade version 1.1 -->
 <chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0" xml:id="cha.depl.maintenance">
  <title>&cloud; Maintenance</title>
  <info>
@@ -29,11 +28,11 @@
    <xref linkend="sec.depl.adm_conf.repos.scc"/>, <xref
    linkend="sec.depl.inst.nodes.post.updater"/>, and
    <xref linkend="sec.depl.inst.nodes.post.manager"/>.
- </para>
+  </para>
 
   <para>
    If one of those &barcl;s is deployed, patches are installed on the
-   nodes. Patches that do not require a reboot will not cause a service 
+   nodes. Patches that do not require a reboot will not cause a service
    interruption. If a patch (for example, a kernel
    update) requires a reboot after the installation, services running on the
    machine that is rebooted will not be available within &cloud;.
@@ -127,14 +126,15 @@
    </varlistentry>
   </variablelist>
  </sect1>
-
  <sect1 xml:id="sec.depl.maintenance.service_order">
   <title>Service Order on &cloud; Start-up or Shutdown</title>
+
   <para>
    In case you need to restart your complete &cloud; (after a complete shut
-   down or a power outage), the nodes and services need to be started in the following
-   order:
+   down or a power outage), the nodes and services need to be started in the
+   following order:
   </para>
+
   <orderedlist>
    <title>Service Order on Start-up</title>
    <listitem>
@@ -153,7 +153,9 @@
     </para>
    </listitem>
    <listitem>
-    <para>For &o_objstore;:</para>
+    <para>
+     For &o_objstore;:
+    </para>
     <orderedlist>
      <listitem>
       <para>
@@ -168,7 +170,9 @@
     </orderedlist>
    </listitem>
    <listitem>
-    <para>For &ceph;:</para>
+    <para>
+     For &ceph;:
+    </para>
     <orderedlist>
      <listitem>
       <para>
@@ -216,15 +220,17 @@
     </para>
    </listitem>
   </orderedlist>
+
   <para>
    If multiple roles are deployed on a single &contrnode;, the services are
    automatically started in the correct order on that node. If you have more
    than one node with multiple roles, make sure they are
    started as closely as possible to the order listed above.
   </para>
+
   <para>
-   If you need to shut down &cloud;, the nodes and services need to be terminated in
-   reverse order than on start-up:
+   If you need to shut down &cloud;, the nodes and services need to be
+   terminated in reverse order than on start-up:
   </para>
 
   <orderedlist>
@@ -258,22 +264,28 @@
     </para>
    </listitem>
    <listitem>
-    <para>For &o_objstore;:</para>
+    <para>
+     For &o_objstore;:
+    </para>
     <orderedlist>
      <listitem>
       <para>
-       &stornode; on which the <literal>swift-proxy</literal> role is deployed
+       &stornode; on which the <literal>swift-proxy</literal> role is
+       deployed
       </para>
      </listitem>
      <listitem>
       <para>
-       &stornode; on which the <literal>swift-storage</literal> role is deployed
+       &stornode; on which the <literal>swift-storage</literal> role is
+       deployed
       </para>
      </listitem>
     </orderedlist>
    </listitem>
    <listitem>
-    <para>For &ceph;:</para>
+    <para>
+     For &ceph;:
+    </para>
     <orderedlist>
      <listitem>
       <para>
@@ -311,8 +323,208 @@
    </listitem>
   </orderedlist>
  </sect1>
+ <sect1 xml:id="sec.depl.maintenance.recover.compute.node.failure">
+  <title>Recovering from &compnode; Failure</title>
 
-  <sect1 xml:id="sec.depl.maintenance.bootstrap.compute.plane">
+  <para>
+   The following procedure assumes that there is at least one &compnode;
+   already running. Otherwise, see
+   <xref linkend="sec.depl.maintenance.bootstrap.compute.plane"/>.
+  </para>
+
+  <procedure xml:id="pro.recover.compute.node.failure">
+   <title>Procedure for Recovering from &compnode; Failure</title>
+   <step xml:id="st.compnode.failed.reason">
+    <para>
+     If the &compnode; failed, it should have been fenced. Verify that this is
+     the case. Otherwise, check <filename>/var/log/pacemaker.log</filename> on
+     the &dc; to determine why the &compnode; was not fenced.
+     The most likely reason is a problem with STONITH devices.
+    </para>
+   </step>
+   <step>
+    <para>
+     Determine the cause of the &compnode;'s failure.
+    </para>
+   </step>
+   <step>
+    <para>
+     Rectify the root cause.
+    </para>
+   </step>
+   <step>
+    <para>
+     Boot the &compnode; again.
+    </para>
+   </step>
+   <step>
+    <para>
+     Check whether the <systemitem>crowbar_join</systemitem> script ran
+     successfully on the &compnode;. If this is not the case, check the log
+     files to find out the reason. Refer to
+     <xref linkend="sec.deploy.logs.crownodes"/> to find the exact
+     location of the log file.
+    </para>
+   </step>
+   <step>
+    <para>
+     If the <systemitem>chef-client</systemitem> agent triggered by
+     <systemitem>crowbar_join</systemitem> succeeded, confirm that the
+     <systemitem>pacemaker_remote</systemitem> service is up and running.
+    </para>
+   </step>
+   <step>
+    <para>
+     Check whether the remote node is registered and considered healthy by the
+     core cluster. If this is not the case check
+     <filename>/var/log/pacemaker.log</filename> on the &dc;
+     to determine the cause. There should be a remote primitive running on the
+     core cluster (active/passive). This primitive is responsible for
+     establishing a TCP connection to the
+     <systemitem>pacemaker_remote</systemitem> service on port 3121 of the
+     &compnode;. Ensure that nothing is preventing this particular TCP
+     connection from being established (for example, problems with NICs,
+     switches, firewalls etc.). One way to do this is to run the following
+     commands:
+    </para>
+<screen>&prompt.user;lsof -i tcp:3121
+&prompt.user;tcpdump tcp port 3121
+</screen>
+   </step>
+   <step>
+    <para>
+     If &pacemaker; can communicate with the remote node, it should start the
+     <systemitem>nova-compute</systemitem> service on it as part of the cloned
+     group <literal>cl-g-nova-compute</literal> using the NovaCompute OCF
+     resource agent. This cloned group will block startup of
+     <systemitem>nova-evacuate</systemitem> until at least one clone is
+     started.
+    </para>
+    <para>
+     A necessary, related but different procedure is described in
+     <xref linkend="sec.depl.maintenance.bootstrap.compute.plane"/>.
+    </para>
+   </step>
+   <step>
+    <para>
+     It may happen that <systemitem>NovaCompute</systemitem> has been launched
+     correctly on the &compnode; by <systemitem>lrmd</systemitem>, but the
+     <systemitem>openstack-nova-compute</systemitem> service is still not
+     running. This usually happens when <systemitem>nova-evacuate</systemitem>
+     did not run correctly.
+    </para>
+    <para>
+     If <systemitem>nova-evacuate</systemitem> is not
+     running on one of the core cluster nodes, make sure that the service is
+     marked as started (<literal>target-role="Started"</literal>). If this is
+     the case, then your cloud does not have any &compnode;s already running as
+     assumed by this procedure.
+    </para>
+    <para>
+     If <systemitem>nova-evacuate</systemitem> is started but it is
+     failing, check the &pacemaker; logs to determine the cause.
+    </para>
+    <para>
+     If <systemitem>nova-evacuate</systemitem> is started and
+     functioning correctly, it should call &o_comp;'s
+     <literal>evacuate</literal> API to release resources used by the
+     &compnode; and resurrect elsewhere any VMs that died when it failed.
+    </para>
+   </step>
+   <step>
+    <para>
+     If <systemitem>openstack-nova-compute</systemitem> is running, but VMs are
+     not booted on the node, check that the service is not disabled or
+     forced down using the <command>nova service-list</command> command. In
+     case the service is disabled, run the <command>nova service-enable
+     <replaceable>SERVICE_ID</replaceable></command> command. If the service is
+     forced down, run the following commands:
+    </para>
+<screen>&prompt.user;fence_nova_param () {
+    key="$1"
+    cibadmin -Q -A "//primitive[@id='fence-nova']//nvpair[@name='$key']" | \
+    sed -n '/.*value="/{s///;s/".*//;p}'
+}
+&prompt.user;fence_compute \
+    --auth-url=`fence_nova_param auth-url` \
+    --endpoint-type=`fence_nova_param endpoint-type` \
+    --tenant-name=`fence_nova_param tenant-name` \
+    --domain=`fence_nova_param domain` \
+    --username=`fence_nova_param login` \
+    --password=`fence_nova_param passwd` \
+    -n <replaceable>COMPUTE_HOSTNAME</replaceable> \
+    --action=on
+</screen>
+   </step>
+  </procedure>
+
+  <para>
+   The above steps should be performed automatically after the node is
+   booted. If that does not happen, try the following debugging techniques.
+  </para>
+
+  <para>
+   Check the <literal>evacuate</literal> attribute for the &compnode; in the
+   &pacemaker; cluster's <systemitem>attrd</systemitem> service using the
+   command:
+  </para>
+<screen>&prompt.user;attrd_updater -p -n evacuate -N <replaceable>NODE</replaceable></screen>
+  <para>
+   Possible results are the following:
+  </para>
+
+  <itemizedlist>
+   <listitem>
+    <para>
+     The attribute is not set. Refer to
+     <xref linkend="st.compnode.failed.reason"/> in
+     <xref linkend="pro.recover.compute.node.failure"/>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     The attribute is set to <literal>yes</literal>. This means that the
+     &compnode; was fenced, but <systemitem>nova-evacuate</systemitem> never
+     initiated the recovery procedure by calling &o_comp;'s evacuate API.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     The attribute contains a time stamp, in which case the recovery procedure
+     was initiated at the time indicated by the time stamp, but has not
+     completed yet.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     If the attribute is set to <literal>no</literal>, the recovery procedure
+     recovered successfully and the cloud is ready for the &compnode; to
+     rejoin.
+    </para>
+   </listitem>
+  </itemizedlist>
+
+  <para>
+   If the attribute is stuck with the wrong value, it can be set to
+   <literal>no</literal> using the command:
+  </para>
+<screen>&prompt.user;attrd_updater -n evacuate -U no -N <replaceable>NODE</replaceable></screen>
+
+  <para>
+   After standard fencing has been performed, fence agent
+   <systemitem>fence_compute</systemitem> should activate the secondary
+   fencing device (<literal>fence-nova</literal>). It does this by setting
+   the attribute to <literal>yes</literal> to mark the node as needing
+   recovery. The agent also calls &o_comp;'s
+   <systemitem>force_down</systemitem> API to notify it that the host is down.
+   You should be able to see this in
+   <filename>/var/log/nova/fence_compute.log</filename> on the node in the core
+   cluster that was running the <systemitem>fence-nova</systemitem> agent at
+   the time of fencing. During the recovery, <literal>fence_compute</literal>
+   tells &o_comp; that the host is up and running again.
+  </para>
+ </sect1>
+ <sect1 xml:id="sec.depl.maintenance.bootstrap.compute.plane">
   <title>Bootstrapping Compute Plane</title>
   <para>
    If the whole compute plane is down, it is not always obvious how to boot it
@@ -320,7 +532,8 @@
    every &compnode;. In this case, manual intervention is
    required. Specifically, the operator must manually choose one or more
    &compnode;s to bootstrap the compute plane, and then run the
-   <command>attrd_updater -n evacuate -U no -N $node</command> command for each
+   <command>attrd_updater -n evacuate -U no -N <replaceable>NODE</replaceable></command>
+   command for each
    of those &compnode;s to indicate that they do not require the resurrection
    process and can have their <literal>nova-compute</literal> start up straight
    away. Once these &compnode;s are up, this breaks the deadlock allowing
@@ -336,5 +549,5 @@
     they will be liable to fencing and so this should be avoided.
    </para>
   </important>
-  </sect1>
+ </sect1>
 </chapter>

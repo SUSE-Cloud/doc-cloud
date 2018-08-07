@@ -1,0 +1,249 @@
+<?xml version="1.0"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<section xml:id="nsx-create-input-model"
+ xmlns="http://docbook.org/ns/docbook" version="5.1"
+ xmlns:xi="http://www.w3.org/2001/XInclude"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+ <title>Create the Input Model</title>
+ <para>
+  Copy the example input model to
+  <filename>~/openstack/my_cloud/definition/</filename> directory:
+ </para>
+ <screen>&prompt.ardana;cd ~/ardana-extensions/ardana-extensions-nsx/vmware/examples/models/entry-scale-nsx
+&prompt.ardana;cp -R entry-scale-nsx ~/openstack/my_cloud/definition</screen>
+ <para>
+  Refer to the reference input model in
+  <filename>ardana-extensions/ardana-extensions-nsx/vmware/examples/models/entry-scale-nsx/</filename>
+  for details about how these definitions should be made.  The main differences
+  between this model and the standard &lcm; input models are:
+ </para>
+ <itemizedlist>
+  <listitem>
+   <para>
+    Only the neutron-server is deployed.  No other neutron agents are deployed.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Additional parameters need to be set in
+    <filename>pass_through.yml</filename> and
+    <filename>nsx/nsx_config.yml</filename>.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Nova ESX compute proxy nodes may be ESX virtual machines.
+   </para>
+  </listitem>
+ </itemizedlist>
+ <section>
+  <title>Set up the Parameters</title>
+  <para>
+   The special parameters needed for the NSX-v integrations are set in the
+   files <filename>pass_through.yml</filename> and
+   <filename>nsx/nsx_config.yml</filename>. They are in the
+   <filename>~/openstack/my_cloud/definition/data</filename> directory.
+  </para>
+  <para>
+   Parameters in <filename>pass_through.yml</filename> are in the sample input
+   model in the
+   <filename>ardana-extensions/ardana-extensions-nsx/vmware/examples/models/entry-scale-nsx/</filename>
+   directory.  The comments in the sample input model file describe how to
+   locate the values of the required parameters.
+  </para>
+  <screen>#
+# (c) Copyright 2017 SUSE LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
+#
+---
+product:
+  version: 2
+pass-through:
+  global:
+    vmware:
+      - username: <replaceable>VCENTER_ADMIN_USERNAME</replaceable>
+        ip: <replaceable>VCENTER_IP</replaceable>
+        port: 443
+        cert_check: false
+        # The password needs to be encrypted using the script
+        # openstack/ardana/ansible/ardanaencrypt.py on the deployer:
+        #
+        # $ cd ~/openstack/ardana/ansible
+        # $ export ARDANA_USER_PASSWORD_ENCRYPT_KEY=<replaceable>ENCRYPTION_KEY</replaceable>
+        # $ ./ardanaencrypt.py
+        #
+        # The script will prompt for the vCenter password. The string
+        # generated is the encrypted password. Enter the string
+        # enclosed by double-quotes below.
+        password: &quot;<replaceable>ENCRYPTED_PASSWD_FROM_ARDANAENCRYPT</replaceable>&quot;
+
+        # The id is is obtained by the URL
+        # https://<replaceable>VCENTER_IP</replaceable>/mob/?moid=ServiceInstance&amp;doPath=content%2eabout,
+        # field instanceUUID.
+        id: <replaceable>VCENTER_UUID</replaceable>
+  servers:
+    -
+      # Here the 'id' refers to the name of the node running the
+      # esx-compute-proxy. This is identical to the 'servers.id' in
+      # servers.yml. There should be one esx-compute-proxy node per ESX
+      # resource pool.
+      id: esx-compute1
+      data:
+        vmware:
+          vcenter_cluster: <replaceable>VMWARE_CLUSTER1_NAME</replaceable>
+          vcenter_id: <replaceable>VCENTER_UUID</replaceable>
+    -
+      id: esx-compute2
+      data:
+        vmware:
+          vcenter_cluster: <replaceable>VMWARE_CLUSTER2_NAME</replaceable>
+          vcenter_id: <replaceable>VCENTER_UUID</replaceable>
+  </screen>
+  <para>
+   There are parameters in <filename>nsx/nsx_config.yml</filename>.  The
+   comments describes how to retrieve the values.
+  </para>
+  <screen># (c) Copyright 2017 SUSE LLC
+#
+# Licensed under the Apache License, Version 2.0 (the &quot;License&quot;); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an &quot;AS IS&quot; BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
+#
+---
+  product:
+    version: 2
+  configuration-data:
+    - name: NSX-CONFIG-CP1
+      services:
+        - nsx
+      data:
+        # (Required) URL for NSXv manager (e.g - https://management_ip).
+        manager_uri: 'https://<replaceable>NSX_MGR_IP</replaceable>
+
+        # (Required) NSXv username.
+        user: 'admin'
+
+        # (Required) Encrypted NSX Manager password.
+        # Password encryption is done by the script
+        # ~/openstack/ardana/ansible/ardanaencrypt.py on the deployer:
+        #
+        # $ cd ~/openstack/ardana/ansible
+        # $ export ARDANA_USER_PASSWORD_ENCRYPT_KEY=<replaceable>ENCRYPTION_KEY</replaceable>
+        # $ ./ardanaencrypt.py
+        #
+        # NOTE: Make sure that the NSX Manager password is encrypted with the same key
+        # used to encrypt the VCenter password.
+        #
+        # The script will prompt for the NSX Manager password. The string
+        # generated is the encrypted password. Enter the string enclosed
+        # by double-quotes below.
+        password: &quot;<replaceable>ENCRYPTED_NSX_MGR_PASSWD_FROM_ARDANAENCRYPT</replaceable>&quot;
+        # (Required) datacenter id for edge deployment.
+        # Retrieved using
+        #    http://<replaceable>VCENTER_IP_ADDR</replaceable>/mob/?moid=ServiceInstance&amp;doPath=content
+        # click on the value from the rootFolder property. The datacenter_moid is
+        # the value of the childEntity property.
+        # The vCenter-ip-address comes from the file pass_through.yml in the
+        # input model under &quot;pass-through.global.vmware.ip&quot;.
+        datacenter_moid: 'datacenter-21'
+        # (Required) id of logic switch for physical network connectivity.
+        # How to retrieve
+        # 1. Get to the same page where the datacenter_moid is found.
+        # 2. Click on the value of the rootFolder property.
+        # 3. Click on the value of the childEntity property
+        # 4. Look at the network property. The external network is
+        #    network associated with EXTERNAL VM in VCenter.
+        external_network: 'dvportgroup-74'
+        # (Required) clusters ids containing OpenStack hosts.
+        # Retrieved using http://<replaceable>VCENTER_IP_ADDR</replaceable>/mob, click on the value
+        # from the rootFolder property. Then click on the value of the
+        # hostFolder property. Cluster_moids are the values under childEntity
+        # property of the compute clusters.
+        cluster_moid: 'domain-c33,domain-c35'
+        # (Required) resource-pool id for edge deployment.
+        resource_pool_id: 'resgroup-67'
+        # (Optional) datastore id for edge deployment. If not needed,
+        # do not declare it.
+        # datastore_id: 'datastore-117'
+
+        # (Required) network scope id of the transport zone.
+        # To get the vdn_scope_id, in the vSphere web client from the Home
+        # menu:
+        #   1. click on Networking &amp; Security
+        #   2. click on installation
+        #   3. click on the Logical Netowrk Preparation tab.
+        #   4. click on the Transport Zones button.
+        #   5. Double click on the transport zone being configure.
+        #   6. Select Manage tab.
+        #   7. The vdn_scope_id will appear at the end of the URL.
+        vdn_scope_id: 'vdnscope-1'
+
+        # (Optional) Dvs id for VLAN based networks. If not needed,
+        # do not declare it.
+        # dvs_id: 'dvs-68'
+
+        # (Required) backup_edge_pool: backup edge pools management range,
+        # - edge_type>[edge_size]:<replaceable>MINIMUM_POOLED_EDGES</replaceable>:<replaceable>MAXIMUM_POOLED_EDGES</replaceable>
+        # - edge_type: service (service edge) or  vdr (distributed edge)
+        # - edge_size:  compact ,  large (by default),  xlarge  or  quadlarge
+        backup_edge_pool: 'service:compact:4:10,vdr:compact:4:10'
+
+        # (Optional) mgt_net_proxy_ips: management network IP address for
+        # metadata proxy. If not needed, do not declare it.
+        # mgt_net_proxy_ips: '10.142.14.251,10.142.14.252'
+
+        # (Optional) mgt_net_proxy_netmask: management network netmask for
+        # metadata proxy. If not needed, do not declare it.
+        # mgt_net_proxy_netmask: '255.255.255.0'
+
+        # (Optional) mgt_net_moid: Network ID for management network connectivity
+        # Do not declare if not used.
+        # mgt_net_moid: 'dvportgroup-73'
+
+        # ca_file: Name of the certificate file. If insecure is set to True,
+        # then this parameter is ignored. If insecure is set to False and this
+        # parameter is not defined, then the system root CAs will be used
+        # to verify the server certificate.
+        ca_file: a/nsx/certificate/file
+
+        # insecure:
+        # If true (default), the NSXv server certificate is not verified.
+        # If false, then the default CA truststore is used for verification.
+        # This option is ignored if &quot;ca_file&quot; is set
+        insecure: True
+        # (Optional) edge_ha: if true, will duplicate any edge pool resources
+        # Default to False if undeclared.
+        # edge_ha: False
+        # (Optional) spoofguard_enabled:
+        # If True (default), indicates NSXV spoofguard component is used to
+        # implement port-security feature.
+        # spoofguard_enabled: True
+        # (Optional) exclusive_router_appliance_size:
+        # Edge appliance size to be used for creating exclusive router.
+        # Valid values: 'compact', 'large', 'xlarge', 'quadlarge'
+        # Defaults to 'compact' if not declared.  # exclusive_router_appliance_size:
+        'compact'
+       </screen>
+      </section>
+     </section>
