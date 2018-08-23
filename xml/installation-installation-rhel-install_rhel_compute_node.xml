@@ -11,354 +11,150 @@
   This section outlines how to install a &rhla; &compnode; as a member of a
   a new or existing cloud created with &productname;.
  </para>
- <section xml:id="sec.provision-deployer-for-rhel">
-  <title>Setting Up a Deployer for RHEL compute</title>
+ <section xml:id="sec.install_rhel_compute_node.provision-deployer">
+  <title>Setting Up a Deployer for &rhla;</title>
   <para>
-   Before you install the software required for &rhel; &compnode;s, perform the
-   following tasks.
+   Ensure that your environment includes a Subscription Management Tool
+   (SMT) server, as described in <xref linkend="app.deploy.smt_lcm"/>.
+   The following steps presume that the SMT server is your deployer,
+   and will configure an RPM repository for use by &rhla; clients.
   </para>
   <procedure>
    <step>
     <para>
-     Determine if you will need a Subscription Management Tool (SMT) server
-     described in <xref linkend="app.deploy.smt_lcm"/>.
+     Enable SMT mirroring of the external CentOS 7.4 repository to distribute
+     RHEL-compatible packages to nodes in the cloud.
     </para>
+<screen>sudo smt-setup-custom-repos --name CentOS --description "CentOS 7.4" --productid 100682 \
+  --exturl https://download.opensuse.org/repositories/systemsmanagement:/Ardana:/8:/CentOS/CentOS_7.3
+sudo smt-repos -e CentOS
+sudo smt-sync
+sudo smt-mirror</screen>
    </step>
    <step>
     <para>
-     Configure the &obs; &centos; software repository on the deployer node and
-     on the &rhel; &compnode;s using the following URL:
-     <link xlink:href="https://download.opensuse.org/repositories/systemsmanagement:/Ardana:/8:/CentOS/CentOS_7.3"/>.
+     CentOS RPM packages will now be stored on the SMT server in
+     <filename>/srv/www/htdocs/repo/RPMMD/CentOS</filename>. Publish them
+     to other nodes with the following command:
     </para>
+<screen>sudo ln -s /srv/www/htdocs/repo/RPMMD/CentOS /opt/ardana_packager/ardana/rhel7/yum/centos</screen>
    </step>
    <step>
     <para>
-     &ostack; service and its components are installed on &rhel; &compnode;s
-     via virtualenv (venv). So you need to install the following venv packages
-     from the &obs; &centos; repository on the deployer node:
+     Add this new repo as a Yum package source to cloud nodes by populating
+     <filename>/etc/yum.repos.d/ardana-centos.repo</filename> in each
+     &rhla; system with the following contents:
     </para>
-    <itemizedlist>
-     <listitem>
-      <para>
-       <package>venv-openstack-nova-rhel-x86_64</package>
-      </para>
-     </listitem>
-     <listitem>
-      <para>
-       <package>venv-openstack-neutron-rhel-x86_64</package>
-      </para>
-     </listitem>
-     <listitem>
-      <para>
-       <package>venv-openstack-freezer-rhel-x86_64</package>
-      </para>
-     </listitem>
-     <listitem>
-      <para>
-       <package>venv-openstack-monasca_agent-rhel-x86_64</package>
-      </para>
-     </listitem>
-    </itemizedlist>
-    <para>
-     On the deployer node, the &obs; &centos; repository needs to be configured
-     with lower priority than &sles; repositories. This ensures that packages
-     present in both repos are preferably installed from the &cloudos;
-     repository.
-    </para>
-<screen><?dbsuse-fo font-size="0.6em"?>
-zypper ar --priority 100 \
-  https://download.opensuse.org/repositories/systemsmanagement:/Ardana:/8:/CentOS/CentOS_7.3/systemsmanagement:Ardana:8:CentOS.repo</screen>
-    <para>
-     Review and accept the certificate for the new repository.
-    </para>
-<screen>zypper ref</screen>
-    <para>
-     venv RPM packages can be specifically installed from the &obs; &centos;
-     repository:
-    </para>
-<screen>zypper install --from systemsmanagement_Ardana_8_CentOS \
-  venv-openstack-nova-rhel-x86_64</screen>
-    <para>
-     Run the following command to add the venv packages to package indexes.
-    </para>
-<screen>/usr/bin/create_index --dir=/opt/ardana_packager/ardana-8/rhel_venv/x86_64</screen>
-   </step>
-   <step>
-    <para>
-     On &rhel; &compnode;s, configure the &obs; &centos; repository to download
-     specific RPM packages required by cloud tooling, &ostack; &o_comp; and
-     &o_netw; &comp; components. The following RPM packages are required from
-     the &obs; &centos; repository on the &compnode;. These packages will be
-     installed automatically on the RHEL node:
-    </para>
-    <itemizedlist>
-     <listitem>
-      <para>
-       <package>python-ardana-packager</package>
-      </para>
-     </listitem>
-     <listitem>
-      <para>
-       <package>openvswitch</package>
-      </para>
-     </listitem>
-     <listitem>
-      <para>
-       <package>python-PyYAML</package>
-      </para>
-     </listitem>
-     <listitem>
-      <para>
-       <package>python-Beaver</package>
-      </para>
-     </listitem>
-     <listitem>
-      <para>
-       <package>python-monascaclient</package>
-      </para>
-     </listitem>
-     <listitem>
-      <para>
-       <package>openstack-freezer-api</package>
-      </para>
-     </listitem>
-     <listitem>
-      <para>
-       <package>openstack-freezer-agent</package>
-      </para>
-     </listitem>
-     <listitem>
-      <para>
-       <package>openstack-freezer-scheduler</package>
-      </para>
-     </listitem>
-     <listitem>
-      <para>
-       <package>python-python-logstash</package>
-      </para>
-     </listitem>
-    </itemizedlist>
-   </step>
-  </procedure>
- </section>
- <section xml:id="sec.provision-rhel.yum-iso">
-  <title>Setting Up a Yum Repository from a &rhla; ISO</title>
-  <para>
-   This section is only required if RHEL node is set up manually, You need to
-   set up a Yum repository, either external or local, containing a &rhla;
-   distribution supported by &productname;. This repository must mirror the
-   entire product repository including the <literal>ResilientStorage</literal>
-   and <literal>HighAvailability</literal> add-ons. To create this repository,
-   perform these steps in compute node:
-  </para>
-  <procedure>
-   <step>
-    <para>
-     Mount the &rhla; ISO and expand it:
-    </para>
-<screen>mkdir /tmp/localrhel
-mount -o loop rhel7.iso /mnt
-cd /mnt
-tar cvf - . | (cd /tmp/localrhel ; tar xvf -)
-cd /
-umount /mnt</screen>
-   </step>
-   <step>
-    <para>
-     Create a repository file named
-     <filename>/etc/yum.repos.d/localrhel.repo</filename> with the following
-     contents:
-    </para>
-<screen>[localrhel]
-name=localrhel
-baseurl=file:///tmp/localrhel
-enabled=1
-gpgcheck=0
-
-[localrhel-1]
-name=localrhel-1
-baseurl=file:///tmp/localrhel/addons/ResilientStorage
-enabled=1
-gpgcheck=0
-
-[localrhel-2]
-name=localrhel-2
-baseurl=file:///tmp/localrhel/addons/HighAvailability
+<screen>[ardana-centos]
+name=Ardana CentOS Repository
+baseurl=http://<replaceable>DEPLOYER-IP</replaceable>:79/ardana/rhel7/yum/centos
 enabled=1
 gpgcheck=0</screen>
    </step>
    <step>
     <para>
-     Run:
+     Add the new repository to the deployer node as well (and accept its
+     certificate), but with lower priority than other repositories. This
+     ensures that packages present in both repos are preferably installed
+     from the &sles; repositories.
     </para>
-<screen>yum clean all</screen>
+<screen>sudo zypper ar -p 100 file:/opt/ardana_packager/ardana/rhel7/yum/centos centos
+sudo zypper ref</screen>
    </step>
   </procedure>
- </section>
- <section xml:id="sec.provision-rhel.yum-ardana">
-  <title>Setting Up a Yum Repository With Packages Related to &lcm;</title>
   <para>
-   You must configure a Yum repository with contents related to &lcm; on each
-   &rhla; compute node. This repository was originally created for &centos;
-   which means the packages are compatible with &rhla;.
+   &ostack; components are installed on &rhel; &compnode;s
+   via virtualenv (venv). To facilitate this, certain packages
+   must be installed from the &centos; repository on the deployer node:
+  </para>
+<screen>for i in nova neutron freezer monasca_agent
+  do zypper -y in venv-openstack-$i-rhel-x86_64
+done</screen>
+  <para>
+   Once these packages are installed, they will populate a new package
+   directory which must be prepared to serve as a &rhla; yum repository:
+  </para>
+<screen>/usr/bin/create_index --dir=/opt/ardana_packager/ardana-8/rhel_venv/x86_64</screen>
+ </section>
+ <section xml:id="sec.install_rhel_compute_node.yum-ardana">
+  <title>Package Dependencies for &rhla; &compnodes;</title>
+  <para>
+   To use the &ostack-current; version of
+   <literal>nova-compute</literal>, a <literal>qemu-kvm</literal> version
+   greater than 2.1.0 must be installed on &rhla; nodes.
+  </para>
+  <para>
+   The RPM packages needed for <literal>nova-compute</literal> must be
+   provided before executing <filename>site.yml</filename>. It is expected
+   that a &rhla; subscription will be used to provide these RPM packages so
+   that they get continuous updates.
+  </para>
+  <para>
+   Alternatively, the <literal>qemu-kvm</literal> packages can also be can be
+   downloaded from
+   <link xlink:href="http://vault.centos.org/7.3.1611/virt/x86_64/kvm-common/"/>.
+   The following RPM packages from that location have been tested successfully:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     <filename>qemu-img-ev-2.6.0-28.el7.10.1.x86_64.rpm</filename>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <filename>qemu-kvm-common-ev-2.6.0-28.el7.10.1.x86_64.rpm</filename>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <filename>qemu-kvm-ev-2.6.0-28.el7.10.1.x86_64.rpm</filename>
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <filename>qemu-kvm-tools-ev-2.6.0-28.el7.10.1.x86_64.rpm</filename>
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   Finally, SELinux policy updates are needed for
+   <literal>nova-compute</literal> to work properly. SELinux policy updates can be
+   enabled by changing a flag in default configuration. This needs to be
+   done on the &lcm; <emphasis>before</emphasis> <literal>nova-compute</literal>
+   is installed on &rhla; nodes.
   </para>
   <procedure>
    <step>
     <para>
-     Configure the repository with low priority.
+     On the &lcm; node, edit the following file:
     </para>
-    <para>
-     Create a repository file
-     <filename>/etc/yum.repos.d/centos_c8_ardana.repo</filename> with the
-     following contents:
-    </para>
-<screen>
-<?dbsuse-fo font-size="0.6em"?>
-[centos_c8_ardana]
-name=centos_c8_ardana
-enabled=1
-autorefresh=0
-baseurl=https://download.opensuse.org/repositories/systemsmanagement:/Ardana:/8:/CentOS/CentOS_7.3/
-type=rpm-md
-priority=9999
-gpgcheck=0
-</screen>
+<screen>cd ~/openstack/ardana/ansible
+vi roles/NOV-CMP-KVM/defaults/main.yml</screen>
    </step>
    <step>
     <para>
-     &lcm; playbooks will install the necessary RPM packages from the &centos;
-     repository while executing various service plays.
+     Set the SELinux flag to <literal>true</literal>:
     </para>
-   </step>
-   <step>
-    <para>
-     To install the &ostack-current; version of
-     <literal>nova-compute</literal>, a <literal>qemu-kvm</literal> version
-     greater than 2.1.0 must be installed.
-    </para>
-    <para>
-     The RPM packages needed for <literal>nova-compute</literal> must be
-     provided before executing <filename>site.yml</filename>. It is expected
-     that a &rhla; subscription will be used to provide these RPM packages so
-     that they get continuous updates.
-    </para>
-    <para>
-     The <literal>qemu-kvm</literal> packages can also be can be downloaded
-     from
-     <link xlink:href="http://vault.centos.org/7.3.1611/virt/x86_64/kvm-common/"/>.
-     The RPM packages below have been tested successfully:
-    </para>
-    <itemizedlist>
-     <listitem>
-      <para>
-       <filename>qemu-img-ev-2.6.0-28.el7.10.1.x86_64.rpm</filename>
-      </para>
-     </listitem>
-     <listitem>
-      <para>
-       <filename>qemu-kvm-common-ev-2.6.0-28.el7.10.1.x86_64.rpm</filename>
-      </para>
-     </listitem>
-     <listitem>
-      <para>
-       <filename>qemu-kvm-ev-2.6.0-28.el7.10.1.x86_64.rpm</filename>
-      </para>
-     </listitem>
-     <listitem>
-      <para>
-       <filename>qemu-kvm-tools-ev-2.6.0-28.el7.10.1.x86_64.rpm</filename>
-      </para>
-     </listitem>
-    </itemizedlist>
-   </step>
-   <step>
-    <para>
-     When using &centos; <literal>qemu-kvm</literal> RPM packages on &rhla;
-     compute nodes, SELinux policy updates are needed for
-     <literal>nova-compute</literal> to work. SELinux policy updates can be
-     enabled by setting a flag in the default values of
-     <literal>nova-compute</literal> plays. These flag values need to be set in
-     the &lcm; <emphasis>before</emphasis> <literal>nova-compute</literal>
-     plays are executed on &rhla; nodes.
-    </para>
-    <substeps>
-     <step>
-      <para>
-       On the &lcm;:
-      </para>
-<screen>cd ~/openstack/ardana/ansible/</screen>
-     </step>
-     <step>
-      <para>
-       Edit the <literal>nova-compute</literal> file with the flag defined in
-       Ansible defaults:
-      </para>
-<screen>vi roles/NOV-CMP-KVM/defaults/main.yml</screen>
-     </step>
-     <step>
-      <para>
-       Set the flag to <literal>true</literal>:
-      </para>
 <screen>nova_rhel_compute_apply_selinux_policy_updates: true</screen>
-     </step>
-     <step>
-      <para>
-       Save the file.
-      </para>
-     </step>
-     <step>
-      <para>
-       Commit the change to Git:
-      </para>
-<screen>
-git add -A
-git commit --allow-empty -m "Enable SELinux policy updates for compute nodes"
-</screen>
-     </step>
-     <step>
-      <para>
-       Copy the change to scratch (work) area:
-      </para>
+   </step>
+   <step>
+    <para>
+     Save and close the file.
+    </para>
+   </step>
+   <step>
+    <para>
+     Commit the change to Git:
+    </para>
+<screen>git commit -a --allow-empty -m "Enable SELinux policy updates for compute nodes"</screen>
+   </step>
+   <step>
+    <para>
+     Publish the changes so that they are included in playbook runs:
+    </para>
 <screen>ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
-     </step>
-    </substeps>
    </step>
   </procedure>
-  <para>
-   Proceed with configuring &rhla; compute nodes.
-  </para>
- </section>
- <xi:include xpointer="element(/1/9)" href="installation-kvm_xpointer.xml"/>
- <section xml:id="sec.provision-rhel.package">
-  <title>Adding Required Packages</title>
-  <para>
-   As documented in <xref linkend="sec.kvm.provision"/>, you will need to add
-   some extra packages that are required. Ensure that
-   <package>openssh-server</package>, <package>python</package>, and
-   <package>rsync</package> are installed.
-  </para>
- </section>
- <section xml:id="sec.provision-rhel.ssh">
-  <title>Setting Up Passwordless SSH Access</title>
-  <para>
-   After you have started your installation using the &lcm;, or if you are
-   adding a &rhla; node to an existing cloud, you need to copy the deployer
-   public key to the &rhla; node. One way of doing this is to copy the
-   <filename>~/.ssh/authorized_keys</filename> from another node in
-   the cloud to the same location on the &rhla; node. If you are installing a
-   new cloud, this file will be available on the nodes after running the
-   <filename>bm-reimage.yml</filename> playbook.
-  </para>
-  <important>
-   <para>
-    Ensure that there is global read access to the file
-    <filename>~/.ssh/authorized_keys</filename>.
-   </para>
-  </important>
-  <para>
-   Now test passwordless SSH from the deployer and check your ability to
-   remotely execute sudo commands:
-  </para>
-<screen>ssh ardana@<replaceable>IP_OF_RHEL_NODE</replaceable> "sudo tail -5 /var/log/messages"</screen>
  </section>
 </section>
