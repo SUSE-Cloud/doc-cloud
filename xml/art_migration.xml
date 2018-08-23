@@ -769,7 +769,7 @@ done</screen>
         </para>
 <screen><prompt>(seed)> </prompt> cd ~/scratch/ansible/next/hos/ansible
 <prompt>(seed)> </prompt>ansible-playbook -i hosts/verb_hosts site.yml -l <replaceable>NEW_DEPLOYER_HOST</replaceable>
-<prompt>(seed)> </prompt>ansible resources -i hosts/verb_hosts -a "zypper rr SLES12-SP3-12.3-0" --become</screen>
+<prompt>(seed)> </prompt>ansible resources -i hosts/verb_hosts -m shell -a "zypper rr SLES12-SP3-12.3-0 || true" --become</screen>
         <para>
          <replaceable>NEW_DEPLOYER_HOST</replaceable> must match the node's identity in the
          file <filename>hosts/verb_hosts</filename> (for example,
@@ -1130,6 +1130,11 @@ sudo ln -s /opt/hlm_packager/hlm/sles12/zypper/extras/sles12sp3-ceph-updates \
 ansible-playbook -i hosts/verb_hosts ardana-replace-legacy-repos.yml</screen>
    </step>
    <step>
+    If your environment includes &rhla; &compnode;s, prepare your deployer for
+    provisioning &ostack; services on them by following the steps described in
+    <xref linkend="install_rhel_compute_node"/>.
+   </step>
+   <step>
    <para>
     Run the &productname; &productnumber; upgrade playbook:
    </para>
@@ -1150,9 +1155,11 @@ ansible-playbook -i hosts/verb_hosts ardana-replace-legacy-repos.yml</screen>
     </para>
 <screen>cd ~/scratch/ansible/next/ardana/ansible
 ansible -i hosts/verb_hosts resources --become -m shell \
-  -a "if [ -x /usr/bin/zypper ]; then zypper rr sles12sp3-ceph-updates; fi"
+  -a "then zypper rr sles12sp3-ceph-updates || true"
 sudo rm /srv/www/suse-12.3/x86_64/repos/sles12sp3-ceph-updates
 sudo rm /srv/www/suse-12.3/x86_64/repos/PTF/*
+ansible resources -i hosts/verb_hosts -m shell \
+  -a "zypper remove -y python-devel || true" --become
 cd ~/openstack/ardana/ansible
 ansible-playbook -i hosts/localhost deployer-init.yml
 sudo zypper refresh PTF
@@ -1205,13 +1212,26 @@ sudo zypper dup --from Cloud</screen>
     </para>
     <para>
      The easiest way to provide the required repositories on the &lcm; Server is
-     to set up an &smt; server as described in
+     to configure it as an &smt; server as described in
      <xref linkend="app.deploy.smt_lcm"/>. Alternatives to setting up an
      &smt; server are described in <xref linkend="cha.depl.repo_conf_lcm"/>.
     </para>
+   </step>
+   <step>
     <para>
-     Before continuing, ensure that the "Cloud" repository has been replaced
-     by the following repositories on all nodes:
+     Next, use the following commands to replace the original ISO repositories
+     with the latest package sources provided by &suse;:
+    </para>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+sudo rm /opt/hlm_packager/hlm/sles12/zypper/OS /srv/www/suse-12.3/x86_64/repos/Cloud
+ansible resources -i hosts/verb_hosts -m shell \
+  -a "zypper rr SLES-OS || true" --become
+ansible-playbook -i hosts/verb_hosts _osconfig-setup-repos.yml</screen>
+   </step>
+   <step>
+    <para>
+     Ensure that the "Cloud" repository has been replaced
+     by the following repositories on all &slsa; nodes:
     </para>
     <itemizedlist>
      <listitem>
@@ -1238,7 +1258,7 @@ sudo zypper dup --from Cloud</screen>
    </step>
    <step>
     <para>
-     Apply the latest versions of software packages using the process described in
+     Finally, apply the latest versions of software packages using the process described in
      <xref linkend="maintenance_update"/>.
     </para>
    </step>
