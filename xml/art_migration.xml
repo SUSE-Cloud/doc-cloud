@@ -144,7 +144,7 @@ done</screen>
     </para>
 <screen><prompt>(old-deployer)> </prompt>mkdir hos-5.scp
 <prompt>(old-deployer)> </prompt>sudo mount <replaceable>HOS5SCP_ISO_FILE</replaceable> hos-5.scp
-<prompt>(old-deployer)> </prompt>tar -xf hos-5.scp/hos/hlm-migration-tools.tar.gz</screen>
+<prompt>(old-deployer)> </prompt>tar -xzvf hos-5.scp/hos/hlm-migration-tools.tar.gz</screen>
    </step>
    <step>
     <para>
@@ -264,17 +264,34 @@ done</screen>
      </listitem>
      <listitem>
       <para>
-       To view the upcoming timeouts of DHCP leases, run the following
-       command from each &contrnode;:
+       To view the upcoming timeouts of DHCP leases:
       </para>
-<screen>for i in $(cat /var/run/neutron/dhcp/*/leases | awk '{print $1}'); do date -d @$i; done</screen>
+      <procedure>
+       <step>
+        <para>
+         Determine which servers are running the DHCP agents
+        </para>
+        <screen><prompt>(old-deployer)> </prompt>neutron agent-list  | awk '/DHCP/{print $7 }'
+mig-cp1-neut-m2-mgmt
+mig-cp1-neut-m1-mgmt</screen>
+       </step>
+       <step>
+        <para>
+         On each host, display the lease times for active leases
+        </para>
+        <screen><prompt>(old-deployer)> </prompt>for i in $(cat
+        /var/run/neutron/dhcp/*/leases | awk '{print $1}'); do date -d @$i;
+        done
+        </screen>
+       </step>
+      </procedure>
      </listitem>
      <listitem>
       <para>
        To increase the DHCP lease time before migrating, open the
        <filename>~/helion/hos/ansible/roles/neutron-common/templates/neutron.conf.j2</filename>
        file and edit the <systemitem>dhcp_lease_duration</systemitem> parameter.
-       Commit the change, and run the <filename>neutron-configure.yml</filename> playbook.
+       Commit the change, and run the <filename>neutron-reconfigure.yml</filename> playbook.
        Then, continue to monitor the upcoming DHCP lease expirations as described
        above until all existing leases have been refreshed to a lengthier period.
       </para>
@@ -409,11 +426,15 @@ done</screen>
        Cobbler will initialize the seed node's networking to use the IP address
        of your original deployer as the default gateway. This will negatively
        impact the network's operation later on in the migration, and should be
-       updated after the system is up and running. On the new seed node, edit the
-       file <filename>/etc/sysconfig/network/routes</filename> and change the address
-       in the line starting with "default" to point to your environment's actual
-       default gateway. (You may be able to copy this from the value specified in
-       your existing deployer.) Then, restart networking with:
+       updated after the system is up and running. On the new seed node, edit
+       or create the file <filename>/etc/sysconfig/network/routes</filename>
+       and change the address in the line starting with "default" to point to
+       your environment's actual default gateway. It has the format:
+      </para>
+      <screen>default 192.168.1.254 - -</screen>
+      <para>
+       You may be able to copy this from the value specified in your existing
+       deployer. Then, restart networking with:
       </para>
 <screen><prompt>(seed)> </prompt>sudo systemctl restart network</screen>
      </listitem>
@@ -472,14 +493,13 @@ done</screen>
        </listitem>
        <listitem>
         <para>
-         If you are not able to ping IPMI IP addresses because network accessibility
-         to the IPMIs requires special network configuration and you would like to
-         use &lcm; for that process based on your existing data model:
+         Ensure that you can ping all the IPMI address from the new seed. If
+         required, add the required network routes to the seed. For example:
         </para>
-<screen><prompt>(old-deployer)> </prompt>ansible-playbook -i hosts/verb_hosts \
-  hlm-refresh-facts.yml
-<prompt>(old-deployer)> </prompt>ansible-playbook -i hosts/verb_hosts -l <replaceable>SEED_NODE_ID</replaceable> \
-  osconfig-run.yml</screen>
+        <screen>
+         <prompt>(seed)> </prompt>sudo ip route add
+         <replaceable>NETWORK_OF_IPMI</replaceable> via
+         <replaceable>GATEWAY_ON_THE_SEED</replaceable></screen>
         <para>
          Replace <replaceable>SEED_NODE_ID</replaceable> with the ID of the
          seed node as listed in the <filename>hosts/verb_hosts</filename> file.
@@ -595,8 +615,17 @@ done</screen>
      Prepare for running the migration playbook:
     </para>
 <screen><prompt>(seed)> </prompt>cd ~/helion/hos/ansible
+<prompt>(seed)> </prompt>ansible-playbook -i hosts/localhost cobbler-deploy.yml
 <prompt>(seed)> </prompt>ansible-playbook -i hosts/localhost config-processor-run.yml
 <prompt>(seed)> </prompt>ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+    <para>
+     In Migration Phase step 1, the &lcm; queue is communicating with the &slsa;
+     compute nodes and checking for the repos back on the seed.
+    </para>
+    <para>
+     The &rhla; nodes are still pointing to the old deployer so do not unmount
+     any &rhla; ISOs on that server.
+    </para>
    </step>
    <step>
     <para>
@@ -670,19 +699,33 @@ done</screen>
        Reinstall the operating systems on the control plane primary disks using
        an ISO, cobbler, or other provisioner. If using cobbler:
       </para>
-<screen><prompt>(seed)> </prompt>cd ~/openstack/ardana/ansible
+<screen><prompt>(seed)> </prompt>cd ~/helion/hos/ansible
 <prompt>(seed)> </prompt>ansible-playbook -i hosts/localhost cobbler-deploy.yml
 <prompt>(seed)> </prompt>ansible-playbook -i hosts/localhost prepare-sles-grub2.yml \
   -e nodelist=<replaceable>NODE_IDs</replaceable>
 <prompt>(seed)> </prompt>ansible-playbook -i hosts/localhost bm-reimage.yml \
-  -e nodelist=<replaceable>NODE_IDs</replaceable></screen>
+-e nodelist=<replaceable>NODE_IDs</replaceable></screen>
+      <note>
+       <para>
+        Do not reimage the &compnode;s, the original deployer or seed. The
+        following will generate a list of <literal>NODE_ID</literal>s you can use for the nodelist
+        argument.
+       </para>
+       <screen><prompt>(seed)> </prompt>sudo cobbler system list | grep -v comp
+       | awk -vORS=, '{ print $1 }'| sed 's/,$/\n/'</screen>
+       <para>
+        Verify that the &compnode;s are not included and adjust the grep
+        argument if needed.
+       </para>
+      </note>
       <para>
        In a mid-scale cloud topology, the original database content may have been
        stored on the non-primary drive in the system. If this was the case,
        the <filename>wipe_disk.yml</filename> playbook should be used after the
        database nodes have been re-imaged to purge the old data. For example:
       </para>
-<screen>ansible-playbook -i hosts/verb_hosts wipe_disks.yml \
+      <screen><prompt>(seed)> </prompt>cd ~/scratch/ansible/next/hos/ansible
+<prompt>(seed)> </prompt>ansible-playbook -i hosts/verb_hosts wipe_disks.yml \
   --limit dbmq-m1,dbmq-m2,dbmq-m3</screen>
       <para>
        (Be sure to specify your own list of database nodes matching their
@@ -797,13 +840,14 @@ done</screen>
 <prompt>(seed)> </prompt>sudo systemctl stop cobblerd
 <prompt>(seed)> </prompt>sudo systemctl disable cobblerd
 <prompt>(seed)> </prompt>sudo sed -i /sles12sp3.iso/d /etc/fstab
-<prompt>(seed)> </prompt>sudo umount /media/cdrom</screen>
+<prompt>(seed)> </prompt>sudo umount /media/cdrom
+<prompt>(seed)> </prompt>sudo sed -i /sles12sp3.iso/d /etc/fstab</screen>
      </listitem>
      <listitem>
       <para>
        Copy the user's home directory from the seed to the new deployer:
       </para>
-<screen><prompt>(seed)> </prompt>rsync -avP ~/ <replaceable>NEW_DEPLOYER_IP</replaceable>:/var/lib/ardana/</screen>
+<screen><prompt>(seed)> </prompt>rsync -avP ~/ <replaceable>NEW_DEPLOYER_IP</replaceable>:/home/stack</screen>
      </listitem>
      <listitem>
       <para>
@@ -811,7 +855,7 @@ done</screen>
       </para>
 <screen><prompt>(new-deployer)> </prompt>cd ~
 <prompt>(new-deployer)> </prompt>sudo mkdir -p /media/cdrom
-<prompt>(new-deployer)> </prompt>echo /var/lib/ardana/sles12sp3.iso /media/cdrom iso9660 loop 0 0 \
+<prompt>(new-deployer)> </prompt>echo /home/stack/sles12sp3.iso /media/cdrom iso9660 loop 0 0 \
   | sudo tee -a /etc/fstab
 <prompt>(new-deployer)> </prompt>sudo mount -a
 <prompt>(new deployer)> </prompt>tar -xf hos-5.scp/hos/hos-5.1.0-*.tar
@@ -821,13 +865,22 @@ done</screen>
 <prompt>(new deployer)> </prompt>ansible-playbook -i hosts/localhost cobbler-deploy.yml
 <prompt>(new-deployer)> </prompt>ansible-playbook -i hosts/localhost config-processor-run.yml
 <prompt>(new-deployer)> </prompt>ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+      <para>
+       As a result of being created from the <literal>SEED</literal>, the
+       rebuilt deployer will have repos pointing to the SEED server. Now
+       that the seed is no longer servicing repos, the OS on the deployer needs
+       to reference the OS CDROM that is now mounted on the deployer.
+      </para>
+      <para>
+       Remove the OS repo that is referencing the SEED
+      </para>
+      <screen><prompt>(new-deployer)> </prompt>sudo zypper rr SLES-OS
+<prompt>(new-deployer)> </prompt>sudo zypper ar file:/media/cdrom SLES12-SP3-12.3-0</screen>
      </listitem>
      <listitem>
       <para>
-       On each &slsa; compute node, remove all repositories that point to the
-       seed node. To do this, run <command>zypper lr -u</command> and
-       remove any listings referring to the original deployer's IP address
-       using <command>zypper rr <replaceable>REPO_NAME</replaceable></command>.
+       The old repos on the &slsa; systems will automatically be reset to the
+       new deployer when the <filename>osconfig-run.yml</filename> playbook is run.
       </para>
      </listitem>
      <listitem>
