@@ -1039,7 +1039,7 @@ sudo zypper refresh</screen>
     <para>
      Begin the installation:
     </para>
-<screen>sudo zypper -n in patterns-cloud-ardana ardana-ses
+<screen>sudo zypper -n in patterns-cloud-ardana
 sudo su - ardana
 ARDANA_INIT_AUTO=1 /usr/bin/ardana-init</screen>
    </step>
@@ -1060,8 +1060,8 @@ ARDANA_INIT_AUTO=1 /usr/bin/ardana-init</screen>
     </para>
 <screen>&prompt.ardana;cd ~/openstack/ardana/ansible
 &prompt.ardana;ansible-playbook -i hosts/localhost deployer-init.yml
-&prompt.sudo;zypper refresh PTF
-&prompt.sudo;zypper dup --from PTF
+&prompt.ardana;zypper refresh PTF
+&prompt.ardana;zypper dup --from PTF
 &prompt.ardana;rpm -qa | grep PTF</screen>
     <para>
      Ensure that all migration RPMs available to you via your &suse; support
@@ -1079,19 +1079,14 @@ ARDANA_INIT_AUTO=1 /usr/bin/ardana-init</screen>
     <para>
      Update certificate references to use the new "ardana" name:
     </para>
-<screen>sed -i 's/cert-file: helion/cert-file: ardana/' \
+    <screen>&prompt.ardana;cd ~/openstack/ardana/ansible
+sed -i 's/cert-file: helion/cert-file: ardana/' \
   ../../my_cloud/definition/data/network_groups.yml \
   ../../my_cloud/definition/data/control-plane.yml</screen>
     <para>
-     Adjust data model to install <systemitem>cassandra</systemitem> instead
-     of <systemitem>vertica</systemitem> (continuing as
-     <systemitem>ardana</systemitem> user):
-    </para>
-<screen>cd ~/openstack/ardana/ansible</screen>
-    <para>
-     Manually replace <literal>vertica</literal> with <literal>cassandra</literal>
-     in the service-components list, and remove any entry for
-     <literal>ops-console-monitor</literal>:
+     Adjust data model to install <literal>cassandra</literal> instead of
+     <literal>vertica</literal>. Manually replace vertica with cassandra in the
+     service-components list, and remove any entry for ops-console-monitor:
     </para>
 <screen>vi ../../my_cloud/definition/data/control_plane.yml</screen>
     <para>
@@ -1099,9 +1094,27 @@ ARDANA_INIT_AUTO=1 /usr/bin/ardana-init</screen>
      exists, manually update its consumer name from <literal>vertica</literal> to
      <literal>cassandra</literal> and add an identical
      <literal>consumer</literal> block to the
-     <systemitem>cassandra_log</systemitem> partition definition:
+     <systemitem>cassandra_log</systemitem> partition definition with:
     </para>
-<screen>vi ../../my_cloud/definition/data/disks_*</screen>
+    <screen>vi ../../my_cloud/definition/data/disks_*</screen>
+    <para>
+     For example:
+    </para>
+    <screen>- name: cassandra_db
+  size: 20%
+  mount: /var/cassandra/data
+  fstype: ext4
+  mkfs-opts: -O large_file
+  consumer:
+    name: cassandra
+
+- name: cassandra_log
+  size: 1%
+  mount: /var/cassandra/commitlog
+  fstype: ext4
+  mkfs-opts: -O large_file
+  consumer:
+    name: cassandra</screen>
     <para>
      If your environment includes a SES backend, add configuration files to enable
      it based on the <xref linkend="ses.integration"/> instructions. (However,
@@ -1125,10 +1138,21 @@ ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
     <para>
      Prepare the servers for Pike infrastructure:
     </para>
-<screen>cd ~/scratch/ansible/next/ardana/ansible
-ansible-playbook -i hosts/verb_hosts FND-AP2-vhosts-transition.yml
-sudo rename helion ardana /tmp/helion_*
-sudo rename helion ardana /tmp/ardana_*/helion*</screen>
+    <para>
+     If you have moved the &lcm; to the "NEWDEPLOYER", the certificates will be
+     still be on the seed server and need to be transferred to the new
+     deployer.
+    </para>
+    <screen><prompt>(seed)> </prompt> sudo -i su - ardana
+<prompt>(seed)> </prompt>cd /tmp
+<prompt>(seed)> </prompt>scp -r hel* ardana@NEWDEPLOYER>:/tmp</screen>
+    <para>
+     On the new deployer rename the certificate files.
+    </para>
+<screen><prompt>(new-deployer)> </prompt>cd ~/scratch/ansible/next/ardana/ansible
+<prompt>(new-deployer)> </prompt>ansible-playbook -i hosts/verb_hosts FND-AP2-vhosts-transition.yml
+<prompt>(new-deployer)> </prompt>sudo rename helion ardana /tmp/helion_*
+<prompt>(new-deployer)> </prompt>sudo rename helion ardana /tmp/ardana_*/helion*</screen>
    </step>
    <step>
     <para>
@@ -1169,13 +1193,21 @@ ansible-playbook -i hosts/verb_hosts ardana-replace-legacy-repos.yml</screen>
 ansible -i hosts/verb_hosts resources --become -m shell \
   -a "zypper rr sles12sp3-ceph-updates || true"
 sudo rm /srv/www/suse-12.3/x86_64/repos/sles12sp3-ceph-updates
-sudo rm /srv/www/suse-12.3/x86_64/repos/PTF/*
+sudo rm -rf /srv/www/suse-12.3/x86_64/repos/PTF/*
 ansible resources -i hosts/verb_hosts -m shell \
   -a "zypper remove -y python-devel || true" --become
 cd ~/openstack/ardana/ansible
 ansible-playbook -i hosts/localhost deployer-init.yml
 sudo zypper refresh PTF
 sudo zypper dup --from Cloud</screen>
+    <note>
+     <para>
+      When running <command>sudo zypper dup --from Cloud</command>, the
+      following message is expected:
+     </para>
+     <screen>The following 11 packages are going to be downgraded:
+ardana-ansible ardana-cinder ardana-db ardana-designate ardana-glance ardana-logging ardana-neutron ardana-nova ardana-osconfig ardana-swift ardana-tls</screen>
+    </note>
    </step>
    <step>
     <para>
@@ -1200,9 +1232,8 @@ sudo zypper dup --from Cloud</screen>
      In this case the operator can be given permission by adding a role to the
      user using the <command>openstack role add</command> command, for example:
     </para>
-    <screen>&prompt.ardana;openstack role add -/-user
-    <replaceable>USER_NAME</replaceable> -/-project
-    <replaceable>PROJECT_NAME</replaceable> cinder_admin</screen>
+    <screen>&prompt.ardana;openstack role add -/-user <replaceable>USER_NAME</replaceable> \
+    -/-project <replaceable>PROJECT_NAME</replaceable> cinder_admin</screen>
     <para>
      Role assignments should be carefully considered. In an environment which
      requires separation of duties, each operator should be assigned only the
@@ -1258,12 +1289,12 @@ ansible-playbook -i hosts/verb_hosts _osconfig-setup-repos.yml</screen>
      </listitem>
      <listitem>
       <para>
-       SUSE-OpenStack-Cloud-8-Pool
+       HPE-Helion-OpenStack-8-Pool
       </para>
      </listitem>
      <listitem>
       <para>
-       SUSE-OpenStack-Cloud-8-Updates
+       HPE-Helion-OpenStack-8-Update
       </para>
      </listitem>
     </itemizedlist>
