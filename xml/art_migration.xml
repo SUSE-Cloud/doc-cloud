@@ -54,20 +54,22 @@
    </listitem>
    <listitem>
     <para>
-     Upgrading will require re-imaging the operating system on the physical disks
-     containing the root partition of your controller nodes. Existing data on these
-     disks, which may include audit logs and &swift; objects, may be lost as a
-     result. (Note that the primary OpenStack MySQL database will undergo a
-     backup/restore as part of the upgrade process to ensure that its contents are
-     preserved.)
+     Upgrading will require re-imaging the operating system on the physical
+     disks containing the root partition of your controller nodes. Existing
+     data on these disks, which may include audit logs and &swift; objects, may
+     be lost as a result. Ensure that your model files and any other important
+     files on the deployer are copied to a safe location. (Note that the
+     primary OpenStack MySQL database will undergo a backup/restore as part of
+     the upgrade process to ensure that its contents are preserved.)
     </para>
    </listitem>
    <listitem>
     <para>
-     Review your existing partitioning model to understand how your data will be
-     affected by re-imaging. Any data that is not on a disk separate from the
-     primary root partition will be lost during re-imaging.
-     &swift; objects and audit logs.
+     Review your existing partitioning model to understand how your data will
+     be affected by re-imaging. Any data that is not on a disk separate from
+     the primary root partition will be lost during re-imaging, including
+     &swift; objects and audit logs. The control plane nodes must be booted
+     from physical drives and must not have any attached SAN disks.
     </para>
    </listitem>
    <listitem>
@@ -139,12 +141,13 @@ done</screen>
    <step>
     <para>
      Obtain the &hpecloud; 5.SCP installation ISO and use the
-     <command>mount</command>
-     command to make its contents available on the existing deployer:
+     <command>mount</command> command to make its contents available on the
+     existing deployer:
     </para>
 <screen><prompt>(old-deployer)> </prompt>mkdir hos-5.scp
 <prompt>(old-deployer)> </prompt>sudo mount <replaceable>HOS5SCP_ISO_FILE</replaceable> hos-5.scp
-<prompt>(old-deployer)> </prompt>tar -xzvf hos-5.scp/hos/hlm-migration-tools.tar.gz</screen>
+<prompt>(old-deployer)> </prompt>tar -xzvf hos-5.scp/hos/hlm-migration-tools.tar.gz
+<prompt>(old-deployer)> </prompt>umount hos-5.scp</screen>
    </step>
    <step>
     <para>
@@ -254,12 +257,12 @@ done</screen>
      </listitem>
      <listitem>
       <para>
-       Normally, this leaves a 24-hour window for control plane downtime at
-       any point before workload's DHCP leases run out and cannot be renewed.
+       Normally, this leaves a 24-hour window for control plane downtime at any
+       point before the workload's DHCP leases run out and cannot be renewed.
        While this is typically enough for performing a migration, increasing
-       the DHCP lease time to 144 hours is recommended to ensure that lease
-       expiration will not be a concern that affects your migration, even if
-       unexpected delays in the process are encountered.
+       the DHCP lease time to 144 hours (518400 seconds) is recommended to
+       ensure that lease expiration will not be a concern that affects your
+       migration, even if unexpected delays in the process are encountered.
       </para>
      </listitem>
      <listitem>
@@ -341,16 +344,15 @@ mig-cp1-neut-m1-mgmt</screen>
      </listitem>
      <listitem>
       <para>
-       Add a new entry for <systemitem>nova-placement-api</systemitem>
-       alongside whichever cluster already includes
-       <systemitem>nova-api</systemitem>.
+       Add nova-placement-api service to the cluster that has the nova-api service.
       </para>
      </listitem>
      <listitem>
       <para>
-       Update the <filename>servers.yml</filename> entry for
-       all nodes in the control plane to specify <systemitem>distro-id:
-       sles12sp3-x86_64</systemitem> in each one.
+       Update the <filename>servers.yml</filename> entry for all nodes in the
+       control plane to specify <systemitem>distro-id:
+       sles12sp3-x86_64</systemitem> in each one, otherwise they will boot
+       hLinux.
       </para>
      </listitem>
      <listitem>
@@ -456,7 +458,10 @@ mig-cp1-neut-m1-mgmt</screen>
      <para>
       If the server's boot mode is set to Legacy BIOS boot, then it is possible
       to use cobbler. However, if the boot mode of the server is set to UEFI
-      boot, the operating system must be installed manually.
+      boot, the operating system must be installed manually. A simple way to
+      accomplish this is to boot the &hpecloud; 5 SCP ISO DVD (such as
+      <filename>hos-5.1.0_03-991.iso</filename>) and supply the IP
+      address/subnet/gateway and the user name where needed.
      </para>
      <para>
       You should also perform installation on the root disk and avoid
@@ -469,16 +474,21 @@ mig-cp1-neut-m1-mgmt</screen>
    </step>
    <step>
     <para>
-     Transfer configuration and files from your existing cloud to the new seed node
+     Initially, the disk volume on the new seed is smaller than the volume on
+     the old deployer. So you should delete any extra files in the
+     <filename>stack</filename> home directory (such as old
+     <filename>qcow</filename> or <filename>iso</filename> files). Then
+     transfer configuration and files from the old deployer to the new seed
+     node.
     </para>
-    <itemizedlist>
-     <listitem>
+    <substeps>
+     <step>
       <para>
        Copy the entire home directory from the original deployer:
       </para>
 <screen><prompt>(old-deployer)> </prompt>rsync -avP ~ <replaceable>SEED_IP</replaceable>:/home</screen>
-     </listitem>
-     <listitem>
+     </step>
+     <step>
       <para>
        If cobbler will be used from the new seed for provisioning the remaining
        cloud &contrnode;s:
@@ -493,13 +503,12 @@ mig-cp1-neut-m1-mgmt</screen>
        </listitem>
        <listitem>
         <para>
-         Ensure that you can ping all the IPMI address from the new seed. If
+         Ensure that you can ping all the IPMI addresses from the new seed. If
          required, add the required network routes to the seed. For example:
         </para>
-        <screen>
-         <prompt>(seed)> </prompt>sudo ip route add
-         <replaceable>NETWORK_OF_IPMI</replaceable> via
-         <replaceable>GATEWAY_ON_THE_SEED</replaceable></screen>
+<screen><prompt>(seed)> </prompt>sudo ip route add
+<replaceable>NETWORK_OF_IPMI</replaceable> via
+<replaceable>GATEWAY_ON_THE_SEED</replaceable></screen>
         <para>
          Replace <replaceable>SEED_NODE_ID</replaceable> with the ID of the
          seed node as listed in the <filename>hosts/verb_hosts</filename> file.
@@ -512,8 +521,8 @@ mig-cp1-neut-m1-mgmt</screen>
 <screen><prompt>(old-deployer)> </prompt>sudo pkill dhcpd</screen>
        </listitem>
       </itemizedlist>
-     </listitem>
-    </itemizedlist>
+     </step>
+    </substeps>
    </step>
    <step>
     <para>
@@ -542,12 +551,10 @@ mig-cp1-neut-m1-mgmt</screen>
       <para>
        Ensure that <filename>~/sles12sp3.iso</filename> was either transferred
        from the original deployer or is downloaded to the home directory on the
-       seed node under the <filename>sles12sp3.iso</filename>. Then, mount it:
+       seed node under <filename>sles12sp3.iso</filename>. Then, mount it:
       </para>
 <screen><prompt>(seed)> </prompt>sudo mkdir -p /media/cdrom
-<prompt>(seed)> </prompt>echo /home/stack/sles12sp3.iso /media/cdrom iso9660 loop 0 0 \
-  | sudo tee -a /etc/fstab
-<prompt>(seed)> </prompt>sudo mount -a</screen>
+<prompt>(seed)> </prompt>sudo mount /home/stack/sles12sp3.iso /media/cdrom</screen>
       <para>
        If you installed the seed node using cobbler from the original deployer,
        replace the primary package repository on the new seed node with a link
@@ -555,7 +562,8 @@ mig-cp1-neut-m1-mgmt</screen>
        location.
       </para>
 <screen><prompt>(seed)> </prompt>sudo zypper rr SLES12-SP3-12.3-0
-<prompt>(seed)> </prompt>sudo zypper ar file:/media/cdrom SLES12-SP3-12.3-0</screen>
+<prompt>(seed)> </prompt>sudo zypper ar file:/media/cdrom SLES12-SP3-12.3-0
+<prompt>(seed)> </prompt>zypper ref</screen>
      </listitem>
     </itemizedlist>
    </step>
@@ -564,7 +572,9 @@ mig-cp1-neut-m1-mgmt</screen>
      Install &hpecloud; 5.SCP on the seed node by downloading and unpacking
      &hpecloud; 5.SCP installation content:
     </para>
-<screen><prompt>(seed)> </prompt>cd ~; tar -xf hos-5.scp/hos/hos-5.1.0-*.tar
+    <screen><prompt>(seed)> </prompt>mkdir -p ~/hos-5.scp
+<prompt>(seed)> </prompt>sudo mount <replaceable>HOS5SCP_ISO_FILE</replaceable> ~/hos-5.scp
+<prompt>(seed)> </prompt>cd ~; tar -xf hos-5.scp/hos/hos-5.1.0-*.tar
 <prompt>(seed)> </prompt>sudo mkdir -p /var/log/apache2
 <prompt>(seed)> </prompt>cd ~/hos-5.1.0; ./hos-init.bash</screen>
    </step>
@@ -576,24 +586,14 @@ mig-cp1-neut-m1-mgmt</screen>
     <itemizedlist>
      <listitem>
       <para>
-       On each &slsa; compute node, remove outdated repositories that point
-       to the old deployer. To do this, run <command>zypper lr -u</command> and
-       remove listings referring to the original deployer's IP address
-       using <command>sudo zypper rr <replaceable>REPO_NAME</replaceable></command>.
-       Note that the repositories <systemitem>SLES-OS</systemitem> and
-       <systemitem>SLES-SDK</systemitem> should never be removed, as they are
-       system entries that will automatically be updated to point to the new
-       seed node during installation.
+       On each &slsa; &compnode;, remove all the repositories except for
+       <systemitem>SLES-OS</systemitem> and
+       <systemitem>SLES-SDK</systemitem>. Use <command>zypper lr -u</command>,
+       to list them and <command>sudo zypper rr</command> to remove them. If
+       your &compnode;s were kept up to date using the SUSE Updates repository
+       via an SMT server, they will get future updates via the SMT server
+       running on or accessible by the new deployer.
       </para>
-      <para>
-       If your compute nodes are kept up to date using the &suse; Updates
-       repository via an SMT server, you should see a repository for this
-       purpose defined on your compute nodes. For proper behavior during the
-       upgrade, your repository names should be <systemitem>SLES12-SP3-Pool</systemitem>
-       and <systemitem>SLES12-SP3-Updates</systemitem>. If necessary, you can
-       rename any existing repository to match these names by running:
-      </para>
-<screen><prompt>(compute)> </prompt><command>sudo zypper nr <replaceable>OLD_NAME</replaceable> <replaceable>NEW_NAME</replaceable></command></screen>
      </listitem>
      <listitem>
       <para>
@@ -613,6 +613,22 @@ mig-cp1-neut-m1-mgmt</screen>
    <step>
     <para>
      Prepare for running the migration playbook:
+    </para>
+    <para>
+     Edit the <filename>control-plane.yml</filename> and add a new entry for
+     <literal>nova-placement-api</literal> alongside whichever cluster already
+     includes <literal>nova-api</literal>. If that line is added to the old
+     deployer model, running <filename>config-processor-run.yml</filename> will
+     error because it is still the old configuration processor.
+    </para>
+<screen><prompt>(seed)> </prompt>cd ~/helion/my_cloud/definition/data/
+<prompt>(seed)> </prompt>vi control-plane.yml</screen>
+    <para>
+     Commit your changes to the Git model:
+    </para>
+<screen><prompt>(seed)> </prompt>git commit -a -m "adding nova-placement-api "</screen>
+    <para>
+     Run the following playbooks:
     </para>
 <screen><prompt>(seed)> </prompt>cd ~/helion/hos/ansible
 <prompt>(seed)> </prompt>ansible-playbook -i hosts/localhost cobbler-deploy.yml
@@ -681,8 +697,8 @@ mig-cp1-neut-m1-mgmt</screen>
    </step>
    <step>
     <para>
-     Create a database backup by retrieving MySQL database contents from
-     another node (not the seed) in the database cluster:
+     Create a database backup by retrieving the MySQL database contents from
+     a running database node in the database cluster:
     </para>
 <screen><prompt>(seed)> </prompt>cd ~/scratch/ansible/next/hos/ansible
 <prompt>(seed)> </prompt>ansible-playbook -i hosts/verb_hosts percona-vertica-removal-cleanup.yml
@@ -755,7 +771,8 @@ mig-cp1-neut-m1-mgmt</screen>
      import from the snapshot that was captured from the cloud:
     </para>
 <screen><prompt>(seed)> </prompt>cd ~/scratch/ansible/next/hos/ansible
-<prompt>(seed)> </prompt>ansible-playbook -i hosts/verb_hosts site.yml -e dbcontent=~/mysql_dump.sql</screen>
+<prompt>(seed)> </prompt>ansible-playbook -i hosts/verb_hosts site.yml -e dbcontent=~/mysql_dump.sql \
+--limit "!old-deployer"</screen>
    </step>
    <step>
     <para>
@@ -845,26 +862,13 @@ mig-cp1-neut-m1-mgmt</screen>
      </listitem>
      <listitem>
       <para>
-       Copy the user's home directory from the seed to the new deployer:
+       Copy the user's home directory from the seed to the new
+       deployer. Unmount any ISOs that are mounted in stack home directory.
       </para>
-<screen><prompt>(seed)> </prompt>rsync -avP ~/ <replaceable>NEW_DEPLOYER_IP</replaceable>:/home/stack</screen>
+<screen><prompt>(seed)> </prompt>sudo umount /home/stack/hos5.scp
+<prompt>(seed)> </prompt>rsync -avP ~/ <replaceable>NEW_DEPLOYER_IP</replaceable>:/home/stack</screen>
      </listitem>
      <listitem>
-      <para>
-       Connect to the new deployer and initialize it for use:
-      </para>
-<screen><prompt>(new-deployer)> </prompt>cd ~
-<prompt>(new-deployer)> </prompt>sudo mkdir -p /media/cdrom
-<prompt>(new-deployer)> </prompt>echo /home/stack/sles12sp3.iso /media/cdrom iso9660 loop 0 0 \
-  | sudo tee -a /etc/fstab
-<prompt>(new-deployer)> </prompt>sudo mount -a
-<prompt>(new deployer)> </prompt>tar -xf hos-5.scp/hos/hos-5.1.0-*.tar
-<prompt>(new deployer)> </prompt>cd ~/hos-5.1.0
-<prompt>(new deployer)> </prompt>./hos-init.bash
-<prompt>(new deployer)> </prompt>cd ~/helion/hos/ansible
-<prompt>(new deployer)> </prompt>ansible-playbook -i hosts/localhost cobbler-deploy.yml
-<prompt>(new-deployer)> </prompt>ansible-playbook -i hosts/localhost config-processor-run.yml
-<prompt>(new-deployer)> </prompt>ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
       <para>
        As a result of being created from the <literal>SEED</literal>, the
        rebuilt deployer will have repos pointing to the SEED server. Now
@@ -872,7 +876,7 @@ mig-cp1-neut-m1-mgmt</screen>
        to reference the OS CDROM that is now mounted on the deployer.
       </para>
       <para>
-       Remove the OS repo that is referencing the SEED
+       Remove the OS repo that is referencing the SEED.
       </para>
       <screen><prompt>(new-deployer)> </prompt>sudo zypper rr SLES-OS
 <prompt>(new-deployer)> </prompt>sudo zypper ar file:/media/cdrom SLES12-SP3-12.3-0</screen>
@@ -882,6 +886,23 @@ mig-cp1-neut-m1-mgmt</screen>
        The old repos on the &slsa; systems will automatically be reset to the
        new deployer when the <filename>osconfig-run.yml</filename> playbook is run.
       </para>
+     </listitem>
+     <listitem>
+      <para>
+       ISO files were copied back to the new deployer from the seed. Remount
+       them and initialize the new deployer for use:
+      </para>
+<screen><prompt>(new-deployer)> </prompt>cd ~
+<prompt>(new-deployer)> </prompt>sudo mkdir -p /media/cdrom
+<prompt>(new-deployer)> </prompt>sudo mount /home/stack/sles12sp3.iso /media/cdrom
+<prompt>(new-deployer)> </prompt>sudo mount HPE-HELION-OPENSTACK-5-TO-8-MIGRATION-SCP-x86_64-991.iso hos-5.scp
+<prompt>(new deployer)> </prompt>tar -xf hos-5.scp/hos/hos-5.1.0-*.tar
+<prompt>(new deployer)> </prompt>cd ~/hos-5.1.0
+<prompt>(new deployer)> </prompt>./hos-init.bash
+<prompt>(new deployer)> </prompt>cd ~/helion/hos/ansible
+<prompt>(new deployer)> </prompt>ansible-playbook -i hosts/localhost cobbler-deploy.yml
+<prompt>(new-deployer)> </prompt>ansible-playbook -i hosts/localhost config-processor-run.yml
+<prompt>(new-deployer)> </prompt>ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
      </listitem>
      <listitem>
       <para>
@@ -930,6 +951,8 @@ mig-cp1-neut-m1-mgmt</screen>
 cp -r helion openstack
 cd openstack
 git checkout site</screen>
+   </step>
+   <step>
     <para>
      If your environment included a SES storage backend, remove all references
      to it from your data model. This may be done by using <command>git revert
@@ -960,17 +983,23 @@ git checkout site</screen>
       </para>
      </listitem>
     </itemizedlist>
+   </step>
+   <step>
     <para>
      Save a record of all other manual changes that have been previously committed
      to the <filename>hos/ansible</filename> directory, as you will need to
      reapply them later:
     </para>
 <screen>git diff hos -- hos/ansible > /tmp/hos.diff</screen>
+   </step>
+   <step>
     <para>
      Forcibly undo all the changes identified:
     </para>
 <screen>rm -rf hos/ansible
 git checkout hos -- hos/ansible</screen>
+   </step>
+   <step>
     <para>
      Reset the codebase to make it ready for Ardana, then transform the rest of
      the repository:
@@ -996,6 +1025,8 @@ git commit -a -m "Conversion to Ardana"
 git checkout site
 git merge ardana -m "Conversion to Ardana"
 </screen>
+   </step>
+   <step>
     <para>
      Reinstate the changes that were originally made to the contents of the
      <filename>hos/ansible</filename> directory
@@ -1004,8 +1035,12 @@ git merge ardana -m "Conversion to Ardana"
     <para>
      If merge conflicts are reported, some files may need to be edited manually
      to reconcile the difference between the HOS and Ardana playbooks with
-     respect to manual changes previously made to the repository. Once this is
-     completed, continue to commit all updates:
+     respect to manual changes previously made to the repository.
+    </para>
+   </step>
+   <step>
+    <para>
+     After this is completed, continue to commit all updates:
     </para>
 <screen>git add -A
 git commit -a -m "Reinstated hos playbook customizations (batch)"
