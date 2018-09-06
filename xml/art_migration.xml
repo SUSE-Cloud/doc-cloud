@@ -351,6 +351,15 @@ done</screen>
      </listitem>
      <listitem>
       <para>
+       If your environment includes a 3PAR storage backend, edit the file
+       <filename>~/helion/my_cloud/config/cinder/cinder.conf.j2</filename>
+       and update your driver to its new name (from <systemitem>HP3PARFCDriver</systemitem>
+       to <systemitem>HPE3PARFCDriver</systemitem>, or from
+       <systemitem>HP3PARISCSIDriver</systemitem> to <systemitem>HPE3PARISCSIDriver</systemitem>.)
+      </para>
+     </listitem>
+     <listitem>
+      <para>
        Commit your changes to the Git model:
       </para>
 <screen><prompt>(old-deployer)> </prompt>git commit -a -m "Prepare for HOS 5.1 installation"</screen>
@@ -497,11 +506,7 @@ done</screen>
          Ensure that you can ping all the IPMI address from the new seed. If
          required, add the required network routes to the seed. For example:
         </para>
-        <screen><prompt>(seed)> </prompt>sudo ip route add <replaceable>NETWORK_OF_IPMI</replaceable> via <replaceable>GATEWAY_ON_THE_SEED</replaceable></screen>
-        <para>
-         Replace <replaceable>SEED_NODE_ID</replaceable> with the ID of the
-         seed node as listed in the <filename>hosts/verb_hosts</filename> file.
-        </para>
+        <screen><prompt>(seed)> </prompt>sudo ip route add <replaceable>IPMI_NETWORK</replaceable> via <replaceable>IPMI_GATEWAY_FROM_SEED</replaceable></screen>
        </listitem>
        <listitem>
         <para>
@@ -749,10 +754,12 @@ done</screen>
    </step>
    <step>
     <para>
-     Perform the &hpecloud; 5.SCP installation using flags to enable database
-     import from the snapshot that was captured from the cloud:
+     Create the log directory for the configuration processor, and then run the
+     &hpecloud; 5.SCP installation. Use the flag to enable database import from
+     the snapshot that was captured from the cloud:
     </para>
-<screen><prompt>(seed)> </prompt>cd ~/scratch/ansible/next/hos/ansible
+<screen><prompt>(seed)> </prompt>mkdir -p /var/log/configuration_processor
+<prompt>(seed)> </prompt>cd ~/scratch/ansible/next/hos/ansible
 <prompt>(seed)> </prompt>ansible-playbook -i hosts/verb_hosts site.yml -e dbcontent=~/mysql_dump.sql</screen>
    </step>
    <step>
@@ -1006,10 +1013,13 @@ git merge ardana -m "Conversion to Ardana"
    </step>
    <step>
     <para>
-     Reinstate the changes that were originally made to the contents of the
-     <filename>hos/ansible</filename> directory
+     If the file /tmp/hos.diff contains changes that were saved prior to the
+     repo conversion above, reinstate them in the
+     <filename>ardana/ansible</filename> directory.
     </para>
-<screen>sed 's/ \([ab]\?[\/]\?\)hos\/ansible/ \1ardana\/ansible/g' /tmp/hos.diff | git apply</screen>
+<screen>if [ -s /tml/hos.diff ]; then
+  sed 's/ \([ab]\?[\/]\?\)hos\/ansible/ \1ardana\/ansible/g' /tmp/hos.diff | git apply
+fi</screen>
     <para>
      If merge conflicts are reported, some files may need to be edited manually
      to reconcile the difference between the HOS and Ardana playbooks with
@@ -1101,13 +1111,40 @@ sudo zypper refresh</screen>
     <para>
      Begin the installation:
     </para>
-<screen>sudo zypper -n in patterns-cloud-ardana
-sudo su - ardana
-ARDANA_INIT_AUTO=1 /usr/bin/ardana-init</screen>
+<screen>sudo zypper -n in patterns-cloud-ardana</screen>
    </step>
    <step>
     <para>
-     This procedure creates the directory
+     Before continuing the installation, add a password of your choosing
+     to the new <systemitem>ardana</systemitem> user:
+    </para>
+<screen>sudo passwd ardana</screen>
+   </step>
+   <step>
+    <para>
+     Then, <command>exit</command> your current session on the deployer
+     and open a new session as the <systemitem>ardana</systemitem> user,
+     logging in with the password that you just established. From this
+     point on, the <systemitem>ardana</systemitem> user will be used
+     for all operations, and the <systemitem>stack</systemitem> user should
+     be considered deprecated.
+    </para>
+    <para>
+     To ensure that the <systemitem>stack</systemitem> user does not continue
+     to be used, locking its account with the following command
+     is highly recommended:
+    </para>
+<screen>sudo usermod -L stack</screen>
+   </step>
+   <step>
+    <para>
+     Continue the installation as the <systemitem>ardana</systemitem> user:
+    </para>
+<screen>ARDANA_INIT_AUTO=1 /usr/bin/ardana-init</screen>
+   </step>
+   <step>
+    <para>
+     The installation process creates the directory
      <filename>/srv/www/suse-12.3/x86_64/repos/PTF</filename> and adds it as
      a software repository. To enable a successful migration, you must add
      required Program Temporary Fix (PTF) RPM packages to this repository
@@ -1126,12 +1163,12 @@ ARDANA_INIT_AUTO=1 /usr/bin/ardana-init</screen>
      Apply the PTF packages obtained in the previous step and confirm
      that they install correctly:
     </para>
-<screen>&prompt.ardana;cd ~/openstack/ardana/ansible
-&prompt.ardana;ansible-playbook -i hosts/localhost deployer-init.yml
-&prompt.ardana;sudo zypper refresh PTF
-&prompt.ardana;sudo zypper dup --from PTF
-&prompt.ardana;sudo zypper in ardana-ses
-&prompt.ardana;rpm -qa | grep PTF</screen>
+<screen>cd ~/openstack/ardana/ansible
+ansible-playbook -i hosts/localhost deployer-init.yml
+sudo zypper refresh PTF
+sudo zypper dup --from PTF
+sudo zypper in ardana-ses
+rpm -qa | grep PTF</screen>
     <para>
      Ensure that all migration RPMs available to you via your &suse; support
      contract are present in the resulting list. If any are missing, repeat
@@ -1158,7 +1195,7 @@ sed -i 's/ardana-default-store/hlm-default-store/' \
     </para>
     <screen>sed -i 's/cert-file: helion/cert-file: ardana/' \
   ../../my_cloud/definition/data/network_groups.yml \
-  ../../my_cloud/definition/data/control-plane.yml</screen>
+  ../../my_cloud/definition/data/control_plane.yml</screen>
     <para>
      Adjust data model to install <literal>cassandra</literal> instead of
      <literal>vertica</literal>. Manually replace vertica with cassandra in the
@@ -1199,13 +1236,6 @@ sed -i 's/ardana-default-store/hlm-default-store/' \
      this time.)
     </para>
     <para>
-     If your environment includes a 3PAR storage backend, edit the file
-     <filename>~/openstack/my_cloud/config/cinder/cinder.conf.j2</filename>
-     and update your driver to its new name (from <systemitem>HP3PARFCDriver</systemitem>
-     to <systemitem>HPE3PARFCDriver</systemitem>, or from
-     <systemitem>HP3PARISCSIDriver</systemitem> to <systemitem>HPE3PARISCSIDriver</systemitem>.)
-    </para>
-    <para>
      Save the updates to the data model:
     </para>
 <screen>git commit -a -m 'Updated data model'</screen>
@@ -1221,10 +1251,10 @@ ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
     <para>
      Prepare the servers for Pike infrastructure:
     </para>
-<screen><prompt>(new-deployer)> </prompt>cd ~/scratch/ansible/next/ardana/ansible
-<prompt>(new-deployer)> </prompt>ansible-playbook -i hosts/verb_hosts FND-AP2-vhosts-transition.yml
-<prompt>(new-deployer)> </prompt>sudo rename helion ardana /tmp/helion_*
-<prompt>(new-deployer)> </prompt>sudo rename helion ardana /tmp/ardana_*/helion*</screen>
+<screen>cd ~/scratch/ansible/next/ardana/ansible
+ansible-playbook -i hosts/verb_hosts FND-AP2-vhosts-transition.yml
+sudo rename helion ardana /tmp/helion_*
+sudo rename helion ardana /tmp/ardana_*/helion*</screen>
    </step>
    <step>
     <para>
@@ -1322,7 +1352,9 @@ sudo zypper dup --from Cloud</screen>
     <para>
      Before applying updates to your cloud, you should replace the repositories
      configured on each node during the migration with links to an &smt; server
-     that mirrors the latest versions of your software.
+     that mirrors the latest versions of your software. To begin this process,
+     register your deployer node and install the &hpecloud; extension as described
+     in <xref linkend="sec.depl.adm_inst.add_on"/>.
     </para>
     <para>
      The easiest way to provide the required repositories on the &lcm; Server is
@@ -1339,7 +1371,7 @@ sudo zypper dup --from Cloud</screen>
 <screen>cd ~/scratch/ansible/next/ardana/ansible
 sudo rm /opt/hlm_packager/hlm/sles12/zypper/OS /srv/www/suse-12.3/x86_64/repos/Cloud
 ansible resources -i hosts/verb_hosts -m shell \
-  -a "zypper rr SLES-OS || true" --become
+  -a "zypper rr Cloud; zypper rr SLES-OS || true" --become
 ansible-playbook -i hosts/verb_hosts _osconfig-setup-repos.yml</screen>
    </step>
    <step>
