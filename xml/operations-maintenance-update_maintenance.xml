@@ -11,7 +11,7 @@
   <title>Preparing for Update</title>
   <step>
    <para>
-    Ensure that the update repositories have been properly setup on all nodes.
+    Ensure that the update repositories have been properly set up on all nodes.
     The easiest way to provide the required repositories on the &lcm; Server is
     to set up an &smt; server as described in
     <xref linkend="app.deploy.smt_lcm"/>. Alternatives to setting up an
@@ -65,23 +65,18 @@
  </procedure>
  <section xml:id="perform_update">
   <title>Performing the Update</title>
-  <procedure>
-   <title>Update Instructions</title>
-   <step>
-    <para>
-     Get status of all your services:
+  <para>
+     Before you proceed, get the status of all your services:
     </para>
-<screen>cd ~/scratch/ansible/next/ardana/ansible
-ansible-playbook -i hosts/verb_hosts ardana-status.yml</screen>
-    <para>
+<screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts ardana-status.yml</screen>
+   <para>
      If status check returns an error for a specific service, run the
      <filename><replaceable>SERVICE</replaceable>-reconfigure.yml</filename>
-     playbook. Run then the
+     playbook. Then run the
      <filename><replaceable>SERVICE</replaceable>-status.yml</filename>
-     playbook to check whether the issue has been resolved.
+     playbook to check that the issue has been resolved.
     </para>
-   </step>
-   <step>
     <para>
      Update and reboot all nodes in the cloud one by one. Start with the
      deployer node, then follow the order recommended in
@@ -101,37 +96,66 @@ ansible-playbook -i hosts/verb_hosts ardana-status.yml</screen>
      &contrnode;s and evacuating &compnode;s. Do not stop services running on
      the node, as they need to be running during the update.
     </para>
-    <substeps>
+  <procedure>
+   <title>Update Instructions</title>
      <step>
       <para>
-       Install desired package updates on the target node:
+       Install all available security and maintenance updates using the
+       <command>zypper patch</command> command on the deployer.
+      </para>
+     </step>
+     <step>
+      <para>
+       Run <command>ardana-init</command> to initialize the &lcm;.
+      </para>
+     </step>
+     <step>
+      <para>
+       Installation and management of updates can be automated with the
+       following playbooks:
       </para>
       <itemizedlist>
        <listitem>
         <para>
-         It is recommended to install all available security and maintenance
-         updates using the <command>zypper patch</command> command.
+         <filename>ardana-update-pkgs.yml</filename>
         </para>
        </listitem>
        <listitem>
         <para>
-         Update a single package (for example, apply a PTF on a single node or
-         on all nodes) by running <command>zypper
-         update<replaceable>PACKAGE</replaceable></command>
+         <filename>ardana-update.yml</filename>
         </para>
        </listitem>
        <listitem>
         <para>
-         Install all package updates using the <command>zypper update</command>
+         <filename>ardana-update-status.yml</filename>
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         <filename>ardana-reboot.yml</filename>
         </para>
        </listitem>
       </itemizedlist>
+      <para>
+       By default, the <filename>ardana-update-pkgs.yml</filename> playbook
+       will install patches and updates that do not require a system
+       reboot. Patches and updates that <emphasis role="bold">do</emphasis>
+       require a system reboot will be installed later in this process.
+      </para>
+      <screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts ardana-update-pkgs.yml \
+--limit <replaceable>TARGET_NODE_NAME</replaceable></screen>
+      <para>
+       There may be a delay in the playbook output at the following task while
+       updates are pulled from the deployer.
+      </para>
+      <screen>TASK: [ardana-upgrade-tools | pkg-update | Download and install
+package updates] ***</screen>
      </step>
      <step>
       <para>
-       If the previous step updates any of the <package>ardana*</package>
-       packages, the following actions
-       must be performed on the deployer:
+       If the previous step updates any <package>ardana*</package>
+       packages, the following actions must be performed on the deployer:
       </para>
       <substeps>
        <step>
@@ -141,70 +165,260 @@ ansible-playbook -i hosts/verb_hosts ardana-status.yml</screen>
          <!-- The referenced section is currently not available. - sknorr, 2018-04-24 -->
          <!-- If you receive a merge error, refer to
          <xref linkend="upgrade_git_merge"/>.-->
-         After merge conflicts have been
-         resolved, run the initialization script again.
+         After any merge conflicts have been resolved, run the initialization
+         script again.
         </para>
        </step>
        <step>
         <para>
          Redeploy cobbler:
         </para>
-<screen>cd ~/openstack/ardana/ansible
-ansible-playbook -i hosts/localhost cobbler-deploy.yml</screen>
+<screen>&prompt.ardana;cd ~/openstack/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/localhost cobbler-deploy.yml</screen>
        </step>
        <step>
         <para>
          Run the configuration processor:
         </para>
-<screen>cd ~/openstack/ardana/ansible
-ansible-playbook -i hosts/localhost config-processor-run.yml</screen>
+<screen>&prompt.ardana;cd ~/openstack/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/localhost config-processor-run.yml</screen>
        </step>
        <step>
         <para>
          Update your deployment directory:
         </para>
-<screen>cd ~/openstack/ardana/ansible
-ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+<screen>&prompt.ardana;cd ~/openstack/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
        </step>
       </substeps>
      </step>
      <step>
       <para>
-       On the deployer node, run the update playbook targeted at the node that
-       has been updated at the previous step:
+       After running the <filename>ardana-update-pkgs.yml</filename> playbook
+       to install patches and updates not requiring reboot, check the status of
+       remaining tasks.
       </para>
-<screen>cd ~/scratch/ansible/next/ardana/ansible
-ansible-playbook -i hosts/verb_hosts ardana-update.yml --limit <replaceable>TARGET_NODE_NAME</replaceable></screen>
+      <screen>&prompt.ardana;ansible-playbook -i hosts/verb_hosts ardana-update-status.yml \
+--limit <replaceable>TARGET_NODE_NAME</replaceable></screen>
      </step>
      <step>
       <para>
-       Reboot the node as described in <xref linkend="rebootNodes"/>.
+       To install patches that require reboot, run the
+       <filename>ardana-update-pkgs.yml</filename> playbook with the parameter
+       <literal>-e zypper_update_include_reboot_patches=true</literal>.
       </para>
+      <screen>&prompt.ardana;ansible-playbook -i hosts/verb_hosts ardana-update-pkgs.yml \
+--limit  <replaceable>TARGET_NODE_NAME</replaceable> \
+-e zypper_update_include_reboot_patches=true</screen>
+      <para>
+       Run <filename>ardana-reboot.yml</filename>. This will cause cloud
+       service interruption.
+      </para>
+      <note>
+       <para>
+        To update a single package (for example, apply a PTF on a single node
+        or on all nodes), run <command>zypper update
+        <replaceable>PACKAGE</replaceable></command>.
+       </para>
+       <para>
+        To install all package updates using <command>zypper update</command>.
+       </para>
+      </note>
+     </step>
+     <step>
+      <para>
+       Update services:
+      </para>
+        <screen>&prompt.ardana;ansible-playbook -i hosts/verb_hosts ardana-update.yml \
+--limit <replaceable>TARGET_NODE_NAME</replaceable></screen>
+     </step>
+     <step>
+      <para>
+       If indicated by the <filename>ardana-update-status.yml</filename>
+       playbook, reboot the node.
+      </para>
+      <para>
+       There may also be a warning to reboot after running the
+       <filename>ardana-update-pkgs.yml</filename>.
+      </para>
+      <para>
+       This check can be overridden by setting the
+       <literal>SKIP_UPDATE_REBOOT_CHECKS</literal> environment variable or the
+       <literal>skip_update_reboot_checks</literal> Ansible variable.
+        </para>
+        <screen>ansible-playbook -i hosts/verb_hosts ardana-reboot.yml \
+--limit <replaceable>TARGET_NODE_NAME</replaceable></screen>
+     </step>
+     <step>
+      <para>
+       To recheck pending system reboot status at a later time, run the
+       following commands:
+      </para>
+      <screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts ardana-update-status.yml \
+--limit ardana-cp1-c1-m2 -e update_status_var=system-reboot</screen>
+     </step>
+     <step>
+      <para>
+       The pending system reboot status can be reset by running:
+      </para>
+      <screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts ardana-update-status.yml \
+--limit ardana-cp1-c1-m2 \
+-e update_status_var=system-reboot \
+-e update_status_reset=true</screen>
+     </step>
+     <step>
+      <para>
+       Multiple servers can be patched at the same time with
+       <filename>ardana-update-pkgs.yml</filename> by setting the option
+       <literal>-e skip_single_host_checks=true</literal>.
+      </para>
+      <warning>
+       <para>
+        When patching multiple servers at the same time, take care not to
+        compromise HA capability by updating an entire cluster (controller,
+        database, monitor, logging) at the same time.
+       </para>
+      </warning>
+      <para>
+       If multiple nodes are specified on the command line (with
+       <literal>--limit</literal>), services on those servers will experience
+       outages as the packages are shutdown and updated.  On &compnode;s (or
+       group of &compnode;s) migrate the workload off if you plan to update
+       it. The same applies to &contrnode;s: move singleton services off of the
+       control plane node that will be updated.
+      </para>
+      <important>
+       <para>
+        Do not reboot all of your controllers at the same time.
+       </para>
+      </important>
      </step>
      <step>
       <para>
        When the node comes up after the reboot, run the
        <filename>spark-start.yml</filename> file:
       </para>
-<screen>cd ~/scratch/ansible/next/ardana/ansible
-ansible-playbook -i hosts/verb_hosts spark-start.yml</screen>
+      <screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts spark-start.yml</screen>
      </step>
      <step>
       <para>
        Verify that Spark is running on all &contrnode;s:
       </para>
-<screen>cd ~/scratch/ansible/next/ardana/ansible
-ansible-playbook -i hosts/verb_hosts spark-status.yml</screen>
+      <screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts spark-status.yml</screen>
      </step>
-    </substeps>
-   </step>
-   <step>
-    <para>
-     After all nodes have been updated, check the status of all services:
-    </para>
-<screen>cd ~/scratch/ansible/next/ardana/ansible
-ansible-playbook -i hosts/verb_hosts ardana-status.yml</screen>
-   </step>
-  </procedure>
+     <step>
+      <para>
+       After all nodes have been updated, check the status of all services:
+      </para>
+      <screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts ardana-status.yml</screen>
+     </step>
+    </procedure>
+ </section>
+ <section>
+  <title>Summary of the Update Playbooks</title>
+  <variablelist>
+   <varlistentry>
+    <term>ardana-update-pkgs.yml</term>
+    <listitem>
+     <para>
+      Top-level playbook automates the installation of package updates on
+      a single node. It also works for multiple nodes, if the single-node
+      restriction is overridden by setting the SKIP_SINGLE_HOST_CHECKS
+      environment variable <literal>ardana-update-pkgs.yml -e
+      skip_single_host_checks=true</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>ardana-update-pkgs.yml</term>
+    <listitem>
+     <para>
+      Update-ardana variables are checked and updated to reflect the status of
+      the update operation.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>ardana-reboot.yml</term>
+    <listitem>
+     <para>
+      Top-level playbook that automates the steps required to reboot a node. It
+      includes pre-boot and post-boot phases, which can be extended to include
+      additional checks.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>ardana-update-status.yml</term>
+    <listitem>
+     <para>
+      This playbook can be used to check or reset the update-related status
+      variables maintained by the update playbooks. The main reason for having
+      this mechanism is to allow the update status to be checked at any point
+      during the update procedure. It is also used heavily by the automation
+      scripts to orchestrate installing maintenance updates on multiple nodes.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>zypper_update_method</term>
+    <listitem>
+     <para>
+      Command line updates with the following <literal>-e</literal> options to
+      modify default behavior:
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        <literal>patch</literal> (default) will install all patches for the
+        system from the configured update repositories that are
+        available. Patches are intended for specific bug and security fixes.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <literal>update</literal> will update packages from all configured
+        repositories (not just the update repositories) that have a higher
+        version number than the installed packages.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <literal>dist-upgrade</literal> replaces each package installed with
+        the version from the repository and deletes packages not available in
+        the repositories.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <literal>zypper_update_gpg_checks</literal> (default: true) enables GPG
+        checks. If set to <literal>true</literal>, checks if packages are
+        correctly signed.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <literal>zypper_update_licenses_agree</literal> (default: false)
+        automatically agrees with licenses. If set to <literal>true</literal>, zypper
+        automatically accepts third party licenses.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        <literal>zypper_update_include_reboot_patches</literal> (default:
+        false) includes patches that require reboot. Setting this to
+        <literal>true</literal> installs patches that require a reboot (such as
+        kernel or glibc updates).
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+   </varlistentry>
+  </variablelist>
  </section>
 </section>
