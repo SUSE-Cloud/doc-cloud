@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+  <title>Policy Types</title>
+  <para>A  policy is a set of rules that are checked
+            and enforced. The checking can be done before or after an action’s execution
+            or both. Policies are of different policy types, each of which is designed to
+            make sure that a cluster’s behavior follows certain patterns or complies with
+            certain restrictions.</para>
+  <para>When released, Senlin comes with some built-in policy types to meet the
+            requirements found in some typical use cases. However, the distributors or the
+            users can always augment their collection of policy types by implementing
+            their own ones.</para>
+  <para>Policy type implementations are managed as Senlin plugins. The plan is to have
+            Senlin engine support dynamical loading of plugins from user specified modules
+            and classes. Currently, this can be achieved by adding new <literal>senlin.policies</literal>
+            entries in the <literal>entry_points</literal> section in the <literal>setup.cfg</literal> file, followed by
+            a reinstall of the Senlin service, i.e. <literal>sudo pip install</literal> command.</para>
+  <section>
+    <title>The Base Class <literal>Policy</literal></title>
+    <para>The base class <literal>Policy</literal> provides some common logics regarding the following
+                operations:</para>
+    <itemizedlist>
+      <listitem>
+        <para>The initialization of the <literal>spec_data</literal> property, based on the
+                        <literal>spec_schema</literal> definition and the <literal>spec</literal> input.</para>
+      </listitem>
+      <listitem>
+        <para>The serialization and deserialization of a policy object into/from database.</para>
+      </listitem>
+      <listitem>
+        <para>The serialization and deserialization of a policy object into/from a dict.</para>
+      </listitem>
+      <listitem>
+        <para>The default validation operation for the <literal>spec_data</literal> property.</para>
+      </listitem>
+      <listitem>
+        <para>Default implementations for the following methods which are to be overridden
+                        by a policy type implementation:</para>
+        <itemizedlist>
+          <listitem>
+            <para><literal>attach(cluster_id, action)</literal>: a method that will be invoked when a policy
+                                object of this type is attached to a cluster.</para>
+          </listitem>
+          <listitem>
+            <para><literal>detach(cluster_id, action)</literal>: a method that will be invoked when a policy
+                                object of this type is detached from a cluster.</para>
+          </listitem>
+          <listitem>
+            <para><literal>pre_op(cluster_id, action)</literal>: a method that will be invoked before an
+                                action is executed;</para>
+          </listitem>
+          <listitem>
+            <para><literal>post_op(cluster_id, action)</literal>: a method that will be invoked after an
+                                action is executed.</para>
+          </listitem>
+        </itemizedlist>
+      </listitem>
+    </itemizedlist>
+    <section>
+      <title>The <literal>VERSIONS</literal> Property</title>
+      <para>Each policy type class has a <literal>VERSIONS</literal> class property that documents the
+                    changes to the policy type. This information is returned when users request
+                    to list all policy types supported.</para>
+      <para>The <literal>VERSIONS</literal> property is a dict with version numbers as keys. For each
+                    specific version, the value is list of support status changes made to the
+                    policy type. Each change record contains a <literal>status</literal> key whose value is one
+                    of <literal>EXPERIMENTAL</literal>, <literal>SUPPORTED</literal>, <literal>DEPRECATED</literal> or <literal>UNSUPPORTED</literal>, and a
+                    <literal>since</literal> key whose value is of format <literal>yyyy.mm</literal> where <literal>yyyy</literal> and <literal>mm</literal>
+                    are the year and month of the release that bears the change to the support
+                    status. For example, the following record indicates that the specific policy
+                    type was introduced in April, 2016 (i.e. version 1.0 release of Senlin) as
+                    an experimental feature; later, in October, 2016 (i.e. version 2.0 release of
+                    Senlin) it has graduated into a mature feature supported by the developer
+                    team.</para>
+      <screen><?dbsuse-fo font-size="8pt"?>VERSIONS={'1.0':[{"status":"EXPERIMENTAL","since":"2016.04"},{"status":"SUPPORTED","since":"2016.10"}]}</screen>
+    </section>
+  </section>
+  <section>
+    <title>Providing New Policy Types</title>
+    <para>Adding new policy type implementations is an easy task with only a few steps
+                to follow.</para>
+    <section>
+      <title>Develop A New Policy Type</title>
+      <para>The first step for adding a new policy type is to create a new file containing
+                    a subclass of <literal>Policy</literal>. Then you will define the spec schema for the new
+                    policy type in a Python dictionary named <literal>spec_schema</literal>.</para>
+    </section>
+    <section>
+      <title>Defining Spec Schema</title>
+      <para>Each key in this dictionary represents a property name; the value of it is an
+                    object of one of the schema types listed below:</para>
+      <itemizedlist>
+        <listitem>
+          <para><literal>String</literal>: A string property.</para>
+        </listitem>
+        <listitem>
+          <para><literal>Boolean</literal>: A boolean property.</para>
+        </listitem>
+        <listitem>
+          <para><literal>Integer</literal>: An integer property.</para>
+        </listitem>
+        <listitem>
+          <para><literal>List</literal>: A property containing a list of values.</para>
+        </listitem>
+        <listitem>
+          <para><literal>Map</literal>: A property containing a map of key-value pairs.</para>
+        </listitem>
+      </itemizedlist>
+      <para>For example:</para>
+      <screen><?dbsuse-fo font-size="8pt"?>spec_schema={'destroy_after_delete':schema.Boolean('Boolean indicating whether object will be destroyed after deletion.',default=True,),...}</screen>
+      <para>If a property value will be a list, you can further define the type of items
+                    the list can accept. For example:</para>
+      <screen><?dbsuse-fo font-size="8pt"?>spec_schema={'criteria':schema.List('Criteria for object selection that will be evaluated in order.',schema=schema.String('Name of a criterion'),),...}</screen>
+      <para>If a property value will be a map of key-value pairs, you can define the
+                    schema of the map, which is another Python dictionary containing definitions
+                    of properties. For example:</para>
+      <screen><?dbsuse-fo font-size="8pt"?>spec_schema={'strategy':schema.Map('Strategy for dealing with servers with different states.',schema={'inactive':'boot','deleted':'create','suspended':'resume',},),...}</screen>
+      <para>When creating a schema type object, you can specify the following keyword
+                    arguments to gain a better control of the property:</para>
+      <itemizedlist>
+        <listitem>
+          <para><literal>default</literal>: a default value of the expected data type;</para>
+        </listitem>
+        <listitem>
+          <para><literal>required</literal>: a boolean value indicating whether a missing of the property
+                            is acceptable when validating the policy spec;</para>
+        </listitem>
+        <listitem>
+          <para><literal>constraints</literal>: a list of <literal>Constraint</literal> objects each of which defines a
+                            constraint to be checked. Senlin currently only support <literal>AllowedValues</literal>
+                            constraint.</para>
+        </listitem>
+      </itemizedlist>
+    </section>
+    <section>
+      <title>Applicable Profile Types</title>
+      <para>Not all policy types can be used on all profile types. For example, a policy
+                    about load-balancing is only meaningful for objects that can handle workloads,
+                    or more specifically, objects that expose service access point on an IP port.</para>
+      <para>You can define what are the profile types your new policy type can handle by
+                    specifying the <literal>PROFILE_TYPE</literal> property of your policy type class. The value
+                    of <literal>PROFILE_TYPE</literal> is a list of profile type names. If a policy type is
+                    designed to handle all profile types, you can specify a single entry <literal>ANY</literal>
+                    as the value. See  for profile type related
+                    operations.</para>
+    </section>
+    <section>
+      <title>Policy Targets</title>
+      <para>A policy type is usually defined to handle certain operations. The rules
+                    embedded in the implementation may need to be checked before the execution of
+                    an  or they may need to be enforced after the execution
+                    of the action. When an action is about to be executed or an action has
+                    finished execution, the Senlin engine will check if any policy objects
+                    attached to a cluster is interested in the action. If the answer is yes, the
+                    engine will invoke the <literal>pre_op</literal> function or the <literal>post_op</literal> function
+                    respectively, thus giving the policy object a chance to adjust the action’s
+                    behavior.</para>
+      <para>You can define a <literal>TARGET</literal> property for the policy type implementation to
+                    indicate the actions your policy type want to subscribe to. The <literal>TARGET</literal>
+                    property is a list of tuple (<literal>WHEN</literal>, <literal>ACTION</literal>). For example, the following
+                    property definition indicates that the policy type is interested in the action
+                    <literal>CLUSTER_SCALE_IN</literal> and <literal>CLUSTER_DEL_NODES</literal>. The policy type wants itself
+                    be consulted <emphasis>before</emphasis> these actions are performed.</para>
+      <screen><?dbsuse-fo font-size="8pt"?>classMyPolicyType(Policy):...TARGET=[(BEFORE,consts.CLUSTER_SCALE_IN),(BEFORE,consts.CLUSTER_DEL_NODES),]...</screen>
+      <para>When the corresponding actions are about to be executed, the <literal>pre_op</literal>
+                    function of this policy object will be invoked.</para>
+    </section>
+    <section>
+      <title>Passing Data Between Policies</title>
+      <para>Each policy type may decide to send some data as additional inputs or
+                    constraints for the action to consume. This is done by modifying the <literal>data</literal>
+                    property of an <literal>Action</literal> object (see ).</para>
+      <para>A policy type may want to check if there are other policy objects leaving some
+                    policy decisions in the <literal>data</literal> property of an action object.</para>
+      <para>Senlin allows for more than one policy to be attached to the same cluster.
+                    Each policy, when enabled, is supposed to check a specific subset of cluster
+                    actions. In other words, different policies may get checked before/after the
+                    engine executes a specific cluster action. This design is effectively forming
+                    a chain of policies for checking. The decisions (outcomes) from one policy
+                    sometimes impact other policies that are checked later.</para>
+      <para>To help other developers to understand how a specific policy type is designed
+                    to work in concert with others, we require all policy type implementations
+                    shipped with Senlin accompanied by a documentation about:</para>
+      <itemizedlist>
+        <listitem>
+          <para>the <literal>action data</literal> items the policy type will consume, including how these
+                            data will impact the policy decisions.</para>
+        </listitem>
+        <listitem>
+          <para>the <literal>action.data</literal> items the policy type will produce, thus consumable by
+                            any policies downstream.</para>
+        </listitem>
+      </itemizedlist>
+      <para>For built-in policy types, the protocol is documented below:</para>
+      <xi:include href="contributor-policy_typepolicies.xml"/>
+      <xi:include href="contributor-policy_typepolicies.xml"/>
+      <xi:include href="contributor-policy_typepolicies.xml"/>
+      <xi:include href="contributor-policy_typepolicies.xml"/>
+      <xi:include href="contributor-policy_typepolicies.xml"/>
+      <xi:include href="contributor-policy_typepolicies.xml"/>
+    </section>
+    <section>
+      <title>Registering The New Policy Type</title>
+      <para>For Senlin service to be aware of and thus to make use of the new policy type
+                    you have just developed, you will register it to the Senlin service.
+                    Currently, this is done through a manual process shown below. In future,
+                    Senlin will provide dynamical loading support to policy type plugins.</para>
+      <para>To register a new plugin type, you will add a line to the <literal>setup.cfg</literal> file
+                    that can be found at the root directory of Senlin code base. For example:</para>
+      <screen>[entry_points]
+senlin.policies =
+    ScalingPolicy = senlin.policies.scaling_policy:ScalingPolicy
+    MyCoolPolicy = &lt;path to the policy module&gt;:&lt;policy class name&gt;</screen>
+      <para>Finally, save that file and do a reinstall of the Senlin service, followed
+                    by a restart of the <literal>senlin-engine</literal> process.</para>
+      <screen>$ sudo pip install -e .</screen>
+      <para>Now, when you do a <command>openstack cluster policy type list</command>, you will see
+                    your policy type listed along with other existing policy types.</para>
+    </section>
+  </section>
+</section>

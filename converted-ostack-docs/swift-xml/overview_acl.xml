@@ -1,0 +1,418 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+  <title>Access Control Lists (ACLs)</title>
+  <para>Normally to create, read and modify containers and objects, you must have the
+            appropriate roles on the project associated with the account, i.e., you
+            must be the owner of the account. However, an owner can grant access to
+            other users by using an Access Control List (ACL).</para>
+  <para>There are two types of ACLs:</para>
+  <itemizedlist>
+    <listitem>
+      <para><xref linkend="container-acls"/>. These are specified on a container and
+                    apply to that container only and the objects in the container.</para>
+    </listitem>
+    <listitem>
+      <para><xref linkend="account-acls"/>. These are specified at the account level and
+                    apply to all containers and objects in the account.</para>
+    </listitem>
+  </itemizedlist>
+  <section xml:id="container-acls">
+    <title>Container ACLs</title>
+    <para>Container ACLs are stored in the <literal>X-Container-Write</literal> and <literal>X-Container-Read</literal>
+                metadata. The scope of the ACL is limited to the container where the
+                metadata is set and the objects in the container. In addition:</para>
+    <itemizedlist>
+      <listitem>
+        <para><literal>X-Container-Write</literal> grants the ability to perform PUT, POST and DELETE
+                        operations on objects within a container. It does not grant the ability
+                        to perform POST or DELETE operations on the container itself. Some ACL
+                        elements also grant the ability to perform HEAD or GET operations on the
+                        container.</para>
+      </listitem>
+      <listitem>
+        <para><literal>X-Container-Read</literal> grants the ability to perform GET and HEAD
+                        operations on objects within a container. Some of the ACL elements also grant
+                        the ability to perform HEAD or GET operations on the container itself.
+                        However, a container ACL does not allow access to privileged metadata (such
+                        as <literal>X-Container-Sync-Key</literal>).</para>
+      </listitem>
+    </itemizedlist>
+    <para>Container ACLs use the “V1” ACL syntax which is a comma separated string
+                of elements as shown in the following example:</para>
+    <screen>.r:*,.rlistings,7ec59e87c6584c348b563254aae4c221:*</screen>
+    <para>Spaces may occur between elements as shown in the following example:</para>
+    <screen>.r : *, .rlistings, 7ec59e87c6584c348b563254aae4c221:*</screen>
+    <para>However, these spaces are removed from the value stored in the
+                <literal>X-Container-Write</literal> and <literal>X-Container-Read</literal> metadata. In addition,
+                the <literal>.r:</literal> string can be written as <literal>.referrer:</literal>, but is stored as <literal>.r:</literal>.</para>
+    <para>While all auth systems use
+                the same syntax, the meaning of some elements
+                is different because of the different concepts used by different
+                auth systems as explained in the following sections:</para>
+    <itemizedlist>
+      <listitem>
+        <para>
+          <xref linkend="acl-common-elements"/>
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          <xref linkend="acl-keystone-elements"/>
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          <xref linkend="acl-tempauth-elements"/>
+        </para>
+      </listitem>
+    </itemizedlist>
+    <section xml:id="acl-common-elements">
+      <title>Common ACL Elements</title>
+      <para>The following table describes elements of an ACL that are
+                    supported by both Keystone auth and TempAuth. These elements
+                    should only be used with <literal>X-Container-Read</literal> (with the exception
+                    of <literal>.rlistings</literal>, an error will occur if used with
+                    <literal>X-Container-Write</literal>):</para>
+      <informaltable>
+        <tgroup cols="2">
+          <colspec colname="c1" colwidth="38.5*"/>
+          <colspec colname="c2" colwidth="61.5*"/>
+          <thead>
+            <row>
+              <entry>
+                <para>Element</para>
+              </entry>
+              <entry>
+                <para>Description</para>
+              </entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>
+                <para>
+                  <literal>.r:*</literal>
+                </para>
+              </entry>
+              <entry>
+                <para>Any user has access to objects. No token is
+                                        required in the request.</para>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <para>
+                  <literal>.r:&lt;referrer&gt;</literal>
+                </para>
+              </entry>
+              <entry>
+                <para>The referrer is granted access to objects. The
+                                        referrer is identified by the <literal>Referer</literal>
+                                        request header in the request. No token is
+                                        required.</para>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <para>
+                  <literal>.r:-&lt;referrer&gt;</literal>
+                </para>
+              </entry>
+              <entry>
+                <para>This syntax (with “-” prepended to the
+                                        referrer) is supported. However, it does not
+                                        deny access if another element (e.g., <literal>.r:*</literal>)
+                                        grants access.</para>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <para>
+                  <literal>.rlistings</literal>
+                </para>
+              </entry>
+              <entry>
+                <para>Any user can perform a HEAD or GET operation
+                                        on the container provided the user also has
+                                        read access on objects (e.g., also has <literal>.r:*</literal>
+                                        or <literal>.r:&lt;referrer&gt;</literal>. No token is required.</para>
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+    </section>
+    <section xml:id="acl-keystone-elements">
+      <title>Keystone Auth ACL Elements</title>
+      <para>The following table describes elements of an ACL that are
+                    supported only by Keystone auth. Keystone auth also supports
+                    the elements described in <xref linkend="acl-common-elements"/>.</para>
+      <para>A token must be included in the request for any of these ACL elements
+                    to take effect.</para>
+      <informaltable>
+        <tgroup cols="2">
+          <colspec colname="c1" colwidth="38.5*"/>
+          <colspec colname="c2" colwidth="61.5*"/>
+          <thead>
+            <row>
+              <entry>
+                <para>Element</para>
+              </entry>
+              <entry>
+                <para>Description</para>
+              </entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>
+                <para>
+                  <literal>&lt;project-id&gt;:&lt;user-id&gt;</literal>
+                </para>
+              </entry>
+              <entry>
+                <para>The specified user, provided a token
+                                        scoped to the project is included
+                                        in the request, is granted access.
+                                        Access to the container is also granted
+                                        when used in <literal>X-Container-Read</literal>.</para>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <para>
+                  <literal>&lt;project-id&gt;:*</literal>
+                </para>
+              </entry>
+              <entry>
+                <para>Any user with a role in the specified Keystone
+                                        project has access. A token scoped to the
+                                        project must be included in the request.
+                                        Access to the container is also granted
+                                        when used in <literal>X-Container-Read</literal>.</para>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <para>
+                  <literal>*:&lt;user-id&gt;</literal>
+                </para>
+              </entry>
+              <entry>
+                <para>The specified user has access. A token
+                                        for the user (scoped to any
+                                        project) must be included in the request.
+                                        Access to the container is also granted
+                                        when used in <literal>X-Container-Read</literal>.</para>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <para>
+                  <literal>*:*</literal>
+                </para>
+              </entry>
+              <entry>
+                <para>Any user has access.
+                                        Access to the container is also granted
+                                        when used in <literal>X-Container-Read</literal>.
+                                        The <literal>*:*</literal> element differs from the <literal>.r:*</literal>
+                                        element because
+                                        <literal>*:*</literal> requires that a valid token is
+                                        included in the request whereas <literal>.r:*</literal>
+                                        does not require a token. In addition,
+                                        <literal>.r:*</literal> does not grant access to the
+                                        container listing.</para>
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+      <note>
+        <para>Keystone project (tenant) or user <emphasis>names</emphasis> (i.e.,
+                        <literal>&lt;project-name&gt;:&lt;user-name</literal>) must no longer be
+                        used because with the introduction
+                        of domains in Keystone, names are not globally unique. You should
+                        use user and project <emphasis>ids</emphasis> instead.</para>
+        <para>For backwards compatibility, ACLs using names will be granted by
+                        keystoneauth when it can be established that
+                        the grantee project, the grantee user and the project being
+                        accessed are either not yet in a domain (e.g. the <literal>X-Auth-Token</literal> has
+                        been obtained via the Keystone V2 API) or are all in the default domain
+                        to which legacy accounts would have been migrated.</para>
+      </note>
+    </section>
+    <section xml:id="acl-tempauth-elements">
+      <title>TempAuth ACL Elements</title>
+      <para>The following table describes elements of an ACL that are
+                    supported only by TempAuth. TempAuth auth also supports
+                    the elements described in <xref linkend="acl-common-elements"/>.</para>
+      <informaltable>
+        <tgroup cols="2">
+          <colspec colname="c1" colwidth="38.5*"/>
+          <colspec colname="c2" colwidth="61.5*"/>
+          <thead>
+            <row>
+              <entry>
+                <para>Element</para>
+              </entry>
+              <entry>
+                <para>Description</para>
+              </entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>
+                <para>
+                  <literal>&lt;user-name&gt;</literal>
+                </para>
+              </entry>
+              <entry>
+                <para>The named user is granted access. The
+                                        wildcard (“*”) character is not supported.
+                                        A token from the user must be included in the
+                                        request.</para>
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+    </section>
+  </section>
+  <section>
+    <title>Container ACL Examples</title>
+    <para>Container ACLs may be set by including <literal>X-Container-Write</literal> and/or
+                <literal>X-Container-Read</literal> headers with a PUT or a POST request to the container URL.
+                The following examples use the <literal>swift</literal> command line client which support
+                these headers being set via its <literal>--write-acl</literal> and <literal>--read-acl</literal> options.</para>
+    <section>
+      <title>Example: Public Container</title>
+      <para>The following allows anybody to list objects in the <literal>www</literal> container and
+                    download objects. The users do not need to include a token in
+                    their request. This ACL is commonly referred to as making the
+                    container “public”. It is useful when used with <xref linkend="staticweb"/>:</para>
+      <screen>swift post www --read-acl ".r:*,.rlistings"</screen>
+    </section>
+    <section>
+      <title>Example: Shared Writable Container</title>
+      <para>The following allows anybody to upload or download objects. However, to
+                    download an object, the exact name of the object must be known since
+                    users cannot list the objects in the container.
+                    The users must include a Keystone token in the upload request. However, it does not
+                    need to be scoped to the project associated with the container:</para>
+      <screen>swift post www --read-acl ".r:*" --write-acl "*:*"</screen>
+    </section>
+    <section>
+      <title>Example: Sharing a Container with Project Members</title>
+      <para>The following allows any member of the <literal>77b8f82565f14814bece56e50c4c240f</literal>
+                    project to upload and download objects or to list the contents
+                    of the <literal>www</literal> container. A token scoped to the <literal>77b8f82565f14814bece56e50c4c240f</literal>
+                    project must be included in the request:</para>
+      <screen>swift post www --read-acl "77b8f82565f14814bece56e50c4c240f:*" \
+               --write-acl "77b8f82565f14814bece56e50c4c240f:*"</screen>
+    </section>
+    <section>
+      <title>Example: Allowing a Referrer Domain to Download Objects</title>
+      <para>The following allows any request from
+                    the <literal>example.com</literal> domain to access an object in the container:</para>
+      <screen>swift post www --read-acl ".r:.example.com"</screen>
+      <para>However, the request from the user <emphasis role="bold">must</emphasis> contain the appropriate
+                    <literal>Referer</literal> header as shown in this example request:</para>
+      <screen><?dbsuse-fo font-size="8pt"?>curl -i $publicURL/www/document --head -H "Referer: http://www.example.com/index.html"</screen>
+      <note>
+        <para>The <literal>Referer</literal> header is included in requests by many browsers. However,
+                        since it is easy to create a request with any desired value in the
+                        <literal>Referer</literal> header, the referrer ACL has very weak security.</para>
+      </note>
+    </section>
+  </section>
+  <section xml:id="account-acls">
+    <title>Account ACLs</title>
+    <note>
+      <para>Account ACLs are not currently supported by Keystone auth</para>
+    </note>
+    <para>The <literal>X-Account-Access-Control</literal> header is used to specify
+                account-level ACLs in a format specific to the auth system.
+                These headers are visible and settable only by account owners (those for whom
+                <literal>swift_owner</literal> is true).
+                Behavior of account ACLs is auth-system-dependent.  In the case of TempAuth,
+                if an authenticated user has membership in a group which is listed in the
+                ACL, then the user is allowed the access level of that ACL.</para>
+    <para>Account ACLs use the “V2” ACL syntax, which is a JSON dictionary with keys
+                named “admin”, “read-write”, and “read-only”.  (Note the case sensitivity.)
+                An example value for the <literal>X-Account-Access-Control</literal> header looks like this,
+                where <literal>a</literal>, <literal>b</literal> and <literal>c</literal> are user names:</para>
+    <screen>{"admin":["a","b"],"read-only":["c"]}</screen>
+    <para>Keys may be absent (as shown in above example).</para>
+    <para>The recommended way to generate ACL strings is as follows:</para>
+    <screen>from swift.common.middleware.acl import format_acl
+acl_data = { 'admin': ['alice'], 'read-write': ['bob', 'carol'] }
+acl_string = format_acl(version=2, acl_dict=acl_data)</screen>
+    <para>Using the <literal>format_acl()</literal> method will ensure
+                that JSON is encoded as ASCII (using e.g. ‘u1234’ for Unicode).  While
+                it’s permissible to manually send <literal>curl</literal> commands containing
+                <literal>X-Account-Access-Control</literal> headers, you should exercise caution when
+                doing so, due to the potential for human error.</para>
+    <para>Within the JSON dictionary stored in <literal>X-Account-Access-Control</literal>, the keys
+                have the following meanings:</para>
+    <informaltable>
+      <tgroup cols="2">
+        <colspec colname="c1" colwidth="16.2*"/>
+        <colspec colname="c2" colwidth="83.8*"/>
+        <thead>
+          <row>
+            <entry>
+              <para>Access Level</para>
+            </entry>
+            <entry>
+              <para>Description</para>
+            </entry>
+          </row>
+        </thead>
+        <tbody>
+          <row>
+            <entry>
+              <para>read-only</para>
+            </entry>
+            <entry>
+              <para>These identities can read <emphasis>everything</emphasis> (except privileged
+                                    headers) in the account.  Specifically, a user with read-only
+                                    account access can get a list of containers in the account,
+                                    list the contents of any container, retrieve any object, and
+                                    see the (non-privileged) headers of the account, any
+                                    container, or any object.</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>read-write</para>
+            </entry>
+            <entry>
+              <para>These identities can read or write (or create) any container.
+                                    A user with read-write account access can create new
+                                    containers, set any unprivileged container headers, overwrite
+                                    objects, delete containers, etc.  A read-write user can NOT
+                                    set account headers (or perform any PUT/POST/DELETE requests
+                                    on the account).</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>admin</para>
+            </entry>
+            <entry>
+              <para>These identities have “swift_owner” privileges.  A user with
+                                    admin account access can do anything the account owner can,
+                                    including setting account headers and any privileged headers
+                                    – and thus granting read-only, read-write, or admin access
+                                    to other users.</para>
+            </entry>
+          </row>
+        </tbody>
+      </tgroup>
+    </informaltable>
+    <para>For more details, see <xref linkend="module-swift.common.middleware.tempauth"/>.  For details
+                on the ACL format, see <xref linkend="module-swift.common.middleware.acl"/>.</para>
+  </section>
+</section>

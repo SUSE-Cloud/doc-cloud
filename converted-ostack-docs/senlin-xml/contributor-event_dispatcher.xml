@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+  <title>Event Dispatchers</title>
+  <para>An event <xref linkend="term-dispatcher"/> is a processor that converts a given action in
+            Senlin engine into certain format and then persists it into some storage or
+            sends it to downstream processing software.</para>
+  <para>Since version 3.0.0, Senlin comes with some built-in dispatchers that can
+            dump event records into database and/or send event notifications via the
+            default message queue. The former is referred to as the <literal>database</literal> dispatcher
+            which is enabled by default; the latter is referred to as the <literal>message</literal>
+            dispatcher which has to be manually enabled by adding the following line to
+            the <literal>senlin.conf</literal> file:</para>
+  <screen>event_dispatchers = message</screen>
+  <para>However, the distributors or the users can always add their own event
+            dispatchers easily when needed.</para>
+  <para>Event dispatchers are managed as Senlin plugins. Once a new event dispatcher
+            is implemented, a deployer can enable it by first adding a new item to the
+            <literal>senlin.dispatchers</literal> entries in the <literal>entry_points</literal> section of the
+            <literal>setup.cfg</literal> file, followed by a reinstall of the Senlin service, i.e.
+            <literal>sudo pip install</literal> command.</para>
+  <section>
+    <title>The Base Class <literal>EventBackend</literal></title>
+    <para>All event dispatchers are expected to subclass the base class <literal>EventBackend</literal>
+                in the <literal>senlin.events.base</literal> module. The only requirement for a dispatcher
+                subclass is to override the <literal>dump()</literal> method that implements the processing
+                logic.</para>
+  </section>
+  <section>
+    <title>Providing New Dispatchers</title>
+    <section>
+      <title>Developing A New Event Dispatcher</title>
+      <para>The first step for adding a new dispatcher is to create a new file containing
+                    a subclass of <literal>EventBackend</literal>. In this new class, say <literal>JsonDispatcher</literal>,
+                    you will need to implement the <literal>dump()</literal> class method as exemplified below:</para>
+      <screen language="python">class JsonDispatcher(base.EventBackend):
+    """Dispatcher for dumping events to a JSON file."""
+
+    @classmethod
+    def dump(cls, level, action, **kwargs):
+        # Your logic goes here
+        ...</screen>
+      <para>The <literal>level</literal> parameter for the method is identical to that defined by the
+                    <literal>logging</literal> module of Python. It is an integer representing the criticality
+                    of an event. The <literal>action</literal> parameter is an instance of Senlin action class,
+                    which is defined in the <literal>senlin.engine.actions.base</literal> module. There is
+                    virtually no constraints on which properties you will pick and how you want to
+                    process them.</para>
+      <para>Finally, the <literal>**kwargs</literal> parameter may provide some useful fields for you
+                    to use:</para>
+      <itemizedlist>
+        <listitem>
+          <para><literal>timestamp</literal>: A datetime value that indicates when the event was generated.</para>
+        </listitem>
+        <listitem>
+          <para><literal>phase</literal>: A string value indicating the phase an action is in. Most of the
+                            time this can be safely ignored.</para>
+        </listitem>
+        <listitem>
+          <para><literal>reason</literal>: There are some rare cases where an event comes with a textual
+                            description. Most of the time, this is empty.</para>
+        </listitem>
+        <listitem>
+          <para><literal>extra</literal>: There are even rarer cases where an event comes with some
+                            additional fields for attention. This can be safely ignored most of the
+                            time.</para>
+        </listitem>
+      </itemizedlist>
+    </section>
+    <section>
+      <title>Registering the New Dispatcher</title>
+      <para>For Senlin service to be aware of and thus to make use of the new dispatcher,
+                    you will register it to the Senlin engine service. This is done by editing the
+                    <literal>setup.cfg</literal> file in the root directory of the code base, for example:</para>
+      <screen>[entry_points]
+senlin.dispatchers =
+    database = senlin.events.database:DBEvent
+    message = senlin.events.message:MessageEvent
+    jsonfile = &lt;path to the dispatcher module&gt;:&lt;dispatch class name&gt;</screen>
+      <para>Finally, save that file and do a reinstall of the Senlin service, followed
+                    by a restart of the <literal>senlin-engine</literal> process.</para>
+      <screen>$ sudo pip install -e .</screen>
+    </section>
+    <section>
+      <title>Dynamically Enabling/Disabling a Dispatcher</title>
+      <para>All dispatchers are loaded when the Senlin engine is started, however, they
+                    can be dynamically enabled or disabled by editing the <literal>senlin.conf</literal> file.
+                    The option <literal>event_dispatchers</literal> in the <literal>[DEFAULT]</literal> section is a multi-string
+                    value option for this purpose. To enable your dispatcher (i.e. <literal>jsonfile</literal>),
+                    you will need to add the following line to the <literal>senlin.conf</literal> file:</para>
+      <screen>event_dispatchers = jsonfile</screen>
+    </section>
+  </section>
+</section>

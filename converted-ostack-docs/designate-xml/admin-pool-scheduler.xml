@@ -1,0 +1,273 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+  <title>Pool Scheduler</title>
+  <para>In designate we have a pluggable scheduler filter interface.</para>
+  <para>You can set an ordered list of filters to run on each zone create api request.</para>
+  <para>We provide a few basic filters below, and creating custom filters follows a
+            similar pattern to schedulers.</para>
+  <para>You can create your own by extending <xref linkend="designate.scheduler.filters.base.Filter"/>
+            and registering a new entry point in the <literal>designate.scheduler.filters</literal>
+            namespace like so in your <literal>setup.cfg</literal> file:</para>
+  <screen language="ini">[entry_points]
+designate.scheduler.filters =
+    my_custom_filter = my_extention.filters.my_custom_filter:MyCustomFilter</screen>
+  <para>The new filter can be added to the <literal>scheduler_filters</literal> list in the <literal>[service:central]</literal>
+            section like so:</para>
+  <screen language="ini"><?dbsuse-fo font-size="8pt"?>[service:central]
+
+scheduler_filters = attribute, pool_id_attribute, fallback, random, my_custom_filter</screen>
+  <para>The filters list is ran from left to right, so if the list is set to:</para>
+  <screen language="ini">[service:central]
+
+scheduler_filters = attribute, random</screen>
+  <para>There will be two filters ran, the <xref linkend="designate.scheduler.filters.attribute_filter.AttributeFilter"/>
+            followed by <xref linkend="designate.scheduler.filters.random_filter.RandomFilter"/></para>
+  <section>
+    <title>Default Provided Filters</title>
+    <section>
+      <title>Base Class - Filter</title>
+      <variablelist>
+        <varlistentry xml:id="designate.scheduler.filters.base.Filter">
+          <term>
+            <literal>designate.scheduler.filters.base.Filter</literal>
+          </term>
+          <listitem>
+            <para>This is the base class used for filtering Pools.</para>
+            <para>This class should implement a single public function
+                            <literal>filter()</literal> which accepts
+                            a <literal>designate.objects.pool.PoolList</literal> and returns a
+                            <literal>designate.objects.pool.PoolList</literal></para>
+            <variablelist>
+              <varlistentry xml:id="designate.scheduler.filters.base.Filter.filter">
+                <term>
+                  <property>designate.scheduler.filters.base.Filter.filter</property>
+                </term>
+                <listitem>
+                  <para>Filter list of supplied pools based on attributes in the request</para>
+                </listitem>
+              </varlistentry>
+            </variablelist>
+          </listitem>
+        </varlistentry>
+      </variablelist>
+    </section>
+    <section>
+      <title>Attribute Filter</title>
+      <variablelist>
+        <varlistentry xml:id="designate.scheduler.filters.attribute_filter.AttributeFilter">
+          <term>
+            <literal>designate.scheduler.filters.attribute_filter.AttributeFilter</literal>
+          </term>
+          <listitem>
+            <para>Bases: <xref linkend="designate.scheduler.filters.base.Filter"/></para>
+            <para>This allows users to choose the pool by supplying hints to this filter.
+                            These are provided as attributes as part of the zone object provided at
+                            zone create time.</para>
+            <screen language="javascript">{
+    "attributes": {
+        "pool_level": "gold",
+        "fast_ttl": "true",
+        "pops": "global",
+    },
+    "email": "user@example.com",
+    "name": "example.com."
+}</screen>
+            <para>The zone attributes are matched against the potential pool candidates, and
+                            any pools that do not match <emphasis role="bold">all</emphasis> hints are removed.</para>
+            <warning>
+              <para>This should be uses in conjunction with the
+                                <literal>designate.scheduler.impl_filter.filters.random_filter.RandomFilter</literal>
+                                in case of multiple Pools matching the filters, as without it, we will
+                                raise an error to the user.</para>
+            </warning>
+            <variablelist>
+              <varlistentry xml:id="designate.scheduler.filters.attribute_filter.AttributeFilter.name">
+                <term>
+                  <property>designate.scheduler.filters.attribute_filter.AttributeFilter.name</property>
+                </term>
+                <listitem>
+                  <para>Name to enable in the <literal>[designate:central:scheduler].filters</literal> option
+                                    list</para>
+                </listitem>
+              </varlistentry>
+            </variablelist>
+          </listitem>
+        </varlistentry>
+      </variablelist>
+    </section>
+    <section>
+      <title>Pool ID Attribute Filter</title>
+      <variablelist>
+        <varlistentry xml:id="designate.scheduler.filters.pool_id_attribute_filter.PoolIDAttributeFilter">
+          <term>
+            <literal>designate.scheduler.filters.pool_id_attribute_filter.PoolIDAttributeFilter</literal>
+          </term>
+          <listitem>
+            <para>Bases: <xref linkend="designate.scheduler.filters.base.Filter"/></para>
+            <para>This allows users with the correct role to specify the exact pool_id
+                            to schedule the supplied zone to.</para>
+            <para>This is supplied as an attribute on the zone</para>
+            <screen language="python">{
+    "attributes": {
+        "pool_id": "794ccc2c-d751-44fe-b57f-8894c9f5c842"
+    },
+    "email": "user@example.com",
+    "name": "example.com."
+}</screen>
+            <para>The pool is loaded to ensure it exists, and then a policy check is
+                            performed to ensure the user has the correct role.</para>
+            <warning>
+              <para>This should only be enabled if required, as it will raise a
+                                403 Forbidden if a user without the correct role uses it.</para>
+            </warning>
+            <variablelist>
+              <varlistentry xml:id="designate.scheduler.filters.pool_id_attribute_filter.PoolIDAttributeFilter.filter">
+                <term>
+                  <property>designate.scheduler.filters.pool_id_attribute_filter.PoolIDAttributeFilter.filter</property>
+                </term>
+                <listitem>
+                  <para>Attempt to load and set the pool to the one provided in the
+                                    Zone attributes.</para>
+                </listitem>
+              </varlistentry>
+            </variablelist>
+            <variablelist>
+              <varlistentry xml:id="designate.scheduler.filters.pool_id_attribute_filter.PoolIDAttributeFilter.name">
+                <term>
+                  <property>designate.scheduler.filters.pool_id_attribute_filter.PoolIDAttributeFilter.name</property>
+                </term>
+                <listitem>
+                  <para>Name to enable in the <literal>[designate:central:scheduler].filters</literal> option
+                                    list</para>
+                </listitem>
+              </varlistentry>
+            </variablelist>
+          </listitem>
+        </varlistentry>
+      </variablelist>
+    </section>
+    <section>
+      <title>Random Filter</title>
+      <variablelist>
+        <varlistentry xml:id="designate.scheduler.filters.random_filter.RandomFilter">
+          <term>
+            <literal>designate.scheduler.filters.random_filter.RandomFilter</literal>
+          </term>
+          <listitem>
+            <para>Bases: <xref linkend="designate.scheduler.filters.base.Filter"/></para>
+            <para>Randomly chooses one of the input pools if there is multiple supplied.</para>
+            <note>
+              <para>This should be used as one of the last filters, as it reduces the
+                                supplied pool list to one.</para>
+            </note>
+            <variablelist>
+              <varlistentry xml:id="designate.scheduler.filters.random_filter.RandomFilter.name">
+                <term>
+                  <property>designate.scheduler.filters.random_filter.RandomFilter.name</property>
+                </term>
+                <listitem>
+                  <para>Name to enable in the <literal>[designate:central:scheduler].filters</literal> option
+                                    list</para>
+                </listitem>
+              </varlistentry>
+            </variablelist>
+          </listitem>
+        </varlistentry>
+      </variablelist>
+    </section>
+    <section>
+      <title>Fallback Filter</title>
+      <variablelist>
+        <varlistentry xml:id="designate.scheduler.filters.fallback_filter.FallbackFilter">
+          <term>
+            <literal>designate.scheduler.filters.fallback_filter.FallbackFilter</literal>
+          </term>
+          <listitem>
+            <para>Bases: <xref linkend="designate.scheduler.filters.base.Filter"/></para>
+            <para>If there is no zones available to schedule to, this filter will insert
+                            the default_pool_id.</para>
+            <note>
+              <para>This should be used as one of the last filters, if you want to preserve
+                                behavior from before the scheduler existed.</para>
+            </note>
+            <variablelist>
+              <varlistentry xml:id="designate.scheduler.filters.fallback_filter.FallbackFilter.name">
+                <term>
+                  <property>designate.scheduler.filters.fallback_filter.FallbackFilter.name</property>
+                </term>
+                <listitem>
+                  <para>Name to enable in the <literal>[designate:central:scheduler].filters</literal> option
+                                    list</para>
+                </listitem>
+              </varlistentry>
+            </variablelist>
+          </listitem>
+        </varlistentry>
+      </variablelist>
+    </section>
+    <section>
+      <title>Default Pool Filter</title>
+      <variablelist>
+        <varlistentry xml:id="designate.scheduler.filters.default_pool_filter.DefaultPoolFilter">
+          <term>
+            <literal>designate.scheduler.filters.default_pool_filter.DefaultPoolFilter</literal>
+          </term>
+          <listitem>
+            <para>Bases: <xref linkend="designate.scheduler.filters.base.Filter"/></para>
+            <para>This filter will always return the default pool specified in the
+                            designate config file</para>
+            <warning>
+              <para>This should be used as the only filter, as it will always return the
+                                same thing - a <literal>designate.objects.pool.PoolList</literal> with a single
+                                <literal>designate.objects.pool.Pool</literal></para>
+            </warning>
+            <variablelist>
+              <varlistentry xml:id="designate.scheduler.filters.default_pool_filter.DefaultPoolFilter.name">
+                <term>
+                  <property>designate.scheduler.filters.default_pool_filter.DefaultPoolFilter.name</property>
+                </term>
+                <listitem>
+                  <para>Name to enable in the <literal>[designate:central:scheduler].filters</literal> option
+                                    list</para>
+                </listitem>
+              </varlistentry>
+            </variablelist>
+          </listitem>
+        </varlistentry>
+      </variablelist>
+    </section>
+    <section>
+      <title>In Doubt Default Pool Filter</title>
+      <variablelist>
+        <varlistentry xml:id="designate.scheduler.filters.in_doubt_default_pool_filter.InDoubtDefaultPoolFilter">
+          <term>
+            <literal>designate.scheduler.filters.in_doubt_default_pool_filter.InDoubtDefaultPoolFilter</literal>
+          </term>
+          <listitem>
+            <para>Bases: <xref linkend="designate.scheduler.filters.base.Filter"/></para>
+            <para>If the previous filter(s) didn’t make a clear selection of one pool
+                            and if the default pool is in the set of multiple pools, this filter will
+                            select the default pool.</para>
+            <para>This filter will pass through the pool list, if there are one or
+                            less pools available to schedule to, or if the default pool is
+                            not in the set of multiple pools.</para>
+            <note>
+              <para>This should be used as one of the last filters.</para>
+            </note>
+            <variablelist>
+              <varlistentry xml:id="designate.scheduler.filters.in_doubt_default_pool_filter.InDoubtDefaultPoolFilter.name">
+                <term>
+                  <property>designate.scheduler.filters.in_doubt_default_pool_filter.InDoubtDefaultPoolFilter.name</property>
+                </term>
+                <listitem>
+                  <para>Name to enable in the <literal>[designate:central:scheduler].filters</literal> option
+                                    list</para>
+                </listitem>
+              </varlistentry>
+            </variablelist>
+          </listitem>
+        </varlistentry>
+      </variablelist>
+    </section>
+  </section>
+</section>

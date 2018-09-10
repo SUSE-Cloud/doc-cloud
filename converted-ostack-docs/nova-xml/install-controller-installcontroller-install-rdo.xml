@@ -1,0 +1,431 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+  <title>Install and configure controller node for Red Hat Enterprise Linux and CentOS</title>
+  <para>This section describes how to install and configure the Compute service,
+            code-named nova, on the controller node.</para>
+  <section>
+    <title>Prerequisites</title>
+    <para>Before you install and configure the Compute service, you must create
+                databases, service credentials, and API endpoints.</para>
+    <procedure>
+      <step>
+        <para>To create the databases, complete these steps:</para>
+        <itemizedlist>
+          <listitem>
+            <para>Use the database access client to connect to the database server as the
+                                <literal>root</literal> user:</para>
+            <screen language="console">$ mysql -u root -p</screen>
+          </listitem>
+          <listitem>
+            <para>Create the <literal>nova_api</literal>, <literal>nova</literal>, and <literal>nova_cell0</literal> databases:</para>
+            <screen language="console">MariaDB [(none)]&gt; CREATE DATABASE nova_api;
+MariaDB [(none)]&gt; CREATE DATABASE nova;
+MariaDB [(none)]&gt; CREATE DATABASE nova_cell0;</screen>
+          </listitem>
+          <listitem>
+            <para>Grant proper access to the databases:</para>
+            <screen language="console">MariaDB [(none)]&gt; GRANT ALL PRIVILEGES ON nova_api.* TO 'nova'@'localhost' \
+  IDENTIFIED BY 'NOVA_DBPASS';
+MariaDB [(none)]&gt; GRANT ALL PRIVILEGES ON nova_api.* TO 'nova'@'%' \
+  IDENTIFIED BY 'NOVA_DBPASS';
+
+MariaDB [(none)]&gt; GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'localhost' \
+  IDENTIFIED BY 'NOVA_DBPASS';
+MariaDB [(none)]&gt; GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'%' \
+  IDENTIFIED BY 'NOVA_DBPASS';
+
+MariaDB [(none)]&gt; GRANT ALL PRIVILEGES ON nova_cell0.* TO 'nova'@'localhost' \
+  IDENTIFIED BY 'NOVA_DBPASS';
+MariaDB [(none)]&gt; GRANT ALL PRIVILEGES ON nova_cell0.* TO 'nova'@'%' \
+  IDENTIFIED BY 'NOVA_DBPASS';</screen>
+            <para>Replace <literal>NOVA_DBPASS</literal> with a suitable password.</para>
+          </listitem>
+          <listitem>
+            <para>Exit the database access client.</para>
+          </listitem>
+        </itemizedlist>
+      </step>
+      <step>
+        <para>Source the <literal>admin</literal> credentials to gain access to admin-only CLI commands:</para>
+        <screen language="console">$ . admin-openrc</screen>
+      </step>
+      <step>
+        <para>Create the Compute service credentials:</para>
+        <itemizedlist>
+          <listitem>
+            <para>Create the <literal>nova</literal> user:</para>
+            <screen language="console">$ openstack user create --domain default --password-prompt nova
+
+User Password:
+Repeat User Password:
++---------------------+----------------------------------+
+| Field               | Value                            |
++---------------------+----------------------------------+
+| domain_id           | default                          |
+| enabled             | True                             |
+| id                  | 8a7dbf5279404537b1c7b86c033620fe |
+| name                | nova                             |
+| options             | {}                               |
+| password_expires_at | None                             |
++---------------------+----------------------------------+</screen>
+          </listitem>
+          <listitem>
+            <para>Add the <literal>admin</literal> role to the <literal>nova</literal> user:</para>
+            <screen language="console">$ openstack role add --project service --user nova admin</screen>
+            <note>
+              <para>This command provides no output.</para>
+            </note>
+          </listitem>
+          <listitem>
+            <para>Create the <literal>nova</literal> service entity:</para>
+            <screen language="console">$ openstack service create --name nova \
+  --description "OpenStack Compute" compute
+
++-------------+----------------------------------+
+| Field       | Value                            |
++-------------+----------------------------------+
+| description | OpenStack Compute                |
+| enabled     | True                             |
+| id          | 060d59eac51b4594815603d75a00aba2 |
+| name        | nova                             |
+| type        | compute                          |
++-------------+----------------------------------+</screen>
+          </listitem>
+        </itemizedlist>
+      </step>
+      <step>
+        <para>Create the Compute API service endpoints:</para>
+        <screen language="console">$ openstack endpoint create --region RegionOne \
+  compute public http://controller:8774/v2.1
+
++--------------+-------------------------------------------+
+| Field        | Value                                     |
++--------------+-------------------------------------------+
+| enabled      | True                                      |
+| id           | 3c1caa473bfe4390a11e7177894bcc7b          |
+| interface    | public                                    |
+| region       | RegionOne                                 |
+| region_id    | RegionOne                                 |
+| service_id   | 060d59eac51b4594815603d75a00aba2          |
+| service_name | nova                                      |
+| service_type | compute                                   |
+| url          | http://controller:8774/v2.1               |
++--------------+-------------------------------------------+
+
+$ openstack endpoint create --region RegionOne \
+  compute internal http://controller:8774/v2.1
+
++--------------+-------------------------------------------+
+| Field        | Value                                     |
++--------------+-------------------------------------------+
+| enabled      | True                                      |
+| id           | e3c918de680746a586eac1f2d9bc10ab          |
+| interface    | internal                                  |
+| region       | RegionOne                                 |
+| region_id    | RegionOne                                 |
+| service_id   | 060d59eac51b4594815603d75a00aba2          |
+| service_name | nova                                      |
+| service_type | compute                                   |
+| url          | http://controller:8774/v2.1               |
++--------------+-------------------------------------------+
+
+$ openstack endpoint create --region RegionOne \
+  compute admin http://controller:8774/v2.1
+
++--------------+-------------------------------------------+
+| Field        | Value                                     |
++--------------+-------------------------------------------+
+| enabled      | True                                      |
+| id           | 38f7af91666a47cfb97b4dc790b94424          |
+| interface    | admin                                     |
+| region       | RegionOne                                 |
+| region_id    | RegionOne                                 |
+| service_id   | 060d59eac51b4594815603d75a00aba2          |
+| service_name | nova                                      |
+| service_type | compute                                   |
+| url          | http://controller:8774/v2.1               |
++--------------+-------------------------------------------+</screen>
+      </step>
+      <step>
+        <para>Create a Placement service user using your chosen <literal>PLACEMENT_PASS</literal>:</para>
+        <screen language="console">$ openstack user create --domain default --password-prompt placement
+
+User Password:
+Repeat User Password:
++---------------------+----------------------------------+
+| Field               | Value                            |
++---------------------+----------------------------------+
+| domain_id           | default                          |
+| enabled             | True                             |
+| id                  | fa742015a6494a949f67629884fc7ec8 |
+| name                | placement                        |
+| options             | {}                               |
+| password_expires_at | None                             |
++---------------------+----------------------------------+</screen>
+      </step>
+      <step>
+        <para>Add the Placement user to the service project with the admin role:</para>
+        <screen language="console">$ openstack role add --project service --user placement admin</screen>
+        <note>
+          <para>This command provides no output.</para>
+        </note>
+      </step>
+      <step>
+        <para>Create the Placement API entry in the service catalog:</para>
+        <screen language="console">$ openstack service create --name placement --description "Placement API" placement
++-------------+----------------------------------+
+| Field       | Value                            |
++-------------+----------------------------------+
+| description | Placement API                    |
+| enabled     | True                             |
+| id          | 2d1a27022e6e4185b86adac4444c495f |
+| name        | placement                        |
+| type        | placement                        |
++-------------+----------------------------------+</screen>
+      </step>
+      <step>
+        <para>Create the Placement API service endpoints:</para>
+        <screen language="console"><?dbsuse-fo font-size="8pt"?>$ openstack endpoint create --region RegionOne placement public http://controller:8778
++--------------+----------------------------------+
+| Field        | Value                            |
++--------------+----------------------------------+
+| enabled      | True                             |
+| id           | 2b1b2637908b4137a9c2e0470487cbc0 |
+| interface    | public                           |
+| region       | RegionOne                        |
+| region_id    | RegionOne                        |
+| service_id   | 2d1a27022e6e4185b86adac4444c495f |
+| service_name | placement                        |
+| service_type | placement                        |
+| url          | http://controller:8778           |
++--------------+----------------------------------+
+
+$ openstack endpoint create --region RegionOne placement internal http://controller:8778
++--------------+----------------------------------+
+| Field        | Value                            |
++--------------+----------------------------------+
+| enabled      | True                             |
+| id           | 02bcda9a150a4bd7993ff4879df971ab |
+| interface    | internal                         |
+| region       | RegionOne                        |
+| region_id    | RegionOne                        |
+| service_id   | 2d1a27022e6e4185b86adac4444c495f |
+| service_name | placement                        |
+| service_type | placement                        |
+| url          | http://controller:8778           |
++--------------+----------------------------------+
+
+$ openstack endpoint create --region RegionOne placement admin http://controller:8778
++--------------+----------------------------------+
+| Field        | Value                            |
++--------------+----------------------------------+
+| enabled      | True                             |
+| id           | 3d71177b9e0f406f98cbff198d74b182 |
+| interface    | admin                            |
+| region       | RegionOne                        |
+| region_id    | RegionOne                        |
+| service_id   | 2d1a27022e6e4185b86adac4444c495f |
+| service_name | placement                        |
+| service_type | placement                        |
+| url          | http://controller:8778           |
++--------------+----------------------------------+</screen>
+      </step>
+    </procedure>
+  </section>
+  <section>
+    <title>Install and configure components</title>
+    <note>
+      <para>Default configuration files vary by distribution. You might need to add
+                    these sections and options rather than modifying existing sections and
+                    options. Also, an ellipsis (<literal>...</literal>) in the configuration snippets indicates
+                    potential default configuration options that you should retain.</para>
+    </note>
+    <procedure>
+      <step>
+        <para>Install the packages:</para>
+        <screen language="console"># yum install openstack-nova-api openstack-nova-conductor \
+  openstack-nova-console openstack-nova-novncproxy \
+  openstack-nova-scheduler openstack-nova-placement-api</screen>
+      </step>
+      <step>
+        <para>Edit the <literal>/etc/nova/nova.conf</literal> file and complete the following actions:</para>
+        <itemizedlist>
+          <listitem>
+            <para>In the <literal>[DEFAULT]</literal> section, enable only the compute and metadata APIs:</para>
+            <screen language="ini">[DEFAULT]
+# ...
+enabled_apis = osapi_compute,metadata</screen>
+          </listitem>
+          <listitem>
+            <para>In the <literal>[api_database]</literal> and <literal>[database]</literal> sections, configure database
+                                access:</para>
+            <screen language="ini">[api_database]
+# ...
+connection = mysql+pymysql://nova:NOVA_DBPASS@controller/nova_api
+
+[database]
+# ...
+connection = mysql+pymysql://nova:NOVA_DBPASS@controller/nova</screen>
+            <para>Replace <literal>NOVA_DBPASS</literal> with the password you chose for the Compute
+                                databases.</para>
+          </listitem>
+          <listitem>
+            <para>In the <literal>[DEFAULT]</literal> section, configure <literal>RabbitMQ</literal> message queue access:</para>
+            <screen language="ini">[DEFAULT]
+# ...
+transport_url = rabbit://openstack:RABBIT_PASS@controller</screen>
+            <para>Replace <literal>RABBIT_PASS</literal> with the password you chose for the <literal>openstack</literal>
+                                account in <literal>RabbitMQ</literal>.</para>
+          </listitem>
+          <listitem>
+            <para>In the <literal>[api]</literal> and <literal>[keystone_authtoken]</literal> sections, configure Identity
+                                service access:</para>
+            <screen language="ini">[api]
+# ...
+auth_strategy = keystone
+
+[keystone_authtoken]
+# ...
+auth_uri = http://controller:5000
+auth_url = http://controller:35357
+memcached_servers = controller:11211
+auth_type = password
+project_domain_name = default
+user_domain_name = default
+project_name = service
+username = nova
+password = NOVA_PASS</screen>
+            <para>Replace <literal>NOVA_PASS</literal> with the password you chose for the <literal>nova</literal> user in
+                                the Identity service.</para>
+            <note>
+              <para>Comment out or remove any other options in the <literal>[keystone_authtoken]</literal>
+                                    section.</para>
+            </note>
+          </listitem>
+          <listitem>
+            <para>In the <literal>[DEFAULT]</literal> section, configure the <literal>my_ip</literal> option to use the
+                                management interface IP address of the controller node:</para>
+            <screen language="ini">[DEFAULT]
+# ...
+my_ip = 10.0.0.11</screen>
+          </listitem>
+          <listitem>
+            <para>In the <literal>[DEFAULT]</literal> section, enable support for the Networking service:</para>
+            <screen language="ini">[DEFAULT]
+# ...
+use_neutron = True
+firewall_driver = nova.virt.firewall.NoopFirewallDriver</screen>
+            <note>
+              <para>By default, Compute uses an internal firewall driver. Since the
+                                    Networking service includes a firewall driver, you must disable the
+                                    Compute firewall driver by using the
+                                    <literal>nova.virt.firewall.NoopFirewallDriver</literal> firewall driver.</para>
+            </note>
+          </listitem>
+          <listitem>
+            <para>In the <literal>[vnc]</literal> section, configure the VNC proxy to use the management
+                                interface IP address of the controller node:</para>
+            <screen language="ini">[vnc]
+enabled = true
+# ...
+vncserver_listen = $my_ip
+vncserver_proxyclient_address = $my_ip</screen>
+          </listitem>
+          <listitem>
+            <para>In the <literal>[glance]</literal> section, configure the location of the Image service
+                                API:</para>
+            <screen language="ini">[glance]
+# ...
+api_servers = http://controller:9292</screen>
+          </listitem>
+          <listitem>
+            <para>In the <literal>[oslo_concurrency]</literal> section, configure the lock path:</para>
+            <screen language="ini">[oslo_concurrency]
+# ...
+lock_path = /var/lib/nova/tmp</screen>
+          </listitem>
+          <listitem>
+            <para>In the <literal>[placement]</literal> section, configure the Placement API:</para>
+            <screen language="ini">[placement]
+# ...
+os_region_name = RegionOne
+project_domain_name = Default
+project_name = service
+auth_type = password
+user_domain_name = Default
+auth_url = http://controller:35357/v3
+username = placement
+password = PLACEMENT_PASS</screen>
+            <para>Replace <literal>PLACEMENT_PASS</literal> with the password you choose for the
+                                <literal>placement</literal> user in the Identity service. Comment out any other options
+                                in the <literal>[placement]</literal> section.</para>
+          </listitem>
+          <listitem>
+            <para>Due to a <link xlink:href="https://bugzilla.redhat.com/show_bug.cgi?id=1430540">packaging bug</link>, you must enable
+                                access to the Placement API by adding the following configuration to
+                                <literal>/etc/httpd/conf.d/00-nova-placement-api.conf</literal>:</para>
+            <screen language="ini">&lt;Directory /usr/bin&gt;
+   &lt;IfVersion &gt;= 2.4&gt;
+      Require all granted
+   &lt;/IfVersion&gt;
+   &lt;IfVersion &lt; 2.4&gt;
+      Order allow,deny
+      Allow from all
+   &lt;/IfVersion&gt;
+&lt;/Directory&gt;</screen>
+          </listitem>
+          <listitem>
+            <para>Restart the httpd service:</para>
+            <screen language="console"># systemctl restart httpd</screen>
+          </listitem>
+        </itemizedlist>
+      </step>
+      <step>
+        <para>Populate the <literal>nova-api</literal> database:</para>
+        <screen language="console"># su -s /bin/sh -c "nova-manage api_db sync" nova</screen>
+        <note>
+          <para>Ignore any deprecation messages in this output.</para>
+        </note>
+      </step>
+    </procedure>
+    <procedure>
+      <step>
+        <para>Register the <literal>cell0</literal> database:</para>
+        <screen language="console"># su -s /bin/sh -c "nova-manage cell_v2 map_cell0" nova</screen>
+      </step>
+      <step>
+        <para>Create the <literal>cell1</literal> cell:</para>
+        <screen language="console"># su -s /bin/sh -c "nova-manage cell_v2 create_cell --name=cell1 --verbose" nova
+109e1d4b-536a-40d0-83c6-5f121b82b650</screen>
+      </step>
+      <step>
+        <para>Populate the nova database:</para>
+        <screen language="console"># su -s /bin/sh -c "nova-manage db sync" nova</screen>
+      </step>
+      <step>
+        <para>Verify nova cell0 and cell1 are registered correctly:</para>
+        <screen language="console"># nova-manage cell_v2 list_cells
++-------+--------------------------------------+
+| Name  | UUID                                 |
++-------+--------------------------------------+
+| cell1 | 109e1d4b-536a-40d0-83c6-5f121b82b650 |
+| cell0 | 00000000-0000-0000-0000-000000000000 |
++-------+--------------------------------------+</screen>
+      </step>
+    </procedure>
+  </section>
+  <section>
+    <title>Finalize installation</title>
+    <itemizedlist>
+      <listitem>
+        <para>Start the Compute services and configure them to start when the system boots:</para>
+        <screen language="console"># systemctl enable openstack-nova-api.service \
+  openstack-nova-consoleauth.service openstack-nova-scheduler.service \
+  openstack-nova-conductor.service openstack-nova-novncproxy.service
+# systemctl start openstack-nova-api.service \
+  openstack-nova-consoleauth.service openstack-nova-scheduler.service \
+  openstack-nova-conductor.service openstack-nova-novncproxy.service</screen>
+      </listitem>
+    </itemizedlist>
+  </section>
+</section>

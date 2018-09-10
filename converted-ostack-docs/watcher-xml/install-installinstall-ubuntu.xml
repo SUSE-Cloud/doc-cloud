@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+  <title>Install and configure for Ubuntu</title>
+  <para>This section describes how to install and configure the Infrastructure
+            Optimization service for Ubuntu 14.04 (LTS).</para>
+  <section>
+    <title>Prerequisites</title>
+    <para>Before you install and configure the Infrastructure Optimization service,
+                you must create a database, service credentials, and API endpoints.</para>
+    <procedure>
+      <step>
+        <para>Create the database, complete these steps:</para>
+        <itemizedlist>
+          <listitem>
+            <para>Use the database access client to connect to the database
+                                server as the <literal>root</literal> user:</para>
+            <screen language="console">$ mysql -u root -p</screen>
+          </listitem>
+          <listitem>
+            <para>Create the <literal>watcher</literal> database:</para>
+            <screen language="console">CREATE DATABASE watcher CHARACTER SET utf8;</screen>
+          </listitem>
+          <listitem>
+            <para>Grant proper access to the <literal>watcher</literal> database:</para>
+            <screen language="console">GRANT ALL PRIVILEGES ON watcher.* TO 'watcher'@'localhost' \
+  IDENTIFIED BY 'WATCHER_DBPASS';
+GRANT ALL PRIVILEGES ON watcher.* TO 'watcher'@'%' \
+  IDENTIFIED BY 'WATCHER_DBPASS';</screen>
+            <para>Replace <literal>WATCHER_DBPASS</literal> with a suitable password.</para>
+          </listitem>
+          <listitem>
+            <para>Exit the database access client.</para>
+            <screen language="console">exit;</screen>
+          </listitem>
+        </itemizedlist>
+      </step>
+      <step>
+        <para>Source the <literal>admin</literal> credentials to gain access to
+                        admin-only CLI commands:</para>
+        <screen language="console">$ . admin-openrc</screen>
+      </step>
+      <step>
+        <para>To create the service credentials, complete these steps:</para>
+        <itemizedlist>
+          <listitem>
+            <para>Create the <literal>watcher</literal> user:</para>
+            <screen language="console">$ openstack user create --domain default --password-prompt watcher
+  User Password:
+  Repeat User Password:
+  +---------------------+----------------------------------+
+  | Field               | Value                            |
+  +---------------------+----------------------------------+
+  | domain_id           | default                          |
+  | enabled             | True                             |
+  | id                  | b18ee38e06034b748141beda8fc8bfad |
+  | name                | watcher                          |
+  | options             | {}                               |
+  | password_expires_at | None                             |
+  +---------------------+----------------------------------+</screen>
+          </listitem>
+          <listitem>
+            <para>Add the <literal>admin</literal> role to the <literal>watcher</literal> user:</para>
+            <screen language="console">$ openstack role add --project service --user watcher admin</screen>
+            <note>
+              <para>This command produces no output.</para>
+            </note>
+          </listitem>
+          <listitem>
+            <para>Create the watcher service entities:</para>
+            <screen language="console"><?dbsuse-fo font-size="8pt"?>$ openstack service create --name watcher --description "Infrastructure Optimization" infra-optim
+  +-------------+----------------------------------+
+  | Field       | Value                            |
+  +-------------+----------------------------------+
+  | description | Infrastructure Optimization      |
+  | enabled     | True                             |
+  | id          | d854f6fff0a64f77bda8003c8dedfada |
+  | name        | watcher                          |
+  | type        | infra-optim                      |
+  +-------------+----------------------------------+</screen>
+          </listitem>
+        </itemizedlist>
+      </step>
+      <step>
+        <para>Create the Infrastructure Optimization service API endpoints:</para>
+        <screen language="console">$ openstack endpoint create --region RegionOne \
+  infra-optim public http://controller:9322
+  +-------------+----------------------------------+
+  | Field       | Value                            |
+  +-------------+----------------------------------+
+  | description | Infrastructure Optimization      |
+  | enabled     | True                             |
+  | id          | d854f6fff0a64f77bda8003c8dedfada |
+  | name        | watcher                          |
+  | type        | infra-optim                      |
+  +-------------+----------------------------------+
+
+$ openstack endpoint create --region RegionOne \
+  infra-optim internal http://controller:9322
+  +--------------+----------------------------------+
+  | Field        | Value                            |
+  +--------------+----------------------------------+
+  | enabled      | True                             |
+  | id           | 225aef8465ef4df48a341aaaf2b0a390 |
+  | interface    | internal                         |
+  | region       | RegionOne                        |
+  | region_id    | RegionOne                        |
+  | service_id   | d854f6fff0a64f77bda8003c8dedfada |
+  | service_name | watcher                          |
+  | service_type | infra-optim                      |
+  | url          | http://controller:9322           |
+  +--------------+----------------------------------+
+
+$ openstack endpoint create --region RegionOne \
+  infra-optim admin http://controller:9322
+  +--------------+----------------------------------+
+  | Field        | Value                            |
+  +--------------+----------------------------------+
+  | enabled      | True                             |
+  | id           | 375eb5057fb546edbdf3ee4866179672 |
+  | interface    | admin                            |
+  | region       | RegionOne                        |
+  | region_id    | RegionOne                        |
+  | service_id   | d854f6fff0a64f77bda8003c8dedfada |
+  | service_name | watcher                          |
+  | service_type | infra-optim                      |
+  | url          | http://controller:9322           |
+  +--------------+----------------------------------+</screen>
+      </step>
+    </procedure>
+  </section>
+  <section>
+    <title>Install and configure components</title>
+    <procedure>
+      <step>
+        <para>Install the packages:</para>
+        <screen language="console"># apt install watcher-api watcher-decision-engine \
+  watcher-applier
+
+# apt install python-watcherclient</screen>
+      </step>
+    </procedure>
+    <procedure>
+      <step>
+        <para>Edit the <literal>/etc/watcher/watcher.conf</literal> file and complete the following
+                        actions:</para>
+        <itemizedlist>
+          <listitem>
+            <para>In the <literal>[database]</literal> section, configure database access:</para>
+            <screen language="ini">[database]
+...
+connection = mysql+pymysql://watcher:WATCHER_DBPASS@controller/watcher?charset=utf8</screen>
+          </listitem>
+          <listitem>
+            <para>In the <literal>[DEFAULT]</literal> section, configure the transport url for RabbitMQ message broker.</para>
+            <screen language="ini">[DEFAULT]
+...
+control_exchange = watcher
+transport_url = rabbit://openstack:RABBIT_PASS@controller</screen>
+            <para>Replace the RABBIT_PASS with the password you chose for OpenStack user in RabbitMQ.</para>
+          </listitem>
+          <listitem>
+            <para>In the <literal>[keystone_authtoken]</literal> section, configure Identity service access.</para>
+            <screen language="ini">[keystone_authtoken]
+...
+auth_uri = http://controller:5000
+auth_url = http://controller:35357
+memcached_servers = controller:11211
+auth_type = password
+project_domain_name = default
+user_domain_name = default
+project_name = service
+username = watcher
+password = WATCHER_PASS</screen>
+            <para>Replace WATCHER_PASS with the password you chose for the watcher user in the Identity service.</para>
+          </listitem>
+          <listitem>
+            <para>Watcher interacts with other OpenStack projects via project clients, in order to instantiate these
+                                clients, Watcher requests new session from Identity service. In the <literal>[watcher_client_auth]</literal> section,
+                                configure the identity service access to interact with other OpenStack project clients.</para>
+            <screen language="ini">[watcher_client_auth]
+...
+auth_type = password
+auth_url = http://controller:35357
+username = watcher
+password = WATCHER_PASS
+project_domain_name = default
+user_domain_name = default
+project_name = service</screen>
+            <para>Replace WATCHER_PASS with the password you chose for the watcher user in the Identity service.</para>
+          </listitem>
+          <listitem>
+            <para>In the <literal>[oslo_messaging_notifications]</literal> section, configure the messaging driver.</para>
+            <screen language="ini">[oslo_messaging_notifications]
+...
+driver = messagingv2</screen>
+          </listitem>
+        </itemizedlist>
+      </step>
+      <step>
+        <para>Populate watcher database:</para>
+        <screen language="ini"><?dbsuse-fo font-size="8pt"?>su -s /bin/sh -c "watcher-db-manage --config-file /etc/watcher/watcher.conf create_schema"</screen>
+      </step>
+    </procedure>
+  </section>
+  <section>
+    <title>Finalize installation</title>
+    <para>Restart the Infrastructure Optimization services:</para>
+    <screen language="console"># service watcher-api restart
+# service watcher-decision-engine restart
+# service watcher-applier restart</screen>
+  </section>
+</section>

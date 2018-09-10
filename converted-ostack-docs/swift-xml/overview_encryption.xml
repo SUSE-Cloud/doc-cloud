@@ -1,0 +1,440 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+  <title>Object Encryption</title>
+  <para>Swift supports the optional encryption of object data at rest on storage nodes.
+            The encryption of object data is intended to mitigate the risk of users’ data
+            being read if an unauthorised party were to gain physical access to a disk.</para>
+  <note>
+    <para>Swift’s data-at-rest encryption accepts plaintext object data from the
+                client, encrypts it in the cluster, and stores the encrypted data. This
+                protects object data from inadvertently being exposed if a data drive
+                leaves the Swift cluster. If a user wishes to ensure that the plaintext
+                data is always encrypted while in transit and in storage, it is strongly
+                recommended that the data be encrypted before sending it to the Swift
+                cluster. Encrypting on the client side is the only way to ensure that the
+                data is fully encrypted for its entire lifecycle.</para>
+  </note>
+  <para>Encryption of data at rest is implemented by middleware that may be included in
+            the proxy server WSGI pipeline. The feature is internal to a Swift cluster and
+            not exposed through the API. Clients are unaware that data is encrypted by this
+            feature internally to the Swift service; internally encrypted data should never
+            be returned to clients via the Swift API.</para>
+  <para>The following data are encrypted while at rest in Swift:</para>
+  <itemizedlist>
+    <listitem>
+      <para>Object content i.e. the content of an object PUT request’s body</para>
+    </listitem>
+    <listitem>
+      <para>The entity tag (ETag) of objects that have non-zero content</para>
+    </listitem>
+    <listitem>
+      <para>All custom user object metadata values i.e. metadata sent using
+                    X-Object-Meta- prefixed headers with PUT or POST requests</para>
+    </listitem>
+  </itemizedlist>
+  <para>Any data or metadata not included in the list above are not encrypted,
+            including:</para>
+  <itemizedlist>
+    <listitem>
+      <para>Account, container and object names</para>
+    </listitem>
+    <listitem>
+      <para>Account and container custom user metadata values</para>
+    </listitem>
+    <listitem>
+      <para>All custom user metadata names</para>
+    </listitem>
+    <listitem>
+      <para>Object Content-Type values</para>
+    </listitem>
+    <listitem>
+      <para>Object size</para>
+    </listitem>
+    <listitem>
+      <para>System metadata</para>
+    </listitem>
+  </itemizedlist>
+  <note>
+    <para>This feature is intended to provide <literal>confidentiality</literal> of data that is at
+                rest i.e. to protect user data from being read by an attacker that gains
+                access to disks on which object data is stored.</para>
+    <para>This feature is not intended to prevent undetectable <literal>modification</literal>
+                of user data at rest.</para>
+    <para>This feature is not intended to protect against an attacker that gains
+                access to Swift’s internal network connections, or gains access to key
+                material or is able to modify the Swift code running on Swift nodes.</para>
+  </note>
+  <section xml:id="encryption-deployment">
+    <title>Deployment and operation</title>
+    <para>Encryption is deployed by adding two middleware filters to the proxy
+                server WSGI pipeline and including their respective filter configuration
+                sections in the <literal>proxy-server.conf</literal> file. <xref linkend="container-sync-client-config"/> are required if the container sync feature is
+                being used.</para>
+    <para>The <literal>keymaster</literal> and <literal>encryption</literal> middleware filters must be to the right of all
+                other middleware in the pipeline apart from the final proxy-logging middleware,
+                and in the order shown in this example:</para>
+    <screen>&lt;other middleware&gt; keymaster encryption proxy-logging proxy-server
+
+[filter:keymaster]
+use = egg:swift#keymaster
+encryption_root_secret = your_secret
+
+[filter:encryption]
+use = egg:swift#encryption
+# disable_encryption = False</screen>
+    <para>See the <literal>proxy-server.conf-sample</literal> file for further details on the middleware
+                configuration options.</para>
+    <para>The keymaster config option <literal>encryption_root_secret</literal> MUST be set to a value
+                of at least 44 valid base-64 characters before the middleware is used and
+                should be consistent across all proxy servers. The minimum length of 44 has
+                been chosen because it is the length of a base-64 encoded 32 byte value.</para>
+    <note>
+      <para>The <literal>encryption_root_secret</literal> option holds the master secret key used for
+                    encryption.  The security of all encrypted data critically depends on this
+                    key and it should therefore be set to a high-entropy value. For example, a
+                    suitable <literal>encryption_root_secret</literal> may be obtained by base-64 encoding a
+                    32 byte (or longer) value generated by a cryptographically secure random
+                    number generator.</para>
+      <para>The <literal>encryption_root_secret</literal> value is necessary to recover any encrypted
+                    data from the storage system, and therefore, it must be guarded against
+                    accidental loss. Its value (and consequently, the proxy-server.conf file)
+                    should not be stored on any disk that is in any account, container or
+                    object ring.</para>
+      <para>The <literal>encryption_root_secret</literal> value should not be changed once deployed.
+                    Doing so would prevent Swift from properly decrypting data that was
+                    encrypted using the former value, and would therefore result in the loss of
+                    that data.</para>
+    </note>
+    <para>One method for generating a suitable value for <literal>encryption_root_secret</literal> is to
+                use the <literal>openssl</literal> command line tool:</para>
+    <screen>openssl rand -base64 32</screen>
+    <para>Once deployed, the encryption filter will by default encrypt object data and
+                metadata when handling PUT and POST requests and decrypt object data and
+                metadata when handling GET and HEAD requests. COPY requests are transformed
+                into GET and PUT requests by the <xref linkend="copy"/> middleware before reaching the
+                encryption middleware and as a result object data and metadata is decrypted and
+                re-encrypted when copied.</para>
+    <section>
+      <title>Upgrade Considerations</title>
+      <para>When upgrading an existing cluster to deploy encryption, the following sequence
+                    of steps is recommended:</para>
+      <procedure>
+        <step>
+          <para>Upgrade all object servers</para>
+        </step>
+        <step>
+          <para>Upgrade all proxy servers</para>
+        </step>
+        <step>
+          <para>Add keymaster and encryption middlewares to every proxy server’s middleware
+                            pipeline with the encryption <literal>disable_encryption</literal> option set to <literal>True</literal>
+                            and the keymaster <literal>encryption_root_secret</literal> value set as described above.</para>
+        </step>
+        <step>
+          <para>If required, follow the steps for <xref linkend="container-sync-client-config"/>.</para>
+        </step>
+        <step>
+          <para>Finally, change the encryption <literal>disable_encryption</literal> option to <literal>False</literal></para>
+        </step>
+      </procedure>
+      <para>Objects that existed in the cluster prior to the keymaster and encryption
+                    middlewares being deployed are still readable with GET and HEAD requests. The
+                    content of those objects will not be encrypted unless they are written again by
+                    a PUT or COPY request. Any user metadata of those objects will not be encrypted
+                    unless it is written again by a PUT, POST or COPY request.</para>
+    </section>
+    <section>
+      <title>Disabling Encryption</title>
+      <para>Once deployed, the keymaster and encryption middlewares should not be removed
+                    from the pipeline. To do so will cause encrypted object data and/or metadata to
+                    be returned in response to GET or HEAD requests for objects that were
+                    previously encrypted.</para>
+      <para>Encryption of inbound object data may be disabled by setting the encryption
+                    <literal>disable_encryption</literal> option to <literal>True</literal>, in which case existing encrypted
+                    objects will remain encrypted but new data written with PUT, POST or COPY
+                    requests will not be encrypted. The keymaster and encryption middlewares should
+                    remain in the pipeline even when encryption of new objects is not required. The
+                    encryption middleware is needed to handle GET requests for objects that may
+                    have been previously encrypted. The keymaster is needed to provide keys for
+                    those requests.</para>
+    </section>
+    <section xml:id="container-sync-client-config">
+      <title>Container sync configuration</title>
+      <para>If container sync is being used then the keymaster and encryption middlewares
+                    must be added to the container sync internal client pipeline. The following
+                    configuration steps are required:</para>
+      <procedure>
+        <step>
+          <para>Create a custom internal client configuration file for container sync (if
+                            one is not already in use) based on the sample file
+                            <literal>internal-client.conf-sample</literal>. For example, copy
+                            <literal>internal-client.conf-sample</literal> to <literal>/etc/swift/container-sync-client.conf</literal>.</para>
+        </step>
+        <step>
+          <para>Modify this file to include the middlewares in the pipeline in
+                            the same way as described above for the proxy server.</para>
+        </step>
+        <step>
+          <para>Modify the container-sync section of all container server config files to
+                            point to this internal client config file using the
+                            <literal>internal_client_conf_path</literal> option. For example:</para>
+          <screen>internal_client_conf_path = /etc/swift/container-sync-client.conf</screen>
+        </step>
+      </procedure>
+      <note>
+        <para>The <literal>encryption_root_secret</literal> value is necessary to recover any encrypted
+                        data from the storage system, and therefore, it must be guarded against
+                        accidental loss. Its value (and consequently, the custom internal client
+                        configuration file) should not be stored on any disk that is in any
+                        account, container or object ring.</para>
+      </note>
+      <note>
+        <para>These container sync configuration steps will be necessary for container
+                        sync probe tests to pass if the encryption middlewares are included in the
+                        proxy pipeline of a test cluster.</para>
+      </note>
+    </section>
+  </section>
+  <section>
+    <title>Implementation</title>
+    <section>
+      <title>Encryption scheme</title>
+      <para>Plaintext data is encrypted to ciphertext using the AES cipher with 256-bit
+                    keys implemented by the python <link xlink:href="https://pypi.python.org/pypi/cryptography">cryptography package</link>. The cipher is used in counter
+                    (CTR) mode so that any byte or range of bytes in the ciphertext may be
+                    decrypted independently of any other bytes in the ciphertext. This enables very
+                    simple handling of ranged GETs.</para>
+      <para>In general an item of unencrypted data, <literal>plaintext</literal>, is transformed to an
+                    item of encrypted data, <literal>ciphertext</literal>:</para>
+      <screen>ciphertext = E(plaintext, k, iv)</screen>
+      <para>where <literal>E</literal> is the encryption function, <literal>k</literal> is an encryption key and <literal>iv</literal>
+                    is a unique initialization vector (IV) chosen for each encryption context. For
+                    example, the object body is one encryption context with a randomly chosen IV.
+                    The IV is stored as metadata of the encrypted item so that it is available for
+                    decryption:</para>
+      <screen>plaintext = D(ciphertext, k, iv)</screen>
+      <para>where <literal>D</literal> is the decryption function.</para>
+      <para>The implementation of CTR mode follows <link xlink:href="http://csrc.nist.gov/publications/nistpubs/800-38a/sp800-38a.pdf">NIST SP800-38A</link>, and the
+                    full IV passed to the encryption or decryption function serves as the initial
+                    counter block.</para>
+      <para>In general any encrypted item has accompanying crypto-metadata that describes
+                    the IV and the cipher algorithm used for the encryption:</para>
+      <screen>crypto_metadata = {"iv": &lt;16 byte value&gt;,
+                   "cipher": "AES_CTR_256"}</screen>
+      <para>This crypto-metadata is stored either with the ciphertext (for user
+                    metadata and etags) or as a separate header (for object bodies).</para>
+    </section>
+    <section>
+      <title>Key management</title>
+      <para>A keymaster middleware is responsible for providing the keys required for each
+                    encryption and decryption operation. Two keys are required when handling object
+                    requests: a <literal>container key</literal> that is uniquely associated with the container path
+                    and an <literal>object key</literal> that is uniquely associated with the object path.  These
+                    keys are made available to the encryption middleware via a callback function
+                    that the keymaster installs in the WSGI request environ.</para>
+      <para>The current keymaster implementation derives container and object keys from the
+                    <literal>encryption_root_secret</literal> in a deterministic way by constructing a SHA256
+                    HMAC using the <literal>encryption_root_secret</literal> as a key and the container or object
+                    path as a message, for example:</para>
+      <screen>object_key = HMAC(encryption_root_secret, "/a/c/o")</screen>
+      <para>Other strategies for providing object and container keys may be employed by
+                    future implementations of alternative keymaster middleware.</para>
+      <para>During each object PUT, a random key is generated to encrypt the object body.
+                    This random key is then encrypted using the object key provided by the
+                    keymaster. This makes it safe to store the encrypted random key alongside the
+                    encrypted object data and metadata.</para>
+      <para>This process of <literal>key wrapping</literal> enables more efficient re-keying events when the
+                    object key may need to be replaced and consequently any data encrypted using
+                    that key must be re-encrypted. Key wrapping minimizes the amount of data
+                    encrypted using those keys to just other randomly chosen keys which can be
+                    re-wrapped efficiently without needing to re-encrypt the larger amounts of data
+                    that were encrypted using the random keys.</para>
+      <note>
+        <para>Re-keying is not currently implemented. Key wrapping is implemented
+                        in anticipation of future re-keying operations.</para>
+      </note>
+    </section>
+    <section>
+      <title>Encryption middleware</title>
+      <para>The encryption middleware is composed of an <literal>encrypter</literal> component and a
+                    <literal>decrypter</literal> component.</para>
+      <section>
+        <title>Encrypter operation</title>
+        <section>
+          <title>Custom user metadata</title>
+          <para>The encrypter encrypts each item of custom user metadata using the object key
+                            provided by the keymaster and an IV that is randomly chosen for that metadata
+                            item. The encrypted values are stored as <xref linkend="transient-sysmeta"/> with
+                            associated crypto-metadata appended to the encrypted value. For example:</para>
+          <screen>X-Object-Meta-Private1: value1
+X-Object-Meta-Private2: value2</screen>
+          <para>are transformed to:</para>
+          <screen>X-Object-Transient-Sysmeta-Crypto-Meta-Private1:
+  E(value1, object_key, header_iv_1); swift_meta={"iv": header_iv_1,
+                                                  "cipher": "AES_CTR_256"}
+X-Object-Transient-Sysmeta-Crypto-Meta-Private2:
+  E(value2, object_key, header_iv_2); swift_meta={"iv": header_iv_2,
+                                                  "cipher": "AES_CTR_256"}</screen>
+          <para>The unencrypted custom user metadata headers are removed.</para>
+        </section>
+        <section>
+          <title>Object body</title>
+          <para>Encryption of an object body is performed using a randomly chosen body key
+                            and a randomly chosen IV:</para>
+          <screen>body_ciphertext = E(body_plaintext, body_key, body_iv)</screen>
+          <para>The body_key is wrapped using the object key provided by the keymaster and a
+                            randomly chosen IV:</para>
+          <screen>wrapped_body_key = E(body_key, object_key, body_key_iv)</screen>
+          <para>The encrypter stores the associated crypto-metadata in a system metadata
+                            header:</para>
+          <screen>X-Object-Sysmeta-Crypto-Body-Meta:
+    {"iv": body_iv,
+     "cipher": "AES_CTR_256",
+     "body_key": {"key": wrapped_body_key,
+                  "iv": body_key_iv}}</screen>
+          <para>Note that in this case there is an extra item of crypto-metadata which stores
+                            the wrapped body key and its IV.</para>
+        </section>
+        <section>
+          <title>Entity tag</title>
+          <para>While encrypting the object body the encrypter also calculates the ETag (md5
+                            digest) of the plaintext body. This value is encrypted using the object key
+                            provided by the keymaster and a randomly chosen IV, and saved as an item of
+                            system metadata, with associated crypto-metadata appended to the encrypted
+                            value:</para>
+          <screen>X-Object-Sysmeta-Crypto-Etag:
+  E(md5(plaintext), object_key, etag_iv); swift_meta={"iv": etag_iv,
+                                                      "cipher": "AES_CTR_256"}</screen>
+          <para>The encrypter also forces an encrypted version of the plaintext ETag to be sent
+                            with container updates by adding an update override header to the PUT request.
+                            The associated crypto-metadata is appended to the encrypted ETag value of this
+                            update override header:</para>
+          <screen>X-Object-Sysmeta-Container-Update-Override-Etag:
+    E(md5(plaintext), container_key, override_etag_iv);
+    meta={"iv": override_etag_iv, "cipher": "AES_CTR_256"}</screen>
+          <para>The container key is used for this encryption so that the decrypter is able
+                            to decrypt the ETags in container listings when handling a container request,
+                            since object keys may not be available in that context.</para>
+          <para>Since the plaintext ETag value is only known once the encrypter has completed
+                            processing the entire object body, the <literal>X-Object-Sysmeta-Crypto-Etag</literal> and
+                            <literal>X-Object-Sysmeta-Container-Update-Override-Etag</literal> headers are sent after the
+                            encrypted object body using the proxy server’s support for request footers.</para>
+        </section>
+        <section xml:id="conditional-requests">
+          <title>Conditional Requests</title>
+          <para>In general, an object server evaluates conditional requests with
+                            <literal>If[-None]-Match</literal> headers by comparing values listed in an
+                            <literal>If[-None]-Match</literal> header against the ETag that is stored in the object
+                            metadata. This is not possible when the ETag stored in object metadata has been
+                            encrypted. The encrypter therefore calculates an HMAC using the object key and
+                            the ETag while handling object PUT requests, and stores this under the metadata
+                            key <literal>X-Object-Sysmeta-Crypto-Etag-Mac</literal>:</para>
+          <screen>X-Object-Sysmeta-Crypto-Etag-Mac: HMAC(object_key, md5(plaintext))</screen>
+          <para>Like other ETag-related metadata, this is sent after the encrypted object body
+                            using the proxy server’s support for request footers.</para>
+          <para>The encrypter similarly calculates an HMAC for each ETag value included in
+                            <literal>If[-None]-Match</literal> headers of conditional GET or HEAD requests, and appends
+                            these to the <literal>If[-None]-Match</literal> header. The encrypter also sets the
+                            <literal>X-Backend-Etag-Is-At</literal> header to point to the previously stored
+                            <literal>X-Object-Sysmeta-Crypto-Etag-Mac</literal> metadata so that the object server
+                            evaluates the conditional request by comparing the HMAC values included in the
+                            <literal>If[-None]-Match</literal> with the value stored under
+                            <literal>X-Object-Sysmeta-Crypto-Etag-Mac</literal>. For example, given a conditional request
+                            with header:</para>
+          <screen>If-Match: match_etag</screen>
+          <para>the encrypter would transform the request headers to include:</para>
+          <screen>If-Match: match_etag,HMAC(object_key, match_etag)
+X-Backend-Etag-Is-At: X-Object-Sysmeta-Crypto-Etag-Mac</screen>
+          <para>This enables the object server to perform an encrypted comparison to check
+                            whether the ETags match, without leaking the ETag itself or leaking information
+                            about the object body.</para>
+        </section>
+      </section>
+      <section>
+        <title>Decrypter operation</title>
+        <para>For each GET or HEAD request to an object, the decrypter inspects the response
+                        for encrypted items (revealed by crypto-metadata headers), and if any are
+                        discovered then it will:</para>
+        <procedure>
+          <step>
+            <para>Fetch the object and container keys from the keymaster via its callback</para>
+          </step>
+          <step>
+            <para>Decrypt the <literal>X-Object-Sysmeta-Crypto-Etag</literal> value</para>
+          </step>
+          <step>
+            <para>Decrypt the <literal>X-Object-Sysmeta-Container-Update-Override-Etag</literal> value</para>
+          </step>
+          <step>
+            <para>Decrypt metadata header values using the object key</para>
+          </step>
+          <step>
+            <para>Decrypt the wrapped body key found in <literal>X-Object-Sysmeta-Crypto-Body-Meta</literal></para>
+          </step>
+          <step>
+            <para>Decrypt the body using the body key</para>
+          </step>
+        </procedure>
+        <para>For each GET request to a container that would include ETags in its response
+                        body, the decrypter will:</para>
+        <procedure>
+          <step>
+            <para>GET the response body with the container listing</para>
+          </step>
+          <step>
+            <para>Fetch the container key from the keymaster via its callback</para>
+          </step>
+          <step>
+            <para>Decrypt any encrypted ETag entries in the container listing using the
+                                container key</para>
+          </step>
+        </procedure>
+      </section>
+    </section>
+    <section>
+      <title>Impact on other Swift services and features</title>
+      <para>Encryption has no impact on <xref linkend="versioned-writes"/> other than that any
+                    previously unencrypted objects will be encrypted as they are copied to or from
+                    the versions container. Keymaster and encryption middlewares should be placed
+                    after <literal>versioned_writes</literal> in the proxy server pipeline, as described in
+                    <xref linkend="encryption-deployment"/>.</para>
+      <para><literal>Container Sync</literal> uses an internal client to GET objects that are to be sync’d.
+                    This internal client must be configured to use the keymaster and encryption
+                    middlewares as described <xref linkend="container-sync-client-config"/>.</para>
+      <para>Encryption has no impact on the <literal>object-auditor</literal> service. Since the ETag
+                    header saved with the object at rest is the md5 sum of the encrypted object
+                    body then the auditor will verify that encrypted data is valid.</para>
+      <para>Encryption has no impact on the <literal>object-expirer</literal> service. <literal>X-Delete-At</literal> and
+                    <literal>X-Delete-After</literal> headers are not encrypted.</para>
+      <para>Encryption has no impact on the <literal>object-replicator</literal> and <literal>object-reconstructor</literal>
+                    services. These services are unaware of the object or EC fragment data being
+                    encrypted.</para>
+      <para>Encryption has no impact on the <literal>container-reconciler</literal> service. The
+                    <literal>container-reconciler</literal> uses an internal client to move objects between
+                    different policy rings. The destination object has the same URL as the source
+                    object and the object is moved without re-encryption.</para>
+    </section>
+    <section>
+      <title>Considerations for developers</title>
+      <para>Developers should be aware that keymaster and encryption middlewares rely on
+                    the path of an object remaining unchanged. The included keymaster derives keys
+                    for containers and objects based on their paths and the
+                    <literal>encryption_root_secret</literal>. The keymaster does not rely on object metadata to
+                    inform its generation of keys for GET and HEAD requests because when handling
+                    <xref linkend="conditional-requests"/> it is required to provide the object key before any
+                    metadata has been read from the object.</para>
+      <para>Developers should therefore give careful consideration to any new features that
+                    would relocate object data and metadata within a Swift cluster by means that do
+                    not cause the object data and metadata to pass through the encryption
+                    middlewares in the proxy pipeline and be re-encrypted.</para>
+      <para>The crypto-metadata associated with each encrypted item does include some
+                    <literal>key_id</literal> metadata that is provided by the keymaster and contains the path used
+                    to derive keys. This <literal>key_id</literal> metadata is persisted in anticipation of future
+                    scenarios when it may be necessary to decrypt an object that has been relocated
+                    without re-encrypting, in which case the metadata could be used to derive the
+                    keys that were used for encryption. However, this alone is not sufficient to
+                    handle conditional requests and to decrypt container listings where objects
+                    have been relocated, and further work will be required to solve those issues.</para>
+    </section>
+  </section>
+</section>

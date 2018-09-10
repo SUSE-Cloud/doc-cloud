@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+  <title>Production Guidelines</title>
+  <para>This document aims to provide a location for documented production
+            configurations and considerations. Including common misconfigurations, attack
+            mitigation techniques, and other relevant tips.</para>
+  <section>
+    <title>DNS Zone Squatting</title>
+    <para>Designate’s multi-tenant nature allows for any user to create (almost) any
+                zone, which can result in the legitimate owner being unable to create the zone
+                within Designate. There are several ways this can occur:</para>
+    <procedure>
+      <step>
+        <para>The squatter simply creates “example.com.” in Designate before the
+                        legitimate owner can.</para>
+      </step>
+      <step>
+        <para>The squatter creates “foo.example.com.” as a zone in Designate, preventing
+                        the creation of any parent zones (example.com., com.) by any other tenant.</para>
+      </step>
+      <step>
+        <para>The squatter creates “com.” as a zone in Designate, preventing the creation
+                        of any zones ending in “com.” by any other tenant.</para>
+      </step>
+      <step>
+        <para>The squatter creates “co.uk.” as a zone in Designate, preventing the
+                        creation of any zones ending in “co.uk.” by any other tenant.</para>
+      </step>
+    </procedure>
+    <section>
+      <title>Scenario #1 and #2 Mitigation</title>
+      <para>There is no automated mitigation that can reasonably be performed here, DNS
+                    providers have typically used a manual process, triggered through a support
+                    request, to identify the legitimate owner and request the illegitimate owner
+                    relinquish control, or action any other provider specific policy for handling
+                    these scenarios.</para>
+    </section>
+    <section>
+      <title>Scenario #3 Mitigation</title>
+      <para>This scenario can be mitigated by ensuring Designate has been configured, and
+                    is updated periodically, with the latest list of gTLD’s published as the
+                    <link xlink:href="https://data.iana.org/TLD/tlds-alpha-by-domain.txt">IANA TLD list</link>. These TLDs can be entered into Designate through the
+                    <link xlink:href="http://developer.openstack.org/api-ref/dns/#tld">TLD API</link></para>
+    </section>
+    <section>
+      <title>Scenario #4 Mitigation</title>
+      <para>This is a variation on Scenario #3, where public registration is available for
+                    a second level domain, such as is the case with “co.uk.”. Due to the nature of
+                    public second level domains, where the IANA has no authority, these are not
+                    included in the <link xlink:href="https://data.iana.org/TLD/tlds-alpha-by-domain.txt">IANA TLD list</link>. A Mozilla sponsored initiative has stepped
+                    up to fill this gap, crowdsourcing the list of “public suffixes”, which
+                    includes both standard TLDs and public second level domains. We recommend
+                    configuring, and periodically updating, Designate with Mozilla’s
+                    <link xlink:href="https://publicsuffix.org/">Public Suffix list</link>. These public suffixes can be entered into Designate
+                    through the <link xlink:href="http://developer.openstack.org/api-ref/dns/#tld">TLD API</link></para>
+    </section>
+  </section>
+  <section>
+    <title>DNS Cache Poisoning</title>
+    <para>Multi-tenant nameservers can lead to an interesting variation of DNS Cache
+                Poisoning if nameservers are configured without consideration. Two tenants,
+                both owning different zones, can under the right circumstances inject content
+                into DNS responses for the other tenants zone. Let’s consider an example:</para>
+    <para>Tenant A owns “example.com.”, and has created an additional NS record within
+                their zone pointing to “ns.example.org.” Tenant B, the attacker in this example,
+                can now create the “example.org.” zone within their tenant. Within this zone,
+                they can legitimately create an A record with the name “ns.example.org.”. Under
+                default configurations, many DNS servers (e.g. BIND), will now include Tenant
+                B’s A record within responses for several queries for “example.com.”. Should
+                the recursive resolver used by the end-user not be configured to ignore
+                out-of-bailiwick responses, this potentially invalid A record for
+                “ns.example.org.” will be injected into the resolvers cache, resulting in
+                a cache poisoning attack.</para>
+    <para>This is an “interesting variation” of DNS cache poisoning, because the poison
+                records are returned by the authoritative nameserver for a given zone, rather
+                than in responses for the attackers zone.</para>
+    <para><link xlink:href="https://bugs.launchpad.net/designate/+bug/1471159">Bug 1471159</link> includes additional worked examples of this attack.</para>
+    <section>
+      <title>BIND9 Mitigation</title>
+      <para>BIND9 by default will include out-of-zone additionals, resulting is
+                    susceptibility to this attack. We recommend BIND is configured to send minimal
+                    responses - preventing the out-of-zone additionals from being processed.</para>
+      <para>In BIND’s global options clause, include the following statement:</para>
+      <screen>minimal-responses yes;</screen>
+    </section>
+    <section>
+      <title>PowerDNS Mitigation</title>
+      <para>PowerDNS by default will include out-of-zone additionals, resulting is
+                    susceptibility to this attack. We recommend setting the
+                    <literal>out-of-zone-additional-processing</literal> configuration flag set to “no”  -
+                    preventing the out-of-zone additionals from being processed.</para>
+      <para>In the main PowerDNS configuration file, include the following statement:</para>
+      <screen>out-of-zone-additional-processing=no</screen>
+    </section>
+  </section>
+</section>

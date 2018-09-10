@@ -1,0 +1,561 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+  <title>Networking Guide</title>
+  <para>The Tricircle is to provide networking automation across Neutron
+            servers in multi-region OpenStack clouds deployment, many cross Neutron
+            networking modes are supported. In this guide, how to use CLI to setup
+            typical networking mode will be described.</para>
+  <section>
+    <title>Networking Terms</title>
+    <para>There are four important networking terms will be used in networking
+                automation across Neutron.</para>
+    <variablelist>
+      <varlistentry>
+        <term>Local Network</term>
+        <listitem>
+          <itemizedlist>
+            <listitem>
+              <para>Local Network is a network which can only reside in one OpenStack cloud.</para>
+            </listitem>
+            <listitem>
+              <para>Network type could be VLAN, VxLAN, Flat.</para>
+            </listitem>
+            <listitem>
+              <para>If you specify a region name as the value of availability-zone-hint
+                                    during network creation, then the network will be created as local
+                                    network in that region.</para>
+            </listitem>
+            <listitem>
+              <para>If the default network type to be created is configured to “local” in
+                                    central Neutron, then no matter you specify availability-zone-hint or
+                                    not, the network will be local network if the network was created
+                                    without explicitly given non-local provider network type.</para>
+            </listitem>
+            <listitem>
+              <para>External network should be created as local network, that means external
+                                    network is explicitly existing in some specified region. It’s possible
+                                    that each region provides multiple external networks, that means there
+                                    is no limitation on how many external networks can be created.</para>
+            </listitem>
+            <listitem>
+              <para>For example, local network could be created as follows:</para>
+              <screen language="console"><?dbsuse-fo font-size="8pt"?>openstack --os-region-name=CentralRegion network create --availability-zone-hint=RegionOne net1</screen>
+            </listitem>
+          </itemizedlist>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term>Local Router</term>
+        <listitem>
+          <itemizedlist>
+            <listitem>
+              <para>Local Router is a logical router which can only reside in one OpenStack
+                                    cloud.</para>
+            </listitem>
+            <listitem>
+              <para>If you specify a region name as the value of availability-zone-hint
+                                    during router creation, then the router will be created as local
+                                    router in that region.</para>
+            </listitem>
+            <listitem>
+              <para>For example, local router could be created as follows:</para>
+              <screen language="console"><?dbsuse-fo font-size="8pt"?>neutron --os-region-name=CentralRegion router-create --availability-zone-hint RegionOne R1</screen>
+            </listitem>
+          </itemizedlist>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term>Cross Neutron L2 Network</term>
+        <listitem>
+          <itemizedlist>
+            <listitem>
+              <para>Cross Neutron L2 Network is a network which can be stretched into more
+                                    than one Neutron servers, these Neutron servers may work in one
+                                    OpenStack cloud or multiple OpenStack clouds.</para>
+            </listitem>
+            <listitem>
+              <para>Network type could be VLAN, VxLAN, Flat.</para>
+            </listitem>
+            <listitem>
+              <para>During the network creation, if availability-zone-hint is not specified,
+                                    or specified with availability zone name, or more than one region name,
+                                    or more than one availability zone name, then the network will be created
+                                    as cross Neutron L2 network.</para>
+            </listitem>
+            <listitem>
+              <para>If the default network type to be created is not configured to “local” in
+                                    central Neutron, then the network will be cross Neutron L2 network if
+                                    the network was created without specified provider network type and single
+                                    region name in availability-zone-hint.</para>
+            </listitem>
+            <listitem>
+              <para>For example, cross Neutron L2 network could be created as follows:</para>
+              <screen language="console"><?dbsuse-fo font-size="8pt"?>neutron --os-region-name=CentralRegion net-create --provider:network_type vxlan --availability-zone-hint RegionOne --availability-zone-hint RegionTwo net1</screen>
+            </listitem>
+          </itemizedlist>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term>Non-Local Router</term>
+        <listitem>
+          <itemizedlist>
+            <listitem>
+              <para>Non-Local Router will be able to reside in more than one OpenStack cloud,
+                                    and internally inter-connected with bridge network.</para>
+            </listitem>
+            <listitem>
+              <para>Bridge network used internally for non-local router is a special cross
+                                    Neutron L2 network.</para>
+            </listitem>
+            <listitem>
+              <para>Local networks or cross Neutron L2 networks can be attached to local
+                                    router or non-local routers if the network can be presented in the region
+                                    where the router can reside.</para>
+            </listitem>
+            <listitem>
+              <para>During the router creation, if availability-zone-hint is not specified,
+                                    or specified with availability zone name, or more than one region name,
+                                    or more than one availability zone name, then the router will be created
+                                    as non-local router.</para>
+            </listitem>
+            <listitem>
+              <para>For example, non-local router could be created as follows:</para>
+              <screen language="console"><?dbsuse-fo font-size="8pt"?>neutron --os-region-name=CentralRegion router-create --availability-zone-hint RegionOne --availability-zone-hint RegionTwo R3</screen>
+            </listitem>
+          </itemizedlist>
+        </listitem>
+      </varlistentry>
+    </variablelist>
+    <para>It’s also important to understand that cross Neutron L2 network, local
+                router and non-local router can be created for different north-south/east-west
+                networking purpose.</para>
+    <variablelist>
+      <varlistentry>
+        <term>North-South and East-West Networking</term>
+        <listitem>
+          <itemizedlist>
+            <listitem>
+              <para>Instances in different OpenStack clouds can be attached to a cross
+                                    Neutron L2 network directly, so that they can communicate with
+                                    each other no matter in which OpenStack cloud.</para>
+            </listitem>
+            <listitem>
+              <para>If L3 networking across OpenStack clouds is preferred, local network
+                                    attached to non-local router can be created for instances to attach.</para>
+            </listitem>
+            <listitem>
+              <para>Local router can be set gateway with external networks to support
+                                    north-south traffic handled locally.</para>
+            </listitem>
+            <listitem>
+              <para>Non-local router can work only for cross Neutron east-west networking
+                                    purpose if no external network is set to the router.</para>
+            </listitem>
+            <listitem>
+              <para>Non-local router can serve as the centralized north-south traffic gateway
+                                    if external network is attached to the router, and support east-west
+                                    traffic at the same time.</para>
+            </listitem>
+          </itemizedlist>
+        </listitem>
+      </varlistentry>
+    </variablelist>
+  </section>
+  <section>
+    <title>Prerequisites</title>
+    <para>One CentralRegion in which central Neutron and Tricircle services
+                are started, and central Neutron is configured with Tricircle Central Neutron
+                plugin properly. And at least two regions(RegionOne, RegionTwo) in which
+                Tricircle Local Neutron plugin is configured properly in local Neutron.</para>
+    <para>RegionOne is mapped to az1, and RegionTwo is mapped to az2 by pod management
+                through Tricircle Admin API.</para>
+    <para>You can use az1 or RegionOne as the value of availability-zone-hint when
+                creating a network. Although in this document only one region in one
+                availability zone, one availability zone can include more than one region in
+                Tricircle pod management, so if you specify az1 as the value, then it means
+                the network will reside in az1, and az1 is mapped to RegionOne, if you add
+                more regions into az1, then the network can spread into these regions too.</para>
+    <para>Please refer to the installation guide and configuration guide how to setup
+                multi-region environment with Tricircle service enabled.</para>
+    <para>If you setup the environment through devstack, you can get these settings
+                which are used in this document as follows:</para>
+    <para>Suppose that each node has 3 interfaces, and eth1 for tenant vlan network,
+                eth2 for external vlan network. If you want to verify the data plane
+                connectivity, please make sure the bridges “br-vlan” and “br-ext” are
+                connected to regarding interface. Using following command to connect
+                the bridge to physical ethernet interface, as shown below, “br-vlan” is
+                wired to eth1, and “br-ext” to eth2:</para>
+    <screen>sudo ovs-vsctl add-br br-vlan
+sudo ovs-vsctl add-port br-vlan eth1
+sudo ovs-vsctl add-br br-ext
+sudo ovs-vsctl add-port br-ext eth2</screen>
+    <para>Suppose the vlan range for tenant network is 101~150, external network is
+                151~200, in the node which will run central Neutron and Tricircle services,
+                configure the local.conf like this:</para>
+    <screen>Q_ML2_PLUGIN_VLAN_TYPE_OPTIONS=(network_vlan_ranges=bridge:101:150,extern:151:200)
+OVS_BRIDGE_MAPPINGS=bridge:br-vlan,extern:br-ext
+
+TRICIRCLE_START_SERVICES=True
+enable_plugin tricircle https://github.com/openstack/tricircle/</screen>
+    <para>In the node which will run local Neutron without Tricircle services, configure
+                the local.conf like this:</para>
+    <screen>Q_ML2_PLUGIN_VLAN_TYPE_OPTIONS=(network_vlan_ranges=bridge:101:150,extern:151:200)
+OVS_BRIDGE_MAPPINGS=bridge:br-vlan,extern:br-ext
+
+TRICIRCLE_START_SERVICES=False
+enable_plugin tricircle https://github.com/openstack/tricircle/</screen>
+    <para>You may have noticed that the only difference is TRICIRCLE_START_SERVICES
+                is True or False. All examples given in this document will be based on these
+                settings.</para>
+    <para>If you also want to configure vxlan network, suppose the vxlan range for tenant
+                network is 1001~2000, add the following configuration to the above local.conf:</para>
+    <screen>Q_ML2_PLUGIN_VXLAN_TYPE_OPTIONS=(vni_ranges=1001:2000)</screen>
+    <para>If you also want to configure flat network, suppose you use the same physical
+                network as the vlan network, configure the local.conf like this:</para>
+    <screen>Q_ML2_PLUGIN_FLAT_TYPE_OPTIONS=(flat_networks=bridge,extern)</screen>
+    <para>In both RegionOne and RegionTwo, external network is able to be provisioned,
+                the settings will look like this in /etc/neutron/plugins/ml2/ml2_conf.ini:</para>
+    <screen>network_vlan_ranges = bridge:101:150,extern:151:200
+
+vni_ranges = 1001:2000(or the range that you configure)
+
+flat_networks = bridge,extern
+
+bridge_mappings = bridge:br-vlan,extern:br-ext</screen>
+    <para>Please be aware that the physical network name for tenant VLAN network is
+                “bridge”, and the external network physical network name is “extern”.</para>
+    <para>In central Neutron’s configuration file, the default settings look like as
+                follows:</para>
+    <screen>bridge_network_type = vxlan
+network_vlan_ranges = bridge:101:150,extern:151:200
+vni_ranges = 1001:2000
+flat_networks = bridge,extern
+tenant_network_types = vxlan,vlan,flat,local
+type_drivers = vxlan,vlan,flat,local</screen>
+    <para>If you want to create a local network, it is recommend that you specify
+                availability_zone_hint as region name when creating the network, instead of
+                specifying the network type as “local”. The “local” type has two drawbacks.
+                One is that you can not control the exact type of the network in local Neutron,
+                it’s up to your local Neutron’s configuration. The other is that the segment
+                ID of the network is allocated by local Neutron, so it may conflict with a
+                segment ID that is allocated by central Neutron. Considering such problems, we
+                have plan to deprecate “local” type.</para>
+    <para>If you want to create a L2 network across multiple Neutron servers, then you
+                have to speficy –provider-network-type vlan in network creation
+                command for vlan network type, or –provider-network-type vxlan for vxlan
+                network type. Both vlan and vxlan network type could work as the bridge
+                network. The default bridge network type is vxlan.</para>
+    <para>If you want to create a flat network, which is usually used as the external
+                network type, then you have to specify –provider-network-type flat in network
+                creation command.</para>
+    <para>You can create L2 network for different purposes, and the supported network
+                types for different purposes are summarized as follows.</para>
+    <informaltable>
+      <tgroup cols="2">
+        <colspec colname="c1" colwidth="50.0*"/>
+        <colspec colname="c2" colwidth="50.0*"/>
+        <thead>
+          <row>
+            <entry>
+              <para>Networking purpose</para>
+            </entry>
+            <entry>
+              <para>Supported</para>
+            </entry>
+          </row>
+        </thead>
+        <tbody>
+          <row>
+            <entry>
+              <para>Local L2 network for instances</para>
+            </entry>
+            <entry>
+              <para>FLAT, VLAN, VxLAN</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>Cross Neutron L2 network for instances</para>
+            </entry>
+            <entry>
+              <para>FLAT, VLAN, VxLAN</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>Bridge network for routers</para>
+            </entry>
+            <entry>
+              <para>FLAT, VLAN, VxLAN</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>External network</para>
+            </entry>
+            <entry>
+              <para>FLAT, VLAN</para>
+            </entry>
+          </row>
+        </tbody>
+      </tgroup>
+    </informaltable>
+  </section>
+  <section>
+    <title>Networking Scenario</title>
+    <xi:include href="networking-networking-guidenetworking-guide-direct-provider-networks.xml"/>
+    <xi:include href="networking-networking-guidenetworking-guide-multiple-external-networks.xml"/>
+    <xi:include href="networking-networking-guidenetworking-guide-multiple-ns-with-ew-enabled.xml"/>
+    <xi:include href="networking-networking-guidenetworking-guide-single-external-network.xml"/>
+    <xi:include href="networking-networking-guidenetworking-guide-local-networking.xml"/>
+  </section>
+  <section>
+    <title>Service Function Chaining Guide</title>
+    <para>Service Function Chaining provides the ability to define an ordered list of
+                network services (e.g. firewalls, load balancers). These services are then
+                “stitched” together in the network to create a service chain.</para>
+    <section>
+      <title>Installation</title>
+      <para>After installing tricircle, please refer to
+                    <link xlink:href="https://docs.openstack.org/developer/networking-sfc/installation.html"/>
+                    to install networking-sfc.</para>
+    </section>
+    <section>
+      <title>Configuration</title>
+      <itemizedlist>
+        <listitem>
+          <para>1 Configure central Neutron server</para>
+          <para>After installing the Tricircle and networing-sfc, enable the service plugins
+                            in central Neutron server by adding them in <literal>neutron.conf.0</literal>
+                            (typically found in <literal>/etc/neutron/</literal>):</para>
+          <screen><?dbsuse-fo font-size="8pt"?>service_plugins=networking_sfc.services.flowclassifier.plugin.FlowClassifierPlugin,tricircle.network.central_sfc_plugin.TricircleSfcPlugin</screen>
+          <para>In the same configuration file, specify the driver to use in the plugins.</para>
+          <screen>[sfc]
+drivers = tricircle_sfc
+
+[flowclassifier]
+drivers = tricircle_fc</screen>
+        </listitem>
+        <listitem>
+          <para>2 Configure local Neutron</para>
+          <para>Please refer to <link xlink:href="https://docs.openstack.org/developer/networking-sfc/installation.html#Configuration"/>
+                            to config local networking-sfc.</para>
+        </listitem>
+      </itemizedlist>
+    </section>
+    <section>
+      <title>How to play</title>
+      <itemizedlist>
+        <listitem>
+          <para>1 Create pods via Tricircle Admin API</para>
+        </listitem>
+        <listitem>
+          <para>2 Create necessary resources in central Neutron server</para>
+          <screen><?dbsuse-fo font-size="8pt"?>neutron --os-region-name=CentralRegion net-create --provider:network_type vxlan net1
+neutron --os-region-name=CentralRegion subnet-create net1 10.0.0.0/24
+neutron --os-region-name=CentralRegion port-create net1 --name p1
+neutron --os-region-name=CentralRegion port-create net1 --name p2
+neutron --os-region-name=CentralRegion port-create net1 --name p3
+neutron --os-region-name=CentralRegion port-create net1 --name p4
+neutron --os-region-name=CentralRegion port-create net1 --name p5
+neutron --os-region-name=CentralRegion port-create net1 --name p6</screen>
+          <para>Please note that network type must be vxlan.</para>
+        </listitem>
+        <listitem>
+          <para>3 Get image ID and flavor ID which will be used in VM booting. In the following step,
+                            the VM will boot from RegionOne and RegionTwo.</para>
+          <screen>glance --os-region-name=RegionOne image-list
+nova --os-region-name=RegionOne flavor-list
+glance --os-region-name=RegionTwo image-list
+nova --os-region-name=RegionTwo flavor-list</screen>
+        </listitem>
+        <listitem>
+          <para>4 Boot virtual machines</para>
+          <screen><?dbsuse-fo font-size="8pt"?>openstack --os-region-name=RegionOne server create --flavor 1 --image $image1_id --nic port-id=$p1_id vm_src
+openstack --os-region-name=RegionOne server create --flavor 1 --image $image1_id --nic port-id=$p2_id --nic port-id=$p3_id vm_sfc1
+openstack --os-region-name=RegionTwo server create --flavor 1 --image $image2_id --nic port-id=$p4_id --nic port-id=$p5_id vm_sfc2
+openstack --os-region-name=RegionTwo server create --flavor 1 --image $image2_id --nic port-id=$p6_id vm_dst</screen>
+        </listitem>
+        <listitem>
+          <para>5 Create port pairs in central Neutron server</para>
+          <screen><?dbsuse-fo font-size="8pt"?>neutron --os-region-name=CentralRegion port-pair-create --ingress p2 --egress p3 pp1
+neutron --os-region-name=CentralRegion port-pair-create --ingress p4 --egress p5 pp2</screen>
+        </listitem>
+        <listitem>
+          <para>6 Create port pair groups in central Neutron server</para>
+          <screen>neutron --os-region-name=CentralRegion port-pair-group-create --port-pair pp1 ppg1
+neutron --os-region-name=CentralRegion port-pair-group-create --port-pair pp2 ppg2</screen>
+        </listitem>
+        <listitem>
+          <para>7 Create flow classifier in central Neutron server</para>
+          <screen><?dbsuse-fo font-size="8pt"?>neutron --os-region-name=CentralRegion flow-classifier-create --source-ip-prefix 10.0.0.0/24 --logical-source-port p1 fc1</screen>
+        </listitem>
+        <listitem>
+          <para>8 Create port chain in central Neutron server</para>
+          <screen><?dbsuse-fo font-size="8pt"?>neutron --os-region-name=CentralRegion port-chain-create --flow-classifier fc1 --port-pair-group ppg1 --port-pair-group ppg2 pc1</screen>
+        </listitem>
+        <listitem>
+          <para>9 Show result in CentralRegion, RegionOne and RegionTwo</para>
+          <screen>neutron --os-region-name=CentralRegion port-chain-list
+neutron --os-region-name=RegionOne port-chain-list
+neutron --os-region-name=RegionTwo port-chain-list</screen>
+          <para>You will find a same port chain in each region.</para>
+        </listitem>
+        <listitem>
+          <para>10 Check if the port chain is working</para>
+          <para>In vm_dst, ping the p1’s ip address, it should fail.</para>
+          <para>Enable vm_sfc1, vm_sfc2’s forwarding function</para>
+          <screen>sudo sh
+echo 1 &gt; /proc/sys/net/ipv4/ip_forward</screen>
+          <para>Add the following route for vm_sfc1, vm_sfc2</para>
+          <screen>sudo ip route add $p6_ip_address dev eth1</screen>
+          <para>In vm_dst, ping the p1’s ip address, it should be successfully this time.</para>
+          <note>
+            <para>Not all images will bring up the second NIC, so you can ssh into vm, use
+                                “ifconfig -a” to check whether all NICs are up, and bring up all NICs if necessary.
+                                In CirrOS you can type the following command to bring up one NIC.</para>
+            <screen>sudo cirros-dhcpc up $nic_name</screen>
+          </note>
+        </listitem>
+      </itemizedlist>
+    </section>
+  </section>
+  <section>
+    <title>VLAN aware VMs Guide</title>
+    <para>VLAN aware VM is a VM that sends and receives VLAN tagged frames over its vNIC.
+                The main point of that is to overcome the limitations of the current one vNIC
+                per network model. A VLAN (or other encapsulation) aware VM can differentiate
+                between traffic of many networks by different encapsulation types and IDs,
+                instead of using many vNICs. This approach scales to higher number of networks
+                and enables dynamic handling of network attachments (without hotplugging vNICs).</para>
+    <section>
+      <title>Installation</title>
+      <para>No additional installation required, Please refer to the Tricircle
+                    installation guide to install Tricircle then configure Neutron server to
+                    enable trunk extension.</para>
+    </section>
+    <section>
+      <title>Configuration</title>
+      <itemizedlist>
+        <listitem>
+          <para>1 Configure central Neutron server</para>
+          <para>Edit neutron.conf, add the following configuration then restart central
+                            Neutron server</para>
+        </listitem>
+      </itemizedlist>
+      <informaltable>
+        <tgroup cols="3">
+          <colspec colname="c1" colwidth="33.3*"/>
+          <colspec colname="c2" colwidth="33.3*"/>
+          <colspec colname="c3" colwidth="33.3*"/>
+          <thead>
+            <row>
+              <entry>
+                <para>Option</para>
+              </entry>
+              <entry>
+                <para>Description</para>
+              </entry>
+              <entry>
+                <para>Example</para>
+              </entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>
+                <para>[DEFAULT] service_plugins</para>
+              </entry>
+              <entry>
+                <para>service plugin central Neutron server uses</para>
+              </entry>
+              <entry>
+                <para>tricircle.network.central_trunk_plugin. TricircleTrunkPlugin</para>
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+      <itemizedlist>
+        <listitem>
+          <para>2 Configure local Neutron server</para>
+          <para>Edit neutron.conf, add the following configuration then restart local
+                            Neutron server</para>
+        </listitem>
+      </itemizedlist>
+      <informaltable>
+        <tgroup cols="3">
+          <colspec colname="c1" colwidth="33.3*"/>
+          <colspec colname="c2" colwidth="33.3*"/>
+          <colspec colname="c3" colwidth="33.3*"/>
+          <thead>
+            <row>
+              <entry>
+                <para>Option</para>
+              </entry>
+              <entry>
+                <para>Description</para>
+              </entry>
+              <entry>
+                <para>Example</para>
+              </entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>
+                <para>[DEFAULT] service_plugins</para>
+              </entry>
+              <entry>
+                <para>service plugin central Neutron server uses</para>
+              </entry>
+              <entry>
+                <para>trunk</para>
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+    </section>
+    <section>
+      <title>How to play</title>
+      <itemizedlist>
+        <listitem>
+          <para>1 Create pods via Tricircle Admin API</para>
+        </listitem>
+        <listitem>
+          <para>2 Create necessary resources in central Neutron server</para>
+          <screen>neutron --os-region-name=CentralRegion net-create --provider:network_type vlan net1
+neutron --os-region-name=CentralRegion subnet-create net1 10.0.1.0/24
+neutron --os-region-name=CentralRegion port-create net1 --name p1
+neutron --os-region-name=CentralRegion net-create --provider:network_type vlan net2
+neutron --os-region-name=CentralRegion subnet-create net2 10.0.2.0/24
+neutron --os-region-name=CentralRegion port-create net2 --name p2</screen>
+          <para>Please note that network type must be vlan, the port p1, p2 and net2’s provider
+                            segmentation_id  will be used in later step to create trunk and boot vm.</para>
+        </listitem>
+        <listitem>
+          <para>3 Create trunk in central Neutron server</para>
+          <screen><?dbsuse-fo font-size="8pt"?>openstack --os-region-name=CentralRegion network trunk create trunk1 --parent-port p1 --subport port=p2,segmentation-type=vlan,segmentation-id=$net2_segment_id</screen>
+        </listitem>
+        <listitem>
+          <para>4 Get image ID and flavor ID which will be used in VM booting. In the following step,
+                            the trunk is to be used in the VM in RegionOne, you can replace RegionOne to other
+                            region’s name if you want to boot VLAN aware VM in other region.</para>
+          <screen>glance --os-region-name=RegionOne image-list
+nova --os-region-name=RegionOne flavor-list</screen>
+        </listitem>
+        <listitem>
+          <para>5 Boot virtual machines</para>
+          <screen><?dbsuse-fo font-size="8pt"?>nova --os-region-name=RegionOne boot --flavor 1 --image $image1_id --nic port-id=$p1_id vm1</screen>
+        </listitem>
+        <listitem>
+          <para>6 Show result on CentralRegion and RegionOne</para>
+          <screen>openstack --os-region-name=CentralRegion network trunk show trunk1
+openstack --os-region-name=RegionOne network trunk show trunk1</screen>
+          <para>The result will be the same, except for the trunk id.</para>
+        </listitem>
+      </itemizedlist>
+    </section>
+  </section>
+</section>

@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1" xml:id="ratelimit">
+  <title>Rate Limiting</title>
+  <para>Rate limiting in Swift is implemented as a pluggable middleware.  Rate
+            limiting is performed on requests that result in database writes to the
+            account and container sqlite dbs.  It uses memcached and is dependent on
+            the proxy servers having highly synchronized time.  The rate limits are
+            limited by the accuracy of the proxy server clocks.</para>
+  <section>
+    <title>Configuration</title>
+    <para>All configuration is optional.  If no account or container limits are provided
+                there will be no rate limiting.  Configuration available:</para>
+    <informaltable>
+      <tgroup cols="3">
+        <colspec colname="c1" colwidth="41.6*"/>
+        <colspec colname="c2" colwidth="9.1*"/>
+        <colspec colname="c3" colwidth="49.4*"/>
+        <tbody>
+          <row>
+            <entry>
+              <para>Option</para>
+            </entry>
+            <entry>
+              <para>Default</para>
+            </entry>
+            <entry>
+              <para>Description</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>clock_accuracy</para>
+            </entry>
+            <entry>
+              <para>1000</para>
+            </entry>
+            <entry>
+              <para>Represents how accurate the proxy
+                                    servers’ system clocks are with each
+                                    other. 1000 means that all the
+                                    proxies’ clock are accurate to each
+                                    other within 1 millisecond. No
+                                    ratelimit should be higher than the
+                                    clock accuracy.</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>max_sleep_time_seconds</para>
+            </entry>
+            <entry>
+              <para>60</para>
+            </entry>
+            <entry>
+              <para>App will immediately return a 498
+                                    response if the necessary sleep time
+                                    ever exceeds the given
+                                    max_sleep_time_seconds.</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>log_sleep_time_seconds</para>
+            </entry>
+            <entry>
+              <para>0</para>
+            </entry>
+            <entry>
+              <para>To allow visibility into rate limiting
+                                    set this value &gt; 0 and all sleeps
+                                    greater than the number will be
+                                    logged.</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>rate_buffer_seconds</para>
+            </entry>
+            <entry>
+              <para>5</para>
+            </entry>
+            <entry>
+              <para>Number of seconds the rate counter can
+                                    drop and be allowed to catch up (at a
+                                    faster than listed rate). A larger
+                                    number will result in larger spikes in
+                                    rate but better average accuracy.</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>account_ratelimit</para>
+            </entry>
+            <entry>
+              <para>0</para>
+            </entry>
+            <entry>
+              <para>If set, will limit PUT and DELETE
+                                    requests to
+                                    /account_name/container_name. Number
+                                    is in requests per second.</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>container_ratelimit_size</para>
+            </entry>
+            <entry>
+              <para>‘’</para>
+            </entry>
+            <entry>
+              <para>When set with container_ratelimit_x =
+                                    r: for containers of size x, limit
+                                    requests per second to r. Will limit
+                                    PUT, DELETE, and POST requests to
+                                    /a/c/o.</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>container_listing_ratelimit_size</para>
+            </entry>
+            <entry>
+              <para>‘’</para>
+            </entry>
+            <entry>
+              <para>When set with
+                                    container_listing_ratelimit_x = r: for
+                                    containers of size x, limit listing
+                                    requests per second to r. Will limit
+                                    GET requests to /a/c.</para>
+            </entry>
+          </row>
+        </tbody>
+      </tgroup>
+    </informaltable>
+    <para>The container rate limits are linearly interpolated from the values given.  A
+                sample container rate limiting could be:</para>
+    <para>container_ratelimit_100 = 100</para>
+    <para>container_ratelimit_200 = 50</para>
+    <para>container_ratelimit_500 = 20</para>
+    <para>This would result in</para>
+    <informaltable>
+      <tgroup cols="2">
+        <colspec colname="c1" colwidth="57.1*"/>
+        <colspec colname="c2" colwidth="42.9*"/>
+        <tbody>
+          <row>
+            <entry>
+              <para>Container Size</para>
+            </entry>
+            <entry>
+              <para>Rate Limit</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>0-99</para>
+            </entry>
+            <entry>
+              <para>No limiting</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>100</para>
+            </entry>
+            <entry>
+              <para>100</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>150</para>
+            </entry>
+            <entry>
+              <para>75</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>500</para>
+            </entry>
+            <entry>
+              <para>20</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>1000</para>
+            </entry>
+            <entry>
+              <para>20</para>
+            </entry>
+          </row>
+        </tbody>
+      </tgroup>
+    </informaltable>
+  </section>
+  <section>
+    <title>Account Specific Ratelimiting</title>
+    <para>The above ratelimiting is to prevent the “many writes to a single container”
+                bottleneck from causing a problem. There could also be a problem where a single
+                account is just using too much of the cluster’s resources.  In this case, the
+                container ratelimits may not help because the customer could be doing thousands
+                of reqs/sec to distributed containers each getting a small fraction of the
+                total so those limits would never trigger. If a system administrator notices
+                this, he/she can set the X-Account-Sysmeta-Global-Write-Ratelimit on an account
+                and that will limit the total number of write requests (PUT, POST, DELETE,
+                COPY) that account can do for the whole account. This limit will be in addition
+                to the applicable account/container limits from above. This header will be
+                hidden from the user, because of the gatekeeper middleware, and can only be set
+                using a direct client to the account nodes. It accepts a float value and will
+                only limit requests if the value is &gt; 0.</para>
+  </section>
+  <section>
+    <title>Black/White-listing</title>
+    <para>To blacklist or whitelist an account set:</para>
+    <para>X-Account-Sysmeta-Global-Write-Ratelimit: BLACKLIST</para>
+    <para>or</para>
+    <para>X-Account-Sysmeta-Global-Write-Ratelimit: WHITELIST</para>
+    <para>in the account headers.</para>
+  </section>
+</section>

@@ -1,0 +1,365 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+  <title>The Auth System</title>
+  <section>
+    <title>Overview</title>
+    <para>Swift supports a number of auth systems that share the following common
+                characteristics:</para>
+    <itemizedlist>
+      <listitem>
+        <para>The authentication/authorization part can be an external system or a
+                        subsystem run within Swift as WSGI middleware</para>
+      </listitem>
+      <listitem>
+        <para>The user of Swift passes in an auth token with each request</para>
+      </listitem>
+      <listitem>
+        <para>Swift validates each token with the external auth system or auth subsystem
+                        and caches the result</para>
+      </listitem>
+      <listitem>
+        <para>The token does not change from request to request, but does expire</para>
+      </listitem>
+    </itemizedlist>
+    <para>The token can be passed into Swift using the X-Auth-Token or the
+                X-Storage-Token header. Both have the same format: just a simple string
+                representing the token. Some auth systems use UUID tokens, some an MD5 hash of
+                something unique, some use “something else” but the salient point is that the
+                token is a string which can be sent as-is back to the auth system for
+                validation.</para>
+    <para>Swift will make calls to the auth system, giving the auth token to be
+                validated. For a valid token, the auth system responds with an overall
+                expiration time in seconds from now. To avoid the overhead in validating the same
+                token over and over again, Swift will cache the
+                token for a configurable time, but no longer than the expiration
+                time.</para>
+    <para>The Swift project includes two auth systems:</para>
+    <itemizedlist>
+      <listitem>
+        <para>
+          <xref linkend="temp-auth"/>
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          <xref linkend="keystone-auth"/>
+        </para>
+      </listitem>
+    </itemizedlist>
+    <para>It is also possible to write your own auth system as described in
+                <xref linkend="extending-auth"/>.</para>
+  </section>
+  <section xml:id="temp-auth">
+    <title>TempAuth</title>
+    <para>TempAuth is used primarily in Swift’s functional test environment and can be
+                used in other test environments (such as ). It is not
+                recommended to use TempAuth in a production system. However, TempAuth is fully
+                functional and can be used as a model to develop your own auth system.</para>
+    <para>TempAuth has the concept of admin and non-admin users
+                within an account.  Admin users can do anything within the account.
+                Non-admin users can only perform read operations. However, some
+                privileged metadata such as X-Container-Sync-Key is not accessible to
+                non-admin users.</para>
+    <para>Users with the special group <literal>.reseller_admin</literal> can operate on any account.
+                For an example usage please see <xref linkend="module-swift.common.middleware.tempauth"/>.
+                If a request is coming from a reseller the auth system sets the request environ
+                reseller_request to True. This can be used by other middlewares.</para>
+    <para>Other users may be granted the ability to perform operations on
+                an account or container via ACLs. TempAuth supports two types of ACL:</para>
+    <itemizedlist>
+      <listitem>
+        <para>Per container ACLs based on the
+                        container’s <literal>X-Container-Read</literal> and <literal>X-Container-Write</literal> metadata. See
+                        <xref linkend="container-acls"/> for more information.</para>
+      </listitem>
+      <listitem>
+        <para>Per account ACLs based on the account’s <literal>X-Account-Access-Control</literal>
+                        metadata. For more information see <xref linkend="account-acls"/>.</para>
+      </listitem>
+    </itemizedlist>
+    <para>TempAuth will now allow OPTIONS requests to go through without a token.</para>
+    <para>The TempAuth middleware is responsible for creating its own tokens. A user
+                makes a request containing their username and password and TempAuth
+                responds with a token. This token is then used to perform subsequent
+                requests on the user’s account, containers and objects.</para>
+  </section>
+  <section xml:id="keystone-auth">
+    <title>Keystone Auth</title>
+    <para>Swift is able to authenticate against OpenStack <link xlink:href="http://docs.openstack.org/developer/keystone/">Keystone</link>. In this
+                environment, Keystone is responsible for creating and validating
+                tokens. The <xref linkend="keystoneauth"/> middleware is responsible for
+                implementing the auth system within Swift as described here.</para>
+    <para>The <xref linkend="keystoneauth"/> middleware supports per container based ACLs on the
+                container’s <literal>X-Container-Read</literal> and <literal>X-Container-Write</literal> metadata.
+                For more information see <xref linkend="container-acls"/>.</para>
+    <para>The account-level ACL is not supported by Keystone auth.</para>
+    <para>In order to use the <literal>keystoneauth</literal> middleware the <literal>auth_token</literal>
+                middleware from <link xlink:href="http://docs.openstack.org/developer/keystonemiddleware/">KeystoneMiddleware</link> will need to be configured.</para>
+    <para>The <literal>authtoken</literal> middleware performs the authentication token
+                validation and retrieves actual user authentication information. It
+                can be found in the <link xlink:href="http://docs.openstack.org/developer/keystonemiddleware/">KeystoneMiddleware</link> distribution.</para>
+    <para>The <xref linkend="keystoneauth"/> middleware performs authorization and mapping the
+                Keystone roles to Swift’s ACLs.</para>
+    <section xml:id="configuring-keystone-auth">
+      <title>Configuring Swift to use Keystone</title>
+      <para>Configuring Swift to use <link xlink:href="http://docs.openstack.org/developer/keystone/">Keystone</link>
+                    is relatively straightforward.  The first
+                    step is to ensure that you have the <literal>auth_token</literal> middleware installed. It can
+                    either be dropped in your python path or installed via the <link xlink:href="http://docs.openstack.org/developer/keystonemiddleware/">KeystoneMiddleware</link>
+                    package.</para>
+      <para>You need at first make sure you have a service endpoint of type
+                    <literal>object-store</literal> in Keystone pointing to your Swift proxy. For example
+                    having this in your <literal>/etc/keystone/default_catalog.templates</literal></para>
+      <screen><?dbsuse-fo font-size="8pt"?>catalog.RegionOne.object_store.name = Swift Service
+catalog.RegionOne.object_store.publicURL = http://swiftproxy:8080/v1/AUTH_$(tenant_id)s
+catalog.RegionOne.object_store.adminURL = http://swiftproxy:8080/
+catalog.RegionOne.object_store.internalURL = http://swiftproxy:8080/v1/AUTH_$(tenant_id)s</screen>
+      <para>On your Swift proxy server you will want to adjust your main pipeline
+                    and add auth_token and keystoneauth in your
+                    <literal>/etc/swift/proxy-server.conf</literal> like this</para>
+      <screen>[pipeline:main]
+pipeline = [....] authtoken keystoneauth proxy-logging proxy-server</screen>
+      <para>add the configuration for the authtoken middleware:</para>
+      <screen>[filter:authtoken]
+paste.filter_factory = keystonemiddleware.auth_token:filter_factory
+auth_uri = http://keystonehost:5000/
+auth_url = http://keystonehost:35357/
+auth_plugin = password
+project_domain_id = default
+user_domain_id = default
+project_name = service
+username = swift
+password = password
+cache = swift.cache
+include_service_catalog = False
+delay_auth_decision = True</screen>
+      <para>The actual values for these variables will need to be set depending on
+                    your situation, but in short:</para>
+      <itemizedlist>
+        <listitem>
+          <para><literal>auth_uri</literal> should point to a Keystone service from which users may
+                            retrieve tokens. This value is used in the <literal>WWW-Authenticate</literal> header that
+                            auth_token sends with any denial response.</para>
+        </listitem>
+        <listitem>
+          <para><literal>auth_url</literal> points to the Keystone Admin service. This information is
+                            used by the middleware to actually query Keystone about the validity of the
+                            authentication tokens. It is not necessary to append any Keystone API version
+                            number to this URI.</para>
+        </listitem>
+        <listitem>
+          <para>The auth credentials (<literal>project_domain_id</literal>, <literal>user_domain_id</literal>,
+                            <literal>username</literal>, <literal>project_name</literal>, <literal>password</literal>) will be used to retrieve an
+                            admin token. That token will be used to authorize user tokens behind the
+                            scenes. These credentials must match the Keystone credentials for the Swift
+                            service. The example values shown here assume a user named ‘swift’ with admin
+                            role on a project named ‘service’, both being in the Keystone domain with id
+                            ‘default’. Refer to the <link xlink:href="http://docs.openstack.org/developer/keystonemiddleware/middlewarearchitecture.html#configuration">KeystoneMiddleware documentation</link>
+                            for other examples.</para>
+        </listitem>
+        <listitem>
+          <para><literal>cache</literal> is set to <literal>swift.cache</literal>. This means that the middleware
+                            will get the Swift memcache from the request environment.</para>
+        </listitem>
+        <listitem>
+          <para><literal>include_service_catalog</literal> defaults to <literal>True</literal> if not set. This means
+                            that when validating a token, the service catalog is retrieved
+                            and stored in the <literal>X-Service-Catalog</literal> header. Since Swift does not
+                            use the <literal>X-Service-Catalog</literal> header, there is no point in getting
+                            the service catalog. We recommend you set <literal>include_service_catalog</literal>
+                            to <literal>False</literal>.</para>
+        </listitem>
+      </itemizedlist>
+      <note>
+        <para>The authtoken config variable <literal>delay_auth_decision</literal> must be set to
+                        <literal>True</literal>. The default is <literal>False</literal>, but that breaks public access,
+                        <xref linkend="staticweb"/>, <xref linkend="formpost"/>, <xref linkend="tempurl"/>, and authenticated
+                        capabilities requests (using <xref linkend="discoverability"/>).</para>
+      </note>
+      <para>and you can finally add the keystoneauth configuration. Here is a simple
+                    configuration:</para>
+      <screen>[filter:keystoneauth]
+use = egg:swift#keystoneauth
+operator_roles = admin, swiftoperator</screen>
+      <para>Use an appropriate list of roles in operator_roles. For example, in
+                    some systems, the role <literal>_member_</literal> or <literal>Member</literal> is used to indicate
+                    that the user is allowed to operate on project resources.</para>
+      <section>
+        <title>OpenStack Service Using Composite Tokens</title>
+        <para>Some OpenStack services such as Cinder and Glance may use
+                        a “service account”. In this mode, you configure a separate account where
+                        the service stores project data that it manages. This account is not used
+                        directly by the end-user. Instead, all access is done through the service.</para>
+        <para>To access the “service” account, the service must present two tokens: one from
+                        the end-user and another from its own service user. Only when both tokens are
+                        present can the account be accessed. This section describes how to set the
+                        configuration options to correctly control access to both the “normal” and
+                        “service” accounts.</para>
+        <para>In this example, end users use the <literal>AUTH_</literal> prefix in account names,
+                        whereas services use the <literal>SERVICE_</literal> prefix:</para>
+        <screen>[filter:keystoneauth]
+use = egg:swift#keystoneauth
+reseller_prefix = AUTH, SERVICE
+operator_roles = admin, swiftoperator
+SERVICE_service_roles = service</screen>
+        <para>The actual values for these variable will need to be set depending on your
+                        situation as follows:</para>
+        <itemizedlist>
+          <listitem>
+            <para>The first item in the reseller_prefix list must match Keystone’s endpoint
+                                (see <literal>/etc/keystone/default_catalog.templates</literal> above). Normally
+                                this is <literal>AUTH</literal>.</para>
+          </listitem>
+          <listitem>
+            <para>The second item in the reseller_prefix list is the prefix used by the
+                                OpenStack services(s). You must configure this value (<literal>SERVICE</literal> in the
+                                example) with whatever the other OpenStack service(s) use.</para>
+          </listitem>
+          <listitem>
+            <para>Set the operator_roles option to contain a role or roles that end-user’s
+                                have on project’s they use.</para>
+          </listitem>
+          <listitem>
+            <para>Set the SERVICE_service_roles value to a role or roles that only the
+                                OpenStack service user has. Do not use a role that is assigned to
+                                “normal” end users. In this example, the role <literal>service</literal> is used.
+                                The service user is granted this role to a <emphasis>single</emphasis> project only. You do
+                                not need to make the service user a member of every project.</para>
+          </listitem>
+        </itemizedlist>
+        <para>This configuration works as follows:</para>
+        <itemizedlist>
+          <listitem>
+            <para>The end-user presents a user token to an OpenStack service. The service
+                                then makes a Swift request to the account with the <literal>SERVICE</literal> prefix.</para>
+          </listitem>
+          <listitem>
+            <para>The service forwards the original user token with the request. It also
+                                adds it’s own service token.</para>
+          </listitem>
+          <listitem>
+            <para>Swift validates both tokens. When validated, the user token gives the
+                                <literal>admin</literal> or <literal>swiftoperator</literal> role(s). When validated, the service token
+                                gives the <literal>service</literal> role.</para>
+          </listitem>
+          <listitem>
+            <para>Swift interprets the above configuration as follows:</para>
+            <itemizedlist>
+              <listitem>
+                <para>Did the user token provide one of the roles listed in operator_roles?</para>
+              </listitem>
+              <listitem>
+                <para>Did the service token have the <literal>service</literal> role as described by the
+                                        <literal>SERVICE_service_roles</literal> options.</para>
+              </listitem>
+            </itemizedlist>
+          </listitem>
+          <listitem>
+            <para>If both conditions are met, the request is granted. Otherwise, Swift
+                                rejects the request.</para>
+          </listitem>
+        </itemizedlist>
+        <para>In the above example, all services share the same account. You can separate
+                        each service into its own account. For example, the following provides a
+                        dedicated account for each of the Glance and Cinder services. In addition,
+                        you must assign the <literal>glance_service</literal> and <literal>cinder_service</literal> to the
+                        appropriate service users:</para>
+        <screen>[filter:keystoneauth]
+use = egg:swift#keystoneauth
+reseller_prefix = AUTH, IMAGE, VOLUME
+operator_roles = admin, swiftoperator
+IMAGE_service_roles = glance_service
+VOLUME_service_roles = cinder_service</screen>
+      </section>
+    </section>
+    <section>
+      <title>Access control using keystoneauth</title>
+      <para>By default the only users able to perform operations (e.g. create a container)
+                    on an account are those having a Keystone role for the corresponding Keystone
+                    project that matches one of the roles specified in the <literal>operator_roles</literal>
+                    option.</para>
+      <para>Users who have one of the <literal>operator_roles</literal> will be able to set container ACLs
+                    to grant other users permission to read and/or write objects in specific
+                    containers, using <literal>X-Container-Read</literal> and <literal>X-Container-Write</literal> headers
+                    respectively. In addition to the ACL formats described
+                    <xref linkend="module-swift.common.middleware.acl"/>, keystoneauth supports ACLs using the
+                    format:</para>
+      <screen>other_project_id:other_user_id.</screen>
+      <para>where <literal>other_project_id</literal> is the UUID of a Keystone project and
+                    <literal>other_user_id</literal> is the UUID of a Keystone user. This will allow the other
+                    user to access a container provided their token is scoped on the other
+                    project. Both <literal>other_project_id</literal> and <literal>other_user_id</literal> may be replaced with
+                    the wildcard character <literal>*</literal> which will match any project or user respectively.</para>
+      <para>Be sure to use Keystone UUIDs rather than names in container ACLs.</para>
+      <note>
+        <para>For backwards compatibility, keystoneauth will by default grant container
+                        ACLs expressed as <literal>other_project_name:other_user_name</literal> (i.e. using
+                        Keystone names rather than UUIDs) in the special case when both the other
+                        project and the other user are in Keystone’s default domain and the project
+                        being accessed is also in the default domain.</para>
+        <para>For further information see <xref linkend="keystoneauth"/></para>
+      </note>
+      <para>Users with the Keystone role defined in <literal>reseller_admin_role</literal>
+                    (<literal>ResellerAdmin</literal> by default) can operate on any account. The auth system
+                    sets the request environ reseller_request to True if a request is coming
+                    from a user with this role. This can be used by other middlewares.</para>
+    </section>
+    <section>
+      <title>Troubleshooting tips for keystoneauth deployment</title>
+      <para>Some common mistakes can result in API requests failing when first deploying
+                    keystone with Swift:</para>
+      <itemizedlist>
+        <listitem>
+          <para>Incorrect configuration of the Swift endpoint in the Keystone service.</para>
+          <para>By default, keystoneauth expects the account part of a URL to have the form
+                            <literal>AUTH_&lt;keystone_project_id&gt;</literal>. Sometimes the <literal>AUTH_</literal> prefix is missed when
+                            configuring Swift endpoints in Keystone, as described in the <link xlink:href="http://docs.openstack.org/">Install  Guide</link>. This is easily diagnosed by inspecting the
+                            proxy-server log file for a failed request URL and checking that the URL
+                            includes the <literal>AUTH_</literal> prefix (or whatever reseller prefix may have been
+                            configured for keystoneauth):</para>
+          <screen><?dbsuse-fo font-size="8pt"?>GOOD:
+proxy-server: 127.0.0.1 127.0.0.1 07/Sep/2016/16/06/58 HEAD /v1/AUTH_cfb8d9d45212408b90bc0776117aec9e HTTP/1.0 204 ...
+
+BAD:
+proxy-server: 127.0.0.1 127.0.0.1 07/Sep/2016/16/07/35 HEAD /v1/cfb8d9d45212408b90bc0776117aec9e HTTP/1.0 403 ...</screen>
+        </listitem>
+        <listitem>
+          <para>Incorrect configuration of the <literal>authtoken</literal> middleware options in the Swift
+                            proxy server.</para>
+          <para>The <literal>authtoken</literal> middleware communicates with the Keystone service to
+                            validate tokens that are presented with client requests. To do this
+                            <literal>authtoken</literal> must authenticate itself with Keystone using the credentials
+                            configured in the <literal>[filter:authtoken]</literal> section of
+                            <literal>/etc/swift/proxy-server.conf</literal>. Errors in these credentials can result in
+                            <literal>authtoken</literal> failing to validate tokens and may be revealed in the proxy
+                            server logs by a message such as:</para>
+          <screen>proxy-server: Identity server rejected authorization</screen>
+          <note>
+            <para>More detailed log messaging may be seen by setting the <literal>authtoken</literal>
+                                option <literal>log_level = debug</literal>.</para>
+          </note>
+          <para>The <literal>authtoken</literal> configuration options may be checked by attempting to use
+                            them to communicate directly with Keystone using an <literal>openstack</literal> command
+                            line. For example, given the <literal>authtoken</literal> configuration sample shown in
+                            <xref linkend="configuring-keystone-auth"/>, the following command should return a
+                            service catalog:</para>
+          <screen>openstack --os-identity-api-version=3 --os-auth-url=http://keystonehost:5000/ \
+    --os-username=swift --os-user-domain-id=default \
+    --os-project-name=service --os-project-domain-id=default \
+    --os-password=password catalog show object-store</screen>
+          <para>If this <literal>openstack</literal> command fails then it is likely that there is a problem
+                            with the <literal>authtoken</literal> configuration.</para>
+        </listitem>
+      </itemizedlist>
+    </section>
+  </section>
+  <section xml:id="extending-auth">
+    <title>Extending Auth</title>
+    <para>TempAuth is written as wsgi middleware, so implementing your own auth is as
+                easy as writing new wsgi middleware, and plugging it in to the proxy server.
+                The <link xlink:href="https://github.com/openstack/swauth">Swauth</link> project is an example of
+                an additional auth service.</para>
+    <para>See  for detailed information on extending the
+                auth system.</para>
+  </section>
+</section>

@@ -1,0 +1,264 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+  <title>Middleware and Metadata</title>
+  <section>
+    <title>Using Middleware</title>
+    <para><link xlink:href="http://www.python.org/dev/peps/pep-0333/#middleware-components-that-play-both-sides">Python WSGI Middleware</link> (or just “middleware”) can be used to “wrap”
+                the request and response of a Python WSGI application (i.e. a webapp,
+                or REST/HTTP API), like Swift’s WSGI servers (proxy-server,
+                account-server, container-server, object-server).  Swift uses middleware
+                to add (sometimes optional) behaviors to the Swift WSGI servers.</para>
+    <para>Middleware can be added to the Swift WSGI servers by modifying their
+                <link xlink:href="http://pythonpaste.org/">paste</link> configuration file.  The majority of Swift middleware is applied
+                to the <xref linkend="proxy-server"/>.</para>
+    <para>Given the following basic configuration:</para>
+    <screen>[DEFAULT]
+log_level = DEBUG
+user = &lt;your-user-name&gt;
+
+[pipeline:main]
+pipeline = proxy-server
+
+[app:proxy-server]
+use = egg:swift#proxy</screen>
+    <para>You could add the <xref linkend="healthcheck"/> middleware by adding a section for
+                that filter and adding it to the pipeline:</para>
+    <screen>[DEFAULT]
+log_level = DEBUG
+user = &lt;your-user-name&gt;
+
+[pipeline:main]
+pipeline = healthcheck proxy-server
+
+[filter:healthcheck]
+use = egg:swift#healthcheck
+
+[app:proxy-server]
+use = egg:swift#proxy</screen>
+    <para>Some middleware is required and will be inserted into your pipeline
+                automatically by core swift code (e.g. the proxy-server will insert
+                <xref linkend="catch-errors"/> and <xref linkend="gatekeeper"/> at the start of the pipeline if they
+                are not already present).  You can see which features are available on a given
+                Swift endpoint (including middleware) using the <xref linkend="discoverability"/>
+                interface.</para>
+  </section>
+  <section>
+    <title>Creating Your Own Middleware</title>
+    <para>The best way to see how to write middleware is to look at examples.</para>
+    <para>Many optional features in Swift are implemented as
+                <xref linkend="common-middleware"/> and provided in <literal>swift.common.middleware</literal>, but
+                Swift middleware may be packaged and distributed as a separate project.
+                Some examples are listed on the <xref linkend="associated-projects"/> page.</para>
+    <para>A contrived middleware example that modifies request behavior by
+                inspecting custom HTTP headers (e.g. X-Webhook) and uses <xref linkend="sysmeta"/>
+                to persist data to backend storage as well as common patterns like a
+                <xref linkend="swift.proxy.controllers.base.get_container_info"/> cache/query and <xref linkend="swift.common.swob.wsgify"/> decorator is
+                presented below:</para>
+    <screen>from swift.common.http import is_success
+from swift.common.swob import wsgify
+from swift.common.utils import split_path, get_logger
+from swift.common.request_helper import get_sys_meta_prefix
+from swift.proxy.controllers.base import get_container_info
+
+from eventlet import Timeout
+import six
+if six.PY3:
+    from eventlet.green.urllib import request as urllib2
+else:
+    from eventlet.green import urllib2
+
+# x-container-sysmeta-webhook
+SYSMETA_WEBHOOK = get_sys_meta_prefix('container') + 'webhook'
+
+
+class WebhookMiddleware(object):
+
+    def __init__(self, app, conf):
+        self.app = app
+        self.logger = get_logger(conf, log_route='webhook')
+
+    @wsgify
+    def __call__(self, req):
+        obj = None
+        try:
+            (version, account, container, obj) = \
+                split_path(req.path_info, 4, 4, True)
+        except ValueError:
+            # not an object request
+            pass
+        if 'x-webhook' in req.headers:
+            # translate user's request header to sysmeta
+            req.headers[SYSMETA_WEBHOOK] = \
+                req.headers['x-webhook']
+        if 'x-remove-webhook' in req.headers:
+            # empty value will tombstone sysmeta
+            req.headers[SYSMETA_WEBHOOK] = ''
+        # account and object storage will ignore x-container-sysmeta-*
+        resp = req.get_response(self.app)
+        if obj and is_success(resp.status_int) and req.method == 'PUT':
+            container_info = get_container_info(req.environ, self.app)
+            # container_info may have our new sysmeta key
+            webhook = container_info['sysmeta'].get('webhook')
+            if webhook:
+                # create a POST request with obj name as body
+                webhook_req = urllib2.Request(webhook, data=obj)
+                with Timeout(20):
+                    try:
+                        urllib2.urlopen(webhook_req).read()
+                    except (Exception, Timeout):
+                        self.logger.exception(
+                            'failed POST to webhook %s' % webhook)
+                    else:
+                        self.logger.info(
+                            'successfully called webhook %s' % webhook)
+        if 'x-container-sysmeta-webhook' in resp.headers:
+            # translate sysmeta from the backend resp to
+            # user-visible client resp header
+            resp.headers['x-webhook'] = resp.headers[SYSMETA_WEBHOOK]
+        return resp
+
+
+def webhook_factory(global_conf, **local_conf):
+    conf = global_conf.copy()
+    conf.update(local_conf)
+    def webhook_filter(app, conf):
+        return WebhookMiddleware(app)
+    return webhook_filter</screen>
+    <para>In practice this middleware will call the URL stored on the container as
+                X-Webhook on all successful object uploads.</para>
+    <para>If this example was at <literal>&lt;swift-repo&gt;/swift/common/middleware/webhook.py</literal> -
+                you could add it to your proxy by creating a new filter section and
+                adding it to the pipeline:</para>
+    <screen>[DEFAULT]
+log_level = DEBUG
+user = &lt;your-user-name&gt;
+
+[pipeline:main]
+pipeline = healthcheck webhook proxy-server
+
+[filter:webhook]
+paste.filter_factory = swift.common.middleware.webhook:webhook_factory
+
+[filter:healthcheck]
+use = egg:swift#healthcheck
+
+[app:proxy-server]
+use = egg:swift#proxy</screen>
+    <para>Most python packages expose middleware as entrypoints.  See <link xlink:href="http://pythonpaste.org/deploy/#egg-uris">PasteDeploy</link>
+                documentation for more information about the syntax of the <literal>use</literal> option.
+                All middleware included with Swift is installed to support the <literal>egg:swift</literal>
+                syntax.</para>
+    <para>Middleware may advertize its availability and capabilities via Swift’s
+                <xref linkend="discoverability"/> support by using
+                <xref linkend="swift.common.utils.register_swift_info"/>:</para>
+    <screen>from swift.common.utils import register_swift_info
+def webhook_factory(global_conf, **local_conf):
+    register_swift_info('webhook')
+    def webhook_filter(app):
+        return WebhookMiddleware(app)
+    return webhook_filter</screen>
+  </section>
+  <section>
+    <title>Swift Metadata</title>
+    <para>Generally speaking metadata is information about a resource that is
+                associated with the resource but is not the data contained in the
+                resource itself - which is set and retrieved via HTTP headers. (e.g. the
+                “Content-Type” of a Swift object that is returned in HTTP response
+                headers)</para>
+    <para>All user resources in Swift (i.e. account, container, objects) can have
+                user metadata associated with them.  Middleware may also persist custom
+                metadata to accounts and containers safely using System Metadata.  Some
+                core Swift features which predate sysmeta have added exceptions for
+                custom non-user metadata headers (e.g.  <xref linkend="acls"/>,
+                <xref linkend="large-objects"/>)</para>
+    <section xml:id="usermeta">
+      <title>User Metadata</title>
+      <para>User metadata takes the form of <literal>X-&lt;type&gt;-Meta-&lt;key&gt;: &lt;value&gt;</literal>, where
+                    <literal>&lt;type&gt;</literal> depends on the resources type (i.e. Account, Container, Object)
+                    and <literal>&lt;key&gt;</literal> and <literal>&lt;value&gt;</literal> are set by the client.</para>
+      <para>User metadata should generally be reserved for use by the client or
+                    client applications.  A perfect example use-case for user metadata is
+                    <link xlink:href="https://github.com/openstack/python-swiftclient">python-swiftclient</link>’s <literal>X-Object-Meta-Mtime</literal> which it stores on
+                    object it uploads to implement its <literal>--changed</literal> option which will only
+                    upload files that have changed since the last upload.</para>
+      <para>New middleware should avoid storing metadata within the User Metadata
+                    namespace to avoid potential conflict with existing user metadata when
+                    introducing new metadata keys.  An example of legacy middleware that
+                    borrows the user metadata namespace is <xref linkend="tempurl"/>.  An example of
+                    middleware which uses custom non-user metadata to avoid the user
+                    metadata namespace is <xref linkend="slo-doc"/>.</para>
+      <para>User metadata that is stored by a PUT or POST request to a container or account
+                    resource persists until it is explicitly removed by a subsequent PUT or POST
+                    request that includes a header <literal>X-&lt;type&gt;-Meta-&lt;key&gt;</literal> with no value or a
+                    header <literal>X-Remove-&lt;type&gt;-Meta-&lt;key&gt;: &lt;ignored-value&gt;</literal>. In the latter case the
+                    <literal>&lt;ignored-value&gt;</literal> is not stored. All user metadata stored with an account or
+                    container resource is deleted when the account or container is deleted.</para>
+      <para>User metadata that is stored with an object resource has a different semantic;
+                    object user metadata persists until any subsequent PUT or POST request is made
+                    to the same object, at which point all user metadata stored with that object is
+                    deleted en-masse and replaced with any user metadata included with the PUT or
+                    POST request. As a result, it is not possible to update a subset of the user
+                    metadata items stored with an object while leaving some items unchanged.</para>
+    </section>
+    <section xml:id="sysmeta">
+      <title>System Metadata</title>
+      <para>System metadata takes the form of <literal>X-&lt;type&gt;-Sysmeta-&lt;key&gt;: &lt;value&gt;</literal>,
+                    where <literal>&lt;type&gt;</literal> depends on the resources type (i.e. Account, Container,
+                    Object) and <literal>&lt;key&gt;</literal> and <literal>&lt;value&gt;</literal> are set by trusted code running in a
+                    Swift WSGI Server.</para>
+      <para>All headers on client requests in the form of <literal>X-&lt;type&gt;-Sysmeta-&lt;key&gt;</literal>
+                    will be dropped from the request before being processed by any
+                    middleware.  All headers on responses from back-end systems in the form
+                    of <literal>X-&lt;type&gt;-Sysmeta-&lt;key&gt;</literal> will be removed after all middlewares have
+                    processed the response but before the response is sent to the client.
+                    See <xref linkend="gatekeeper"/> middleware for more information.</para>
+      <para>System metadata provides a means to store potentially private custom
+                    metadata with associated Swift resources in a safe and secure fashion
+                    without actually having to plumb custom metadata through the core swift
+                    servers.  The incoming filtering ensures that the namespace can not be
+                    modified directly by client requests, and the outgoing filter ensures
+                    that removing middleware that uses a specific system metadata key
+                    renders it benign.  New middleware should take advantage of system
+                    metadata.</para>
+      <para>System metadata may be set on accounts and containers by including headers with
+                    a PUT or POST request. Where a header name matches the name of an existing item
+                    of system metadata, the value of the existing item will be updated. Otherwise
+                    existing items are preserved. A system metadata header with an empty value will
+                    cause any existing item with the same name to be deleted.</para>
+      <para>System metadata may be set on objects using only PUT requests. All items of
+                    existing system metadata will be deleted and replaced en-masse by any system
+                    metadata headers included with the PUT request. System metadata is neither
+                    updated nor deleted by a POST request: updating individual items of system
+                    metadata with a POST request is not yet supported in the same way that updating
+                    individual items of user metadata is not supported. In cases where middleware
+                    needs to store its own metadata with a POST request, it may use Object Transient
+                    Sysmeta.</para>
+    </section>
+    <section xml:id="transient-sysmeta">
+      <title>Object Transient-Sysmeta</title>
+      <para>If middleware needs to store object metadata with a POST request it may do so
+                    using headers of the form <literal>X-Object-Transient-Sysmeta-&lt;key&gt;: &lt;value&gt;</literal>.</para>
+      <para>All headers on client requests in the form of
+                    <literal>X-Object-Transient-Sysmeta-&lt;key&gt;</literal> will be dropped from the request before
+                    being processed by any middleware.  All headers on responses from back-end
+                    systems in the form of <literal>X-Object-Transient-Sysmeta-&lt;key&gt;</literal> will be removed
+                    after all middlewares have processed the response but before the response is
+                    sent to the client. See <xref linkend="gatekeeper"/> middleware for more information.</para>
+      <para>Transient-sysmeta updates on an object have the same semantic as user
+                    metadata updates on an object (see <xref linkend="usermeta"/>) i.e. whenever any PUT or
+                    POST request is made to an object, all existing items of transient-sysmeta are
+                    deleted en-masse and replaced with any transient-sysmeta included with the PUT
+                    or POST request. Transient-sysmeta set by a middleware is therefore prone to
+                    deletion by a subsequent client-generated POST request unless the middleware is
+                    careful to include its transient-sysmeta with every POST. Likewise, user
+                    metadata set by a client is prone to deletion by a subsequent
+                    middleware-generated POST request, and for that reason middleware should avoid
+                    generating POST requests that are independent of any client request.</para>
+      <para>Transient-sysmeta deliberately uses a different header prefix to user metadata
+                    so that middlewares can avoid potential conflict with user metadata keys.</para>
+      <para>Transient-sysmeta deliberately uses a different header prefix to system
+                    metadata to emphasize the fact that the data is only persisted until a
+                    subsequent POST.</para>
+    </section>
+  </section>
+</section>

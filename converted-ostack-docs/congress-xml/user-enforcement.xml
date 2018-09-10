@@ -1,0 +1,419 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1" xml:id="enforcement">
+  <title>Monitoring and Enforcement</title>
+  <para>Congress is given two inputs: the other cloud
+            services in the datacenter and a policy describing the desired state of those
+            services.  Congress does two things with those inputs: monitoring and
+            enforcement.  <emphasis>Monitoring</emphasis> means passively comparing the actual state of the
+            other cloud services and the desired state (i.e. policy) and flagging
+            mismatches. <emphasis>Enforcement</emphasis> means actively working
+            to ensure that the actual state of the other cloud services is also a desired
+            state (i.e. that the other services obey policy).</para>
+  <section>
+    <title>1. Monitoring</title>
+    <para>Recall from <xref linkend="policy"/> that policy violations are represented with the
+                table <emphasis>error</emphasis>.  To ask Congress for a list of all policy violations, we
+                simply ask it for the contents of the <emphasis>error</emphasis> table.</para>
+    <para>For example, recall our policy from <xref linkend="policy"/>: each Neutron port has at
+                most one IP address.  For that policy, the <emphasis>error</emphasis> table is has 1 row for
+                each Neutron port that has more than 1 IP address.  Each of those rows
+                specify the UUID for the port, and two different IP addresses.  So if we
+                had the following mapping of Neutron ports to IP addresses:</para>
+    <informaltable>
+      <tgroup cols="2">
+        <colspec colname="c1" colwidth="79.2*"/>
+        <colspec colname="c2" colwidth="20.8*"/>
+        <thead>
+          <row>
+            <entry>
+              <para>ID</para>
+            </entry>
+            <entry>
+              <para>IP</para>
+            </entry>
+          </row>
+        </thead>
+        <tbody>
+          <row>
+            <entry>
+              <para>“66dafde0-a49c-11e3-be40-425861b86ab6”</para>
+            </entry>
+            <entry>
+              <para>“10.0.0.1”</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>“66dafde0-a49c-11e3-be40-425861b86ab6”</para>
+            </entry>
+            <entry>
+              <para>“10.0.0.2”</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>“73e31d4c-e89b-12d3-a456-426655440000”</para>
+            </entry>
+            <entry>
+              <para>“10.0.0.3”</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>“73e31d4c-e89b-12d3-a456-426655440000”</para>
+            </entry>
+            <entry>
+              <para>“10.0.0.4”</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>“8caead95-67d5-4f45-b01b-4082cddce425”</para>
+            </entry>
+            <entry>
+              <para>“10.0.0.5”</para>
+            </entry>
+          </row>
+        </tbody>
+      </tgroup>
+    </informaltable>
+    <para>the <emphasis>error</emphasis> table would be something like the one shown below.</para>
+    <informaltable>
+      <tgroup cols="3">
+        <colspec colname="c1" colwidth="65.5*"/>
+        <colspec colname="c2" colwidth="17.2*"/>
+        <colspec colname="c3" colwidth="17.2*"/>
+        <thead>
+          <row>
+            <entry>
+              <para>ID</para>
+            </entry>
+            <entry>
+              <para>IP 1</para>
+            </entry>
+            <entry>
+              <para>IP 2</para>
+            </entry>
+          </row>
+        </thead>
+        <tbody>
+          <row>
+            <entry>
+              <para>“66dafde0-a49c-11e3-be40-425861b86ab6”</para>
+            </entry>
+            <entry>
+              <para>“10.0.0.1”</para>
+            </entry>
+            <entry>
+              <para>“10.0.0.2”</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>“73e31d4c-e89b-12d3-a456-426655440000”</para>
+            </entry>
+            <entry>
+              <para>“10.0.0.3”</para>
+            </entry>
+            <entry>
+              <para>“10.0.0.4”</para>
+            </entry>
+          </row>
+        </tbody>
+      </tgroup>
+    </informaltable>
+    <para>The API would return this table as the following collection of Datalog facts
+                (encoded as a string):</para>
+    <screen>error("66dafde0-a49c-11e3-be40-425861b86ab6", "10.0.0.1", "10.0.0.2")
+error("73e31d4c-e89b-12d3-a456-426655440000", "10.0.0.3", "10.0.0.4")</screen>
+    <para>It is the responsibility of the client to periodically ask the server for the
+                contents of the error table.</para>
+  </section>
+  <section>
+    <title>2. Proactive Enforcement</title>
+    <para>Often we want policy to be enforced, not just monitored.  <emphasis>Proactive
+                    enforcement</emphasis> is the term we use to mean preventing policy violations before
+                they occur.  Proactive enforcement requires having enforcement points in the
+                cloud that stop changes before they happen.  Cloud services like Nova,
+                Neutron, and Cinder are good examples of enforcement points.  For example,
+                Nova could refuse to provision a VM that would cause a policy violation,
+                thereby proactively enforcing policy.</para>
+    <para>To enable other cloud services like Nova to check if a proposed change in the
+                cloud state would violate policy, the cloud service can consult Congress
+                using its <literal>simulate()</literal> functionality. The idea for <literal>simulate()</literal> is
+                that we ask Congress to answer a query after having
+                temporarily made some changes to data and policies.  Simulation allows us to
+                explore the effects of proposed changes.  Typically simulation is used to ask:
+                if I made these changes, would there be any new policy violations?
+                For example, provisioning a new VM might add rows to several of Nova’s tables.
+                After receiving an API call that requests a new VM be provisioned, Nova could
+                ask Congress if adding those rows would create any new policy violations.
+                If new violations arise, Nova could refuse to provision the VM, thereby
+                proactively enforcing the policy.</para>
+    <para>In this writeup we assume you are using the python-client.</para>
+    <para>Suppose you want to know the policy violations after making the following
+                changes.</para>
+    <procedure>
+      <step>
+        <para>insert a row into the <emphasis>nova:servers</emphasis> table with ID uuid1, 2TB of disk,
+                        and 10GB of memory</para>
+      </step>
+      <step>
+        <para>delete the row from <emphasis>neutron:security_groups</emphasis> with the ID “uuid2” and name
+                        “alice_default_group”</para>
+      </step>
+    </procedure>
+    <para>(Here we assume the nova:servers table has columns ID, disk-size, and memory
+                and that neutron:security groups has columns ID, and name.)</para>
+    <para>To do a simulation from the command line, you use the following command:</para>
+    <screen><?dbsuse-fo font-size="8pt"?>$ openstack congress policy simulate &lt;policy-name&gt; &lt;query&gt; &lt;change-sequence&gt; &lt;action-policy-name&gt;</screen>
+    <itemizedlist>
+      <listitem>
+        <para>&lt;policy-name&gt;: the name of the policy in which to run the query</para>
+      </listitem>
+      <listitem>
+        <para>&lt;query&gt;: a string representing the query you would like to run after
+                        applying the change sequence</para>
+      </listitem>
+      <listitem>
+        <para>&lt;change-sequence&gt;: a string codifying a sequence of insertions and deletions
+                        of data and rules.  Insertions are denoted by ‘+’ and deletions by ‘-‘</para>
+      </listitem>
+      <listitem>
+        <para>&lt;action-policy-name&gt;: the name of another policy of type ‘action’ describing
+                        the effects of any actions occurring in &lt;change-sequence&gt;.  Actions are not
+                        necessary and are explained later.  Without actions, this argument can be
+                        anything (and will in the future be optional).</para>
+      </listitem>
+    </itemizedlist>
+    <para>For our nova:servers and neutron:security_groups example, we would run the
+                following command to find all of the policy violations after inserting a row
+                into nova:servers and then deleting a row out of neutron:security_groups:</para>
+    <screen>$ openstack congress policy simulate classification
+    'error(x)’
+    'nova:servers+(“uuid1”, “2TB”, “10 GB”)
+     neutron:security_groups-(“uuid2”, “alice_default_group”)'
+    action</screen>
+    <para>
+      <emphasis role="bold">More examples</emphasis>
+    </para>
+    <para>Suppose the table ‘p’ is a collection of key-value pairs:  p(key, value).
+                Let’s begin by creating a policy and adding some key/value pairs for ‘p’:</para>
+    <screen>$ openstack congress policy create alice
+$ openstack congress policy rule create alice 'p(101, 0)'
+$ openstack congress policy rule create alice 'p(202, "abc")'
+$ openstack congress policy rule create alice 'p(302, 9)'</screen>
+    <para>Let’s also add a statement that says there’s an error if a single key has
+                multiple values or if any value is assigned 9:</para>
+    <screen>$ openstack congress policy rule create alice
+    'error(x) :- p(x, val1), p(x, val2), not equal(val1, val2)'
+$ openstack congress policy rule create alice 'error(x) :- p(x, 9)'</screen>
+    <para>Each of the following is an example of a simulation query you might want to run.</para>
+    <procedure>
+      <step>
+        <para><emphasis role="bold">Basic usage</emphasis>. Simulate adding the value 5 to key 101 and ask for the contents of p:</para>
+        <screen>$ openstack congress policy simulate alice 'p(x,y)' 'p+(101, 5)' action
+p(101, 0)
+p(101, 5)
+p(202, "abc")
+p(302, 9)</screen>
+      </step>
+      <step>
+        <para><emphasis role="bold">Error table</emphasis>. Simulate adding the value 5 to key 101 and ask for the contents of error:</para>
+        <screen>$ openstack congress policy simulate alice 'error(x)' 'p+(101, 5)' action
+error(101)
+error(302)</screen>
+      </step>
+      <step>
+        <para><emphasis role="bold">Inserts and Deletes</emphasis>. Simulate adding the value 5 to key 101 and deleting 0 and ask for the contents of error:</para>
+        <screen>$ openstack congress policy simulate alice 'error(x)'
+    'p+(101, 5) p-(101, 0)' action
+error(302)</screen>
+      </step>
+      <step>
+        <para><emphasis role="bold">Error changes</emphasis>. Simulate changing the value of key 101 to 9 and query the <emphasis role="bold">change</emphasis> in the error table:</para>
+        <screen>$ openstack congress policy simulate alice 'error(x)'
+    'p+(101, 9) p-(101, 0)' action --delta
+error+(101)</screen>
+      </step>
+    </procedure>
+    <procedure>
+      <step>
+        <para><emphasis role="bold">Multiple error changes</emphasis>. Simulate changing 101:9, 202:9, 302:1 and query the <emphasis>change</emphasis> in the error table:</para>
+        <screen>$ openstack congress policy simulate alice 'error(x)'
+    'p+(101, 9) p-(101, 0) p+(202, 9) p-(202, "abc") p+(302, 1) p-(302, 9)'
+    action --delta
+error+(202)
+error+(101)
+error-(302)</screen>
+      </step>
+      <step>
+        <para><emphasis role="bold">Order matters</emphasis>. Simulate changing 101:9, 202:9, 302:1, and finally 101:15 (in that order).  Then query the <emphasis>change</emphasis> in the error table:</para>
+        <screen>$ openstack congress policy simulate alice 'error(x)'
+    'p+(101, 9) p-(101, 0) p+(202, 9) p-(202, "abc") p+(302, 1) p-(302, 9)
+     p+(101, 15) p-(101, 9)' action --delta
+error+(202)
+error-(302)</screen>
+      </step>
+      <step>
+        <para><emphasis role="bold">Tracing</emphasis>. Simulate changing 101:9 and query the <emphasis>change</emphasis> in the error table, while asking for a debug trace of the computation:</para>
+        <screen>$ openstack congress policy simulate alice 'error(x)'
+    'p+(101, 9) p-(101, 0)' action --delta --trace
+error+(101)
+RT    : ** Simulate: Querying error(x)
+Clas  : Call: error(x)
+Clas  : | Call: p(x, 9)
+Clas  : | Exit: p(302, 9)
+Clas  : Exit: error(302)
+Clas  : Redo: error(302)
+Clas  : | Redo: p(302, 9)
+Clas  : | Fail: p(x, 9)
+Clas  : Fail: error(x)
+Clas  : Found answer [error(302)]
+RT    : Original result of error(x) is [error(302)]
+RT    : ** Simulate: Applying sequence [set(101, 9)]
+Action: Call: action(x)
+...</screen>
+      </step>
+      <step>
+        <para><emphasis role="bold">Changing rules</emphasis>.  Simulate adding 101: 5 (which results in 101 having 2 values) and deleting the rule that says each key must have at most 1 value. Then query the error table:</para>
+        <screen>$ openstack congress policy simulate alice 'error(x)'
+    'p+(101, 5)   error-(x) :- p(x, val1), p(x, val2), not equal(val1, val2)'
+    action
+error(302)</screen>
+      </step>
+    </procedure>
+    <para>The syntax for inserting/deleting rules is a bit awkward since we just afix
+                a + or - to the head of the rule.  Ideally we would afix the +/- to the rule
+                as a whole.  This syntactic sugar will be added in a future release.</para>
+    <para>There is also currently the limitation that you can only insert/delete rules
+                from the policy you are querying.  And you cannot insert/delete action
+                description rules.</para>
+    <section>
+      <title>2.1 Simulation with Actions</title>
+      <para>The downside to the simulation functionality just described is that the
+                    cloud service wanting to prevent policy violations would need to compute the
+                    proposed changes in terms of the <emphasis>tables</emphasis> that Congress uses to represent its
+                    internal state.  Ideally a cloud service would have no idea which tables
+                    Congress uses to represent its internals.  But even if each cloud service
+                    knew which tables Congress was using, it would still need convert each API
+                    call into a collection of changes on its internal tables.</para>
+      <para>For example, an API call for Nova to provision a new VM might change several
+                    tables.  An API call to Heat to provision a new app might change tables in
+                    several different cloud services.  Translating each API call exposed by a
+                    cloud service into the collection of Congress table changes is sometimes
+                    impractical.</para>
+      <para>In the key/value examples above, the caller needed to know the current
+                    state of the key/value store in order to accurately describe the changes
+                    she wanted to make.  Setting the key 101 to value 9 meant knowing that its
+                    current value was 0 so that during the simulation we could say to delete the
+                    assignment of 101 to 0 and add the assignment of 101 to 9.</para>
+      <para>It would be preferable if an external cloud service could simply ask Congress
+                    if the API call it is about to execute is permitted by the policy.
+                    To do that, we must tell Congress what each of those actions do in terms of
+                    the cloud-service tables.  Each of these <emphasis>action descriptions</emphasis> describe which
+                    rows are inserted/deleted from which tables if the action were to be executed
+                    in the current state of the cloud.  Those action descriptions are written in
+                    Datalog and are stored in a policy of type ‘action’.</para>
+      <para>Action description policy statements are regular Datalog rules with one main
+                    exception: they use + and - to adorn the table in the head of a rule to indicate
+                    whether they are describing how to <emphasis>insert</emphasis> table rows or to <emphasis>delete</emphasis> table rows,
+                    respectively.</para>
+      <para>For example in the key-value store, we can define an action ‘set(key, value)’
+                    that deletes the current value assigned to ‘key’ and adds ‘value’ in its place.
+                    To describe this action, we write two things: a declaration to Congress that
+                    <emphasis>set</emphasis> is indeed an action using the reserved table name <emphasis>action</emphasis> and
+                    rules that describe which table rows <emphasis>set</emphasis> inserts and which rows it deletes:</para>
+      <screen>action("set")
+p+(x,y) :- set(x,y)
+p-(x,oldy) :- set(x,y), p(x,oldy)</screen>
+      <para>Note: Insertion takes precedence over deletion, which means that if a row is
+                    both inserted and deleted by an action, the row will be inserted.</para>
+      <para>To insert these rows, we create a policy of type ‘action’ and then insert
+                    these rules into that policy:</para>
+      <screen><?dbsuse-fo font-size="8pt"?>$ openstack congress policy create aliceactions --kind 'action'
+$ openstack congress policy rule create aliceactions 'action("set")'
+$ openstack congress policy rule create aliceactions 'p+(x,y) :- set(x,y)'
+$ openstack congress policy rule create aliceactions 'p-(x,oldy) :- set(x,y), p(x,oldy)'</screen>
+      <para>Below we illustrate how to use <emphasis>set</emphasis> to simplify the simulation queries
+                    shown previously.</para>
+      <procedure>
+        <step>
+          <para><emphasis role="bold">Inserts and Deletes</emphasis>. Set key 101 to value 5 and ask for the contents of error:</para>
+          <screen>$ openstack congress policy simulate alice 'error(x)' 'set(101, 5)' aliceactions
+error(302)</screen>
+        </step>
+        <step>
+          <para><emphasis role="bold">Multiple error changes</emphasis>. Simulate changing 101:9, 202:9, 302:1 and query the <emphasis>change</emphasis> in the error table:</para>
+          <screen>$ openstack congress policy simulate alice 'error(x)'
+    'set(101, 9) set(202, 9) set(302, 1)' aliceactions --delta
+error+(202)
+error+(101)
+error-(302)</screen>
+        </step>
+        <step>
+          <para><emphasis role="bold">Order matters</emphasis>. Simulate changing 101:9, 202:9, 302:1, and finally 101:15 (in that order).  Then query the <emphasis>change</emphasis> in the error table:</para>
+          <screen>$ openstack congress policy simulate alice 'error(x)'
+    'set(101, 9) set(202, 9) set(302, 1) set(101, 15)' aliceactions --delta
+error+(202)
+error-(302)</screen>
+        </step>
+        <step>
+          <para><emphasis role="bold">Mixing actions and state-changes</emphasis>.  Simulate changing 101:9 and adding value 7 for key 202.  Then query the <emphasis>change</emphasis> in the error table:</para>
+          <screen>$ openstack congress policy simulate alice 'error(x)'
+    'set(101, 9) p+(202, 7)' aliceactions --delta
+error+(202)
+error+(101)</screen>
+        </step>
+      </procedure>
+    </section>
+  </section>
+  <section>
+    <title>3. Manual Reactive Enforcement</title>
+    <para>Not all policies can be enforced proactively on all clouds, which means that sometimes
+                the cloud will violate policy.  Once policy violations happen, Congress can take action
+                to transition the cloud back into one of the states permitted by policy.  We call this
+                <emphasis>reactive enforcement</emphasis>.  Currently, to reactively enforce policy,
+                Congress relies on people to tell it which actions to execute and when to execute them,
+                hence we call it <emphasis>manual</emphasis> reactive enforcement.</para>
+    <para>Of course, Congress tries to make it easy for people to tell it how to react to policy
+                violations.  People write policy statements
+                that look almost the same as standard Datalog rules, except the rules use the modal <emphasis>execute</emphasis> in
+                the head.  For more information about the Datalog language and how to write these rules,
+                see <xref linkend="policy"/>.</para>
+    <para>Take a simple example that is easy and relatively safe to try out.  The policy we want is
+                that no server should have an ACTIVE status.  The policy we write tells Congress
+                how to react when this policy is violated: it says to ask Nova to execute <literal>pause()</literal>
+                every time it sees a server with ACTIVE status:</para>
+    <screen>$ openstack congress policy create reactive
+$ openstack congress policy rule create reactive
+    'execute[nova:servers.pause(x)] :- nova:servers(id=x, status="ACTIVE")'</screen>
+    <para>The way this works is that everytime Congress gets new data about the state of the cloud,
+                it figures out whether that new data causes any new rows to be added to the
+                <literal>nova:servers.pause(x)</literal> table.  (While policy writers know that nova:servers.pause isn’t a table
+                in the usual sense, the Datalog implementation treats it like a normal table and computes
+                all the rows that belong to it in the usual way.)  If there are new rows added to the
+                <literal>nova:servers.pause(x)</literal> table, Congress asks Nova to execute <literal>servers.pause</literal> for every row
+                that was newly created.  The arguments passed to <literal>servers.pause</literal> are the columns in each row.</para>
+    <para>For example, if two servers have their status set to ACTIVE, Congress receives the following
+                data (in actuality the data comes in with all the columns set, but here we use column references
+                for the sake of pedagogy):</para>
+    <screen>nova:servers(id="66dafde0-a49c-11e3-be40-425861b86ab6", status="ACTIVE")
+nova:servers(id="73e31d4c-a49c-11e3-be40-425861b86ab6", status="ACTIVE")</screen>
+    <para>Congress will then ask Nova to execute the following commands:</para>
+    <screen>nova:servers.pause("66dafde0-a49c-11e3-be40-425861b86ab6")
+nova:servers.pause("73e31d4c-a49c-11e3-be40-425861b86ab6")</screen>
+    <para>Congress will not wait for a response from Nova.  Nor will it change the status of the two servers that it
+                asked Nova to pause in its <literal>nova:servers</literal> table.  Congress will simply execute the pause() actions and
+                wait for new data to arrive, just like always.
+                Eventually Nova executes the pause() requests, the status of
+                those servers change, and Congress receives another data update:</para>
+    <screen>nova:servers(id="66dafde0-a49c-11e3-be40-425861b86ab6", status="PAUSED")
+nova:servers(id="73e31d4c-a49c-11e3-be40-425861b86ab6", status="PAUSED")</screen>
+    <para>At this point, Congress updates the status of those servers in its <literal>nova:servers</literal> table to PAUSED.
+                But this time, Congress will find that no new rows were <emphasis role="bold">added</emphasis> to the <literal>nova:servers.pause(x)</literal>
+                table and so will execute no actions.  (Two rows were deleted, but Congress ignores deletions.)</para>
+    <para>In short, Congress executes actions exactly when new rows are inserted into a table augmented
+                with the <emphasis>execute</emphasis> modal.</para>
+  </section>
+</section>

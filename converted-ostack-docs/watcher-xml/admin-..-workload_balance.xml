@@ -1,0 +1,293 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+  <title>Workload Balance Migration Strategy</title>
+  <section>
+    <title>Synopsis</title>
+    <para><emphasis role="bold">display name</emphasis>: <literal>workload_balance</literal></para>
+    <para><emphasis role="bold">goal</emphasis>: <literal>workload_balancing</literal></para>
+    <para>
+      <emphasis>[PoC]Workload balance using live migration</emphasis>
+    </para>
+    <para>
+      <emphasis>Description</emphasis>
+    </para>
+    <para>This strategy migrates a VM based on the VM workload of the hosts.
+                It makes decision to migrate a workload whenever a host’s CPU or RAM
+                utilization % is higher than the specified threshold. The VM to
+                be moved should make the host close to average workload of all
+                hosts nodes.</para>
+    <para>
+      <emphasis>Requirements</emphasis>
+    </para>
+    <itemizedlist>
+      <listitem>
+        <para>Hardware: compute node should use the same physical CPUs</para>
+      </listitem>
+      <listitem>
+        <para>Software: Ceilometer component ceilometer-agent-compute
+                        running in each compute node, and Ceilometer API can
+                        report such telemetry “cpu_util” and “memory.resident” successfully.</para>
+      </listitem>
+      <listitem>
+        <para>You must have at least 2 physical compute nodes to run
+                        this strategy.</para>
+      </listitem>
+    </itemizedlist>
+    <para>
+      <emphasis>Limitations</emphasis>
+    </para>
+    <itemizedlist>
+      <listitem>
+        <para>This is a proof of concept that is not meant to be used in
+                        production.</para>
+      </listitem>
+      <listitem>
+        <para>We cannot forecast how many servers should be migrated.
+                        This is the reason why we only plan a single virtual
+                        machine migration at a time. So it’s better to use this
+                        algorithm with <literal>CONTINUOUS</literal> audits.</para>
+      </listitem>
+    </itemizedlist>
+  </section>
+  <section>
+    <title>Requirements</title>
+    <para>None.</para>
+    <section>
+      <title>Metrics</title>
+      <para>The <emphasis>workload_balance</emphasis> strategy requires the following metrics:</para>
+      <informaltable>
+        <tgroup cols="4">
+          <colspec colname="c1" colwidth="46.9*"/>
+          <colspec colname="c2" colwidth="24.5*"/>
+          <colspec colname="c3" colwidth="14.3*"/>
+          <colspec colname="c4" colwidth="14.3*"/>
+          <thead>
+            <row>
+              <entry>
+                <para>metric</para>
+              </entry>
+              <entry>
+                <para>service name</para>
+              </entry>
+              <entry>
+                <para>plugins</para>
+              </entry>
+              <entry>
+                <para>comment</para>
+              </entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>
+                <para>
+                  <literal>cpu_util</literal>
+                </para>
+              </entry>
+              <entry>
+                <para>
+                  <link xlink:href="http://docs.openstack.org/admin-guide/telemetry-measurements.html#openstack-compute">ceilometer</link>
+                </para>
+              </entry>
+              <entry>
+                <para>none</para>
+              </entry>
+              <entry/>
+            </row>
+            <row>
+              <entry>
+                <para>
+                  <literal>memory.resident</literal>
+                </para>
+              </entry>
+              <entry>
+                <para>
+                  <link xlink:href="http://docs.openstack.org/admin-guide/telemetry-measurements.html#openstack-compute">ceilometer</link>
+                </para>
+              </entry>
+              <entry>
+                <para>none</para>
+              </entry>
+              <entry/>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+    </section>
+    <section>
+      <title>Cluster data model</title>
+      <para>Default Watcher’s Compute cluster data model:</para>
+      <para>Nova cluster data model collector</para>
+      <para>The Nova cluster data model collector creates an in-memory
+                        representation of the resources exposed by the compute service.</para>
+    </section>
+    <section>
+      <title>Actions</title>
+      <para>Default Watcher’s actions:</para>
+      <informaltable>
+        <tgroup cols="2">
+          <colspec colname="c1" colwidth="50.0*"/>
+          <colspec colname="c2" colwidth="50.0*"/>
+          <thead>
+            <row>
+              <entry>
+                <para>action</para>
+              </entry>
+              <entry>
+                <para>description</para>
+              </entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>
+                <para>
+                  <literal>migration</literal>
+                </para>
+              </entry>
+              <entry>
+                <para>Migrates a server to a destination nova-compute host</para>
+                <para>This action will allow you to migrate a server to another compute
+                                            destination host.
+                                            Migration type ‘live’ can only be used for migrating active VMs.
+                                            Migration type ‘cold’ can be used for migrating non-active VMs
+                                            as well active VMs, which will be shut down while migrating.</para>
+                <para>The action schema is:</para>
+                <screen>schema = Schema({
+ 'resource_id': str,  # should be a UUID
+ 'migration_type': str,  # choices -&gt; "live", "cold"
+ 'destination_node': str,
+ 'source_node': str,
+})</screen>
+                <para>The <literal>resource_id</literal> is the UUID of the server to migrate.
+                                            The <literal>source_node</literal> and <literal>destination_node</literal> parameters are respectively the
+                                            source and the destination compute hostname (list of available compute
+                                            hosts is returned by this command: <literal>nova service-list --binary
+nova-compute</literal>).</para>
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+    </section>
+    <section>
+      <title>Planner</title>
+      <para>Default Watcher’s planner:</para>
+      <para>Weight planner implementation</para>
+      <para>This implementation builds actions with parents in accordance with weights.
+                        Set of actions having a higher weight will be scheduled before
+                        the other ones. There are two config options to configure:
+                        action_weights and parallelization.</para>
+      <para>
+        <emphasis>Limitations</emphasis>
+      </para>
+      <itemizedlist>
+        <listitem>
+          <para>This planner requires to have action_weights and parallelization configs
+                                tuned well.</para>
+        </listitem>
+      </itemizedlist>
+    </section>
+  </section>
+  <section>
+    <title>Configuration</title>
+    <para>Strategy parameters are:</para>
+    <informaltable>
+      <tgroup cols="4">
+        <colspec colname="c1" colwidth="20.3*"/>
+        <colspec colname="c2" colwidth="8.7*"/>
+        <colspec colname="c3" colwidth="18.8*"/>
+        <colspec colname="c4" colwidth="52.2*"/>
+        <thead>
+          <row>
+            <entry>
+              <para>parameter</para>
+            </entry>
+            <entry>
+              <para>type</para>
+            </entry>
+            <entry>
+              <para>default Value</para>
+            </entry>
+            <entry>
+              <para>description</para>
+            </entry>
+          </row>
+        </thead>
+        <tbody>
+          <row>
+            <entry>
+              <para>
+                <literal>metrics</literal>
+              </para>
+            </entry>
+            <entry>
+              <para>String</para>
+            </entry>
+            <entry>
+              <para>‘cpu_util’</para>
+            </entry>
+            <entry>
+              <para>Workload balance base on cpu or ram
+                                    utilization. choice: [‘cpu_util’,
+                                    ‘memory.resident’]</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>
+                <literal>threshold</literal>
+              </para>
+            </entry>
+            <entry>
+              <para>Number</para>
+            </entry>
+            <entry>
+              <para>25.0</para>
+            </entry>
+            <entry>
+              <para>Workload threshold for migration</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>
+                <literal>period</literal>
+              </para>
+            </entry>
+            <entry>
+              <para>Number</para>
+            </entry>
+            <entry>
+              <para>300</para>
+            </entry>
+            <entry>
+              <para>Aggregate time period of ceilometer</para>
+            </entry>
+          </row>
+        </tbody>
+      </tgroup>
+    </informaltable>
+  </section>
+  <section>
+    <title>Efficacy Indicator</title>
+    <para>None</para>
+  </section>
+  <section>
+    <title>Algorithm</title>
+    <para>For more information on the Workload Balance Migration Strategy please refer
+                to: <link xlink:href="https://specs.openstack.org/openstack/watcher-specs/specs/mitaka/implemented/workload-balance-migration-strategy.html"/></para>
+  </section>
+  <section>
+    <title>How to use it ?</title>
+    <screen language="shell">$ openstack optimize audittemplate create \
+  at1 workload_balancing --strategy workload_balance
+
+$ openstack optimize audit create -a at1 -p threshold=26.0 \
+        -p period=310 -p metrics=cpu_util</screen>
+  </section>
+  <section>
+    <title>External Links</title>
+    <para>None.</para>
+  </section>
+</section>

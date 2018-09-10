@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1" xml:id="ha-deployment">
+  <title>HA Deployment</title>
+  <section>
+    <title>Overview</title>
+    <para>This section shows how to deploy Congress with High Availability (HA). For an
+                architectural overview, please see the <xref linkend="ha-overview"/>.</para>
+    <para>An HA deployment of Congress involves five main steps.</para>
+    <procedure>
+      <step>
+        <para>Deploy messaging and database infrastructure to be shared by all the
+                        Congress nodes.</para>
+      </step>
+      <step>
+        <para>Prepare the hosts to run Congress nodes.</para>
+      </step>
+      <step>
+        <para>Deploy N (at least 2) policy-engine nodes.</para>
+      </step>
+      <step>
+        <para>Deploy one datasource-drivers node.</para>
+      </step>
+      <step>
+        <para>Deploy a load-balancer to load-balance between the N policy-engine nodes.</para>
+      </step>
+    </procedure>
+    <para>The following sections describe each step in more detail.</para>
+  </section>
+  <section>
+    <title>Shared Services</title>
+    <para>All the Congress nodes share a database backend. To setup a database backend
+                for Congress, please follow the database portion of
+                <link xlink:href="https://docs.openstack.org/congress/latest/README.html?highlight=readme#separate-install">separate install instructions</link>.</para>
+    <para>Various solutions exist to avoid creating a single point of failure with the
+                database backend.</para>
+    <para>Note: If a replicated database solution is used, it must support table
+                locking. Galera, for example, would not work. This limitation is expected to
+                be removed in the Ocata release.</para>
+    <para>A shared messaging service is also required. Refer to <link xlink:href="http://docs.openstack.org/ha-guide/shared-messaging.html">Shared Messaging</link> for
+                instructions for installing and configuring RabbitMQ.</para>
+  </section>
+  <section>
+    <title>Hosts Preparation</title>
+    <para>Congress should be installed on each host expected to run a Congress node.
+                Please follow the directions in <link xlink:href="https://docs.openstack.org/congress/latest/README.html?highlight=readme#separate-install">separate install instructions</link> to install
+                Congress on each host, skipping the local database portion.</para>
+    <para>In the configuration file, a <literal>transport_url</literal> should be specified to use the
+                RabbitMQ messaging service configured in step 1.</para>
+    <para>For example:</para>
+    <screen language="text"><?dbsuse-fo font-size="8pt"?>[DEFAULT]
+transport_url = rabbit://&lt;rabbit-userid&gt;:&lt;rabbit-password&gt;@&lt;rabbit-host-address&gt;:5672</screen>
+    <para>In addition, the <literal>replicated_policy_engine</literal> option should be set to <literal>True</literal>.</para>
+    <screen language="text">[DEFAULT]
+replicated_policy_engine = True</screen>
+    <para>All hosts should be configured with a database connection that points to the
+                shared database deployed in step 1, not the local address shown in
+                <link xlink:href="https://docs.openstack.org/congress/latest/README.html?highlight=readme#separate-install">separate install instructions</link>.</para>
+    <para>For example:</para>
+    <screen language="text"><?dbsuse-fo font-size="8pt"?>[database]
+connection = mysql+pymysql://root:&lt;database-password&gt;@&lt;shared-database-ip-address&gt;/congress?charset=utf8</screen>
+  </section>
+  <section xml:id="datasource-drivers-node">
+    <title>Datasource Drivers Node</title>
+    <para>In this step, we deploy a single datasource-drivers node in warm-standby style.</para>
+    <para>The datasource-drivers node can be started directly with the following command:</para>
+    <screen language="console">$ python /usr/local/bin/congress-server --datasources --node-id=&lt;unique_node_id&gt;</screen>
+    <para>A unique node-id (distinct from all the policy-engine nodes) must be specified.</para>
+    <para>For warm-standby deployment, an external manager is used to launch and manage
+                the datasource-drivers node. In this document, we sketch how to deploy the
+                datasource-drivers node with <link xlink:href="http://clusterlabs.org/">Pacemaker</link> .</para>
+    <para>See the <link xlink:href="http://docs.openstack.org/ha-guide/index.html">OpenStack High Availability Guide</link> for general usage of Pacemaker
+                and how to deploy Pacemaker cluster stack. The guide also has some HA
+                configuration guidance for other OpenStack projects.</para>
+    <section>
+      <title>Prepare OCF resource agent</title>
+      <para>You need a custom Resource Agent (RA) for DataSoure Node HA. The custom RA is
+                    located in Congress repository, <literal>/path/to/congress/script/ocf/congress-datasource</literal>.
+                    Install the RA with following steps.</para>
+      <screen language="sh">$ cd /usr/lib/ocf/resource.d
+$ mkdir openstack
+$ cd openstack
+$ cp /path/to/congress/script/ocf/congress-datasource ./congress-datasource
+$ chmod a+rx congress-datasource</screen>
+    </section>
+    <section>
+      <title>Configuring the Resource Agent</title>
+      <para>You can now add the Pacemaker configuration for Congress DataSource Node resource.
+                    Connect to the Pacemaker cluster with the <emphasis>crm configure</emphasis> command and add the
+                    following cluster resources. After adding the resource make sure <emphasis>commit</emphasis>
+                    the change.</para>
+      <screen language="sh">primitive ds-node ocf:openstack:congress-datasource \
+   params config="/etc/congress/congress.conf" \
+   node_id="datasource-node" \
+   op monitor interval="30s" timeout="30s"</screen>
+      <para>Make sure that all nodes in the cluster have same config file with same name and
+                    path since DataSource Node resource, <literal>ds-node</literal>, uses config file defined at
+                    <emphasis>config</emphasis> parameter to launch the resource.</para>
+      <para>The RA has following configurable parameters.</para>
+      <itemizedlist>
+        <listitem>
+          <para>config: a path of Congress’s config file</para>
+        </listitem>
+        <listitem>
+          <para>node_id(Option): a node id of the datasource node. Default is “datasource-node”.</para>
+        </listitem>
+        <listitem>
+          <para>binary(Option): a path of Congress binary Default is “/usr/local/bin/congress-server”.</para>
+        </listitem>
+        <listitem>
+          <para>additional_parameters(Option): additional parameters of congress-server</para>
+        </listitem>
+      </itemizedlist>
+    </section>
+  </section>
+  <section>
+    <title>Policy Engine Nodes</title>
+    <para>In this step, we deploy N (at least 2) policy-engine nodes, each with an
+                associated API server. This step should be done only after the
+                <xref linkend="datasource-drivers-node"/> is deployed. Each node can be started as follows:</para>
+    <screen language="console"><?dbsuse-fo font-size="8pt"?>$ python /usr/local/bin/congress-server --api --policy-engine --node-id=&lt;unique_node_id&gt;</screen>
+    <para>Each node must have a unique node-id specified as a commandline option.</para>
+    <para>For high availability, each node is usually deployed on a different host. If
+                multiple nodes are to be deployed on the same host, each node must have a
+                different port specified using the <literal>bind_port</literal> configuration option in the
+                congress configuration file.</para>
+  </section>
+  <section>
+    <title>Load-balancer</title>
+    <para>A load-balancer should be used to distribute incoming API requests to the N
+                policy-engine (and API service) nodes deployed in step 3.
+                It is recommended that a sticky configuration be used to avoid exposing a user
+                to out-of-sync artifacts when the user hits different policy-engine nodes.</para>
+    <para><link xlink:href="http://www.haproxy.org/">HAProxy</link> is a popular load-balancer for this
+                purpose. The HAProxy section of the <link xlink:href="http://docs.openstack.org/ha-guide/index.html">OpenStack High Availability Guide</link>
+                has instructions for deploying HAProxy for high availability.</para>
+  </section>
+</section>

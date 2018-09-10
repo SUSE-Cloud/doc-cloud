@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+  <title>Autoscaling with Heat</title>
+  <section>
+    <title>Goal</title>
+    <para>There are Senlin resource types in Heat which make deployment of a full-featured
+                auto-scaling solution easily attainable. This document is to provide a tutorial for
+                users who want to use heat to create a senlin cluster.</para>
+    <para>It is often requried by real deployment practices to make the cluster load-balanced
+                and auto-scaled. We also want the scaling action triggered based on business data
+                instead of infrastructure metrics. When existing cluster is not enough to afford the
+                throughput/workload, the cluster will be scaled-out; when low throughput or workload,
+                the cluster will be scaled-in.</para>
+    <para>Moreover, custom is easy to do when auto-scaling. Receivers can be created to
+                generate webhooks from scale_out and scale_in actions. Moreover, placement_zone.yaml
+                and placement_region.yaml can be attached to cluster and guide which zone/region to
+                place new nodes when scale_out; deletion_policy can be attached to the cluster and
+                guide the choice of candidates to delete when scale_in.</para>
+  </section>
+  <section>
+    <title>Sample template</title>
+    <para>There have a sample template in heat-template project under directory of senlin
+                for creation of Senlin elastic load-balanced cluster by Heat. Here we choose some
+                important parts of the sample to explain one by one.</para>
+    <para>The resource below defines a security_group for connection to created load-balanced
+                cluster:</para>
+    <screen language="yaml">security_group:
+  type: OS::Neutron::SecurityGroup
+  properties:
+    rules:
+      - protocol: icmp
+      - protocol: tcp
+        port_range_min: 22
+        port_range_max: 22
+      - protocol: tcp
+        port_range_min: 80
+        port_range_max: 80</screen>
+    <para>The resource below defines the profile used to create the targeted cluster:</para>
+    <screen language="yaml">profile:
+  type: OS::Senlin::Profile
+  properties:
+    type: os.nova.server-1.0
+    properties:
+      flavor: {get_param: flavor}
+      image: {get_param: image}
+      key_name: {get_param: key_name}
+      networks:
+        - network: {get_param: network}
+      security_groups:
+        - {get_resource: security_group}</screen>
+    <para>The resource below defines to create a Senlin cluster with two nodes at least:</para>
+    <screen language="yaml">cluster:
+  type: OS::Senlin::Cluster
+  properties:
+    desired_capacity: 2
+    min_size: 2
+    profile: {get_resource: profile}</screen>
+    <para>The two resources below define scale_in_policy and scale_out_policy attached to
+                the created cluster. Where, the property of event is used to define the objective
+                action the policy works. When type of the property of adjustment is set as
+                CHANGE_IN_CAPACITY, the cluster will increase the number of nodes when scale_out or
+                decrease the number of nodes when scale_in:</para>
+    <screen language="yaml">scale_in_policy:
+  type: OS::Senlin::Policy
+  properties:
+    type: senlin.policy.scaling-1.0
+    bindings:
+      - cluster: {get_resource: cluster}
+    properties:
+      event: CLUSTER_SCALE_IN
+      adjustment:
+        type: CHANGE_IN_CAPACITY
+        number: 1
+
+scale_out_policy:
+  type: OS::Senlin::Policy
+  properties:
+    type: senlin.policy.scaling-1.0
+    bindings:
+      - cluster: {get_resource: cluster}
+    properties:
+      event: CLUSTER_SCALE_OUT
+      adjustment:
+        type: CHANGE_IN_CAPACITY
+        number: 1</screen>
+    <para>The resource below defines a lb_policy to be attached to the target cluster. Once
+                the policy is attached to the cluster, Senlin will automatically create loadbalancer,
+                pool, and health_monitor by invoking neutron LBaas V2 APIs for load-balancing purpose:</para>
+    <screen language="yaml">lb_policy:
+  type: OS::Senlin::Policy
+  properties:
+    type: senlin.policy.loadbalance-1.0
+    bindings:
+      - cluster: {get_resource: cluster}
+    properties:
+      pool:
+        protocol: HTTP
+        protocol_port: 80
+        subnet: {get_param: pool_subnet}
+        lb_method: ROUND_ROBIN
+      vip:
+        subnet: {get_param: vip_subnet}
+        protocol: HTTP
+        protocol_port: 80
+      health_monitor:
+        type: HTTP
+        delay: 10
+        timeout: 5
+        max_retries: 4</screen>
+    <para>The two resources below define the receivers to be triggered when a certain alarm or
+                event occurs:</para>
+    <screen language="yaml">receiver_scale_out:
+  type: OS::Senlin::Receiver
+  properties:
+    cluster: {get_resource: cluster}
+    action: CLUSTER_SCALE_OUT
+    type: webhook
+
+receiver_scale_in:
+  type: OS::Senlin::Receiver
+  properties:
+    cluster: {get_resource: cluster}
+    action: CLUSTER_SCALE_IN
+    type: webhook</screen>
+    <para>The resource below define the policy for selecting candidate nodes for deletion when
+                the cluster is to be shrank:</para>
+    <screen language="yaml">deletion_policy:
+  type: OS::Senlin::Policy
+  properties:
+    type: senlin.policy.deletion-1.0
+    bindings:
+      - cluster: {get_resource: cluster}
+    properties:
+      criteria: YOUNGEST_FIRST
+      destroy_after_deletion: True
+      grace_period: 20
+      reduce_desired_capacity: False</screen>
+    <para>The two resources below define the alarms to trigger the above two receivers respectively.
+                We use the average rate of incoming bytes at LoadBalancer as the metrics to trigger the
+                scaling operations:</para>
+    <screen language="yaml">scale_in_alarm:
+  type: OS::Ceilometer::Alarm
+  properties:
+    description: trigger when bandwidth overflow
+    meter_name: network.services.lb.incoming.bytes.rate
+    statistic: avg
+    period: 180
+    evaluation_periods: 1
+    threshold: 12000
+    repeat_actions: True
+    alarm_actions:
+      - {get_attr: [receiver_scale_in, channel, alarm_url]}
+    comparison_operator: le
+    query:
+      metadata.user_metadata.cluster_id: {get_resource: cluster}
+
+scale_out_alarm:
+  type: OS::Ceilometer::Alarm
+  properties:
+    description: trigger when bandwidth insufficient
+    meter_name: network.services.lb.incoming.bytes.rate
+    statistic: avg
+    period: 60
+    evaluation_periods: 1
+    threshold: 28000
+    repeat_actions: True
+    alarm_actions:
+      - {get_attr: [receiver_scale_out, channel, alarm_url]}
+    comparison_operator: ge
+    query:
+      metadata.user_metadata.cluster_id: {get_resource: cluster}</screen>
+  </section>
+  <section>
+    <title>Deployment Steps</title>
+    <para>Before the deployment, please ensure that neutron LBaas v2 and
+                ceilometer/Aodh has been installed and configured in your environment.</para>
+    <para>Step one is to generate key-pair using the followed command:</para>
+    <screen language="console">$ openstack keypair create heat_key</screen>
+    <para>Step two is to create a heat template as by downloading the template file
+                from <link xlink:href="https://git.openstack.org/cgit/openstack/senlin/tree/doc/source/scenarios/scenarios/ex_lbas.yaml">heat template</link>.</para>
+    <para>Step three is to create a heat stack using the followed command:</para>
+    <screen language="console">$ openstack stack create test -t ./ex_aslb.yaml --parameter "key_name=heat_key"</screen>
+    <para>The steps and samples introduced in this tutorial can also work
+                well together with composition of ceilometer, Aodh, and Gnocchi
+                without any change.</para>
+  </section>
+</section>

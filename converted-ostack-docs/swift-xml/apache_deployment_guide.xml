@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+  <title>Apache Deployment Guide</title>
+  <section>
+    <title>Web Front End Considerations</title>
+    <para>Swift can be configured to work both using an integral web front-end
+                and using a full-fledged Web Server such as the Apache2 (HTTPD) web server.
+                The integral web front-end is a wsgi mini “Web Server” which opens
+                up its own socket and serves http requests directly.
+                The incoming requests accepted by the integral web front-end are then forwarded
+                to a wsgi application (the core swift) for further handling, possibly
+                via wsgi middleware sub-components.</para>
+    <para>client&lt;—-&gt;’integral web front-end’&lt;—-&gt;middleware&lt;—-&gt;’core swift’</para>
+    <para>To gain full advantage of Apache2, Swift can alternatively be
+                configured to work as a request processor of the Apache2 server.
+                This alternative deployment scenario uses mod_wsgi of Apache2
+                to forward requests to the swift wsgi application and middleware.</para>
+    <para>client&lt;—-&gt;’Apache2 with mod_wsgi’&lt;—–&gt;middleware&lt;—-&gt;’core swift’</para>
+    <para>The integral web front-end offers simplicity and requires
+                minimal configuration. It is also the web front-end most commonly used
+                with Swift.
+                Additionally, the integral web front-end includes support for
+                receiving chunked transfer encoding from a client,
+                presently not supported by Apache2 in the operation mode described here.</para>
+    <para>The use of Apache2 offers new ways to extend Swift and integrate it with
+                existing authentication, administration and control systems.
+                A single Apache2 server can serve as the web front end of any number of swift
+                servers residing on a swift node.
+                For example when a storage node offers account, container and object services,
+                a single Apache2 server can serve as the web front end of all three services.</para>
+    <para>The apache variant described here was tested as part of an IBM research work.
+                It was found that following tuning, the Apache2 offer generally equivalent
+                performance to that offered by the integral web front-end.
+                Alternative to Apache2, other web servers may be used, but were never tested.</para>
+  </section>
+  <section>
+    <title>Apache2 Setup</title>
+    <para>Both Apache2 and mod-wsgi needs to be installed on the system.
+                Ubuntu comes with Apache2 installed. Install mod-wsgi using:</para>
+    <screen>sudo apt-get install libapache2-mod-wsgi</screen>
+    <para>First, change the User and Group IDs of Apache2 to be those used by Swift.
+                For example in /etc/apache2/envvars use:</para>
+    <screen>export APACHE_RUN_USER=swift
+export APACHE_RUN_GROUP=swift</screen>
+    <para>Create a directory for the Apache2 wsgi files:</para>
+    <screen>sudo mkdir /var/www/swift</screen>
+    <para>Create a file for each service under /var/www/swift.</para>
+    <para>For a proxy service create /var/www/swift/proxy-server.wsgi:</para>
+    <screen>from swift.common.wsgi import init_request_processor
+application, conf, logger, log_name = \
+    init_request_processor('/etc/swift/proxy-server.conf','proxy-server')</screen>
+    <para>For an account service create /var/www/swift/account-server.wsgi:</para>
+    <screen>from swift.common.wsgi import init_request_processor
+application, conf, logger, log_name = \
+    init_request_processor('/etc/swift/account-server.conf',
+                           'account-server')</screen>
+    <para>For an container service create /var/www/swift/container-server.wsgi:</para>
+    <screen>from swift.common.wsgi import init_request_processor
+application, conf, logger, log_name = \
+    init_request_processor('/etc/swift/container-server.conf',
+                          'container-server')</screen>
+    <para>For an object service create /var/www/swift/object-server.wsgi:</para>
+    <screen>from swift.common.wsgi import init_request_processor
+application, conf, logger, log_name = \
+    init_request_processor('/etc/swift/object-server.conf',
+                           'object-server')</screen>
+    <para>Create a /etc/apache2/conf.d/swift_wsgi.conf configuration file that will
+                define a port and Virtual Host per each local service.
+                For example an Apache2 serving as a web front end of a proxy service:</para>
+    <screen>#Proxy
+NameVirtualHost *:8080
+Listen 8080
+&lt;VirtualHost *:8080&gt;
+    ServerName proxy-server
+    LimitRequestBody 5368709122
+    WSGIDaemonProcess proxy-server processes=5 threads=1
+    WSGIProcessGroup proxy-server
+    WSGIScriptAlias / /var/www/swift/proxy-server.wsgi
+    LimitRequestFields 200
+    ErrorLog /var/log/apache2/proxy-server
+    LogLevel debug
+    CustomLog /var/log/apache2/proxy.log combined
+&lt;/VirtualHost&gt;</screen>
+    <para>Notice that when using Apache the limit on the maximal object size should
+                be imposed by Apache using the LimitRequestBody rather by the swift proxy.
+                Note also that the LimitRequestBody should indicate the same value
+                as indicated by max_file_size located in both
+                /etc/swift/swift.conf and in /etc/swift/test.conf.
+                The Swift default value for max_file_size (when not present) is 5368709122.
+                For example an Apache2 serving as a web front end of a storage node:</para>
+    <screen>#Object Service
+NameVirtualHost *:6200
+Listen 6200
+&lt;VirtualHost *:6200&gt;
+    ServerName object-server
+    WSGIDaemonProcess object-server processes=5 threads=1
+    WSGIProcessGroup object-server
+    WSGIScriptAlias / /var/www/swift/object-server.wsgi
+    LimitRequestFields 200
+    ErrorLog /var/log/apache2/object-server
+    LogLevel debug
+    CustomLog /var/log/apache2/access.log combined
+&lt;/VirtualHost&gt;
+
+#Container Service
+NameVirtualHost *:6201
+Listen 6201
+&lt;VirtualHost *:6201&gt;
+    ServerName container-server
+    WSGIDaemonProcess container-server processes=5 threads=1
+    WSGIProcessGroup container-server
+    WSGIScriptAlias / /var/www/swift/container-server.wsgi
+    LimitRequestFields 200
+    ErrorLog /var/log/apache2/container-server
+    LogLevel debug
+    CustomLog /var/log/apache2/access.log combined
+&lt;/VirtualHost&gt;
+
+#Account Service
+NameVirtualHost *:6202
+Listen 6202
+&lt;VirtualHost *:6202&gt;
+    ServerName account-server
+    WSGIDaemonProcess account-server processes=5 threads=1
+    WSGIProcessGroup account-server
+    WSGIScriptAlias / /var/www/swift/account-server.wsgi
+    LimitRequestFields 200
+    ErrorLog /var/log/apache2/account-server
+    LogLevel debug
+    CustomLog /var/log/apache2/access.log combined
+&lt;/VirtualHost&gt;</screen>
+    <para>Next stop the Apache2 and start it again (apache2ctl restart is not enough):</para>
+    <screen>apache2ctl stop
+apache2ctl start</screen>
+    <para>Edit the tests config file and add:</para>
+    <screen>web_front_end = apache2
+normalized_urls = True</screen>
+    <para>Also check to see that the file includes max_file_size of the same value as
+                used for the LimitRequestBody in the apache config file above.</para>
+    <para>We are done.
+                You may run functional tests to test - e.g.:</para>
+    <screen>cd ~swift/swift
+./.functests</screen>
+  </section>
+</section>

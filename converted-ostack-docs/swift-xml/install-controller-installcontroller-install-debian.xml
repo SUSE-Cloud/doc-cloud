@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+  <title>Install and configure the controller node for Debian</title>
+  <para>This section describes how to install and configure the proxy service that
+            handles requests for the account, container, and object services operating
+            on the storage nodes. For simplicity, this guide installs and configures
+            the proxy service on the controller node. However, you can run the proxy
+            service on any node with network connectivity to the storage nodes.
+            Additionally, you can install and configure the proxy service on multiple
+            nodes to increase performance and redundancy. For more information, see the
+            <link xlink:href="http://docs.openstack.org/developer/swift/deployment_guide.html">Deployment Guide</link>.</para>
+  <para>This section applies to Debian.</para>
+  <section>
+    <title>Prerequisites</title>
+    <para>The proxy service relies on an authentication and authorization mechanism such
+                as the Identity service. However, unlike other services, it also offers an
+                internal mechanism that allows it to operate without any other OpenStack
+                services. Before you configure the Object Storage service, you must
+                create service credentials and an API endpoint.</para>
+    <note>
+      <para>The Object Storage service does not use an SQL database on the controller
+                    node. Instead, it uses distributed SQLite databases on each storage node.</para>
+    </note>
+    <procedure>
+      <step>
+        <para>Source the <literal>admin</literal> credentials to gain access to admin-only CLI commands:</para>
+        <screen language="console">$ . admin-openrc</screen>
+      </step>
+      <step>
+        <para>To create the Identity service credentials, complete these steps:</para>
+        <itemizedlist>
+          <listitem>
+            <para>Create the <literal>swift</literal> user:</para>
+            <screen language="console">$ openstack user create --domain default --password-prompt swift
+User Password:
+Repeat User Password:
++-----------+----------------------------------+
+| Field     | Value                            |
++-----------+----------------------------------+
+| domain_id | default                          |
+| enabled   | True                             |
+| id        | d535e5cbd2b74ac7bfb97db9cced3ed6 |
+| name      | swift                            |
++-----------+----------------------------------+</screen>
+          </listitem>
+          <listitem>
+            <para>Add the <literal>admin</literal> role to the <literal>swift</literal> user:</para>
+            <screen language="console">$ openstack role add --project service --user swift admin</screen>
+            <note>
+              <para>This command provides no output.</para>
+            </note>
+          </listitem>
+          <listitem>
+            <para>Create the <literal>swift</literal> service entity:</para>
+            <screen language="console">$ openstack service create --name swift \
+  --description "OpenStack Object Storage" object-store
++-------------+----------------------------------+
+| Field       | Value                            |
++-------------+----------------------------------+
+| description | OpenStack Object Storage         |
+| enabled     | True                             |
+| id          | 75ef509da2c340499d454ae96a2c5c34 |
+| name        | swift                            |
+| type        | object-store                     |
++-------------+----------------------------------+</screen>
+          </listitem>
+        </itemizedlist>
+      </step>
+      <step>
+        <para>Create the Object Storage service API endpoints:</para>
+        <screen language="console">$ openstack endpoint create --region RegionOne \
+  object-store public http://controller:8080/v1/AUTH_%\(project_id\)s
++--------------+----------------------------------------------+
+| Field        | Value                                        |
++--------------+----------------------------------------------+
+| enabled      | True                                         |
+| id           | 12bfd36f26694c97813f665707114e0d             |
+| interface    | public                                       |
+| region       | RegionOne                                    |
+| region_id    | RegionOne                                    |
+| service_id   | 75ef509da2c340499d454ae96a2c5c34             |
+| service_name | swift                                        |
+| service_type | object-store                                 |
+| url          | http://controller:8080/v1/AUTH_%(project_id)s |
++--------------+----------------------------------------------+
+
+$ openstack endpoint create --region RegionOne \
+  object-store internal http://controller:8080/v1/AUTH_%\(project_id\)s
++--------------+----------------------------------------------+
+| Field        | Value                                        |
++--------------+----------------------------------------------+
+| enabled      | True                                         |
+| id           | 7a36bee6733a4b5590d74d3080ee6789             |
+| interface    | internal                                     |
+| region       | RegionOne                                    |
+| region_id    | RegionOne                                    |
+| service_id   | 75ef509da2c340499d454ae96a2c5c34             |
+| service_name | swift                                        |
+| service_type | object-store                                 |
+| url          | http://controller:8080/v1/AUTH_%(project_id)s |
++--------------+----------------------------------------------+
+
+$ openstack endpoint create --region RegionOne \
+  object-store admin http://controller:8080/v1
++--------------+----------------------------------+
+| Field        | Value                            |
++--------------+----------------------------------+
+| enabled      | True                             |
+| id           | ebb72cd6851d4defabc0b9d71cdca69b |
+| interface    | admin                            |
+| region       | RegionOne                        |
+| region_id    | RegionOne                        |
+| service_id   | 75ef509da2c340499d454ae96a2c5c34 |
+| service_name | swift                            |
+| service_type | object-store                     |
+| url          | http://controller:8080/v1        |
++--------------+----------------------------------+</screen>
+      </step>
+    </procedure>
+  </section>
+  <section>
+    <title>Install and configure components</title>
+    <note>
+      <para>Default configuration files vary by distribution. You might need
+                    to add these sections and options rather than modifying existing
+                    sections and options. Also, an ellipsis (<literal>...</literal>) in the configuration
+                    snippets indicates potential default configuration options that you
+                    should retain.</para>
+    </note>
+    <procedure>
+      <step>
+        <para>Install the packages:</para>
+        <screen language="console"># apt-get install swift swift-proxy python-swiftclient \
+  python-keystoneclient python-keystonemiddleware \
+  memcached</screen>
+        <note>
+          <para>Complete OpenStack environments already include some of these
+                            packages.</para>
+        </note>
+        <procedure>
+          <step>
+            <para>Create the <literal>/etc/swift</literal> directory.</para>
+          </step>
+          <step>
+            <para>Obtain the proxy service configuration file from the Object Storage
+                                source repository:</para>
+            <screen language="console"><?dbsuse-fo font-size="8pt"?># curl -o /etc/swift/proxy-server.conf https://git.openstack.org/cgit/openstack/swift/plain/etc/proxy-server.conf-sample?h=stable/pike</screen>
+          </step>
+        </procedure>
+      </step>
+    </procedure>
+  </section>
+</section>

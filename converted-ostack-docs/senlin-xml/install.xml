@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1" xml:id="guide-install">
+  <title>Installation</title>
+  <para>There are in general two ways to install Senlin service: you can install it
+            via devstack, or you install it manually, following the steps outlined in this
+            document.</para>
+  <section>
+    <title>Install via Devstack</title>
+    <para>This is the recommended way to install the Senlin service. Please refer to
+                following detailed instructions.</para>
+    <procedure>
+      <step>
+        <para>Download DevStack:</para>
+        <screen>$ git clone https://git.openstack.org/openstack-dev/devstack
+$ cd devstack</screen>
+      </step>
+      <step>
+        <para>Add following repo as external repositories into your <literal>local.conf</literal> file:</para>
+        <screen>[[local|localrc]]
+#Enable senlin
+enable_plugin senlin https://git.openstack.org/openstack/senlin
+#Enable senlin-dashboard
+enable_plugin senlin-dashboard https://git.openstack.org/openstack/senlin-dashboard</screen>
+      </step>
+    </procedure>
+    <para>Optionally, you can add a line <literal>SENLIN_USE_MOD_WSGI=True</literal> to the same <literal>local.conf</literal>
+                file if you prefer running the Senlin API service under Apache.</para>
+    <procedure>
+      <step>
+        <para>Run <literal>./stack.sh</literal>:</para>
+        <screen>$ ./stack.sh</screen>
+      </step>
+    </procedure>
+    <para>Note that Senlin client is also installed when following the instructions.</para>
+  </section>
+  <section>
+    <title>Manual Installation</title>
+    <section>
+      <title>Install Senlin Server</title>
+      <procedure>
+        <step>
+          <para>Get Senlin source code from OpenStack git repository.</para>
+        </step>
+      </procedure>
+      <screen>$ cd /opt/stack
+$ git clone https://git.openstack.org/openstack/senlin.git</screen>
+      <procedure>
+        <step>
+          <para>Install Senlin with required packages.</para>
+        </step>
+      </procedure>
+      <screen>$ cd /opt/stack/senlin
+$ sudo pip install -e .</screen>
+      <procedure>
+        <step>
+          <para>Register Senlin clustering service with keystone.</para>
+          <para>This can be done using the <command>setup-service</command> script under the
+                            <literal>tools</literal> folder.</para>
+          <para><emphasis role="bold">NOTE:</emphasis> Suppose you have devstack installed under the
+                            <literal>/opt/devstack</literal> folder</para>
+        </step>
+      </procedure>
+      <screen>$ source /opt/devstack/openrc admin admin
+$ cd /opt/stack/senlin/tools
+$ ./setup-service &lt;HOST IP&gt; &lt;SERVICE_PASSWORD&gt;</screen>
+      <procedure>
+        <step>
+          <para>Generate configuration file for the Senlin service.</para>
+        </step>
+      </procedure>
+      <screen>$ cd /opt/stack/senlin
+$ tools/gen-config
+$ sudo mkdir /etc/senlin
+$ sudo cp etc/senlin/api-paste.ini /etc/senlin
+$ sudo cp etc/senlin/policy.json /etc/senlin
+$ sudo cp etc/senlin/senlin.conf.sample /etc/senlin/senlin.conf</screen>
+      <para>Edit file <literal>/etc/senlin/senlin.conf</literal> according to your system settings.
+                    The most common options to be customized include:</para>
+      <screen>[database]
+connection = mysql://senlin:&lt;MYSQL_SENLIN_PW&gt;@127.0.0.1/senlin?charset=utf8
+
+[keystone_authtoken]
+auth_uri = http://&lt;HOST&gt;:5000/v3
+auth_version = 3
+cafile = /opt/stack/data/ca-bundle.pem
+identity_uri = http://&lt;HOST&gt;:35357
+admin_user = senlin
+admin_password = &lt;SENLIN PASSWORD&gt;
+admin_tenant_name = service
+
+[authentication]
+auth_url = http://&lt;HOST&gt;:5000/v3
+service_username = senlin
+service_password = &lt;SENLIN PASSWORD&gt;
+service_project_name = service
+
+[oslo_messaging_rabbit]
+rabbit_userid = &lt;RABBIT USER ID&gt;
+rabbit_hosts = &lt;HOST&gt;
+rabbit_password = &lt;RABBIT PASSWORD&gt;
+
+[oslo_messaging_notifications]
+driver = messaging</screen>
+      <para>For more comprehensive helps on configuration options, please refer to
+                    Configuration Options documentation.</para>
+      <procedure>
+        <step>
+          <para>Create Senlin Database.</para>
+        </step>
+      </procedure>
+      <para>Create Senlin database using the <command>senlin-db-recreate</command> script under
+                        the <literal>tools</literal> subdirectory. Before calling the script, you need edit it
+                        to customize the password you will use for the <literal>senlin</literal> user. You need to
+                        update this script with the &lt;DB PASSWORD&gt; entered in step4.</para>
+      <screen>$ cd /opt/stack/senlin/tools
+$ ./senlin-db-recreate</screen>
+      <procedure>
+        <step>
+          <para>Start senlin engine and api service.</para>
+        </step>
+      </procedure>
+      <para>You may need two consoles for the services i.e., one for each service.</para>
+      <screen>$ senlin-engine --config-file /etc/senlin/senlin.conf
+$ senlin-api --config-file /etc/senlin/senlin.conf</screen>
+    </section>
+    <section>
+      <title>Install Senlin Client</title>
+      <procedure>
+        <step>
+          <para>Get Senlin client code from OpenStack git repository.</para>
+        </step>
+      </procedure>
+      <screen>$ cd /opt/stack
+$ git clone https://git.openstack.org/openstack/python-senlinclient.git</screen>
+      <procedure>
+        <step>
+          <para>Install senlin client.</para>
+        </step>
+      </procedure>
+      <screen>$ cd python-senlinclient
+$ sudo python setup.py install</screen>
+    </section>
+    <section>
+      <title>Verify Your Installation</title>
+      <para>To check whether Senlin server and Senlin client have been installed
+                    successfully, run command <literal>openstack cluster build info</literal> in a console.
+                    The installation is successful if the command output looks similar to the
+                    following.</para>
+      <screen>$ openstack cluster build info
++--------+---------------------+
+| Field  | Value               |
++--------+---------------------+
+| api    | {                   |
+|        |   "revision": "1.0" |
+|        | }                   |
+| engine | {                   |
+|        |   "revision": "1.0" |
+|        | }                   |
++--------+---------------------+</screen>
+      <para>You are ready to begin your journey (aka. adventure) with Senlin, now.</para>
+    </section>
+  </section>
+</section>
