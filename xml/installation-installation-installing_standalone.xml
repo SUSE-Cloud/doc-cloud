@@ -21,443 +21,82 @@
  </section>
 
   <section>
-  <title>Configuring Your Environment</title>
-  <para>
-   During the configuration phase of the installation you will be making
-   modifications to an example configuration input file to match your cloud
-   environment. These instructions use the simplest example
-   configuration, and there are other input models. You can find detailed
-   information in the <xref linkend="example_configurations"/>
-   documentation.
-  </para>
-  <para>
-   The steps below show how to set up the directory structure with the example
-   input file and how to use the optional encryption methods for your sensitive
-   data.
-  </para>
-  <procedure>
-   <step>
-    <para>
-     Set up your configuration files:
-    </para>
-    <substeps>
-     <step>
-      <para>
-       Copy the example configuration files into the required setup directory
-       and edit them to contain the details of your environment.
-      </para>
-      <para>
-       Starting with the &productname; Entry-scale KVM model, copy the files to
-       your cloud definition directory.
-      </para>
-<screen>&prompt.ardana;cp -r ~/openstack/examples/entry-scale-kvm/* \
+   <title>Configuring Your Environment</title>
+   <procedure>
+    <step>
+     <para>
+      You have already configured an input model for a stand-alone deployer in
+      a previous step (<xref linkend="preparing_standalone"/>). Now that input
+      model needs to be moved into the setup directory.
+     </para>
+<screen>&prompt.ardana;cp -r ~/openstack/examples/entry-scale-kvm-stand-alone-deployer/* \
 ~/openstack/my_cloud/definition/</screen>
-     </step>
-     <step>
-      <para>
-       Proceed to the following steps to input your environment information
-       into the configuration files in the
-       <filename>~/openstack/my_cloud/definition/data</filename> directory.
-      </para>
-     </step>
-    </substeps>
-   </step>
-   <step>
-    <para>
-     Make the following edits to your configuration files.
-    </para>
-    <important>
+    </step>
+    <step performance="optional">
      <para>
-      The indentation of each of the input files is important and will cause
-      errors if not done correctly. Use the existing content in each of these
-      files as a reference when adding additional content for your &lcm;.
+      You can use the <literal>ardanaencrypt.py</literal> script to encrypt
+      your IPMI passwords. This script uses OpenSSL.
      </para>
-    </important>
-    <itemizedlist>
-     <listitem>
-      <para>
-       Update <filename>control_plane.yml</filename> to add the &lcm;.
-      </para>
-     </listitem>
-     <listitem>
-      <para>
-       Update <filename>server_roles.yml</filename> to add the &lcm; role.
-      </para>
-     </listitem>
-     <listitem>
-      <para>
-       Update <filename>net_interfaces.yml</filename> to add the interface
-       definition for the &lcm;.
-      </para>
-     </listitem>
-     <listitem>
-      <para>
-       Create a <filename>disks_lifecycle_manager.yml</filename> file to define
-       the disk layout for the &lcm;.
-      </para>
-     </listitem>
-     <listitem>
-      <para>
-       Update <filename>servers.yml</filename> to add the dedicated &lcm; node.
-      </para>
-     </listitem>
-    </itemizedlist>
-    <para>
-     <filename>Control_plane.yml</filename>: The snippet below shows the
-     addition of a single node cluster into the control plane to host the &lcm;
-     service.
-    </para>
-    <important>
-     <para>
-      In addition to adding the new cluster, you also have to remove the &lcm;
-      component from the <literal>cluster1</literal> in the examples.
-     </para>
-    </important>
-    <screen>  clusters:
-<emphasis role="bold">     - name: cluster0
-       cluster-prefix: c0
-       server-role: LIFECYCLE-MANAGER-ROLE
-       member-count: 1
-       allocation-policy: strict
-       service-components:
-         - lifecycle-manager</emphasis>
-         - ntp-client
-     - name: cluster1
-       cluster-prefix: c1
-       server-role: CONTROLLER-ROLE
-       member-count: 3
-       allocation-policy: strict
-       service-components:
-         - ntp-server</screen>
-    <para>
-     This specifies a single node of role
-     <literal>LIFECYCLE-MANAGER-ROLE</literal> hosting the &lcm;.
-    </para>
-    <para>
-     <filename>Server_roles.yml</filename>: The snippet below shows the
-     insertion of the new server roles definition:
-    </para>
-  <screen>   server-roles:
-
-<emphasis role="bold">      - name: LIFECYCLE-MANAGER-ROLE
-        interface-model: LIFECYCLE-MANAGER-INTERFACES
-        disk-model: LIFECYCLE-MANAGER-DISKS</emphasis>
-
-      - name: CONTROLLER-ROLE</screen>
-    <para>
-     This defines a new server role which references a new interface-model and
-     disk-model to be used when configuring the server.
-    </para>
-    <para>
-     <filename>net-interfaces.yml</filename>: The snippet below shows the
-     insertion of the network-interface info:
-    </para>
-  <screen><emphasis role="bold">    - name: LIFECYCLE-MANAGER-INTERFACES
-      network-interfaces:
-        - name: BOND0
-          device:
-             name: bond0
-          bond-data:
-             options:
-                 mode: active-backup
-                 miimon: 200
-                 primary: hed3
-             provider: linux
-             devices:
-                 - name: hed3
-                 - name: hed4
-          network-groups:
-             - MANAGEMENT</emphasis></screen>
-    <para>
-     This assumes that the server uses the same physical networking layout as
-     the other servers in the example.
-    </para>
-    <para>
-     <filename>disks_lifecycle_manager.yml</filename>: In the examples,
-     disk-models are provided as separate files (this is just a convention, not
-     a limitation) so the following should be added as a new file named
-     <filename>disks_lifecycle_manager.yml</filename>:
-    </para>
-  <screen>---
-   product:
-      version: 2
-
-   disk-models:
-<emphasis role="bold">   - name: LIFECYCLE-MANAGER-DISKS
-     # Disk model to be used for &lcm;s nodes
-     # /dev/sda_root is used as a volume group for /, /var/log and /var/crash
-     # sda_root is a templated value to align with whatever partition is really used
-     # This value is checked in os config and replaced by the partition actually used
-     # on sda e.g. sda1 or sda5
-
-     volume-groups:
-       - name: ardana-vg
-         physical-volumes:
-           - /dev/sda_root
-
-       logical-volumes:
-       # The policy is not to consume 100% of the space of each volume group.
-       # 5% should be left free for snapshots and to allow for some flexibility.
-          - name: root
-            size: 80%
-            fstype: ext4
-            mount: /
-          - name: crash
-            size: 15%
-            mount: /var/crash
-            fstype: ext4
-            mkfs-opts: -O large_file
-        consumer:
-              name: os</emphasis></screen>
-    <para>
-     <filename>Servers.yml</filename>: The snippet below shows the insertion of
-     an additional server used for hosting the &lcm;. Provide the address
-     information here for the server you are running on, that is, the node
-     where you have installed the &kw-hos; ISO.
-    </para>
-  <screen>  servers:
-     # NOTE: Addresses of servers need to be changed to match your environment.
-     #
-     #       Add additional servers as required
-
-<emphasis role="bold">     #Lifecycle-manager
-     - id: lifecycle-manager
-       ip-addr: <replaceable>YOUR IP ADDRESS HERE</replaceable>
-       role: LIFECYCLE-MANAGER-ROLE
-       server-group: RACK1
-       nic-mapping: HP-SL230-4PORT
-       mac-addr: 8c:dc:d4:b5:c9:e0
-       # ipmi information is not needed </emphasis>
-
-     # Controllers
-     - id: controller1
-       ip-addr: 192.168.10.3
-       role: CONTROLLER-ROLE</screen>
-   </step>
-   <step>
-    <para>
-      The OpenStack CLI and other clients will not be installed
-      automatically. If you require access to these clients, you will need to
-      follow the procedure below to add the appropriate software.
-    </para>
-    <substeps>
-     <step>
-      <para>
-       [OPTIONAL] Connect to your stand-alone deployer and try to use the
-       OpenStack CLI:
-      </para>
-<screen>&prompt.ardana;source ~/keystone.osrc
-<emphasis role="bold">&prompt.ardana;openstack project list</emphasis>
-
--bash: openstack: command not found</screen>
-     </step>
-     <step>
-      <para>
-       Edit the configuration file containing details of your Control Plane,
-       <filename>~/openstack/my_cloud/definition/data/control_plane.yml</filename>
-      </para>
-     </step>
-     <step>
-      <para>
-       Locate the stanza for the cluster where you want to install the
-       client(s). This will look like the following extract:
-      </para>
-<screen>
-      clusters:
-        - name: cluster0
-          cluster-prefix: c0
-          server-role: LIFECYCLE-MANAGER-ROLE
-          member-count: 1
-          allocation-policy: strict
-          service-components:
-            - ntp-server
-            - lifecycle-manager
-</screen>
-     </step>
-     <step>
-      <para>
-       Choose the client(s) you wish to install from the following list of
-       available clients:
-      </para>
-<screen>
- - openstack-client
- - ceilometer-client
- - cinder-client
- - designate-client
- - glance-client
- - heat-client
- - ironic-client
- - keystone-client
- - neutron-client
- - nova-client
- - swift-client
- - monasca-client
- - barbican-client
-</screen>
-     </step>
-     <step>
-      <para>
-       Add the client(s) to the list of <literal>service-components</literal> -
-       in this example, we add several &ostack; clients to the stand-alone
-       deployer:
-      </para>
-<screen>
-      clusters:
-        - name: cluster0
-          cluster-prefix: c0
-          server-role: LIFECYCLE-MANAGER-ROLE
-          member-count: 1
-          allocation-policy: strict
-          service-components:
-            - ntp-server
-            - lifecycle-manager
-            <emphasis role="bold">- openstack-client
-            - ceilometer-client
-            - cinder-client
-            - designate-client
-            - glance-client
-            - heat-client
-            - ironic-client
-            - keystone-client
-            - neutron-client
-            - nova-client
-            - swift-client
-            - monasca-client
-            - barbican-client
-</emphasis>
-
-</screen>
-     </step>
-     <step>
-      <para>
-       Commit the configuration changes:
-      </para>
-<screen>
-&prompt.ardana;cd ~/openstack/ardana/ansible
-&prompt.ardana;git add -A
-&prompt.ardana;git commit -m "Add explicit client service deployment"
-</screen>
-     </step>
-     <step>
-      <para>
-       Run the configuration processor, followed by the
-       <literal>ready-deployment</literal> playbook:
-      </para>
-<screen>
-&prompt.ardana;cd ~/openstack/ardana/ansible
-&prompt.ardana;ansible-playbook -i hosts/localhost config-processor-run.yml -e encrypt="" \
-  -e rekey=""
-&prompt.ardana;ansible-playbook -i hosts/localhost ready-deployment.yml
-</screen>
-     </step>
-     <step>
-      <para>
-       Add the software for the clients using the following command:
-      </para>
-<screen>
-&prompt.ardana;cd /home/stack/scratch/ansible/next/ardana/ansible
-&prompt.ardana;ansible-playbook -i hosts/verb_hosts clients-upgrade.yml
-</screen>
-     </step>
-     <step>
-      <para>
-       Check that the software has been installed correctly. In this instance,
-       connect to your stand-alone deployer and try to use the OpenStack CLI:
-      </para>
-<screen>
-&prompt.ardana;source ~/keystone.osrc
-&prompt.ardana;openstack project list
-</screen>
-      <para>
-       You should now see a list of projects returned:
-      </para>
-<screen>
-&prompt.ardana;<emphasis role="bold">openstack project list</emphasis>
-
-+----------------------------------+------------------+
-| ID                               | Name             |
-+----------------------------------+------------------+
-| 076b6e879f324183bbd28b46a7ee7826 | kronos           |
-| 0b81c3a9e59c47cab0e208ea1bb7f827 | backup           |
-| 143891c2a6094e2988358afc99043643 | octavia          |
-| 1d3972a674434f3c95a1d5ed19e0008f | glance-swift     |
-| 2e372dc57cac4915bf06bbee059fc547 | glance-check     |
-| 383abda56aa2482b95fb9da0b9dd91f4 | monitor          |
-| 606dd3b1fa6146668d468713413fb9a6 | swift-monitor    |
-| 87db9d1b30044ea199f0293f63d84652 | admin            |
-| 9fbb7494956a483ca731748126f50919 | demo             |
-| a59d0c682474434a9ddc240ddfe71871 | services         |
-| a69398f0f66a41b2872bcf45d55311a7 | swift-dispersion |
-| f5ec48d0328d400992c1c5fb44ec238f | cinderinternal   |
-+----------------------------------+------------------+
-</screen>
-     </step>
-    </substeps>
-   </step>
-   <step performance="optional">
-    <para>
-     You can use the <literal>ardanaencrypt.py</literal> script to
-     encrypt your IPMI passwords. This script uses OpenSSL.
-    </para>
-    <substeps>
-     <step>
-      <para>
-       Change to the Ansible directory:
-      </para>
-<screen>&prompt.ardana;cd ~/openstack/ardana/ansible</screen>
-     </step>
-     <step>
-      <para>
-       Put the encryption key into the following environment variable:
-      </para>
-<screen>&prompt.ardana;export ARDANA_USER_PASSWORD_ENCRYPT_KEY=&lt;encryption key&gt;</screen>
-     </step>
-     <step>
-      <para>
-       Run the python script below and follow the instructions. Enter a
-       password that you want to encrypt.
-      </para>
-<screen>&prompt.ardana;./ardanaencrypt.py</screen>
-     </step>
-     <step>
-      <para>
-       Place the generated string in the <literal>ilo-password</literal> field
-       in your
-       <filename>~/openstack/my_cloud/definition/data/servers.yml</filename>
-       file. Enclose it in quotes.
-      </para>
-     </step>
-     <step>
-      <note>
+     <substeps>
+      <step>
        <para>
-        Before you run any playbooks, remember that you need to export the
-        encryption key in the following environment variable: <literal>export
-        ARDANA_USER_PASSWORD_ENCRYPT_KEY=&lt;encryption key&gt;</literal>
+        Change to the Ansible directory:
        </para>
-      </note>
-     </step>
-    </substeps>
-   </step>
-<!-- To include this listitem: <xi:include xpointer="element(/1/5/4/3)" href="installation-kvm_xpointer.xml"/> -->
-   <step> <!-- xml:id="commit" -->
-    <para>
-     Commit your configuration to the local git repo
-     (<xref linkend="using_git"/>), as follows:
-    </para>
-<screen>cd ~/openstack/ardana/ansible
-git add -A
-git commit -m "My config or other commit message"</screen>
-    <important>
+<screen>&prompt.ardana;cd ~/openstack/ardana/ansible</screen>
+      </step>
+      <step>
+       <para>
+        Enter the encryption key into the following environment variable:
+       </para>
+<screen>&prompt.ardana;export ARDANA_USER_PASSWORD_ENCRYPT_KEY=&lt;encryption key&gt;</screen>
+      </step>
+      <step>
+       <para>
+        Run the python script below and follow the instructions. Enter a
+        password that you want to encrypt.
+       </para>
+<screen>&prompt.ardana;./ardanaencrypt.py</screen>
+      </step>
+      <step>
+       <para>
+        Take the string generated and place it in the
+        <literal>ilo-password</literal> field in your
+        <filename>~/openstack/my_cloud/definition/data/servers.yml</filename>
+        file, remembering to enclose it in quotes.
+       </para>
+      </step>
+      <step>
+       <para>
+        Repeat the above for each server.
+       </para>
+       <note>
+        <para>
+         Before you run any playbooks, remember that you need to export the
+         encryption key in the following environment variable: <literal>export
+         ARDANA_USER_PASSWORD_ENCRYPT_KEY=&lt;encryption key&gt;</literal>
+        </para>
+       </note>
+      </step>
+     </substeps>
+    </step>
+    <step>
      <para>
-      This step needs to be repeated any time you make changes to your
-      configuration files before you move on to the following steps. See
-      <xref linkend="using_git"/> for more information.
+      Commit your configuration to the local git repo (<xref
+      linkend="using_git"/>), as follows:
      </para>
-    </important>
-   </step>
-  </procedure>
+<screen>&prompt.ardana;cd ~/openstack/ardana/ansible
+&prompt.ardana;git add -A
+&prompt.ardana;git commit -m "My config or other commit message"</screen>
+     <important>
+      <para>
+       This step needs to be repeated any time you make changes to your
+       configuration files before you move on to the following steps. See <xref
+       linkend="using_git"/> for more information.
+      </para>
+     </important>
+    </step>
+   </procedure>
  </section>
-
 
  <!-- Running the Configuration Processor -->
  <section>
@@ -486,7 +125,169 @@ git commit -m "My config or other commit message"</screen>
   <xi:include xpointer="element(/1/9/3)" href="installation-kvm_xpointer.xml"/>
  </section>
 
- <!-- Post-Installation Verification and Administration -->
+ <section>
+  <title>Installing &ostack; Assets on the Stand-alone Deployer</title>
+  <para>
+   The &ostack; CLI and &ostack; clients will not be installed
+   automatically. If you require access to these clients, you will need to
+   follow the procedure below to add the appropriate software.
+  </para>
+  <procedure>
+   <step>
+    <para>
+     [OPTIONAL] To confirm that &ostack; clients have not been installed,
+     connect to your stand-alone deployer and try to use the OpenStack CLI:
+    </para>
+<screen>&prompt.ardana;source ~/keystone.osrc
+<emphasis role="bold">&prompt.ardana;openstack project list</emphasis>
+
+-bash: openstack: command not found</screen>
+   </step>
+   <step>
+    <para>
+     Edit the configuration file containing details of your Control Plane,
+     <filename>~/openstack/my_cloud/definition/data/control_plane.yml</filename>
+    </para>
+   </step>
+   <step>
+    <para>
+     Locate the stanza for the cluster where you want to install the
+     client(s). This will look like the following extract:
+    </para>
+<screen>
+      clusters:
+        - name: cluster0
+          cluster-prefix: c0
+          server-role: LIFECYCLE-MANAGER-ROLE
+          member-count: 1
+          allocation-policy: strict
+          service-components:
+            - ntp-server
+            - lifecycle-manager
+</screen>
+   </step>
+   <step>
+    <para>
+     Choose the client(s) you wish to install from the following list of
+     available clients:
+    </para>
+<screen>
+ - openstack-client
+ - ceilometer-client
+ - cinder-client
+ - designate-client
+ - glance-client
+ - heat-client
+ - ironic-client
+ - keystone-client
+ - neutron-client
+ - nova-client
+ - swift-client
+ - monasca-client
+ - barbican-client
+</screen>
+   </step>
+   <step>
+    <para>
+     Add the client(s) to the list of <literal>service-components</literal> -
+     in the following example, several &ostack; clients are added to the
+     stand-alone deployer:
+      </para>
+<screen>
+      clusters:
+        - name: cluster0
+          cluster-prefix: c0
+          server-role: LIFECYCLE-MANAGER-ROLE
+          member-count: 1
+          allocation-policy: strict
+          service-components:
+            - ntp-server
+            - lifecycle-manager
+            <emphasis role="bold">- openstack-client
+            - ceilometer-client
+            - cinder-client
+            - designate-client
+            - glance-client
+            - heat-client
+            - ironic-client
+            - keystone-client
+            - neutron-client
+            - nova-client
+            - swift-client
+            - monasca-client
+            - barbican-client
+</emphasis>
+</screen>
+   </step>
+   <step>
+    <para>
+     Commit the configuration changes:
+    </para>
+<screen>
+&prompt.ardana;cd ~/openstack/ardana/ansible
+&prompt.ardana;git add -A
+&prompt.ardana;git commit -m "Add explicit client service deployment"
+</screen>
+   </step>
+   <step>
+    <para>
+     Run the configuration processor, followed by the
+     <literal>ready-deployment</literal> playbook:
+    </para>
+<screen>
+&prompt.ardana;cd ~/openstack/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/localhost config-processor-run.yml -e encrypt="" \
+  -e rekey=""
+&prompt.ardana;ansible-playbook -i hosts/localhost ready-deployment.yml
+</screen>
+   </step>
+   <step>
+    <para>
+     Add the software for the clients using the following command:
+    </para>
+<screen>
+&prompt.ardana;cd /home/stack/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts clients-upgrade.yml
+</screen>
+   </step>
+   <step>
+    <para>
+     Check that the software has been installed correctly. Using the same test
+     that was unsuccessful before, connect to your stand-alone deployer and try
+     to use the OpenStack CLI:
+    </para>
+<screen>
+&prompt.ardana;source ~/keystone.osrc
+&prompt.ardana;openstack project list
+</screen>
+    <para>
+     You should now see a list of projects returned:
+    </para>
+<screen>
+&prompt.ardana;<emphasis role="bold">openstack project list</emphasis>
+
++----------------------------------+------------------+
+| ID                               | Name             |
++----------------------------------+------------------+
+| 076b6e879f324183bbd28b46a7ee7826 | kronos           |
+| 0b81c3a9e59c47cab0e208ea1bb7f827 | backup           |
+| 143891c2a6094e2988358afc99043643 | octavia          |
+| 1d3972a674434f3c95a1d5ed19e0008f | glance-swift     |
+| 2e372dc57cac4915bf06bbee059fc547 | glance-check     |
+| 383abda56aa2482b95fb9da0b9dd91f4 | monitor          |
+| 606dd3b1fa6146668d468713413fb9a6 | swift-monitor    |
+| 87db9d1b30044ea199f0293f63d84652 | admin            |
+| 9fbb7494956a483ca731748126f50919 | demo             |
+| a59d0c682474434a9ddc240ddfe71871 | services         |
+| a69398f0f66a41b2872bcf45d55311a7 | swift-dispersion |
+| f5ec48d0328d400992c1c5fb44ec238f | cinderinternal   |
++----------------------------------+------------------+
+</screen>
+   </step>
+  </procedure>
+ </section>
+
+  <!-- Post-Installation Verification and Administration -->
  <section>
   <xi:include xpointer="element(/1/11/1)" href="installation-kvm_xpointer.xml"/>
   <xi:include xpointer="element(/1/11/2)" href="installation-kvm_xpointer.xml"/>
