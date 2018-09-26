@@ -508,6 +508,92 @@
    </itemizedlist>
   </sect2>
 
+  <sect2 xml:id="sec.depl.maintenance.postgre-mariadb.upgrade">
+   <title>Preparing &postgres;-Based &productname; 7 for Upgrade</title>
+   <para>
+    Upgrading &productname; 7 is only possible when it uses &mariadb; deployed
+    with the Database &barcl;. This means that before you can proceed with
+    upgrading &productname; 7, you must migrate &postgres; to &mariadb; first.
+   </para>
+   <para>
+    The following description covers several possible scenarios.
+   </para>
+   <sect3>
+    <title>Non-HA Setup. HA Setup with &postgres; and without DRDB</title>
+    <para>
+     Before you proceed, make sure that the database cluster has an odd number
+     of nodes. If necessary, extend the cluster as described in <!-- FIXME
+     -->. Install the latest maintenance updates on &productname; 7. In the
+     &crow; &wi;, switch to the <guimenu>Database</guimenu> &barcl;. You should
+     see the new <systemitem>mysql-server</systemitem> role in the
+     <guimenu>Deployment</guimenu> section. Add your &dbnode; to the
+     <systemitem>mysql-server</systemitem> role and apply the
+     &barcl;. &mariadb; is now deployed and running, but it is still not used
+     as a back end for &ostack; services. Do not change the
+     <literal>sql_engine</literal> at this point.
+    </para>
+    <para>
+     If &rabbit; is using DRBD, enable the <guimenu>Use RabbitMQ
+     Clustering</guimenu> option in the &rabbit; &barcl; under <guimenu>High Availability</guimenu>. Since DRBD is not available
+     in &productname; 8, and &rabbit; clustering is supported in &productname;
+     7, you should switch to this option now.
+    </para>
+    <para>
+     Follow the <xref linkend="postgre.mariadb.data.migration"/> procedure to migrate the data from &postgres; to &mariadb;.
+    </para>
+    <procedure xml:id="postgre.mariadb.data.migration">
+     <title>Data Migration</title>
+     <step>
+      <para>
+           Run the <systemitem>/opt/dell/bin/prepare-mariadb</systemitem>
+	   script on the &admnode; to prepare the &mariadb; instance by creating
+	   the required users, databases, and tables.
+      </para>
+     </step>
+     <step>
+      <para>
+       After the script is finished, you'll find a list of all databases and
+       URLs that are ready for data migration in the
+       <filename>/etc/pg2mysql/databases.yaml</filename>. The output of the
+       script contains information on which &dbnode; the file is located.
+      </para>
+     </step>
+     <step>
+      <para>
+       Install the <systemitem>psql2mysql</systemitem> migration tool (it
+       is a part of <package>python-psql2mysql</package> package) on the
+       &admnode; or directly on the &dbnode;.
+      </para>
+      <para>
+       Running the tool directly on &dbnode; speeds up the migration operation,
+       as this does not require moving database data over the network. You can
+       also use <filename>/etc/pg2mysql/databases.yaml</filename> as the input
+       file for the <systemitem>psql2mysql</systemitem> tool.
+      </para>
+      <para>
+       Running the tool on the &admnode; makes sense if the input batch file
+       is already located there, or if you prefer not to install additional
+       software on cluster nodes.
+      </para>
+     </step>
+     <step>
+      <para>
+       To determine whether the &postgres; databases contain data that cannot
+       be migrated to &mariadb;, run <command>psql2mysql</command> with the
+      <literal>recheck</literal> option:</para>
+      <screen>psql2mysql.py --source $(sed -n -e 's/^.*\(postgresql:\)/\1/p' \
+      /etc/neutron/neutron.conf.d/*) precheck</screen>
+      <para>
+       You can use the <filename>/etc/pg2mysql/databases.yaml</filename> file
+       as the source and input <!-- ??? -->
+      </para>
+      <para>
+      </para>
+     </step>
+    </procedure>
+   </sect3>
+  </sect2>
+
   <sect2 xml:id="sec.depl.maintenance.upgrade.ui">
    <title>Upgrading Using the Web Interface</title>
    <para>
