@@ -554,9 +554,36 @@
       <para>
        After the script is finished, you'll find a list of all databases and
        URLs that are ready for data migration in the
-       <filename>/etc/pg2mysql/databases.yaml</filename>. The output of the
-       script contains information on which &dbnode; the file is located.
+       <filename>/etc/pg2mysql/databases.yaml</filename>. The script's output
+      may look as follows:</para>
+      <screen>Preparing node d52-54-77-77-01-01.vo6.cloud.suse.de
+Adding recipe[database::pg2mariadb_preparation] to run_list
+Running chef-client on d52-54-77-77-01-01.vo6.cloud.suse.de...
+Log: /var/log/crowbar/db-prepare.chef-client.log on
+d52-54-77-77-01-01.vo6.cloud.suse.de Run time: 444.725193199s
+Removing recipe[database::pg2mariadb_preparation] from run_list
+Prepare completed for d52-54-77-77-01-01.vo6.cloud.suse.de
+Summary of used databases: /etc/pg2mysql/databases.yaml on
+d52-54-77-77-01-01.vo6.cloud.suse.de</screen>
+      <para>The <literal>Summary of used databases:</literal> line shows the
+      exact location of the <filename>/etc/pg2mysql/databases.yaml</filename> file.
       </para>
+      <para>
+       The <filename>/etc/pg2mysql/databases.yaml</filename> file contains a
+       list of databases along with their source and target connection strings:
+      </para>
+<screen>keystone:
+  source: postgresql://keystone:vZn3nfxXzv97@192.168.243.87/keystone
+  target:
+mysql+pymysql://keystone:vZn3nfxXzv97@192.168.243.88/keystone?charset=utf8
+glance:
+  source: postgresql://glance:cOau7NhaA54N@192.168.243.87/glance
+  target:
+mysql+pymysql://glance:cOau7NhaA54N@192.168.243.88/glance?charset=utf8
+cinder:
+  source: postgresql://cinder:idRll2gJPodv@192.168.243.87/cinder
+  target:
+mysql+pymysql://cinder:idRll2gJPodv@192.168.243.88/cinder?charset=utf8</screen>
      </step>
      <step>
       <para>
@@ -571,7 +598,7 @@
        file for the <systemitem>psql2mysql</systemitem> tool.
       </para>
       <para>
-       Running the tool on the &admnode; makes sense if the input batch file
+       Running the tool on the &admnode; is advisable if the input batch file
        is already located there, or if you prefer not to install additional
        software on cluster nodes.
       </para>
@@ -580,14 +607,105 @@
       <para>
        To determine whether the &postgres; databases contain data that cannot
        be migrated to &mariadb;, run <command>psql2mysql</command> with the
-      <literal>recheck</literal> option:</para>
-      <screen>psql2mysql.py --source $(sed -n -e 's/^.*\(postgresql:\)/\1/p' \
-      /etc/neutron/neutron.conf.d/*) precheck</screen>
+      <literal>precheck</literal> option:</para>
+<screen>psql2mysql \
+--source postgresql://keystone:vZn3nfxXzv97@192.168.243.87/keystone \
+--target mysql+pymysql://keystone:vZn3nfxXzv97@192.168.243.88/keystone?charset=utf8 \
+precheck</screen>
       <para>
-       You can use the <filename>/etc/pg2mysql/databases.yaml</filename> file
-       as the source and input <!-- ??? -->
+       To run precheck operation on all databases in a single operation, use the
+       <literal>--batch</literal> option and the
+       <filename>/etc/pg2mysql/databases.yaml</filename> file as follows:
       </para>
+<screen>psql2mysql --batch /etc/pg2mysql/databases.yaml precheck</screen>
       <para>
+       If the precheck indicates that there is data that cannot be imported
+       into &mariadb;, modify the offending data manually to fix
+       the problems.
+      </para>
+     </step>
+     <step>
+      <para>
+       Stop all &ostack; services that make use of the database to prevent them
+       from writing new data during the migration. Stop shef-client services on
+       the nodes, to prevent regular runs from starting database-related
+       &ostack; services again. <emphasis>From this point, &ostack; services
+       become unavailable.</emphasis>
+      </para>
+     </step>
+     <step>
+      <para>
+       You can now migrate databases using the psql2mysql tool. To upgrade a
+       single database, use the following command format:
+      </para>
+<screen>psql2mysql \
+--source postgresql://neutron:secret@192.168.1.1/neutron \
+--target mysql+pymysql://neutron:evenmoresecret@192.168.1.2/neutron?charset=utf8 \
+migrate</screen>
+      <para>
+       To migrate all databases in one operation, use the
+       <literal>--batch</literal> option and the
+       <filename>/etc/pg2mysql/databases.yaml</filename> file as follows:
+      </para>
+<screen>psql2mysql.py --batch /etc/pg2mysql/databases.yaml migrate</screen>
+     </step>
+     <step>
+      <para>
+       In the &crow; &wi;, switch to the <guimenu>Database</guimenu>
+       &barcl;. Enable the raw view and set the value of
+       <literal>sql_engine</literal> to <literal>mysql</literal>. Apply the
+       &barcl;. After this step, &ostack; services should be running again and
+       reconfigured to use the &mariadb; database back end.
+      </para>
+     </step>
+     <step>
+      <para>
+        To prevent the &postgres;-related chef code from running, unassign the values
+	from <literal>database-server</literal> role in the <guimenu>Database</guimenu>
+       &barcl;, and apply the &barcl;.
+      </para>
+     </step>
+     <step>
+      <para>
+       Start chef-client services on the nodes again.
+      </para>
+     </step>
+     <step>
+      <para>
+       Stop &postgres; on the &dbnode;s. Uninstall &postgre;packages.
+      </para>
+      <substeps>
+       <step>
+	<para>
+	 To stop the <literal>postgresql</literal> service, run the following
+	 command on each cluster node:
+	</para>
+<screen>crm resource stop postgresql
+crm resource stop fs-postgresql
+crm resource stop drbd-postgresql</screen>
+        <para>
+	 Run the last command only if the previous setup used DRBD.
+	</para>
+       </step>
+       <step>
+	<para>
+	 Remove the packages on all cluster nodes:
+	</para>
+	<screen>zypper rm postgresql94 postgresql94-server</screen>
+       </step>
+       <step>
+	<para>
+	 If you choose not to upgrade to &productname; 8 right away, delete unused pacemaker resource from each cluster node:
+	</para>
+<screen>crm conf delete drbd-postgresql
+crm conf delete fs-postgresql
+crm conf delete postgresql</screen>
+       </step>
+      </substeps>
+     </step>
+     <step>
+      <para>
+       
       </para>
      </step>
     </procedure>
