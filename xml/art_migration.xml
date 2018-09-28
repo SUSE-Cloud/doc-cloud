@@ -34,6 +34,17 @@
   <itemizedlist>
    <listitem>
     <para>
+     Skilled customer staff should be readily available to assist in the
+     migration, with expertise in the areas of cloud administration,
+     network administration, storage administration, and knowledge of
+     data models and configuration settings used by the &lcm;.
+    </para>
+    <para>
+     Ideally, systems involved in the upgrade should be physically accessible
+     in case any operations become necessary that cannot be administered
+     via their remote network interfaces.
+    </para>
+    <para>
      The customer is responsible for backing up all the control plane and
      deployer nodes to an external data store before starting the migration.
     </para>
@@ -67,7 +78,7 @@
     <para>
      Review your existing partitioning model to understand how your data will be
      affected by re-imaging. Any data that is not on a disk separate from the
-     primary root partition (i.e. &swift; objects or audit logs) will be lost
+     primary root partition (i.e. &swift; objects, audit logs) will be lost
      during re-imaging. Note that the control plane nodes must be booted from
      physical drives and must not have any attached SAN disks.
     </para>
@@ -422,6 +433,9 @@ done</screen>
       <para>
        Reinstall the operating system on the seed node's primary disk using an
        ISO, cobbler (from the existing deployer), or other provisioner.
+       Note that support for provisioning with cobbler will be available only
+       if the seed node is configured to use Legacy Boot Mode; a setting of
+       UEFI Boot Mode will require manual installation.
       </para>
      </listitem>
      <listitem>
@@ -462,25 +476,14 @@ done</screen>
        and group, use the name <systemitem class="username">stack</systemitem>
        instead of <systemitem class="username">ardana</systemitem>.
       </para>
+      <para>
+       It is very important to avoid changing partitioning layouts or
+       reformatting any volumes other than the primary partition
+       during the installation.  This is necessary to preserve any
+       &o_objstore; object data that may be present on the server.
+      </para>
      </listitem>
     </itemizedlist>
-
-    <important>
-     <title>Manual Installation</title>
-     <para>
-      If the server's boot mode is set to Legacy BIOS boot, then it is possible
-      to use cobbler. However, if the boot mode of the server is set to UEFI
-      boot, the operating system must be installed manually. A simple way to
-      accomplish this is to boot from the &hpecloud; 5.SCP ISO file
-      and supply the IP address, subnet, gateway and username when prompted.
-     </para>
-     <para>
-      You should also perform installation on the root disk and avoid
-      removing any disks and partitions during the install. This way, if the
-      seed node also originally contained &o_objstore; data, it will be
-      left intact.
-     </para>
-    </important>
 
    </step>
    <step>
@@ -507,14 +510,15 @@ done</screen>
        <listitem>
         <para>
          Ensure that the seed node is able to reach IPMI interfaces
-         referenced in the <filename>servers.yml</filename> file:
+         referenced in the <filename>servers.yml</filename> file
+         (as specified in the <systemitem>ilo-ip</systemitem> fields:
         </para>
 <screen><prompt>(seed)> </prompt>ping <replaceable>IPMI_IP</replaceable></screen>
        </listitem>
        <listitem>
         <para>
-         Ensure that you can ping all the IPMI addresses from the new seed. If
-         required, add the required network routes to the seed. For example:
+         If additional routes are required for the seed to reach the IPMI
+         interfaces, add these network routes to the seed. For example:
         </para>
         <screen><prompt>(seed)> </prompt>sudo ip route add <replaceable>IPMI_NETWORK</replaceable> via <replaceable>IPMI_GATEWAY_FROM_SEED</replaceable></screen>
        </listitem>
@@ -530,8 +534,9 @@ done</screen>
    </step>
    <step>
     <para>
-     Confirm the existence of package repository ISOs and mount the operating system
-     image to make it available to the &hpecloud; installer.
+     On the new seed node, confirm the existence of package repository
+     ISOs, and mount the operating system image to make it available
+     to the &hpecloud; installer.
     </para>
     <itemizedlist>
      <listitem>
@@ -680,6 +685,19 @@ done</screen>
    </warning>
    <step>
     <para>
+     If your cloud's data model is password-protected, use the following method
+     to save the password in a local file before proceeding:
+    </para>
+<screen><prompt>(seed)> </prompt>touch ~/.vault_pass.txt
+<prompt>(seed)> </prompt> chmod 600 ~/.vault_pass.txt
+<prompt>(seed)> </prompt> vi ~/.vault_pass.txt</screen>
+    <para>
+     Ensure that the contents of the file are set to include only the
+     plaintext vault password. Then, after saving it, run
+     <command>export ANSIBLE_VAULT_PASSWORD_FILE=~/.vault_pass.txt</command>
+     in preparation for upcoming steps.
+    </para>
+    <para>
      Stop or pause &ostack; services on the control plane (excluding the seed
      that has been freshly imaged):
     </para>
@@ -773,9 +791,11 @@ done</screen>
    </step>
    <step>
     <para>
-     At this time, the cloud should again be operational, with the exception
-     of monitoring components that will remain offline until the upgrade to
-     &productname; &productnumber; is fully complete.
+     This will be a time-consuming installation, and should be allowed to
+     complete without interruption. Once it is done, the cloud should again
+     be operational, with the exception of monitoring components that will
+     remain offline until the upgrade to &productname; &productnumber; is
+     fully complete.
     </para>
    </step>
   </procedure>
@@ -1304,9 +1324,7 @@ ansible-playbook -i hosts/verb_hosts ardana-replace-legacy-repos.yml</screen>
 ansible -i hosts/verb_hosts resources --become -m shell \
   -a "zypper rr sles12sp3-ceph-updates || true"
 sudo rm /srv/www/suse-12.3/x86_64/repos/sles12sp3-ceph-updates
-sudo rm -rf /srv/www/suse-12.3/x86_64/repos/PTF/*
-ansible resources -i hosts/verb_hosts -m shell \
-  -a "zypper remove -y python-devel || true" --become
+sudo rm -rf /srv/www/suse-12.3/x86_64/repos/PTF/*.rpm
 cd ~/openstack/ardana/ansible
 ansible-playbook -i hosts/localhost deployer-init.yml
 sudo zypper refresh PTF
