@@ -513,17 +513,14 @@
    <para>
     Upgrading &productname; 7 is only possible when it uses &mariadb; deployed
     with the Database &barcl;. This means that before you can proceed with
-    upgrading &productname; 7, you must migrate &postgres; to &mariadb; first.
+    upgrading &productname; 7, you must migrate &postgres; to &mariadb; first. The following description covers several possible scenarios.
    </para>
-   <para>
-    The following description covers several possible scenarios.
-   </para>
-   <sect3>
-    <title>Non-HA Setup. HA Setup with &postgres; and without DRDB</title>
+   <sect3 xml:id="sec.postgre-mariadb.upgrade.scenario1">
+    <title>Non-HA setup or HA Setup with a 2-Node Cluster and
+    &postgres; Database Backend</title>
     <para>
      Before you proceed, make sure that the database cluster has an odd number
-     of nodes. If necessary, extend the cluster as described in <!-- FIXME
-     -->. Install the latest maintenance updates on &productname; 7. In the
+     of nodes. If necessary, extend the cluster as described in <xref linkend="sec.postgre-mariadb.upgrade.scenario2"/>. Install the latest maintenance updates on &productname; 7. In the
      &crow; &wi;, switch to the <guimenu>Database</guimenu> &barcl;. You should
      see the new <systemitem>mysql-server</systemitem> role in the
      <guimenu>Deployment</guimenu> section. Add your &dbnode; to the
@@ -532,14 +529,15 @@
      as a back end for &ostack; services. Do not change the
      <literal>sql_engine</literal> at this point.
     </para>
-    <para>
+    <!-- FIXME: Currently doesn't work accoring to devs
+	 <para>
      If &rabbit; is using DRBD, enable the <guimenu>Use RabbitMQ
      Clustering</guimenu> option in the &rabbit; &barcl; under <guimenu>High Availability</guimenu>. Since DRBD is not available
      in &productname; 8, and &rabbit; clustering is supported in &productname;
      7, you should switch to this option now.
-    </para>
+    </para> -->
     <para>
-     Follow the <xref linkend="postgre.mariadb.data.migration"/> procedure to migrate the data from &postgres; to &mariadb;.
+     Follow <xref linkend="postgre.mariadb.data.migration"/> to migrate the data from &postgres; to &mariadb;.
     </para>
     <procedure xml:id="postgre.mariadb.data.migration">
      <title>Data Migration</title>
@@ -672,7 +670,7 @@ migrate</screen>
      </step>
      <step>
       <para>
-       Stop &postgres; on the &dbnode;s. Uninstall &postgre;packages.
+       Stop &postgres; on the &dbnode;s. Uninstall &postgres;packages.
       </para>
       <substeps>
        <step>
@@ -705,9 +703,63 @@ crm conf delete postgresql</screen>
      </step>
      <step>
       <para>
-       
+       While you can continue using DRBD with &rabbit;, it is recommended to
+       switch to the clustering setup. If you don't make the switch at this
+       point, the upgrade to &productname; 8 will do this automatically. If you
+       choose to switch to the clustering setup, stop DRBD and uninstall
+       DRBD-related packages using the following command:
+      </para>
+<screen>&prompt.sudo;zypper rm drbd drbd-utils</screen>
+     </step>
+     <step>
+      <para>
+       Reclaim the disk space sued by &crow; for DRBD. To do this, edit the node data using <systemitem>knife</systemitem>:
+      </para>
+<screen>&prompt.user;knife node edit -a <replaceable>DRBD_NODE</replaceable></screen>
+      <para>
+        Search for <literal>claimed_disks</literal> and remove the entry with owner set to <literal>LVM_DRBD</literal>.
       </para>
      </step>
+    </procedure>
+   </sect3>
+   <sect3 xml:id="sec.postgre-mariadb.upgrade.scenario2">
+    <title>HA Setup with Two &contrnode;s without DRBD</title>
+    <para>
+     Extend the cluster with additional node that without any role assigned to
+     it. In &crow; &wi;, switch to the <guimenu>&pacemaker;</guimenu> &barcl;,
+     add the <literal>pacemaker-cluster-member</literal> role to the new node,
+     and apply &barcl;. Proceed with the migration procedure as described in
+     <xref linkend="sec.postgre-mariadb.upgrade.scenario1"/>.
+    </para>
+   </sect3>
+   <sect3 xml:id="sec.postgre-mariadb.upgrade.scenario3">
+    <title>HA Setup with 2 &contrnode;s and DRBD Used for Database or &rabbit;</title>
+    <procedure>
+     <step>
+     <para>
+     Extend the 2-node cluster with additional node that without any role assigned to
+     it.
+     </para>
+    </step>
+    <step>
+     <para>
+      In &crow; &wi;, switch to the <guimenu>&pacemaker;</guimenu> &barcl;,
+     enable the raw view mode, find the <literal>allow_larger_cluster</literal>
+     option, and set it value to <literal>true</literal>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Add the <literal>pacemaker-cluster-member</literal> role to the new node
+      and apply the &barcl;.
+     </para>
+    </step>
+    <step>
+     <para>
+      Proceed with the migration procedure as described in
+     <xref linkend="sec.postgre-mariadb.upgrade.scenario1"/>.
+     </para>
+    </step>
     </procedure>
    </sect3>
   </sect2>
