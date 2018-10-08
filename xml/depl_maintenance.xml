@@ -516,17 +516,15 @@
     upgrading &productname; 7, you must migrate &postgres; to &mariadb; first. The following description covers several possible scenarios.
    </para>
    <sect3 xml:id="sec.postgre-mariadb.upgrade.scenario1">
-    <title>Non-HA setup or HA Setup with a 2-Node Cluster and
+    <title>Non-HA Setup or HA Setup with More Than 2 Nodes in the Cluster and
     &postgres; Database Backend</title>
     <para>
-     Before you proceed, make sure that the database cluster has an odd number
-     of nodes. If necessary, extend the cluster as described in <xref
-     linkend="sec.postgre-mariadb.upgrade.scenario2"/>. Install the latest
+     Install the latest
      maintenance updates on &productname; 7. In the
      &crow; &wi;, switch to the <guimenu>Database</guimenu> &barcl;. You should
      see the new <systemitem>mysql-server</systemitem> role in the
      <guimenu>Deployment</guimenu> section. Do not change the
-     <literal>sql_engine</literal> at this point. Add your &dbnode; to the
+     <literal>sql_engine</literal> at this point. Add your &dbnode; or cluster to the
      <systemitem>mysql-server</systemitem> role and apply the
      &barcl;. &mariadb; is now deployed and running, but it is still not used
      as a back end for &ostack; services.
@@ -584,20 +582,8 @@ cinder:
      </step>
      <step>
       <para>
-       Install the <package>python-psql2mysql</package> package on the
-       &admnode; or directly on the &dbnode;.
-      </para>
-      <para>
-       Running the tool directly on &dbnode; speeds up the migration operation,
-       as this does not require moving database data over the network. You can
-       also use <filename>/etc/pg2mysql/databases.yaml</filename> as the input
-       file for the <systemitem>psql2mysql</systemitem> tool. This is the
-       recommended way of running the tool.
-      </para>
-      <para>
-       Running the tool on the &admnode; is advisable if the input batch file
-       is already located there, or if you prefer not to install additional
-       software on cluster nodes.
+       Install the <package>python-psql2mysql</package> package on the &dbnode;
+       (preferably the one with the <filename>/etc/pg2mysql/databases.yaml</filename> file).
       </para>
      </step>
      <step>
@@ -605,7 +591,7 @@ cinder:
        To determine whether the &postgres; databases contain data that cannot
        be migrated to &mariadb;, run <command>psql2mysql</command> with the
       <literal>precheck</literal> option:</para>
-<screen>psql2mysql \
+<screen>&prompt.user;psql2mysql \
 --source postgresql://keystone:vZn3nfxXzv97@192.168.243.87/keystone \
 --target mysql+pymysql://keystone:vZn3nfxXzv97@192.168.243.88/keystone?charset=utf8 \
 precheck</screen>
@@ -614,26 +600,59 @@ precheck</screen>
        <literal>--batch</literal> option and the
        <filename>/etc/pg2mysql/databases.yaml</filename> file as follows:
       </para>
-<screen>psql2mysql --batch /etc/pg2mysql/databases.yaml precheck</screen>
+<screen>&prompt.user;psql2mysql --batch /etc/pg2mysql/databases.yaml precheck</screen>
       <para>
        If the precheck indicates that there is data that cannot be imported
        into &mariadb;, modify the offending data manually to fix
-       the problems.
+       the problems. The example below shows what an output containing issues may
+       look like:
       </para>
+ <screen>&prompt.user;psql2mysql --source postgresql://cinder:idRll2gJPodv@192.168.243.86/cinder precheck
+Table 'volumes' contains 4 Byte UTF8 characters which are incompatible with the 'utf8' encoding used by MariaDB
+The following rows are affected:
++-----------------------------------------+-----------------+-------+
+|               Primary Key               | Affected Column | Value |
++-----------------------------------------+-----------------+-------+
+| id=5c6b0274-d18d-4153-9fda-ef3d74ab4500 |   display_name  |   💫   |
++-----------------------------------------+-----------------+-------+
+Error during prechecks. 4 Byte UTF8 characters found in the source database.</screen>
      </step>
      <step>
       <para>
        Stop chef-client services on the nodes, to prevent regular runs of
-       chef-client from starting database-related &ostack; services again. Stop
+       chef-client from starting database-related &ostack; services again. To
+       do this, you can use the <command>knife ssh roles:dns-client systemctl
+       stop chef-client</command> command. Stop
        all &ostack; services that make use of the database to prevent them from
        writing new data during the migration.
       </para>
+      <note>
+       <title>Testing Migration Procedure</title>
+       <para>
+	If you want to perform a dry run of the migration procedure, you can run the
+       <command>psql2mysql migrate</command> without stopping the
+       database-related &ostack; services. This way, if the test migration
+       fails due to errors that weren't caught by the precheck procedure, you
+       can fix them with &ostack; services still running, thus minimizing the
+       required downtime. When you perform the actual migration, the data in
+       the target databases will be replaced with the latest one in the source databases.
+       </para>
+      </note>
       <para>
        On an HA setup, shut down all services that make use of the
        database. To do this, use the <command>crm</command> command for
        example:
       </para>
-<screen>crm resource stop nova-api</screen>
+<screen>crm resource stop apache2 keystone cinder-api glance-api \
+      neutron-server swift-proxy nova-api magnum-api sahara-api heat-api</screen>   
+      <note>
+       <para>
+	If the <literal>Manage stateless active/active services with
+	Pacemaker</literal> option in the &pacemaker; &barcl; is set to
+	<literal>false</literal>, the &ostack; services must be stopped on each
+	node using the <command>systemctl</command> command.
+       </para>
+      </note>
       <para>
        <emphasis>From this point, &ostack; services
        become unavailable.</emphasis>
@@ -644,7 +663,7 @@ precheck</screen>
        You can now migrate databases using the psql2mysql tool. To upgrade a
        single database, use the following command format:
       </para>
-<screen>psql2mysql \
+<screen>&prompt.user;psql2mysql \
 --source postgresql://neutron:secret@192.168.1.1/neutron \
 --target mysql+pymysql://neutron:evenmoresecret@192.168.1.2/neutron?charset=utf8 \
 migrate</screen>
@@ -653,7 +672,7 @@ migrate</screen>
        <literal>--batch</literal> option and the
        <filename>/etc/pg2mysql/databases.yaml</filename> file as follows:
       </para>
-<screen>psql2mysql.py --batch /etc/pg2mysql/databases.yaml migrate</screen>
+<screen>&prompt.user;psql2mysql.py --batch /etc/pg2mysql/databases.yaml migrate</screen>
      </step>
      <step>
       <para>
@@ -686,9 +705,9 @@ migrate</screen>
 	 To stop the <literal>postgresql</literal> service, run the following
 	 command on one cluster node:
 	</para>
-<screen>crm resource stop postgresql
-crm resource stop fs-postgresql
-crm resource stop drbd-postgresql</screen>
+<screen>&prompt.user;crm resource stop postgresql
+&prompt.user;crm resource stop fs-postgresql
+&prompt.user;crm resource stop drbd-postgresql</screen>
         <para>
 	 Run the last command only if the previous setup used DRBD.
 	</para>
@@ -703,9 +722,9 @@ crm resource stop drbd-postgresql</screen>
 	<para>
 	 If you choose not to upgrade to &productname; 8 right away, delete unused pacemaker resource from one cluster node:
 	</para>
-<screen>crm conf delete drbd-postgresql
-crm conf delete fs-postgresql
-crm conf delete postgresql</screen>
+<screen>&prompt.user;crm conf delete drbd-postgresql
+&prompt.user;crm conf delete fs-postgresql
+&prompt.user;crm conf delete postgresql</screen>
        </step>
       </substeps>
      </step>
@@ -715,7 +734,7 @@ crm conf delete postgresql</screen>
       </para>
 <screen>&prompt.sudo;zypper rm drbd drbd-utils</screen>
       <para>
-       You can then reclaim the disk space sued by &crow; for DRBD. To do this, edit the node data using <systemitem>knife</systemitem>:
+       You can then reclaim the disk space used by &crow; for DRBD. To do this, edit the node data using <systemitem>knife</systemitem>:
       </para>
 <screen>&prompt.user;knife node edit -a <replaceable>DRBD_NODE</replaceable></screen>
       <para>
@@ -734,7 +753,7 @@ crm conf delete postgresql</screen>
      <step>
      <para>
      Extend the 2-node cluster with additional node that without any role assigned to
-     it.
+     it. Make sure that the new node has enough memory to serve as a &contrnode;.
      </para>
     </step>
     <step>
