@@ -1,0 +1,80 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<!DOCTYPE chapter [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="glance-rate-limit">
+ <title>&o_img;-API Rate Limit (CVE-2016-8611)</title>
+ <para>
+  Within the &o_img; service, calls to the POST method within v1 or v2/images
+  creates records in <literal>queued</literal> status. No limit is enforced
+  within the &o_img; API on the number of images a single tenant may
+  create. The only limit is on the total amount of storage a single user may
+  consume. More information about this vulnerability is at <link
+  xlink:href="https://nvd.nist.gov/vuln/detail/CVE-2016-8611"/>
+ </para>
+ <para>
+  Therefore a user could maliciously or unintentionally fill multiple database
+  tables (images, image_properties, image_tags, image_members) with useless
+  image records, thereby causing a denial of service by lengthening transaction
+  response times in the &o_img; database.
+ </para>
+ <para>
+  This issue can be mitigated with a rate limiter to the glance-api haproxy
+  endpoints. Only POST requests are affected. Instance launch is not impacted.
+  The number of images that can be created in a 60 minute window is limited.
+  The default value is 600 connections per 60 minute window which should cover
+  most normal glance-api use cases. When the number of connections has been
+  exceeded, the user is locked out for the duration of the 60 minute
+  interval. The value for the number of connections per 60 minute period can be
+  overridden by editing the <filename>control_plane.yml</filename> file.
+ </para>
+ <para>
+  The following steps will implement the rate limiter patch.
+ </para>
+ <procedure>
+  <step>
+   <para>
+    Edit <filename>control_plane.yml</filename>, adding the following glance_rate_limit
+    entry. Change the <literal>glance_rate_limit</literal> if the default 600 connections does not
+    fit your situation.
+   </para>
+   <screen>- glance-api:
+    ha_mode: false
+    glance_stores: 'file'
+    glance_default_store: 'file'
+    glance_rate_limit: <replaceable>LIMIT</replaceable></screen>
+  </step>
+  <step>
+   <para>
+    Commit the change to Git
+   </para>
+   <screen>&prompt.ardana;git add -A
+git commit "Change glance rate limit"</screen>
+  </step>
+  <step>
+   <para>
+    Run playbooks
+   </para>
+   <screen>&prompt.ardana;cd ~/openstack/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/localhost config-processor-run.yml
+&prompt.ardana;ansible-playbook -i hosts/localhost ready-deployment.yml
+&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/localhost FND-CLU-reconfigure.yml</screen>
+  </step>
+ </procedure>
+ <para>
+  Access attempts are logged in
+  <filename>/var/log/haproxy.log</filename>. Users who exceed the limit will
+  see a message such as:
+ </para>
+ <screen>429 Too Many Requests
+You have sent too many requests in a given amount of time.
+
+HTTP/1.0 429 Too Many Requests
+Cache-Control: no-cache
+Connection: close
+Content-Type: text/html</screen>
+</chapter>
