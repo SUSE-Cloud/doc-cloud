@@ -227,6 +227,13 @@ done</screen>
    </step>
    <step>
     <para>
+     Set up SMT repository hosting on a &slsa; server external to your cloud so that
+     operating system and software updates can be applied during migratin without
+     waiting for additional download steps.
+    </para>
+   </step>
+   <step>
+    <para>
      Identify a candidate seed &contrnode; in the primary control plane. This
      node must meet the following requirements:
     </para>
@@ -301,22 +308,41 @@ mig-cp1-neut-m1-mgmt</screen>
        </step>
        <step>
         <para>
-         On each host, display the lease times for active leases
+         From the old deployer, SSH to each host listed above, and display the lease times for active VMs.
         </para>
-        <screen><prompt>(old-deployer)> </prompt>for i in $(cat /var/run/neutron/dhcp/*/leases | awk '{print $1}'); do
-  date -d @$i
-done</screen>
+        <screen><prompt>(old-deployer)> </prompt>ssh mig-cp1-neut-m2-mgmt
+        <prompt>(mig-cp1-neut-m2)> </prompt>for i in $(cat /var/run/neutron/dhcp/*/leases | awk '{print $1}'); do
+                     date -d @$i
+                   done
+<prompt>(mig-cp1-neut-m2)> </prompt>exit
+...</screen>
        </step>
       </procedure>
      </listitem>
      <listitem>
       <para>
        To increase the DHCP lease time before migrating, open the
-       <filename>~/helion/hos/ansible/roles/neutron-common/templates/neutron.conf.j2</filename>
-       file and edit the <systemitem>dhcp_lease_duration</systemitem> parameter.
-       Commit the change, and run the <filename>neutron-reconfigure.yml</filename> playbook.
-       Then, continue to monitor the upcoming DHCP lease expirations as described
-       above until all existing leases have been refreshed to a lengthier period.
+       <filename>roles/neutron-common/templates/neutron.conf.j2</filename>
+       file from the <filename>~/helion/hos/ansible</filename> directory, and
+       edit the <systemitem>dhcp_lease_duration</systemitem> parameter. Then,
+       apply the change with:
+      </para>
+      <screen><prompt>(old-deployer)> </prompt>git commit -a -m "DHCP lease adjustment"
+      <prompt>(old-deployer)> </prompt>ansible-playbook -i hosts/localhost config-processor-run.yml
+      <prompt>(old-deployer)> </prompt>ansible-playbook -i hosts/localhost ready-deployment.yml
+      <prompt>(old-deployer)> </prompt>cd ~/scratch/ansible/next/hos/ansible
+      <prompt>(old-deployer)> </prompt>ansible-playbook -i hosts/verb_hosts neutron-reconfigure.yml </screen>
+      <para>
+       This will reset the duration for new leases, but the existing IP
+       assignments to VMs will wait until their original DHCP lease expires
+       before being refreshed with the updated lease duration. Thus, these
+       steps should be performed at least 2/3rds of the lease time prior to
+       the planned start of migration.
+      </para>
+      <para>
+       Continue to monitor the upcoming DHCP lease expirations as described
+       above until all existing leases have been refreshed to a lengthier period,
+       and then continue with the migration.
       </para>
      </listitem>
     </itemizedlist>
@@ -334,7 +360,7 @@ done</screen>
        <literal>Cassandra</literal> partitions:
       </para>
 <screen>- name: cassandra_db
-  size: (whatever size was used originally by vertica partition, less 1%)
+  size: (original size used by vertica partition, minus 1%)
   mount: /var/cassandra/data
   fstype: ext4
   mkfs-opts: -O large_file
@@ -417,7 +443,7 @@ done</screen>
   neutron-router-evacuate.yml --limit=<replaceable>SEED_HOST</replaceable></screen>
       <para>
        <replaceable>SEED_HOST</replaceable> represents the name of the seed node,
-       for example, <systemitem>ardana-cp1-c1-m2</systemitem>.
+       for example, <systemitem>hos-cp1-dbmq-m3</systemitem>.
       </para>
       <important>
        <title>Host Selection</title>
@@ -523,10 +549,11 @@ done</screen>
        <listitem>
         <para>
          Ensure that the seed node is able to reach IPMI interfaces
-         referenced in the <filename>servers.yml</filename> file
-         (as specified in the <systemitem>ilo-ip</systemitem> fields:
+         referenced in the <filename>servers.yml</filename> file:
         </para>
-<screen><prompt>(seed)> </prompt>ping <replaceable>IPMI_IP</replaceable></screen>
+<screen><prompt>(seed)> </prompt>for s in `grep "ilo-ip" ~/helion/my_cloud/definition/data/servers.yml | grep -v "#" | cut -d ":" -f 2 | tr -d " " `
+          do ping -q -c 2 $s
+        done
        </listitem>
        <listitem>
         <para>
@@ -547,9 +574,9 @@ done</screen>
    </step>
    <step>
     <para>
-     On the new seed node, confirm the existence of package repository
-     ISOs, and mount the operating system image to make it available
-     to the &hpecloud; installer.
+     On the new seed node, remove the package repository that was configured when
+     its operating system was first installed. Then, mount the operating system
+     image to make it available to the &hpecloud; installer.
     </para>
     <itemizedlist>
      <listitem>
@@ -652,10 +679,6 @@ done</screen>
 <prompt>(seed)> </prompt>ansible-playbook -i hosts/localhost cobbler-deploy.yml
 <prompt>(seed)> </prompt>ansible-playbook -i hosts/localhost config-processor-run.yml
 <prompt>(seed)> </prompt>ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
-    <para>
-     At this point, the &rhla; nodes are still pointing to the old deployer, so do
-     not unmount or disconnect any &rhla; ISOs or yum repositories on that server.
-    </para>
    </step>
    <step>
     <para>
@@ -710,6 +733,8 @@ done</screen>
      <command>export ANSIBLE_VAULT_PASSWORD_FILE=~/.vault_pass.txt</command>
      in preparation for upcoming steps.
     </para>
+   </step>
+   <step>
     <para>
      Stop or pause &ostack; services on the control plane (excluding the seed
      that has been freshly imaged):
@@ -739,8 +764,17 @@ done</screen>
     <itemizedlist>
      <listitem>
       <para>
+       Re-image the remaining servers in the control plane. If the original deployer
+       is a standalone deployer, then it can be preserved until later, to assist with
+       recovery (if needed). If the deployer function is combined with a controller,
+       then ensure that the previous section's steps to transfer configuration and
+       files using rsync has completed so that no important data is lost.
+      </para>
+      <para>
        Reinstall the operating systems on the control plane primary disks using
-       an ISO, cobbler, or other provisioner. If using cobbler:
+       an ISO, cobbler, or other provisioner. If using cobbler, you will need to
+       create the grub config files for all the SLES nodes using the following
+       commands:
       </para>
 <screen><prompt>(seed)> </prompt>cd ~/helion/hos/ansible
 <prompt>(seed)> </prompt>ansible-playbook -i hosts/localhost cobbler-deploy.yml
@@ -750,11 +784,11 @@ done</screen>
 -e nodelist=<replaceable>NODE_IDs</replaceable></screen>
       <note>
        <para>
-        Do not reimage the &compnode;s, the original deployer, or seed. Identify
-        the set of remaining control plane nodes from the full list of systems
-        addressable by cobbler, as shown by <command>cobbler system list</command>,
-        and provide them as a comma-separated list in the
-        <systemitem>nodelist</systemitem> parameter.
+        Do not reimage the &compnode;s, an original standalone deployer, or seed.
+        Identify the set of remaining control plane nodes from the full list of
+        systems addressable by cobbler, as shown by
+        <command>cobbler system list</command>, and provide them as a comma-separated
+        list in the <systemitem>nodelist</systemitem> parameter.
        </para>
       </note>
      </listitem>
@@ -775,22 +809,35 @@ done</screen>
        In a mid-scale cloud topology, some data files may have been
        stored on the non-primary drive(s) in the system. If this was the case,
        the <filename>wipe_disk.yml</filename> playbook should be used (after the
-       nodes have been rebuilt) to purge the old data. For example:
+       nodes have been rebuilt) to purge the old data.
+      </para>
+      <para>
+       Make a note of the output of the following command:
       </para>
 <screen><prompt>(seed)> </prompt>cd ~/scratch/ansible/next/hos/ansible
-<prompt>(seed)> </prompt>ansible-playbook -i hosts/verb_hosts hlm-refresh-facts.yml
-<prompt>(seed)> </prompt>ansible-playbook -i hosts/verb_hosts wipe_disks.yml \
+<prompt>(seed)> </prompt>ansible-playbook -i hosts/verb_hosts hlm-refresh-facts.yml</screen>
+      <para>
+       Specify your own list of nodes matching the identifiers shown in the results
+       of the previous command. However, do not run the <filename>wipe_disk.yml</filename>
+       playbook on any &compnode;s or nodes containing &o_objstore; object storage.
+      </para>
+<screen><prompt>(seed)> </prompt>ansible-playbook -i hosts/verb_hosts wipe_disks.yml \
   --limit dbmq-m1,dbmq-m2,dbmq-m3,mtrmon-m1,mtrmon-m2,mtrmon-m3</screen>
-      <para>
-       (Be sure to specify your own list of nodes matching their
-       identifiers from the <filename>servers.yml</filename> file.)
-      </para>
-      <para>
-       However, do not run the <filename>wipe_disk.yml</filename> playbook on any
-       nodes containing &o_objstore; object storage.
-      </para>
      </listitem>
     </itemizedlist>
+   </step>
+   <step>
+    <para>
+     The repos should now be set up on all servers. Verify that this is the
+     case with the following:
+    </para>
+<screen><prompt>(seed)> </prompt>cd ~/scratch/ansible/next/hos/ansible
+<prompt>(seed)> </prompt>ansible resources -a "zypper ref" --become</screen>
+    <para>
+     All issues with the repositories must be resolved before continuing.
+     All servers except &rhla; &compnode;s should complete successfully.
+     All &slsa; servers should reference the repo on port 79 on the new seed.
+    </para>
    </step>
    <step>
     <para>
@@ -800,7 +847,7 @@ done</screen>
     </para>
 <screen><prompt>(seed)> </prompt>mkdir -p /var/log/configuration_processor
 <prompt>(seed)> </prompt>cd ~/scratch/ansible/next/hos/ansible
-<prompt>(seed)> </prompt>ansible-playbook -i hosts/verb_hosts site.yml -e dbcontent=~/mysql_dump.sql</screen>
+<prompt>(seed)> </prompt>ansible-playbook -i hosts/verb_hosts -vvv site.yml -e dbcontent=~/mysql_dump.sql</screen>
    </step>
    <step>
     <para>
@@ -863,6 +910,16 @@ done</screen>
        </listitem>
        <listitem>
         <para>
+         At this point, it is appropriate to re-image a standalone deployer that
+         would have been left intact through the upgrade steps to this point,
+         to ensure that the &slsa; operating system is loaded.
+        </para>
+<screen><prompt>(seed)> </prompt> cd ~/helion/hos/ansible
+<prompt>(seed)> </prompt>ansible-playbook -i hosts/localhost bm-reimage.yml \
+  -e nodelist=<replaceable>ORIGINAL_DEPLOYER</replaceable></screen>
+       </listitem>
+       <listitem>
+        <para>
          Install the <systemitem>lifecycle-manager</systemitem> services on the
          new deployer and remove cloud-wide references to the seed:
         </para>
@@ -905,6 +962,12 @@ done</screen>
      </listitem>
      <listitem>
       <para>
+       Unmount any ISOs which are no longer necessary on the seed node:
+      </para>
+<screen><prompt>(seed)> </prompt>sudo umount /home/stack/hos5.scp</screen>
+     </listitem>
+     <listitem>
+      <para>
        Copy the user's home directory and certificates from the seed to the new deployer:
       </para>
 <screen><prompt>(seed)> </prompt>rsync -avP ~/ <replaceable>NEW_DEPLOYER_IP</replaceable>:/home/stack
@@ -912,16 +975,10 @@ done</screen>
      </listitem>
      <listitem>
       <para>
-       Unmount any ISOs which are no longer necessary on the seed node:
-      </para>
-<screen><prompt>(seed)> </prompt>sudo umount /home/stack/hos5.scp</screen>
-     </listitem>
-     <listitem>
-      <para>
        Connect to the new deployer and initialize it for use:
       </para>
 <screen><prompt>(new-deployer)> </prompt>cd ~
-<prompt>(new-deployer)> </prompt>rm -rf .ansible-fact-cache
+<prompt>(new-deployer)> </prompt>rm -rf .ansible_fact_cache
 <prompt>(new-deployer)> </prompt>sudo mkdir -p /media/cdrom
 <prompt>(new-deployer)> </prompt>sudo mount /home/stack/sles12sp3.iso /media/cdrom
 <prompt>(new-deployer)> </prompt>sudo mount <replaceable>HELION5SCP_ISO_FILE</replaceable> hos-5.scp
@@ -1059,7 +1116,7 @@ git merge ardana -m "Conversion to Ardana"
      repo conversion above, reinstate them in the
      <filename>ardana/ansible</filename> directory.
     </para>
-<screen>if [ -s /tml/hos.diff ]; then
+<screen>if [ -s /tmp/hos.diff ]; then
   sed 's/ \([ab]\?[\/]\?\)hos\/ansible/ \1ardana\/ansible/g' /tmp/hos.diff | git apply
 fi</screen>
     <para>
@@ -1217,7 +1274,7 @@ sudo zypper refresh</screen>
      <filename>/srv/www/suse-12.3/x86_64/repos/PTF</filename> directory. For
      example, if the downloaded RPMs are located in <filename>/tmp/PTF</filename>:
     </para>
-    <screen>&prompt.ardana;cp /tmp/PTF/*.rpm /srv/www/suse-12.3/x86_64/repos/PTF</screen>
+    <screen>&prompt.ardana;sudo cp /tmp/PTF/*.rpm /srv/www/suse-12.3/x86_64/repos/PTF</screen>
    </step>
    <step>
     <para>
@@ -1319,12 +1376,17 @@ sudo rename helion ardana /tmp/ardana_*/helion*</screen>
    </step>
    <step>
     <para>
-     Set up package repositories for installation:
+     Set up and verify package repositories for installation:
     </para>
 <screen>sudo ln -s /media/cloud /srv/www/suse-12.3/x86_64/repos/Cloud
 sudo ln -s /opt/hlm_packager/hlm/sles12/zypper/extras/sles12sp3-ceph-updates \
   /srv/www/suse-12.3/x86_64/repos/sles12sp3-ceph-updates
 ansible-playbook -i hosts/verb_hosts ardana-replace-legacy-repos.yml</screen>
+    <para>
+     Check that the repos have been properly set up, and that refreshing them
+     succeeds for all &slsa; cloud nodes:
+    </para>
+<screen>ansible resources -m shell -a "zypper ref" --become</screen>
    </step>
    <step>
     <para>
