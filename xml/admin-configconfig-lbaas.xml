@@ -1,0 +1,459 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+  <title>Load Balancer as a Service (LBaaS)</title>
+  <para>The Networking service offers a load balancer feature called “LBaaS v2”
+            through the <literal>neutron-lbaas</literal> service plug-in.</para>
+  <para>LBaaS v2 adds the concept of listeners to the LBaaS v1 load balancers.
+            LBaaS v2 allows you to configure multiple listener ports on a single load
+            balancer IP address.</para>
+  <para>There are two reference implementations of LBaaS v2.
+            The one is an agent based implementation with HAProxy.
+            The agents handle the HAProxy configuration and manage the HAProxy daemon.
+            Another LBaaS v2 implementation, <link xlink:href="https://docs.openstack.org/octavia/latest/">Octavia</link>, has a separate API and
+            separate worker processes that build load balancers within virtual machines on
+            hypervisors that are managed by the Compute service. You do not need an agent
+            for Octavia.</para>
+  <note>
+    <para>LBaaS v1 was removed in the Newton release. These links provide more
+                details about how LBaaS v1 works and how to configure it:</para>
+    <itemizedlist>
+      <listitem>
+        <para>
+          <link xlink:href="https://docs.openstack.org/admin-guide/networking-introduction.html#load-balancer-as-a-service-lbaas-overview">Load-Balancer-as-a-Service (LBaaS) overview</link>
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          <link xlink:href="https://docs.openstack.org/admin-guide/networking-adv-features.html#basic-load-balancer-as-a-service-operations">Basic Load-Balancer-as-a-Service operations</link>
+        </para>
+      </listitem>
+    </itemizedlist>
+  </note>
+  <warning>
+    <para>Currently, no migration path exists between v1 and v2 load balancers. If you
+                choose to switch from v1 to v2, you must recreate all load balancers, pools,
+                and health monitors.</para>
+  </warning>
+  <section>
+    <title>LBaaS v2 Concepts</title>
+    <para>LBaaS v2 has several new concepts to understand:</para>
+    <informalfigure>
+      <mediaobject>
+        <imageobject role="fo">
+          <imagedata fileref="lbaasv2-diagram.png"/>
+        </imageobject>
+        <imageobject role="html">
+          <imagedata fileref="lbaasv2-diagram.png"/>
+        </imageobject>
+      </mediaobject>
+    </informalfigure>
+    <variablelist>
+      <varlistentry>
+        <term>Load balancer</term>
+        <listitem>
+          <para>The load balancer occupies a neutron network port and has an IP address
+                            assigned from a subnet.</para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term>Listener</term>
+        <listitem>
+          <para>Load balancers can listen for requests on multiple ports. Each one of those
+                            ports is specified by a listener.</para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term>Pool</term>
+        <listitem>
+          <para>A pool holds a list of members that serve content through the load balancer.</para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term>Member</term>
+        <listitem>
+          <para>Members are servers that serve traffic behind a load balancer. Each member
+                            is specified by the IP address and port that it uses to serve traffic.</para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term>Health monitor</term>
+        <listitem>
+          <para>Members may go offline from time to time and health monitors divert traffic
+                            away from members that are not responding properly. Health monitors are
+                            associated with pools.</para>
+        </listitem>
+      </varlistentry>
+    </variablelist>
+    <para>LBaaS v2 has multiple implementations via different service plug-ins. The two
+                most common implementations use either an agent or the Octavia services. Both
+                implementations use the <link xlink:href="https://developer.openstack.org/api-ref/networking/v2/#lbaas-2-0-stable">LBaaS v2 API</link>.</para>
+  </section>
+  <section>
+    <title>Configurations</title>
+    <section>
+      <title>Configuring LBaaS v2 with an agent</title>
+      <procedure>
+        <step>
+          <para>Add the LBaaS v2 service plug-in to the <literal>service_plugins</literal> configuration
+                            directive in <literal>/etc/neutron/neutron.conf</literal>. The plug-in list is
+                            comma-separated:</para>
+          <screen language="console"><?dbsuse-fo font-size="8pt"?>service_plugins = [existing service plugins],neutron_lbaas.services.loadbalancer.plugin.LoadBalancerPluginv2</screen>
+        </step>
+        <step>
+          <para>Add the LBaaS v2 service provider to the <literal>service_provider</literal> configuration
+                            directive within the <literal>[service_providers]</literal> section in
+                            <literal>/etc/neutron/neutron_lbaas.conf</literal>:</para>
+          <screen language="console"><?dbsuse-fo font-size="8pt"?>service_provider = LOADBALANCERV2:Haproxy:neutron_lbaas.drivers.haproxy.plugin_driver.HaproxyOnHostPluginDriver:default</screen>
+          <para>If you have existing service providers for other networking service
+                            plug-ins, such as VPNaaS or FWaaS, add the <literal>service_provider</literal> line shown
+                            above in the <literal>[service_providers]</literal> section as a separate line. These
+                            configuration directives are repeatable and are not comma-separated.</para>
+        </step>
+        <step>
+          <para>Select the driver that manages virtual interfaces in
+                            <literal>/etc/neutron/lbaas_agent.ini</literal>:</para>
+          <screen language="console">[DEFAULT]
+device_driver = neutron_lbaas.drivers.haproxy.namespace_driver.HaproxyNSDriver
+interface_driver = INTERFACE_DRIVER
+[haproxy]
+user_group = haproxy</screen>
+          <para>Replace <literal>INTERFACE_DRIVER</literal> with the interface driver that the layer-2
+                            agent in your environment uses. For example, <literal>openvswitch</literal> for Open
+                            vSwitch or <literal>linuxbridge</literal> for Linux bridge.</para>
+        </step>
+        <step>
+          <para>Run the <literal>neutron-lbaas</literal> database migration:</para>
+          <screen language="console">neutron-db-manage --subproject neutron-lbaas upgrade head</screen>
+        </step>
+        <step>
+          <para>If you have deployed LBaaS v1, <emphasis role="bold">stop the LBaaS v1 agent now</emphasis>. The v1 and
+                            v2 agents <emphasis role="bold">cannot</emphasis> run simultaneously.</para>
+        </step>
+        <step>
+          <para>Start the LBaaS v2 agent:</para>
+          <screen language="console">neutron-lbaasv2-agent \
+--config-file /etc/neutron/neutron.conf \
+--config-file /etc/neutron/lbaas_agent.ini</screen>
+        </step>
+        <step>
+          <para>Restart the Network service to activate the new configuration. You are now
+                            ready to create load balancers with the LBaaS v2 agent.</para>
+        </step>
+      </procedure>
+    </section>
+    <section>
+      <title>Configuring LBaaS v2 with Octavia</title>
+      <para>Octavia provides additional capabilities for load balancers, including using a
+                    compute driver to build instances that operate as load balancers.
+                    The <link xlink:href="https://www.openstack.org/summit/tokyo-2015/videos/presentation/rsvp-required-hands-on-lab-install-and-configure-openstack-octavia">Hands on Lab - Install and Configure OpenStack Octavia</link>
+                    session at the OpenStack Summit in Tokyo provides an overview of Octavia.</para>
+      <para>The DevStack documentation offers a <link xlink:href="https://docs.openstack.org/devstack/latest/guides/devstack-with-lbaas-v2.html">simple method to deploy Octavia</link>
+                    and test the service with redundant load balancer instances. If you already
+                    have Octavia installed and configured within your environment, you can
+                    configure the Network service to use Octavia:</para>
+      <procedure>
+        <step>
+          <para>Add the LBaaS v2 service plug-in to the <literal>service_plugins</literal> configuration
+                            directive in <literal>/etc/neutron/neutron.conf</literal>. The plug-in list is
+                            comma-separated:</para>
+          <screen language="console"><?dbsuse-fo font-size="8pt"?>service_plugins = [existing service plugins],neutron_lbaas.services.loadbalancer.plugin.LoadBalancerPluginv2</screen>
+        </step>
+        <step>
+          <para>Add the Octavia service provider to the <literal>service_provider</literal> configuration
+                            directive within the <literal>[service_providers]</literal> section in
+                            <literal>/etc/neutron/neutron_lbaas.conf</literal>:</para>
+          <screen language="console"><?dbsuse-fo font-size="8pt"?>service_provider = LOADBALANCERV2:Octavia:neutron_lbaas.drivers.octavia.driver.OctaviaDriver:default</screen>
+          <para>Ensure that the LBaaS v1 and v2 service providers are removed from the
+                            <literal>[service_providers]</literal> section. They are not used with Octavia. <emphasis role="bold">Verify
+                                that all LBaaS agents are stopped.</emphasis></para>
+        </step>
+        <step>
+          <para>Restart the Network service to activate the new configuration. You are now
+                            ready to create and manage load balancers with Octavia.</para>
+        </step>
+      </procedure>
+    </section>
+    <section>
+      <title>Add LBaaS panels to Dashboard</title>
+      <para>The Dashboard panels for managing LBaaS v2 are available starting with the
+                    Mitaka release.</para>
+      <procedure>
+        <step>
+          <para>Clone the <link xlink:href="https://git.openstack.org/cgit/openstack/neutron-lbaas-dashboard/">neutron-lbaas-dashboard repository</link>
+                            and check out the release
+                            branch that matches the installed version of Dashboard:</para>
+          <screen language="console">$ git clone https://git.openstack.org/openstack/neutron-lbaas-dashboard
+$ cd neutron-lbaas-dashboard
+$ git checkout OPENSTACK_RELEASE</screen>
+        </step>
+        <step>
+          <para>Install the Dashboard panel plug-in:</para>
+          <screen language="console">$ python setup.py install</screen>
+        </step>
+        <step>
+          <para>Copy the <literal>_1481_project_ng_loadbalancersv2_panel.py</literal> file from the
+                            <literal>neutron-lbaas-dashboard/enabled</literal> directory into the Dashboard
+                            <literal>openstack_dashboard/local/enabled</literal> directory.</para>
+          <para>This step ensures that Dashboard can find the plug-in when it enumerates
+                            all of its available panels.</para>
+        </step>
+        <step>
+          <para>Enable the plug-in in Dashboard by editing the <literal>local_settings.py</literal> file
+                            and setting <literal>enable_lb</literal> to <literal>True</literal> in the <literal>OPENSTACK_NEUTRON_NETWORK</literal>
+                            dictionary.</para>
+        </step>
+        <step>
+          <para>If Dashboard is configured to compress static files for better performance
+                            (usually set through <literal>COMPRESS_OFFLINE</literal> in <literal>local_settings.py</literal>),
+                            optimize the static files again:</para>
+          <screen language="console">$ ./manage.py collectstatic
+$ ./manage.py compress</screen>
+        </step>
+        <step>
+          <para>Restart Apache to activate the new panel:</para>
+          <screen language="console">$ sudo service apache2 restart</screen>
+        </step>
+      </procedure>
+      <para>To find the panel, click on <guimenu>Project</guimenu> in Dashboard, then click the
+                    <guimenu>Network</guimenu> drop-down menu and select <guimenu>Load Balancers</guimenu>.</para>
+    </section>
+  </section>
+  <section>
+    <title>LBaaS v2 operations</title>
+    <para>The same neutron commands are used for LBaaS v2 with an agent or with Octavia.</para>
+    <section>
+      <title>Building an LBaaS v2 load balancer</title>
+      <procedure>
+        <step>
+          <para>Start by creating a load balancer on a network. In this example, the
+                            <literal>private</literal> network is an isolated network with two web server instances:</para>
+          <screen language="console">$ neutron lbaas-loadbalancer-create --name test-lb private-subnet</screen>
+        </step>
+        <step>
+          <para>You can view the load balancer status and IP address with the
+                            <command>neutron lbaas-loadbalancer-show</command> command:</para>
+          <screen language="console">$ neutron lbaas-loadbalancer-show test-lb
++---------------------+------------------------------------------------+
+| Field               | Value                                          |
++---------------------+------------------------------------------------+
+| admin_state_up      | True                                           |
+| description         |                                                |
+| id                  | 7780f9dd-e5dd-43a9-af81-0d2d1bd9c386           |
+| listeners           | {"id": "23442d6a-4d82-40ee-8d08-243750dbc191"} |
+|                     | {"id": "7e0d084d-6d67-47e6-9f77-0115e6cf9ba8"} |
+| name                | test-lb                                        |
+| operating_status    | ONLINE                                         |
+| provider            | octavia                                        |
+| provisioning_status | ACTIVE                                         |
+| tenant_id           | fbfce4cb346c4f9097a977c54904cafd               |
+| vip_address         | 192.0.2.22                                     |
+| vip_port_id         | 9f8f8a75-a731-4a34-b622-864907e1d556           |
+| vip_subnet_id       | f1e7827d-1bfe-40b6-b8f0-2d9fd946f59b           |
++---------------------+------------------------------------------------+</screen>
+        </step>
+        <step>
+          <para>Update the security group to allow traffic to reach the new load balancer.
+                            Create a new security group along with ingress rules to allow traffic into
+                            the new load balancer. The neutron port for the load balancer is shown as
+                            <literal>vip_port_id</literal> above.</para>
+          <para>Create a security group and rules to allow TCP port 80, TCP port 443, and
+                            all ICMP traffic:</para>
+          <screen language="console">$ neutron security-group-create lbaas
+$ neutron security-group-rule-create \
+  --direction ingress \
+  --protocol tcp \
+  --port-range-min 80 \
+  --port-range-max 80 \
+  --remote-ip-prefix 0.0.0.0/0 \
+  lbaas
+$ neutron security-group-rule-create \
+  --direction ingress \
+  --protocol tcp \
+  --port-range-min 443 \
+  --port-range-max 443 \
+  --remote-ip-prefix 0.0.0.0/0 \
+  lbaas
+$ neutron security-group-rule-create \
+  --direction ingress \
+  --protocol icmp \
+  lbaas</screen>
+          <para>Apply the security group to the load balancer’s network port using
+                            <literal>vip_port_id</literal> from the <command>neutron lbaas-loadbalancer-show</command>
+                            command:</para>
+          <screen language="console">$ neutron port-update \
+  --security-group lbaas \
+  9f8f8a75-a731-4a34-b622-864907e1d556</screen>
+        </step>
+      </procedure>
+    </section>
+    <section>
+      <title>Adding an HTTP listener</title>
+      <procedure>
+        <step>
+          <para>With the load balancer online, you can add a listener for plaintext
+                            HTTP traffic on port 80:</para>
+          <screen language="console">$ neutron lbaas-listener-create \
+  --name test-lb-http \
+  --loadbalancer test-lb \
+  --protocol HTTP \
+  --protocol-port 80</screen>
+          <para>This load balancer is active and ready to serve traffic on <literal>192.0.2.22</literal>.</para>
+        </step>
+        <step>
+          <para>Verify that the load balancer is responding to pings before moving further:</para>
+          <screen language="console">$ ping -c 4 192.0.2.22
+PING 192.0.2.22 (192.0.2.22) 56(84) bytes of data.
+64 bytes from 192.0.2.22: icmp_seq=1 ttl=62 time=0.410 ms
+64 bytes from 192.0.2.22: icmp_seq=2 ttl=62 time=0.407 ms
+64 bytes from 192.0.2.22: icmp_seq=3 ttl=62 time=0.396 ms
+64 bytes from 192.0.2.22: icmp_seq=4 ttl=62 time=0.397 ms
+
+--- 192.0.2.22 ping statistics ---
+4 packets transmitted, 4 received, 0% packet loss, time 2997ms
+rtt min/avg/max/mdev = 0.396/0.402/0.410/0.020 ms</screen>
+        </step>
+        <step>
+          <para>You can begin building a pool and adding members to the pool to serve HTTP
+                            content on port 80. For this example, the web servers are <literal>192.0.2.16</literal>
+                            and <literal>192.0.2.17</literal>:</para>
+          <screen language="console">$ neutron lbaas-pool-create \
+  --name test-lb-pool-http \
+  --lb-algorithm ROUND_ROBIN \
+  --listener test-lb-http \
+  --protocol HTTP
+$ neutron lbaas-member-create \
+  --name test-lb-http-member-1 \
+  --subnet private-subnet \
+  --address 192.0.2.16 \
+  --protocol-port 80 \
+  test-lb-pool-http
+$ neutron lbaas-member-create \
+  --name test-lb-http-member-2 \
+  --subnet private-subnet \
+  --address 192.0.2.17 \
+  --protocol-port 80 \
+  test-lb-pool-http</screen>
+        </step>
+        <step>
+          <para>You can use <literal>curl</literal> to verify connectivity through the load balancers to
+                            your web servers:</para>
+          <screen language="console">$ curl 192.0.2.22
+web2
+$ curl 192.0.2.22
+web1
+$ curl 192.0.2.22
+web2
+$ curl 192.0.2.22
+web1</screen>
+          <para>In this example, the load balancer uses the round robin algorithm and the
+                            traffic alternates between the web servers on the backend.</para>
+        </step>
+        <step>
+          <para>You can add a health monitor so that unresponsive servers are removed
+                            from the pool:</para>
+          <screen language="console">$ neutron lbaas-healthmonitor-create \
+  --name test-lb-http-monitor \
+  --delay 5 \
+  --max-retries 2 \
+  --timeout 10 \
+  --type HTTP \
+  --pool test-lb-pool-http</screen>
+          <para>In this example, the health monitor removes the server from the pool if
+                            it fails a health check at two five-second intervals. When the server
+                            recovers and begins responding to health checks again, it is added to
+                            the pool once again.</para>
+        </step>
+      </procedure>
+    </section>
+    <section>
+      <title>Adding an HTTPS listener</title>
+      <para>You can add another listener on port 443 for HTTPS traffic. LBaaS v2 offers
+                    SSL/TLS termination at the load balancer, but this example takes a simpler
+                    approach and allows encrypted connections to terminate at each member server.</para>
+      <procedure>
+        <step>
+          <para>Start by creating a listener, attaching a pool, and then adding members:</para>
+          <screen language="console">$ neutron lbaas-listener-create \
+  --name test-lb-https \
+  --loadbalancer test-lb \
+  --protocol HTTPS \
+  --protocol-port 443
+$ neutron lbaas-pool-create \
+  --name test-lb-pool-https \
+  --lb-algorithm LEAST_CONNECTIONS \
+  --listener test-lb-https \
+  --protocol HTTPS
+$ neutron lbaas-member-create \
+  --name test-lb-https-member-1 \
+  --subnet private-subnet \
+  --address 192.0.2.16 \
+  --protocol-port 443 \
+  test-lb-pool-https
+$ neutron lbaas-member-create \
+  --name test-lb-https-member-2 \
+  --subnet private-subnet \
+  --address 192.0.2.17 \
+  --protocol-port 443 \
+  test-lb-pool-https</screen>
+        </step>
+        <step>
+          <para>You can also add a health monitor for the HTTPS pool:</para>
+          <screen language="console">$ neutron lbaas-healthmonitor-create \
+  --name test-lb-https-monitor \
+  --delay 5 \
+  --max-retries 2 \
+  --timeout 10 \
+  --type HTTPS \
+  --pool test-lb-pool-https</screen>
+          <para>The load balancer now handles traffic on ports 80 and 443.</para>
+        </step>
+      </procedure>
+    </section>
+    <section>
+      <title>Associating a floating IP address</title>
+      <para>Load balancers that are deployed on a public or provider network that are
+                    accessible to external clients do not need a floating IP address assigned.
+                    External clients can directly access the virtual IP address (VIP) of those
+                    load balancers.</para>
+      <para>However, load balancers deployed onto private or isolated networks need a
+                    floating IP address assigned if they must be accessible to external clients. To
+                    complete this step, you must have a router between the private and public
+                    networks and an available floating IP address.</para>
+      <para>You can use the <command>neutron lbaas-loadbalancer-show</command> command from the
+                    beginning of this section to locate the <literal>vip_port_id</literal>. The <literal>vip_port_id</literal>
+                    is the ID of the network port that is assigned to the load balancer. You can
+                    associate a free floating IP address to the load balancer using
+                    <command>neutron floatingip-associate</command>:</para>
+      <screen language="console">$ neutron floatingip-associate FLOATINGIP_ID LOAD_BALANCER_PORT_ID</screen>
+    </section>
+    <section>
+      <title>Setting quotas for LBaaS v2</title>
+      <para>Quotas are available for limiting the number of load balancers and load
+                    balancer pools. By default, both quotas are set to 10.</para>
+      <para>You can adjust quotas using the <command>neutron quota-update</command> command:</para>
+      <screen language="console">$ neutron quota-update --tenant-id TENANT_UUID --loadbalancer 25
+$ neutron quota-update --tenant-id TENANT_UUID --pool 50</screen>
+      <para>A setting of <literal>-1</literal> disables the quota for a tenant.</para>
+    </section>
+    <section>
+      <title>Retrieving load balancer statistics</title>
+      <para>The LBaaS v2 agent collects four types of statistics for each load balancer
+                    every six seconds. Users can query these statistics with the
+                    <command>neutron lbaas-loadbalancer-stats</command> command:</para>
+      <screen language="console">$ neutron lbaas-loadbalancer-stats test-lb
++--------------------+----------+
+| Field              | Value    |
++--------------------+----------+
+| active_connections | 0        |
+| bytes_in           | 40264557 |
+| bytes_out          | 71701666 |
+| total_connections  | 384601   |
++--------------------+----------+</screen>
+      <para>The <literal>active_connections</literal> count is the total number of connections that were
+                    active at the time the agent polled the load balancer. The other three
+                    statistics are cumulative since the load balancer was last started. For
+                    example, if the load balancer restarts due to a system error or a configuration
+                    change, these statistics will be reset.</para>
+    </section>
+  </section>
+</section>
