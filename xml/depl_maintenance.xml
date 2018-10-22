@@ -360,10 +360,9 @@
     </listitem>
     <listitem>
      <para>
-      At this time, upgrade is only possible if the <literal>SQL
+      Upgrade is only possible if the <literal>SQL
       Engine</literal> in the <literal>Database</literal> &barcl; is set to
-      <guimenu>&mariadb;</guimenu>. Migration from &postgres;-based setups will
-      be provided in a future maintenance update.
+      <guimenu>&mariadb;</guimenu>. For further info, see <xref linkend="sec.depl.maintenance.postgre-mariadb.upgrade"/>
      </para>
     </listitem>
     <listitem>
@@ -506,6 +505,284 @@
      </para>
     </listitem>
    </itemizedlist>
+  </sect2>
+
+  <sect2 xml:id="sec.depl.maintenance.postgre-mariadb.upgrade">
+   <title>Preparing &postgres;-Based &productname; 7 for Upgrade</title>
+   <para>
+    Upgrading &productname; 7 is only possible when it uses &mariadb; deployed
+    with the Database &barcl;. This means that before you can proceed with
+    upgrading &productname; 7, you must migrate &postgres; to &mariadb; first. The following description covers several possible scenarios.
+   </para>
+   <sect3 xml:id="sec.postgre-mariadb.upgrade.scenario1">
+    <title>Non-HA Setup or HA Setup with More Than 2 Nodes in the Cluster and
+    &postgres; Database Backend</title>
+    <para>
+     Install the latest
+     maintenance updates on &productname; 7. In the
+     &crow; &wi;, switch to the <guimenu>Database</guimenu> &barcl;. You should
+     see the new <systemitem>mysql-server</systemitem> role in the
+     <guimenu>Deployment</guimenu> section. Do not change the
+     <literal>sql_engine</literal> at this point. Add your &dbnode; or cluster to the
+     <systemitem>mysql-server</systemitem> role and apply the
+     &barcl;. &mariadb; is now deployed and running, but it is still not used
+     as a back end for &ostack; services.
+    </para>
+    <para>
+     Follow <xref linkend="postgre.mariadb.data.migration"/> to migrate the data from &postgres; to &mariadb;.
+    </para>
+    <procedure xml:id="postgre.mariadb.data.migration">
+     <title>Data Migration</title>
+     <step>
+      <para>
+           Run the <systemitem>/opt/dell/bin/prepare-mariadb</systemitem>
+	   script on the &admnode; to prepare the &mariadb; instance by creating
+	   the required users, databases, and tables.
+      </para>
+     </step>
+     <step>
+      <para>
+       After the script is finished, you'll find a list of all databases and
+       URLs that are ready for data migration in the
+       <filename>/etc/pg2mysql/databases.yaml</filename> located on one of the &dbnode;s. The script's output
+      may look as follows:</para>
+      <screen>Preparing node d52-54-77-77-01-01.vo6.cloud.suse.de
+Adding recipe[database::pg2mariadb_preparation] to run_list
+Running chef-client on d52-54-77-77-01-01.vo6.cloud.suse.de...
+Log: /var/log/crowbar/db-prepare.chef-client.log on
+d52-54-77-77-01-01.vo6.cloud.suse.de Run time: 444.725193199s
+Removing recipe[database::pg2mariadb_preparation] from run_list
+Prepare completed for d52-54-77-77-01-01.vo6.cloud.suse.de
+Summary of used databases: /etc/pg2mysql/databases.yaml on
+d52-54-77-77-01-01.vo6.cloud.suse.de</screen>
+      <para>The <literal>Summary of used databases:</literal> line shows the
+      exact location of the <filename>/etc/pg2mysql/databases.yaml</filename> file.
+      </para>
+      <para>
+       The <filename>/etc/pg2mysql/databases.yaml</filename> file contains a
+       list of databases along with their source and target connection strings:
+      </para>
+<screen>keystone:
+  source: postgresql://keystone:vZn3nfxXzv97@192.168.243.87/keystone
+  target: mysql+pymysql://keystone:vZn3nfxXzv97@192.168.243.88/keystone?charset=utf8
+glance:
+  source: postgresql://glance:cOau7NhaA54N@192.168.243.87/glance
+  target: mysql+pymysql://glance:cOau7NhaA54N@192.168.243.88/glance?charset=utf8
+cinder:
+  source: postgresql://cinder:idRll2gJPodv@192.168.243.87/cinder
+  target: mysql+pymysql://cinder:idRll2gJPodv@192.168.243.88/cinder?charset=utf8</screen>
+     </step>
+     <step>
+      <para>
+       Install the <package>python-psql2mysql</package> package on the &dbnode;
+       (preferably the one with the <filename>/etc/pg2mysql/databases.yaml</filename> file).
+      </para>
+     </step>
+     <step>
+      <para>
+       To determine whether the &postgres; databases contain data that cannot
+       be migrated to &mariadb;, run <command>psql2mysql</command> with the
+      <literal>precheck</literal> option:</para>
+<screen>&prompt.user;psql2mysql \
+--source postgresql://keystone:vZn3nfxXzv97@192.168.243.87/keystone \
+--target mysql+pymysql://keystone:vZn3nfxXzv97@192.168.243.88/keystone?charset=utf8 \
+precheck</screen>
+      <para>
+       To run precheck operation on all databases in a single operation, use the
+       <literal>--batch</literal> option and the
+       <filename>/etc/pg2mysql/databases.yaml</filename> file as follows:
+      </para>
+<screen>&prompt.user;psql2mysql --batch /etc/pg2mysql/databases.yaml precheck</screen>
+      <para>
+       If the precheck indicates that there is data that cannot be imported
+       into &mariadb;, modify the offending data manually to fix
+       the problems. The example below shows what an output containing issues may
+       look like:
+      </para>
+ <screen>&prompt.user;psql2mysql --source postgresql://cinder:idRll2gJPodv@192.168.243.86/cinder precheck
+Table 'volumes' contains 4 Byte UTF8 characters which are incompatible with the 'utf8' encoding used by MariaDB
+The following rows are affected:
++-----------------------------------------+-----------------+-------+
+|               Primary Key               | Affected Column | Value |
++-----------------------------------------+-----------------+-------+
+| id=5c6b0274-d18d-4153-9fda-ef3d74ab4500 |   display_name  |   💫   |
++-----------------------------------------+-----------------+-------+
+Error during prechecks. 4 Byte UTF8 characters found in the source database.</screen>
+     </step>
+     <step>
+      <para>
+       Stop chef-client services on the nodes, to prevent regular runs of
+       chef-client from starting database-related &ostack; services again. To
+       do this from the &admnode;, you can use the <command>knife ssh roles:dns-client systemctl
+       stop chef-client</command> command. Stop
+       all &ostack; services that make use of the database to prevent them from
+       writing new data during the migration.
+      </para>
+      <note>
+       <title>Testing Migration Procedure</title>
+       <para>
+	If you want to perform a dry run of the migration procedure, you can run the
+       <command>psql2mysql migrate</command> without stopping the
+       database-related &ostack; services. This way, if the test migration
+       fails due to errors that weren't caught by the precheck procedure, you
+       can fix them with &ostack; services still running, thus minimizing the
+       required downtime. When you perform the actual migration, the data in
+       the target databases will be replaced with the latest one in the source databases.
+       </para>
+       <para>
+	After the test migration and before the actual migration, it is recommended to run the
+	<command>psql2mysql purge-tables</command> command to purge tables in
+	the target database. While this step is optional, it speeds up the
+	migration process.
+       </para>
+      </note>
+      <para>
+       On an HA setup, shut down all services that make use of the
+       database. To do this, use the <command>crm</command> command for
+       example:
+      </para>
+<screen>crm resource stop apache2 keystone cinder-api glance-api \
+      neutron-server swift-proxy nova-api magnum-api sahara-api heat-api ceilometer-collector</screen>   
+      <note>
+       <para>
+	If the <literal>Manage stateless active/active services with
+	Pacemaker</literal> option in the &pacemaker; &barcl; is set to
+	<literal>false</literal>, the &ostack; services must be stopped on each
+	cluster node using the <command>systemctl</command> command.
+       </para>
+      </note>
+      <para>
+       <emphasis>From this point, &ostack; services
+       become unavailable.</emphasis>
+      </para>
+     </step>
+     <step>
+      <para>
+       You can now migrate databases using the psql2mysql tool. However, before
+       performing the migration, make sure that target database nodes have
+       enough free space to accommodate the migrated data. To upgrade a single
+       database, use the following command format:
+      </para>
+<screen>&prompt.user;psql2mysql \
+--source postgresql://neutron:secret@192.168.1.1/neutron \
+--target mysql+pymysql://neutron:evenmoresecret@192.168.1.2/neutron?charset=utf8 \
+migrate</screen>
+      <para>
+       To migrate all databases in one operation, use the
+       <literal>--batch</literal> option and the
+       <filename>/etc/pg2mysql/databases.yaml</filename> file as follows:
+      </para>
+<screen>&prompt.user;psql2mysql --batch /etc/pg2mysql/databases.yaml migrate</screen>
+     </step>
+     <step>
+      <para>
+       In the &crow; &wi;, switch to the <guimenu>Database</guimenu>
+       &barcl;. Enable the raw view and set the value of
+       <literal>sql_engine</literal> to <literal>mysql</literal>. Apply the
+       &barcl;. After this step, &ostack; services should be running again and
+       reconfigured to use the &mariadb; database back end.
+      </para>
+     </step>
+     <step>
+      <para>
+        To prevent the &postgres;-related chef code from running, unassign the values
+	from <literal>database-server</literal> role in the <guimenu>Database</guimenu>
+       &barcl;, and apply the &barcl;.
+      </para>
+     </step>
+     <step>
+      <para>
+       Start chef-client services on the nodes again.
+      </para>
+     </step>
+     <step>
+      <para>
+       Stop &postgres; on the &dbnode;s. Uninstall &postgres; packages.
+      </para>
+      <substeps>
+       <step>
+	<para>
+	 To stop the <literal>postgresql</literal> service, run the following
+	 command on one cluster node:
+	</para>
+<screen>&prompt.user;crm resource stop postgresql
+&prompt.user;crm resource stop fs-postgresql
+&prompt.user;crm resource stop drbd-postgresql</screen>
+        <para>
+	 Run the last command only if the previous setup used DRBD.
+	</para>
+       </step>
+       <step>
+	<para>
+	 Remove the packages on all cluster nodes:
+	</para>
+	<screen>&prompt.root;zypper rm postgresql94 postgresql94-server</screen>
+       </step>
+       <step>
+	<para>
+	 If you choose not to upgrade to &productname; 8 right away, delete unused pacemaker resource from one cluster node:
+	</para>
+<screen>&prompt.user;crm conf delete drbd-postgresql
+&prompt.user;crm conf delete fs-postgresql
+&prompt.user;crm conf delete postgresql</screen>
+
+<note>
+ <para>
+  Run the <command>crm conf delete drbd-postgresql</command> command only
+  if the cloud setup your are upgrading uses DRBD.
+ </para>
+</note>
+
+       </step>
+      </substeps>
+     </step>
+     <step>
+      <para>
+       If DRBD is not used as a backend for &rabbit;, it is possible to remove it at this point, using the following command:
+      </para>
+<screen>&prompt.sudo;zypper rm drbd drbd-utils</screen>
+      <para>
+       You can then reclaim the disk space used by &crow; for DRBD. To do this, edit the node data using <systemitem>knife</systemitem>:
+      </para>
+<screen>&prompt.user;knife node edit -a <replaceable>DRBD_NODE</replaceable></screen>
+      <para>
+        Search for <literal>claimed_disks</literal> and remove the entry with owner set to <literal>LVM_DRBD</literal>.
+      </para>
+      <para>
+       Otherwise, skip this step until after the full upgrade is done, since the &rabbit;
+       setup will be automatically switched from DRBD during the upgrade procedure.
+      </para>
+     </step>
+    </procedure>
+   </sect3>
+   <sect3 xml:id="sec.postgre-mariadb.upgrade.scenario2">
+    <title>HA Cluster with 2 &contrnode;s</title>
+     <para>
+     Before your proceed, extend the 2-node cluster with additional node that without any role assigned to
+     it. Make sure that the new node has enough memory to serve as a &contrnode;.
+     </para>
+    <procedure>
+    <step>
+     <para>
+      In &crow; &wi;, switch to the <guimenu>&pacemaker;</guimenu> &barcl;,
+     enable the raw view mode, find the <literal>allow_larger_cluster</literal>
+     option, and set it value to <literal>true</literal>.
+     </para>
+    </step>
+    <step>
+     <para>
+      Add the <literal>pacemaker-cluster-member</literal> role to the new node
+      and apply the &barcl;.
+     </para>
+    </step>
+    <step>
+     <para>
+      Proceed with the migration procedure as described in
+     <xref linkend="sec.postgre-mariadb.upgrade.scenario1"/>.
+     </para>
+    </step>
+    </procedure>
+   </sect3>
   </sect2>
 
   <sect2 xml:id="sec.depl.maintenance.upgrade.ui">
