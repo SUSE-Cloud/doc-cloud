@@ -1,0 +1,266 @@
+<?xml version="1.0"?>
+<!DOCTYPE chapter [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<chapter xml:id="install_ardana_manila"
+ xmlns="http://docbook.org/ns/docbook" version="5.1"
+ xmlns:xi="http://www.w3.org/2001/XInclude"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+ <title>Installing &o_sharefs; and Creating &o_sharefs; Shares</title>
+ <section>
+  <title>Installing &o_sharefs;</title>
+  <para>
+   The &ostack; Shared File Systems service (&o_sharefs;) provides file storage
+   to a virtual machine. The Shared File Systems service provides a storage
+   provisioning control plane for shared or distributed file systems. The
+   service enables management of share types and share snapshots if you have a
+   driver supports them.
+  </para>
+  <para>
+   The &o_sharefs; service consists of the following components: manila-api,
+   manila-data, manila-scheduler, manila-share, and messaging queue.
+  </para>
+  <para>
+   The following steps will install &o_sharefs;:
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Log in to the &lcm;.
+    </para>
+   </step>
+   <step>
+    <para>
+     Apply &o_sharefs; changes in <filename>control_plane.yml</filename>.
+    </para>
+    <screen>&prompt.ardana;cd /var/lib/ardana/openstack/my_cloud/definition/data/</screen>
+    <para>
+     Add <literal>manila-client</literal> to the list of service components for
+     &lcm;, <literal>manila-api</literal> to the &contrnode;, and
+     <literal>manila-share</literal> to &slsa; &compnode;
+    </para>
+   </step>
+   <step>
+    <para>
+     Run the Configuration Processor.
+    </para>
+    <screen>&prompt.ardana;cd ~/openstack
+&prompt.ardana;git add -A
+&prompt.ardana;git commit -m "Manila config"
+&prompt.ardana;cd ~/openstack/ardana/ansible/
+&prompt.ardana;ansible-playbook -i hosts/localhost config-processor-run.yml
+&prompt.ardana;ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+   </step>
+   <step>
+    <para>
+     Deploy &o_sharefs;
+    </para>
+    <screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;include manila-deploy.yml in ardana-deploy.yml
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts site.yml</screen>
+   </step>
+   <step>
+    <para>
+     Verify the &o_sharefs; installation
+    </para>
+    <screen>&prompt.ardana;. manila.osrc; . service.osrc; manila api-version; manila service-list</screen>
+    <para>
+     The &o_sharefs; CLI can be run from &lcm; or controller nodes.
+    </para>
+   </step>
+  </procedure>
+ </section>
+ <section>
+  <title>Creating &o_sharefs; Shares</title>
+  <para>
+   &o_sharefs; can support two modes, with and without the handling of share
+   servers. The mode depends on driver support.
+  </para>
+  <para>
+   Mode 1: The back-end is a generic driver,
+   <literal>driver_handles_share_servers = False</literal> (DHSS is
+   disabled). The following example creates a VM using &o_sharefs; share image.
+  </para>
+  <procedure>
+   <step>
+   <screen>&prompt.ardana;wget http://tarballs.openstack.org/manila-image-elements/images/manila-service-image-master.qcow2
+&prompt.ardana;. service.osrc;glance image-create --name
+"manila-service-image-new" \
+--file manila-service-image-master.qcow2 --disk-format qcow2 \
+--container-format bare --visibility public --progress
+&prompt.ardana;openstack image list (verify manila image)
+&prompt.ardana;openstack security group create manila-security-group \
+--description "Allows web and NFS traffic to manila server."
+&prompt.ardana;openstack security group rule create manila-security-group \
+--protocol tcp --dst-port 2049
+&prompt.ardana;openstack security group rule create manila-security-group \
+--protocol udp --dst-port 2049
+&prompt.ardana;openstack security group rule create manila-security-group \
+--protocol tcp --dst-port 22
+&prompt.ardana;openstack security group rule create manila-security-group \
+--protocol icmp
+&prompt.ardana;openstack security group rule list manila-security-group (verify manila security group)
+&prompt.ardana;openstack keypair create --public-key ~/.ssh/id_rsa.pub mykey
+&prompt.ardana;neutron net-create n1
+&prompt.ardana;neutron subnet-create --name s1 n1 <replaceable>11.11.11.0/24</replaceable>
+&prompt.ardana;neutron router-create r1
+&prompt.ardana;neutron router-interface-add r1 s1
+&prompt.ardana;neutron router-gateway-set r1 ext-net
+&prompt.ardana;openstack network list
+&prompt.ardana;openstack server create manila-vm --flavor m1.small \
+--image IMAGE_ID --nic net-id=N1_ID --security-group manila-security-group \
+--key-name myKey
+&prompt.ardana;oenstack floating ip create <replaceable>EXT-NET_ID</replaceable>
+&prompt.ardana;openstack server add floating ip manila-vm <replaceable>EXT-NET_ID</replaceable></screen>
+   </step>
+   <step>
+    <para>
+     Validate your ability to ping or connect by SSH to
+     <literal>manila-vm</literal> with credentials <literal>manila/manila</literal>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Modify the configuration:
+    </para>
+    <screen>&prompt.ardana;vi
+    /etc/manila/manila.conf.d/100-manila.conf</screen>
+    <para>
+     Make changes in [generic1] section
+    </para>
+    <screen>service_instance_name_or_id = <replaceable>MANILA_VM_ID</replaceable>
+service_net_name_or_ip = <replaceable>MANILA_VM_FLOATING_IP</replaceable>
+tenant_net_name_or_ip = <replaceable>MANILA_VM_FLOATING_IP</replaceable></screen>
+   </step>
+   <step>
+    <para>
+     Create a share type. OpenStack docs has <link
+     xlink:href="https://docs.openstack.org/manila/pike/install/post-install.html">detailed
+     instructions</link>. Use the instructions for <literal>manila type-create
+     default_share_type False</literal>
+    </para>
+   </step>
+   <step>
+    <para>
+     Restart &o_sharefs; services and verify they are up.
+    </para>
+    <screen>&prompt.ardana;systemctl restart openstack-manila-api \
+openstack-manila-share openstack-manila-scheduler
+&prompt.ardana;manila service-list</screen>
+   </step>
+   <step>
+    <para>
+     Continue creating a share
+    </para>
+    <screen>&prompt.ardana;manila create NFS 1 --name <replaceable>SHARE</replaceable>
+&prompt.ardana;manila list (status will change from  creating to available)
+&prompt.ardana;manila show share1
+&prompt.ardana;manila access-allow <replaceable>SHARE</replaceable> ip <replaceable>INSTANCE_IP</replaceable></screen>
+   </step>
+   <step>
+    <para>
+     Mount the share on a Compute instance
+    </para>
+    <screen>&prompt.ardana;mkdir ~/test_directory
+&prompt.sudo;mount -vt nfs <replaceable>EXT-NET_ID</replaceable>:/shares/<replaceable>SHARE-SHARE-ID</replaceable> ~/test_folder</screen>
+   </step>
+  </procedure>
+  <para>
+   Mode 2: The back-end is <literal>NetApp</literal>,
+   <literal>driver_handles_share_servers = True</literal> (DHSS is
+   enabled).
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Modify the configuration
+    </para>
+    <screen>&prompt.ardana;vi /etc/manila/manila.conf.d/100-manila.conf</screen>
+    <para>
+     Add a <literal>backendNetApp</literal> section
+    </para>
+    <screen>share_driver = manila.share.drivers.netapp.common.NetAppDriver
+driver_handles_share_servers = True
+share_backend_name=backendNetApp
+netapp_login=<replaceable>NetApp_USERNAME</replaceable>
+netapp_password=<replaceable>NetApp_PASSWORD</replaceable>
+netapp_server_hostname=<replaceable>NETAPP_HOSTNAME</replaceable>
+netapp_root_volume_aggregate=<replaceable>AGGREGATE_NAME</replaceable></screen>
+    <para>
+     Add to [DEFAULT] section
+    </para>
+    <screen>enabled_share_backends = backendNetApp
+default_share_type = default1</screen>
+   </step>
+   <step>
+    <para>
+     Create a &o_sharefs; share image and verify it
+    </para>
+    <screen>&prompt.ardana;wget http://tarballs.openstack.org/manila-image-elements/images/manila-service-image-master.qcow2
+&prompt.ardana;. service.osrc;glance image-create --name <literal>manila-service-image-new</literal> \
+--file manila-service-image-master.qcow2 --disk-format qcow2 \
+--container-format bare --visibility public --progress
+&prompt.ardana;openstack image list (verify a &o_sharefs; image)</screen>
+   </step>
+   <step>
+    <para>
+     Create a share type. OpenStack docs has <link
+     xlink:href="https://docs.openstack.org/manila/pike/install/post-install.html">detailed
+     instructions</link>. Use the instructions for <literal>manila type-create
+     default_share_type True</literal> .
+    </para>
+   </step>
+   <step>
+    <para>
+     Restart services
+    </para>
+    <screen>&prompt.ardana;systemctl restart openstack-manila-api openstack-manila-share \openstack-manila-scheduler
+&prompt.ardana;manila service-list (verify services are up)</screen>
+   </step>
+   <step>
+    <para>
+     Continue creating a share. <literal>OCTAVIA-MGMT-NET</literal> can be used as <replaceable>PRIVATE_NETWORK</replaceable> in this example.
+    </para>
+    <screen>&prompt.ardana;manila share-network-create --name demo-share-network1 \
+--neutron-net-id PRIVATE_NETWORK_ID --neutron-subnet-id PRIVATE_NETWORK_SUBNET_ID
+&prompt.ardana;manila create NFS 1 --name share2 --share-network demo-share-network1</screen>
+   </step>
+  </procedure>
+ </section>
+ <section>
+  <title>Troubleshooting</title>
+  <para>
+   If manila-list shows share status in error, use <literal>storage aggregate
+   show</literal> to list available aggregates. Different errors that may be
+   shown in <filename>/var/log/manila/manila-share.log</filename>
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term>NaApiError: NetApp API failed.</term>
+    <listitem>
+     <para>
+      Reason - 15675:Cannot provision volume <literal>root</literal> on root
+      aggregate. Provisioning a volume on a root aggregate is not
+      supported.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>If aggregate = <replaceable>NODE1_data</replaceable></term>
+    <listitem>
+     <para>
+      Exception during message handling: NetAppException: Failed to create VLAN on <replaceable>PORT</replaceable>
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>If aggregate = <replaceable>NODE2_data</replaceable></term>
+    <listitem>
+     <para>
+      NetAppException: Failed to create a route to 0.0.0.0/0 via gateway None: Invalid value specified for <literal>gateway</literal> element within <literal>net-routes-create</literal>
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </section>
+</chapter>
