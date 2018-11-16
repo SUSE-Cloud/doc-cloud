@@ -109,11 +109,10 @@
    </listitem>
    <listitem>
     <para>
-     There is no ESX migration process. EON VMware Connector support and
-     infrastructure used in &hpecloud; 5 no longer exists in &hpecloud;
-     &hpeversion;. ESX hosts must be detached and removed from the cloud before
-     migration. They can be added as new compute hosts after migration. For
-     installation documentation see <xref linkend="install_esx_ovsvapp"/>,
+     In order to migrate ESX compute VMs as part of this process, existing
+     ESX hosts must be capable of migrating VMs between them, as rebalancing
+     workloads will be necessary while ESX hosts are individually removed
+     and restored as members of the clouds.
     </para>
    </listitem>
    <listitem>
@@ -150,6 +149,16 @@ done
     echo "Deleting $backup"
   done
 done</screen>
+   </step>
+   <step>
+    <para>
+     If your cloud includes VMware ESX compute clusters, save the Eon service
+     activation template for future reference, as the Eon service will no
+     longer exist once migration is complete.
+    </para>
+<screen><prompt>(old-deployer)> </prompt>source ~/service.osrc
+<prompt>(old-deployer)> </prompt>eon get-activation-template \
+  --filename ~/activationtemplate.json --type esxcluster</screen>
    </step>
    <step>
     <para>
@@ -204,7 +213,7 @@ done</screen>
      <listitem>
       <para>
        Data model compatibility with &productname; &productnumber; (no vsa, ceph,
-       eon, or cmc-service)
+       eon-*, or cmc-service)
       </para>
      </listitem>
     </itemizedlist>
@@ -361,6 +370,14 @@ done</screen>
        sles12sp3-x86_64</systemitem> in each one. (Otherwise, they will be
        re-imaged with hLinux.)
       </para>
+      <note>
+       <title>VMware ESX Nodes</title>
+       <para>
+        All ESX proxy and OVSvApp nodes should be included in the control
+        plane updates to the new <systemitem>distro-id</systemitem> as
+        described above.
+       </para>
+      </note>
      </listitem>
      <listitem>
       <para>
@@ -622,6 +639,53 @@ done</screen>
    </step>
    <step>
     <para>
+     If VMware ESX compute hosts are present in the cloud, encrypt your ESX login
+     credentials for embedding in the data model. This will require use of
+     <systemitem>the HOS_USER_PASSWORD_ENCRYPT_KEY</systemitem> environment
+     variable and the <filename>hosencrypt.py</filename> script, which
+     is also used for encrypting the following other data model elements:
+    </para>
+    <itemizedlist>
+     <listitem><para>Ironic OneView password</para></listitem>
+     <listitem><para>Cinder backend passwords (optional)</para></listitem>
+     <listitem>
+      <para>
+       Barbican master key for <systemitem>simple_crypto_plugin</systemitem>
+       backend (optional)
+      </para>
+     </listitem>
+     <listitem><para>HPE DCN Nuage VSD password</para></listitem>
+    </itemizedlist>
+    <para>
+     The use of <filename>hosencrypt.py</filename> for encryption is
+     required for VMware ESX credentials (unlike some of the items above,
+     which may optionally be stored in plaintext.)
+    </para>
+    <para>
+     If you have used <filename>hosencrypt.py</filename> previously for
+     any of the items above, then you have already selected an encryption key
+     for use with your cloud. This encryption key must be exported into the
+     environment variable <systemitem>HOS_USER_PASSWORD_ENCRYPT_KEY</systemitem>
+     when the password is encrypted, and again before running playbooks such
+     as <filename>site.yml</filename>. If this is your first time using such
+     encryption, choose a new, unique encryption key and proceed:
+    </para>
+    <screen><prompt>(seed)> </prompt>export HOS_USER_PASSWORD_ENCRYPT_KEY=<replaceable>ENCRYPTIONKEY</replaceable>
+    <prompt>(seed)> </prompt>./hosencrypt.py
+unencrypted value? <replaceable>&lt;VCENTERPASSWORD&gt;</replaceable>
+@hos@U2FsdGVkX180/6dJIPPt49epntxAOFP0MtpjWsOaYzc=</screen>
+    <para>
+     Capture the resulting encrypted value and paste it into the
+     <replaceable>password</replaceable> field of
+     <filename>~/helion/my_cloud/definition/data/pass_through.yml</filename>,
+     replacing the value previously set there by Eon. If you have questions
+     about the structure or content in pass_through.yml, comments regarding
+     its use are provided with the &hpecloud; 5.SCP example data models such as in
+     <filename>~/helion/examples/entry-scale-esx-kvm-vsa/data/pass_through.yml</filename>.
+    </para>
+   </step>
+   <step>
+    <para>
      In your cloud's data model, edit the control plane definition and
      add a new data model entry for <systemitem>nova-placement-api</systemitem>
      into the cluster which already includes <systemitem>nova-api</systemitem>.
@@ -635,7 +699,6 @@ done</screen>
      Prepare for running the migration playbook:
     </para>
 <screen><prompt>(seed)> </prompt>cd ~/helion/hos/ansible
-<prompt>(seed)> </prompt>ansible-playbook -i hosts/localhost cobbler-deploy.yml
 <prompt>(seed)> </prompt>ansible-playbook -i hosts/localhost config-processor-run.yml
 <prompt>(seed)> </prompt>ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
     <para>
@@ -723,11 +786,11 @@ done</screen>
 -e nodelist=<replaceable>NODE_IDs</replaceable></screen>
       <note>
        <para>
-        Do not reimage the &compnode;s, the original deployer, or seed. Identify
-        the set of remaining control plane nodes from the full list of systems
-        addressable by cobbler, as shown by <command>cobbler system list</command>,
-        and provide them as a comma-separated list in the
-        <systemitem>nodelist</systemitem> parameter.
+        Do not re-image the &compnode;s, the original deployer, OVSvApp nodes,
+        ESX (nova-proxy) nodes, or seed using this method. Identify the set of
+        remaining control plane nodes from the full list of systems addressable by
+        cobbler, as shown by <command>cobbler system list</command>, and provide them
+        as a comma-separated list in the <systemitem>nodelist</systemitem> parameter.
        </para>
       </note>
      </listitem>
@@ -741,6 +804,19 @@ done</screen>
        <xref linkend="cha.depl.dep_inst"/>, but when creating the user account
        and group, use the name <systemitem class="username">stack</systemitem>
        instead of <systemitem class="username">ardana</systemitem>.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       ESX (nova-proxy) nodes must also be rebuilt at this time, and must be done
+       using the above-mentioned manual process (not using cobbler). For these
+       virtual machines, reinstall the operating system using the &sls; 12 SP3
+       installation ISO. Note that, when installing, you must select a
+       partitioning method using logical volumes and establish a primary
+       logical volume which is reasonably small in size (i.e. 50GB). It will
+       be automatically expanded according to your data model during upcoming
+       steps in the migration process. Again, the proper system user account name
+       and group for these VMs is <systemitem class="username">stack</systemitem>.
       </para>
      </listitem>
      <listitem>
@@ -768,18 +844,49 @@ done</screen>
    <step>
     <para>
      Create the log directory for the configuration processor, and then run the
-     &hpecloud; 5.SCP installation. Use the flag to enable database import from
-     the snapshot that was captured from the cloud:
+     &hpecloud; 5.SCP installation. Enable database import from the snapshot that
+     was captured from your cloud by using the <systemitem>dbcontent</systemitem>
+     flag:
     </para>
 <screen><prompt>(seed)> </prompt>mkdir -p /var/log/configuration_processor
 <prompt>(seed)> </prompt>cd ~/scratch/ansible/next/hos/ansible
-<prompt>(seed)> </prompt>ansible-playbook -i hosts/verb_hosts site.yml -e dbcontent=~/mysql_dump.sql</screen>
+<prompt>(seed)> </prompt>ansible-playbook -i hosts/verb_hosts site.yml \
+  -e dbcontent=~/mysql_dump.sql -l '!NEU-OVSVAPP'</screen>
    </step>
    <step>
     <para>
-     At this time, the cloud should again be operational, with the exception
+     Upon completion, the cloud should again be operational, with the exception
      of monitoring components that will remain offline until the upgrade to
      &productname; &productnumber; is fully complete.
+    </para>
+   </step>
+   <step>
+    <para>
+     If OVSvApp nodes are present in the environment, they should now be
+     re-imaged with an operating system installed from the &sls; 12 SP3 ISO.
+     Follow the directions above regarding ESX (nova-proxy) nodes exactly,
+     doing the same for OVSvApp nodes.
+    </para>
+    <note>
+     <para>
+      Note that, while a VMware ESX host's OVSvApp node is offline, other running
+      VMs on the same host will experience degraded network connectivity. To ensure
+      maximum uptime, migrate all other VMs away from a host before reinstalling
+      its OVSvApp node. Once the node is fully online again, the affected VMs
+      can be returned to their original host.
+     </para>
+    </note>
+    <para>
+     After re-imaging an OVSvApp node, install &hpecloud; 5.SCP components on it
+     from your seed using:
+    </para>
+<screen><prompt>(seed)> </prompt>ansible-playbook -i hosts/verb_hosts site.yml \
+  -l '<replaceable>OVSVAPP_HOSTS</replaceable>'</screen>
+    <para>
+     More than one OVSvApp host can be installed at once by separating their names
+     using commas. Note that each host should be identified by its Ansible-friendly
+     name, matching the way it's referred to in the
+     <filename>hosts/verb_hosts</filename> file.
     </para>
    </step>
   </procedure>
@@ -1023,6 +1130,10 @@ git commit -a -m "Conversion to Ardana"
 git checkout site
 git merge ardana -m "Conversion to Ardana"
 </screen>
+    <para>
+     Any merge conflicts that arise through this procedure can be addressed
+     in the manner described in <xref linkend="git_merge"/>.
+    </para>
    </step>
    <step>
     <para>
@@ -1147,7 +1258,10 @@ sudo zypper refresh</screen>
      to be used, locking its account with the following command
      is highly recommended:
     </para>
-<screen>sudo usermod -L stack</screen>
+<screen>sudo usermod -L stack
+sudo rm -rf ~stack/.ssh/authorized_keys
+sudo mv ~stack/scratch ~stack/scratch.newton
+sudo mv ~stack/helion ~stack/helion.newton</screen>
    </step>
    <step>
     <para>
