@@ -407,6 +407,16 @@
        Upgrade Instructions</link>.
      </para>
     </listitem>
+    <listitem>
+      <para>
+	Run the command <command>nova-manage db archive_deleted_rows</command> to purge deleted instances from the database table. This can significanly reduce time required for the database migration procedure.
+      </para>
+    </listitem>
+    <listitem>
+      <para>
+	Run the commands <command>cinder-manage db purge</command> and <command>heat-manage purge_deleted</command> to purge database entries that are marked as deleted.
+      </para>
+    </listitem>
    </itemizedlist>
 
    <itemizedlist xml:id="list.depl.maintenance.upgrade.non-disruptive">
@@ -758,7 +768,8 @@ migrate</screen>
    <sect3 xml:id="sec.postgre-mariadb.upgrade.scenario2">
     <title>HA Cluster with 2 &contrnode;s</title>
      <para>
-     Before your proceed, extend the 2-node cluster with additional node that without any role assigned to
+     Before your proceed, extend the 2-node cluster with additional node that
+     has no role assigned to
      it. Make sure that the new node has enough memory to serve as a &contrnode;.
      </para>
     <procedure>
@@ -766,7 +777,8 @@ migrate</screen>
      <para>
       In &crow; &wi;, switch to the <guimenu>&pacemaker;</guimenu> &barcl;,
      enable the raw view mode, find the <literal>allow_larger_cluster</literal>
-     option, and set it value to <literal>true</literal>.
+     option, and set it value to <literal>true</literal>. Note that this
+     is relevant only for DRBD clusters.
      </para>
     </step>
     <step>
@@ -1132,19 +1144,20 @@ migrate</screen>
       &productnumber; and &cloudos;. Run the following command:
      </para>
      <screen>&prompt.root;crowbarctl upgrade repocheck crowbar
-+---------------------+----------------------------------------+
-| Status              | Value                                  |
-+---------------------+----------------------------------------+
-| os.available        | false                                  |
-| os.repos            | SLES12-SP3-Pool                        |
-|                     | SLES12-SP3-Updates                     |
-| openstack.available | false                                  |
-| openstack.repos     | SUSE-OpenStack-Cloud-Crowbar-8-Pool    |
-|                     | SUSE-OpenStack-Cloud-Crowbar-8-Updates |
-+---------------------+----------------------------------------+</screen>
++----------------------------------------+-------------------------------------+-----------+
+| Repository                             | Status                              | Type      |
++----------------------------------------+-------------------------------------+-----------+
+| SLE12-SP3-HA-Pool                      | missing (x86_64), inactive (x86_64) | ha        |
+| SLE12-SP3-HA-Updates                   | available                           | ha        |
+| SLES12-SP3-Pool                        | available                           | os        |
+| SLES12-SP3-Updates                     | available                           | os        |
+| SUSE-OpenStack-Cloud-Crowbar-8-Pool    | available                           | openstack |
+| SUSE-OpenStack-Cloud-Crowbar-8-Updates | available                           | openstack |
++----------------------------------------+-------------------------------------+-----------+</screen>
      <para>
-      All four required repositories are reported as missing, because they have
-      not yet been added to the &crow; configuration. To add them to the
+      The output above indicates that the <literal>SLE12-SP3-HA-Pool</literal>
+      repository is  missing, because it has
+      not yet been added to the &crow; configuration. To add it to the
       &admserv; proceed as follows.
      </para>
      <para>
@@ -1164,20 +1177,6 @@ migrate</screen>
         If you prefer to use zypper over &yast;, you may alternatively make the
         change using <command>zypper mr</command>.
        </para>
-       <!-- fs 2017-02-03: Does not seem possible to use this one for SOC6 to
-            SOC7 upgrade manual
-       <para>
-        Note that if you have used the contents of the
-        <filename>/srv/tftpboot/suse-12.1/x86_64/install</filename> directory
-        as a source for the <literal>SLES12-SP1-Pool</literal>, you may also
-        use the same approach now. Create the directory
-        <filename>&tftp_dir;/install</filename> and mirror the contents from
-        the first &cloudos; installation medium to this directory. See <xref
-        linkend="sec.depl.adm_conf.repos.product"/> for instructions. Once
-        done, you can use the newly created directory as a source for
-        &sle_repo;.
-        </para>
-        -->
       </step>
       <step>
        <para>
@@ -1185,20 +1184,6 @@ migrate</screen>
         pool repositories with the respective &productname; &productnumber;
         versions.
        </para>
-       <!-- fs 2017-02-03: Does not seem possible to use this one from SOC6 to
-            SOC7 upgrade manual.
-       <para>
-        Note that if you have used the contents of the
-        <filename>/srv/tftpboot/suse-12.1/x86_64/install</filename> directory
-        as a source for the <literal>SLES12-SP1-Pool</literal>, you may also
-        use the same approach now. Create the directory
-        <filename>&tftp_dir;/repos/Cloud</filename> and mirror the contents
-        from the first &productname; &productnumber; installation medium to
-        this directory. See <xref linkend="sec.depl.adm_conf.repos.product"/>
-        for instructions. Once done, you can use the newly created directory as
-        a source for &sle_repo;.
-        </para>
-        -->
       </step>
       <step>
        <para>
@@ -1437,7 +1422,7 @@ migrate</screen>
      </para>
      <para>
        When upgrading individual &compnode;s using the <command>crowbarctl
-       upgrade nodes</command> <replaceable>NODE_NAME</replaceable> command, the
+       upgrade nodes <replaceable>NODE_NAME</replaceable></command> command, the
        <literal>current_substep_status</literal> entry changes to
        <literal>node_finished</literal> when the upgrade of a single node is
        done. After all nodes have been upgraded, the
@@ -1457,6 +1442,66 @@ migrate</screen>
      upgrade process.
     </para>
    </note>
+  </sect2>
+  <sect2 xml:id="sec.depl.maintenance.parallel.upgrade.cmdl">
+   <title>Simultaneous Upgrade of Multiple Nodes</title>
+   <para>
+    It is possible to select more &compnode;s for selective upgrade instead of
+    just one. Upgrading multiple nodes simultaneously significantly reduces the
+    time required for the upgrade.
+   </para>
+   <para>
+    To upgrade multiple nodes simultaneously, use the following command:
+   </para>
+<screen>&prompt.root;crowbarctl upgrade nodes <replaceable>NODE_NAME_1</replaceable>,<replaceable>NODE_NAME_2</replaceable>,<replaceable>NODE_NAME_3</replaceable></screen>
+   <para>
+    Node names can be separated by comma, semicolon, or space. When using
+    space as separator, put the part containing node names in quotes.
+   </para>
+   <para>
+    Use the following command to find the names of the nodes that haven't been upgraded:
+   </para>
+<screen>&prompt.root;crowbarctl upgrade status nodes</screen>
+   <para>
+    Since the simultaneous upgrade is intended to be non-disruptive, all
+    &compnode;s targeted for a simultaneous upgrade must be cleared of any
+   running instances.</para>
+   <note>
+    <para>
+     You can check what instances are running on a specific
+    node using the following command:
+    </para>
+<screen>&prompt.user;nova list --all-tenants --host <replaceable>NODE_NAME</replaceable></screen>
+    </note>
+   <para>
+    This means that it is not possible to pick an arbitrary number of
+    &compnode;s for the simultaneous upgrade operation: you have to make sure
+    that it is possible to live-migrate every instance away from the batch of
+    nodes that are supposed to be upgraded in parallel. In case of high load
+    on all &compnode;s, it might not be possible to upgrade more than one node
+    at a time. Therefore, it is recommended to perform the following steps for
+    each node targeted for the simultaneous upgrade prior to running the
+    <command>crowbarctl upgrade nodes</command> command.
+   </para>
+   <procedure>
+    <step>
+     <para>
+      Disable the &compnode; so it's not used as a target during
+      live-evacuation of any other node:
+     </para>
+<screen>&prompt.user;openstack compute service set --disable <replaceable>"NODE_NAME"</replaceable> nova-compute</screen>
+    </step>
+    <step>
+     <para>
+      Evacuate all running instances from the node:
+     </para>
+<screen>&prompt.user;nova host-evacuate-live <replaceable>"NODE_NAME"</replaceable></screen>
+    </step>
+   </procedure>
+   <para>
+    After completing these steps, you can perform a simultaneous upgrade of
+    the selected nodes.
+   </para>
   </sect2>
  </sect1>
 
