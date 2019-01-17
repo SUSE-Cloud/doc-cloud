@@ -1,0 +1,241 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+  <title>Install and configure the storage nodes for Red Hat Enterprise Linux and CentOS</title>
+  <para>This section describes how to install and configure storage nodes
+            that operate the account, container, and object services. For
+            simplicity, this configuration references two storage nodes, each
+            containing two empty local block storage devices. The instructions
+            use <literal>/dev/sdb</literal> and <literal>/dev/sdc</literal>, but you can substitute different
+            values for your particular nodes.</para>
+  <para>Although Object Storage supports any file system with
+            extended attributes (xattr), testing and benchmarking
+            indicate the best performance and reliability on XFS. For
+            more information on horizontally scaling your environment, see the
+            <link xlink:href="http://docs.openstack.org/developer/swift/deployment_guide.html">Deployment Guide</link>.</para>
+  <para>This section applies to Red Hat Enterprise Linux 7 and CentOS 7.</para>
+  <section>
+    <title>Prerequisites</title>
+    <para>Before you install and configure the Object Storage service on the
+                storage nodes, you must prepare the storage devices.</para>
+    <note>
+      <para>Perform these steps on each storage node.</para>
+    </note>
+    <procedure>
+      <step>
+        <para>Install the supporting utility packages:</para>
+        <screen language="console"># yum install xfsprogs rsync</screen>
+      </step>
+      <step>
+        <para>Format the <literal>/dev/sdb</literal> and <literal>/dev/sdc</literal> devices as XFS:</para>
+        <screen language="console"># mkfs.xfs /dev/sdb
+# mkfs.xfs /dev/sdc</screen>
+      </step>
+      <step>
+        <para>Create the mount point directory structure:</para>
+        <screen language="console"># mkdir -p /srv/node/sdb
+# mkdir -p /srv/node/sdc</screen>
+      </step>
+      <step>
+        <para>Edit the <literal>/etc/fstab</literal> file and add the following to it:</para>
+        <screen language="none">/dev/sdb /srv/node/sdb xfs noatime,nodiratime,nobarrier,logbufs=8 0 2
+/dev/sdc /srv/node/sdc xfs noatime,nodiratime,nobarrier,logbufs=8 0 2</screen>
+      </step>
+      <step>
+        <para>Mount the devices:</para>
+        <screen language="console"># mount /srv/node/sdb
+# mount /srv/node/sdc</screen>
+      </step>
+      <step>
+        <para>Create or edit the <literal>/etc/rsyncd.conf</literal> file to contain the following:</para>
+        <screen language="none">uid = swift
+gid = swift
+log file = /var/log/rsyncd.log
+pid file = /var/run/rsyncd.pid
+address = MANAGEMENT_INTERFACE_IP_ADDRESS
+
+[account]
+max connections = 2
+path = /srv/node/
+read only = False
+lock file = /var/lock/account.lock
+
+[container]
+max connections = 2
+path = /srv/node/
+read only = False
+lock file = /var/lock/container.lock
+
+[object]
+max connections = 2
+path = /srv/node/
+read only = False
+lock file = /var/lock/object.lock</screen>
+        <para>Replace <literal>MANAGEMENT_INTERFACE_IP_ADDRESS</literal> with the IP address of the
+                        management network on the storage node.</para>
+        <note>
+          <para>The <literal>rsync</literal> service requires no authentication, so consider running
+                            it on a private network in production environments.</para>
+        </note>
+      </step>
+    </procedure>
+    <procedure>
+      <step>
+        <para>Start the <literal>rsyncd</literal> service and configure it to start when the
+                        system boots:</para>
+        <screen language="console"># systemctl enable rsyncd.service
+# systemctl start rsyncd.service</screen>
+      </step>
+    </procedure>
+  </section>
+  <section>
+    <title>Install and configure components</title>
+    <note>
+      <para>Default configuration files vary by distribution. You might need
+                    to add these sections and options rather than modifying existing
+                    sections and options. Also, an ellipsis (<literal>...</literal>) in the configuration
+                    snippets indicates potential default configuration options that you
+                    should retain.</para>
+    </note>
+    <note>
+      <para>Perform these steps on each storage node.</para>
+    </note>
+    <procedure>
+      <step>
+        <para>Install the packages:</para>
+        <screen language="console"># yum install openstack-swift-account openstack-swift-container \
+  openstack-swift-object</screen>
+      </step>
+    </procedure>
+    <procedure>
+      <step>
+        <para>Obtain the accounting, container, and object service configuration
+                        files from the Object Storage source repository:</para>
+        <screen language="console"><?dbsuse-fo font-size="8pt"?># curl -o /etc/swift/account-server.conf https://git.openstack.org/cgit/openstack/swift/plain/etc/account-server.conf-sample?h=stable/pike
+# curl -o /etc/swift/container-server.conf https://git.openstack.org/cgit/openstack/swift/plain/etc/container-server.conf-sample?h=stable/pike
+# curl -o /etc/swift/object-server.conf https://git.openstack.org/cgit/openstack/swift/plain/etc/object-server.conf-sample?h=stable/pike</screen>
+      </step>
+      <step>
+        <para>Edit the <literal>/etc/swift/account-server.conf</literal> file and complete the
+                        following actions:</para>
+        <itemizedlist>
+          <listitem>
+            <para>In the <literal>[DEFAULT]</literal> section, configure the bind IP address, bind port,
+                                user, configuration directory, and mount point directory:</para>
+            <screen language="none">[DEFAULT]
+...
+bind_ip = MANAGEMENT_INTERFACE_IP_ADDRESS
+bind_port = 6202
+user = swift
+swift_dir = /etc/swift
+devices = /srv/node
+mount_check = True</screen>
+            <para>Replace <literal>MANAGEMENT_INTERFACE_IP_ADDRESS</literal> with the IP address of the
+                                management network on the storage node.</para>
+          </listitem>
+          <listitem>
+            <para>In the <literal>[pipeline:main]</literal> section, enable the appropriate modules:</para>
+            <screen language="none">[pipeline:main]
+pipeline = healthcheck recon account-server</screen>
+            <note>
+              <para>For more information on other modules that enable additional features,
+                                    see the <link xlink:href="http://docs.openstack.org/developer/swift/deployment_guide.html">Deployment Guide</link>.</para>
+            </note>
+          </listitem>
+          <listitem>
+            <para>In the <literal>[filter:recon]</literal> section, configure the recon (meters) cache
+                                directory:</para>
+            <screen language="none">[filter:recon]
+use = egg:swift#recon
+...
+recon_cache_path = /var/cache/swift</screen>
+          </listitem>
+        </itemizedlist>
+      </step>
+      <step>
+        <para>Edit the <literal>/etc/swift/container-server.conf</literal> file and complete the
+                        following actions:</para>
+        <itemizedlist>
+          <listitem>
+            <para>In the <literal>[DEFAULT]</literal> section, configure the bind IP address, bind port,
+                                user, configuration directory, and mount point directory:</para>
+            <screen language="none">[DEFAULT]
+...
+bind_ip = MANAGEMENT_INTERFACE_IP_ADDRESS
+bind_port = 6201
+user = swift
+swift_dir = /etc/swift
+devices = /srv/node
+mount_check = True</screen>
+            <para>Replace <literal>MANAGEMENT_INTERFACE_IP_ADDRESS</literal> with the IP address of the
+                                management network on the storage node.</para>
+          </listitem>
+          <listitem>
+            <para>In the <literal>[pipeline:main]</literal> section, enable the appropriate modules:</para>
+            <screen language="none">[pipeline:main]
+pipeline = healthcheck recon container-server</screen>
+            <note>
+              <para>For more information on other modules that enable additional features,
+                                    see the <link xlink:href="http://docs.openstack.org/developer/swift/deployment_guide.html">Deployment Guide</link>.</para>
+            </note>
+          </listitem>
+          <listitem>
+            <para>In the <literal>[filter:recon]</literal> section, configure the recon (meters) cache
+                                directory:</para>
+            <screen language="none">[filter:recon]
+use = egg:swift#recon
+...
+recon_cache_path = /var/cache/swift</screen>
+          </listitem>
+        </itemizedlist>
+      </step>
+      <step>
+        <para>Edit the <literal>/etc/swift/object-server.conf</literal> file and complete the
+                        following actions:</para>
+        <itemizedlist>
+          <listitem>
+            <para>In the <literal>[DEFAULT]</literal> section, configure the bind IP address, bind port,
+                                user, configuration directory, and mount point directory:</para>
+            <screen language="none">[DEFAULT]
+...
+bind_ip = MANAGEMENT_INTERFACE_IP_ADDRESS
+bind_port = 6200
+user = swift
+swift_dir = /etc/swift
+devices = /srv/node
+mount_check = True</screen>
+            <para>Replace <literal>MANAGEMENT_INTERFACE_IP_ADDRESS</literal> with the IP address of the
+                                management network on the storage node.</para>
+          </listitem>
+          <listitem>
+            <para>In the <literal>[pipeline:main]</literal> section, enable the appropriate modules:</para>
+            <screen language="none">[pipeline:main]
+pipeline = healthcheck recon object-server</screen>
+            <note>
+              <para>For more information on other modules that enable additional features,
+                                    see the <link xlink:href="http://docs.openstack.org/developer/swift/deployment_guide.html">Deployment Guide</link>.</para>
+            </note>
+          </listitem>
+          <listitem>
+            <para>In the <literal>[filter:recon]</literal> section, configure the recon (meters) cache
+                                and lock directories:</para>
+            <screen language="none">[filter:recon]
+use = egg:swift#recon
+...
+recon_cache_path = /var/cache/swift
+recon_lock_path = /var/lock</screen>
+          </listitem>
+        </itemizedlist>
+      </step>
+      <step>
+        <para>Ensure proper ownership of the mount point directory structure:</para>
+        <screen language="console"># chown -R swift:swift /srv/node</screen>
+      </step>
+      <step>
+        <para>Create the <literal>recon</literal> directory and ensure proper ownership of it:</para>
+        <screen language="console"># mkdir -p /var/cache/swift
+# chown -R root:swift /var/cache/swift
+# chmod -R 775 /var/cache/swift</screen>
+      </step>
+    </procedure>
+  </section>
+</section>

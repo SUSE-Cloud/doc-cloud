@@ -1,0 +1,227 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+  <title>Install and configure a compute node for Red Hat Enterprise Linux and CentOS</title>
+  <para>This section describes how to install and configure the Compute service on a
+            compute node. The service supports several hypervisors to deploy instances or
+            virtual machines (VMs). For simplicity, this configuration uses the Quick
+            EMUlator (QEMU) hypervisor with the kernel-based VM (KVM) extension on compute
+            nodes that support hardware acceleration for virtual machines. On legacy
+            hardware, this configuration uses the generic QEMU hypervisor. You can follow
+            these instructions with minor modifications to horizontally scale your
+            environment with additional compute nodes.</para>
+  <note>
+    <para>This section assumes that you are following the instructions in this guide
+                step-by-step to configure the first compute node. If you want to configure
+                additional compute nodes, prepare them in a similar fashion to the first
+                compute node in the <xref linkend="overview-example-architectures"/> section. Each additional compute node
+                requires a unique IP address.</para>
+  </note>
+  <section>
+    <title>Install and configure components</title>
+    <note>
+      <para>Default configuration files vary by distribution. You might need to add
+                    these sections and options rather than modifying existing sections and
+                    options. Also, an ellipsis (<literal>...</literal>) in the configuration snippets indicates
+                    potential default configuration options that you should retain.</para>
+    </note>
+    <procedure>
+      <step>
+        <para>Install the packages:</para>
+        <screen language="console"># yum install openstack-nova-compute</screen>
+      </step>
+      <step>
+        <para>Edit the <literal>/etc/nova/nova.conf</literal> file and complete the following actions:</para>
+        <itemizedlist>
+          <listitem>
+            <para>In the <literal>[DEFAULT]</literal> section, enable only the compute and
+                                metadata APIs:</para>
+            <screen language="ini">[DEFAULT]
+# ...
+enabled_apis = osapi_compute,metadata</screen>
+          </listitem>
+          <listitem>
+            <para>In the <literal>[DEFAULT]</literal> section, configure <literal>RabbitMQ</literal> message queue access:</para>
+            <screen language="ini">[DEFAULT]
+# ...
+transport_url = rabbit://openstack:RABBIT_PASS@controller</screen>
+            <para>Replace <literal>RABBIT_PASS</literal> with the password you chose for the <literal>openstack</literal>
+                                account in <literal>RabbitMQ</literal>.</para>
+          </listitem>
+          <listitem>
+            <para>In the <literal>[api]</literal> and <literal>[keystone_authtoken]</literal> sections, configure Identity
+                                service access:</para>
+            <screen language="ini">[api]
+# ...
+auth_strategy = keystone
+
+[keystone_authtoken]
+# ...
+auth_uri = http://controller:5000
+auth_url = http://controller:35357
+memcached_servers = controller:11211
+auth_type = password
+project_domain_name = default
+user_domain_name = default
+project_name = service
+username = nova
+password = NOVA_PASS</screen>
+            <para>Replace <literal>NOVA_PASS</literal> with the password you chose for the <literal>nova</literal> user in
+                                the Identity service.</para>
+            <note>
+              <para>Comment out or remove any other options in the <literal>[keystone_authtoken]</literal>
+                                    section.</para>
+            </note>
+          </listitem>
+          <listitem>
+            <para>In the <literal>[DEFAULT]</literal> section, configure the <literal>my_ip</literal> option:</para>
+            <screen language="ini">[DEFAULT]
+# ...
+my_ip = MANAGEMENT_INTERFACE_IP_ADDRESS</screen>
+            <para>Replace <literal>MANAGEMENT_INTERFACE_IP_ADDRESS</literal> with the IP address of the
+                                management network interface on your compute node, typically 10.0.0.31 for
+                                the first node in the <xref linkend="overview-example-architectures"/>.</para>
+          </listitem>
+          <listitem>
+            <para>In the <literal>[DEFAULT]</literal> section, enable support for the Networking service:</para>
+            <screen language="ini">[DEFAULT]
+# ...
+use_neutron = True
+firewall_driver = nova.virt.firewall.NoopFirewallDriver</screen>
+            <note>
+              <para>By default, Compute uses an internal firewall service. Since Networking
+                                    includes a firewall service, you must disable the Compute firewall
+                                    service by using the <literal>nova.virt.firewall.NoopFirewallDriver</literal> firewall
+                                    driver.</para>
+            </note>
+          </listitem>
+          <listitem>
+            <para>In the <literal>[vnc]</literal> section, enable and configure remote console access:</para>
+            <screen language="ini">[vnc]
+# ...
+enabled = True
+vncserver_listen = 0.0.0.0
+vncserver_proxyclient_address = $my_ip
+novncproxy_base_url = http://controller:6080/vnc_auto.html</screen>
+            <para>The server component listens on all IP addresses and the proxy component
+                                only listens on the management interface IP address of the compute node.
+                                The base URL indicates the location where you can use a web browser to
+                                access remote consoles of instances on this compute node.</para>
+            <note>
+              <para>If the web browser to access remote consoles resides on a host that
+                                    cannot resolve the <literal>controller</literal> hostname, you must replace
+                                    <literal>controller</literal> with the management interface IP address of the
+                                    controller node.</para>
+            </note>
+          </listitem>
+          <listitem>
+            <para>In the <literal>[glance]</literal> section, configure the location of the Image service
+                                API:</para>
+            <screen language="ini">[glance]
+# ...
+api_servers = http://controller:9292</screen>
+          </listitem>
+          <listitem>
+            <para>In the <literal>[oslo_concurrency]</literal> section, configure the lock path:</para>
+            <screen language="ini">[oslo_concurrency]
+# ...
+lock_path = /var/lib/nova/tmp</screen>
+          </listitem>
+          <listitem>
+            <para>In the <literal>[placement]</literal> section, configure the Placement API:</para>
+            <screen language="ini">[placement]
+# ...
+os_region_name = RegionOne
+project_domain_name = Default
+project_name = service
+auth_type = password
+user_domain_name = Default
+auth_url = http://controller:35357/v3
+username = placement
+password = PLACEMENT_PASS</screen>
+            <para>Replace <literal>PLACEMENT_PASS</literal> with the password you choose for the
+                                <literal>placement</literal> user in the Identity service. Comment out any other options
+                                in the <literal>[placement]</literal> section.</para>
+          </listitem>
+        </itemizedlist>
+      </step>
+    </procedure>
+  </section>
+  <section>
+    <title>Finalize installation</title>
+    <procedure>
+      <step>
+        <para>Determine whether your compute node supports hardware acceleration for
+                        virtual machines:</para>
+        <screen language="console">$ egrep -c '(vmx|svm)' /proc/cpuinfo</screen>
+        <para>If this command returns a value of <literal>one or greater</literal>, your compute node
+                        supports hardware acceleration which typically requires no additional
+                        configuration.</para>
+        <para>If this command returns a value of <literal>zero</literal>, your compute node does not
+                        support hardware acceleration and you must configure <literal>libvirt</literal> to use QEMU
+                        instead of KVM.</para>
+        <itemizedlist>
+          <listitem>
+            <para>Edit the <literal>[libvirt]</literal> section in the <literal>/etc/nova/nova.conf</literal> file as
+                                follows:</para>
+            <screen language="ini">[libvirt]
+# ...
+virt_type = qemu</screen>
+          </listitem>
+        </itemizedlist>
+      </step>
+      <step>
+        <para>Start the Compute service including its dependencies and configure them to
+                        start automatically when the system boots:</para>
+        <screen language="console"># systemctl enable libvirtd.service openstack-nova-compute.service
+# systemctl start libvirtd.service openstack-nova-compute.service</screen>
+      </step>
+    </procedure>
+    <note>
+      <para>If the <literal>nova-compute</literal> service fails to start, check
+                    <literal>/var/log/nova/nova-compute.log</literal>. The error message <literal>AMQP server on
+controller:5672 is unreachable</literal> likely indicates that the firewall on the
+                    controller node is preventing access to port 5672.  Configure the firewall
+                    to open port 5672 on the controller node and restart <literal>nova-compute</literal>
+                    service on the compute node.</para>
+    </note>
+  </section>
+  <section>
+    <title>Add the compute node to the cell database</title>
+    <important>
+      <para>Run the following commands on the <emphasis role="bold">controller</emphasis> node.</para>
+    </important>
+    <procedure>
+      <step>
+        <para>Source the admin credentials to enable admin-only CLI commands, then confirm
+                        there are compute hosts in the database:</para>
+        <screen language="console">$ . admin-openrc
+
+$ openstack compute service list --service nova-compute
++----+-------+--------------+------+-------+---------+----------------------------+
+| ID | Host  | Binary       | Zone | State | Status  | Updated At                 |
++----+-------+--------------+------+-------+---------+----------------------------+
+| 1  | node1 | nova-compute | nova | up    | enabled | 2017-04-14T15:30:44.000000 |
++----+-------+--------------+------+-------+---------+----------------------------+</screen>
+      </step>
+      <step>
+        <para>Discover compute hosts:</para>
+        <screen language="console"><?dbsuse-fo font-size="8pt"?># su -s /bin/sh -c "nova-manage cell_v2 discover_hosts --verbose" nova
+
+Found 2 cell mappings.
+Skipping cell0 since it does not contain hosts.
+Getting compute nodes from cell 'cell1': ad5a5985-a719-4567-98d8-8d148aaae4bc
+Found 1 computes in cell: ad5a5985-a719-4567-98d8-8d148aaae4bc
+Checking host mapping for compute host 'compute': fe58ddc1-1d65-4f87-9456-bc040dc106b3
+Creating host mapping for compute host 'compute': fe58ddc1-1d65-4f87-9456-bc040dc106b3</screen>
+        <note>
+          <para>When you add new compute nodes, you must run <literal>nova-manage cell_v2
+discover_hosts</literal> on the controller node to register those new compute
+                            nodes. Alternatively, you can set an appropriate interval in
+                            <literal>/etc/nova/nova.conf</literal>:</para>
+          <screen language="ini">[scheduler]
+discover_hosts_in_cells_interval = 300</screen>
+        </note>
+      </step>
+    </procedure>
+  </section>
+</section>

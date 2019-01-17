@@ -1,0 +1,1454 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+  <title>SAIO - Swift All In One</title>
+  <section>
+    <title>Instructions for setting up a development VM</title>
+    <para>This section documents setting up a virtual machine for doing Swift
+                development.  The virtual machine will emulate running a four node Swift
+                cluster. To begin:</para>
+    <itemizedlist>
+      <listitem>
+        <para>Get an Ubuntu 14.04 LTS server image or try something
+                        Fedora/CentOS.</para>
+      </listitem>
+      <listitem>
+        <para>Create guest virtual machine from the image.</para>
+      </listitem>
+    </itemizedlist>
+  </section>
+  <section>
+    <title>What’s in a &lt;your-user-name&gt;</title>
+    <para>Much of the configuration described in this guide requires escalated
+                administrator (<literal>root</literal>) privileges; however, we assume that administrator logs
+                in as an unprivileged user and can use <literal>sudo</literal> to run privileged commands.</para>
+    <para>Swift processes also run under a separate user and group, set by configuration
+                option, and referenced as <literal>&lt;your-user-name&gt;:&lt;your-group-name&gt;</literal>.  The default user
+                is <literal>swift</literal>, which may not exist on your system.  These instructions are
+                intended to allow a developer to use his/her username for
+                <literal>&lt;your-user-name&gt;:&lt;your-group-name&gt;</literal>.</para>
+  </section>
+  <section>
+    <title>Installing dependencies</title>
+    <itemizedlist>
+      <listitem>
+        <para>On <literal>apt</literal> based systems:</para>
+        <screen>sudo apt-get update
+sudo apt-get install curl gcc memcached rsync sqlite3 xfsprogs \
+                     git-core libffi-dev python-setuptools \
+                     liberasurecode-dev libssl-dev
+sudo apt-get install python-coverage python-dev python-nose \
+                     python-xattr python-eventlet \
+                     python-greenlet python-pastedeploy \
+                     python-netifaces python-pip python-dnspython \
+                     python-mock</screen>
+      </listitem>
+      <listitem>
+        <para>On <literal>yum</literal> based systems:</para>
+        <screen>sudo yum update
+sudo yum install curl gcc memcached rsync sqlite xfsprogs git-core \
+                 libffi-devel xinetd liberasurecode-devel \
+                 openssl-devel python-setuptools \
+                 python-coverage python-devel python-nose \
+                 pyxattr python-eventlet \
+                 python-greenlet python-paste-deploy \
+                 python-netifaces python-pip python-dns \
+                 python-mock</screen>
+        <para>Note: This installs necessary system dependencies and <emphasis>most</emphasis> of the python
+                        dependencies. Later in the process setuptools/distribute or pip will install
+                        and/or upgrade packages.</para>
+      </listitem>
+    </itemizedlist>
+    <para>Next, choose either <xref linkend="partition-section"/> or <xref linkend="loopback-section"/>.</para>
+    <section xml:id="partition-section">
+      <title>Using a partition for storage</title>
+      <para>If you are going to use a separate partition for Swift data, be sure to add
+                    another device when creating the VM, and follow these instructions:</para>
+      <procedure>
+        <step>
+          <para>Set up a single partition:</para>
+          <screen>sudo fdisk /dev/sdb
+sudo mkfs.xfs /dev/sdb1</screen>
+        </step>
+        <step>
+          <para>Edit <literal>/etc/fstab</literal> and add:</para>
+          <screen>/dev/sdb1 /mnt/sdb1 xfs noatime,nodiratime,nobarrier,logbufs=8 0 0</screen>
+        </step>
+        <step>
+          <para>Create the mount point and the individualized links:</para>
+          <screen>sudo mkdir /mnt/sdb1
+sudo mount /mnt/sdb1
+sudo mkdir /mnt/sdb1/1 /mnt/sdb1/2 /mnt/sdb1/3 /mnt/sdb1/4
+sudo chown ${USER}:${USER} /mnt/sdb1/*
+sudo mkdir /srv
+for x in {1..4}; do sudo ln -s /mnt/sdb1/$x /srv/$x; done
+sudo mkdir -p /srv/1/node/sdb1 /srv/1/node/sdb5 \
+              /srv/2/node/sdb2 /srv/2/node/sdb6 \
+              /srv/3/node/sdb3 /srv/3/node/sdb7 \
+              /srv/4/node/sdb4 /srv/4/node/sdb8 \
+              /var/run/swift
+sudo chown -R ${USER}:${USER} /var/run/swift
+# **Make sure to include the trailing slash after /srv/$x/**
+for x in {1..4}; do sudo chown -R ${USER}:${USER} /srv/$x/; done</screen>
+          <para>Note: We create the mount points and mount the storage disk under
+                                /mnt/sdb1. This disk will contain one directory per simulated swift node,
+                                each owned by the current swift user.</para>
+          <para>We then create symlinks to these directories under /srv.
+                                If the disk sdb is unmounted, files will not be written under
+                                /srv/*, because the symbolic link destination /mnt/sdb1/* will not
+                                exist. This prevents disk sync operations from writing to the root
+                                partition in the event a drive is unmounted.</para>
+        </step>
+        <step>
+          <para>Next, skip to <xref linkend="common-dev-section"/>.</para>
+        </step>
+      </procedure>
+    </section>
+    <section xml:id="loopback-section">
+      <title>Using a loopback device for storage</title>
+      <para>If you want to use a loopback device instead of another partition, follow
+                    these instructions:</para>
+      <procedure>
+        <step>
+          <para>Create the file for the loopback device:</para>
+          <screen>sudo mkdir /srv
+sudo truncate -s 1GB /srv/swift-disk
+sudo mkfs.xfs /srv/swift-disk</screen>
+          <para>Modify size specified in the <literal>truncate</literal> command to make a larger or
+                                smaller partition as needed.</para>
+        </step>
+        <step>
+          <para>Edit <literal>/etc/fstab</literal> and add:</para>
+          <screen>/srv/swift-disk /mnt/sdb1 xfs loop,noatime,nodiratime,nobarrier,logbufs=8 0 0</screen>
+        </step>
+        <step>
+          <para>Create the mount point and the individualized links:</para>
+          <screen>sudo mkdir /mnt/sdb1
+sudo mount /mnt/sdb1
+sudo mkdir /mnt/sdb1/1 /mnt/sdb1/2 /mnt/sdb1/3 /mnt/sdb1/4
+sudo chown ${USER}:${USER} /mnt/sdb1/*
+for x in {1..4}; do sudo ln -s /mnt/sdb1/$x /srv/$x; done
+sudo mkdir -p /srv/1/node/sdb1 /srv/1/node/sdb5 \
+              /srv/2/node/sdb2 /srv/2/node/sdb6 \
+              /srv/3/node/sdb3 /srv/3/node/sdb7 \
+              /srv/4/node/sdb4 /srv/4/node/sdb8 \
+              /var/run/swift
+sudo chown -R ${USER}:${USER} /var/run/swift
+# **Make sure to include the trailing slash after /srv/$x/**
+for x in {1..4}; do sudo chown -R ${USER}:${USER} /srv/$x/; done</screen>
+          <para>Note: We create the mount points and mount the loopback file under
+                                /mnt/sdb1. This file will contain one directory per simulated swift node,
+                                each owned by the current swift user.</para>
+          <para>We then create symlinks to these directories under /srv.
+                                If the loopback file is unmounted, files will not be written under
+                                /srv/*, because the symbolic link destination /mnt/sdb1/* will not
+                                exist. This prevents disk sync operations from writing to the root
+                                partition in the event a drive is unmounted.</para>
+        </step>
+      </procedure>
+    </section>
+    <section xml:id="common-dev-section">
+      <title>Common Post-Device Setup</title>
+      <para>Add the following lines to <literal>/etc/rc.local</literal> (before the <literal>exit 0</literal>):</para>
+      <screen>mkdir -p /var/cache/swift /var/cache/swift2 /var/cache/swift3 /var/cache/swift4
+chown &lt;your-user-name&gt;:&lt;your-group-name&gt; /var/cache/swift*
+mkdir -p /var/run/swift
+chown &lt;your-user-name&gt;:&lt;your-group-name&gt; /var/run/swift</screen>
+      <para>Note that on some systems you might have to create <literal>/etc/rc.local</literal>.</para>
+      <para>On Fedora 19 or later, you need to place these in <literal>/etc/rc.d/rc.local</literal>.</para>
+    </section>
+  </section>
+  <section>
+    <title>Getting the code</title>
+    <procedure>
+      <step>
+        <para>Check out the python-swiftclient repo:</para>
+        <screen>cd $HOME; git clone https://github.com/openstack/python-swiftclient.git</screen>
+      </step>
+      <step>
+        <para>Build a development installation of python-swiftclient:</para>
+        <screen>cd $HOME/python-swiftclient; sudo python setup.py develop; cd -</screen>
+        <para>Ubuntu 12.04 users need to install python-swiftclient’s dependencies before the installation of
+                            python-swiftclient. This is due to a bug in an older version of setup tools:</para>
+        <screen><?dbsuse-fo font-size="8pt"?>cd $HOME/python-swiftclient; sudo pip install -r requirements.txt; sudo python setup.py develop; cd -</screen>
+      </step>
+      <step>
+        <para>Check out the swift repo:</para>
+        <screen>git clone https://github.com/openstack/swift.git</screen>
+      </step>
+      <step>
+        <para>Build a development installation of swift:</para>
+        <screen><?dbsuse-fo font-size="8pt"?>cd $HOME/swift; sudo pip install -r requirements.txt; sudo python setup.py develop; cd -</screen>
+        <para>Fedora 19 or later users might have to perform the following if development
+                            installation of swift fails:</para>
+        <screen>sudo pip install -U xattr</screen>
+      </step>
+      <step>
+        <para>Install swift’s test dependencies:</para>
+        <screen>cd $HOME/swift; sudo pip install -r test-requirements.txt</screen>
+      </step>
+    </procedure>
+  </section>
+  <section>
+    <title>Setting up rsync</title>
+    <procedure>
+      <step>
+        <para>Create <literal>/etc/rsyncd.conf</literal>:</para>
+        <screen>sudo cp $HOME/swift/doc/saio/rsyncd.conf /etc/
+sudo sed -i "s/&lt;your-user-name&gt;/${USER}/" /etc/rsyncd.conf</screen>
+        <para>Here is the default <literal>rsyncd.conf</literal> file contents maintained in the repo
+                            that is copied and fixed up above:</para>
+        <screen>uid = &lt;your-user-name&gt;
+gid = &lt;your-user-name&gt;
+log file = /var/log/rsyncd.log
+pid file = /var/run/rsyncd.pid
+address = 0.0.0.0
+
+[account6012]
+max connections = 25
+path = /srv/1/node/
+read only = false
+lock file = /var/lock/account6012.lock
+
+[account6022]
+max connections = 25
+path = /srv/2/node/
+read only = false
+lock file = /var/lock/account6022.lock
+
+[account6032]
+max connections = 25
+path = /srv/3/node/
+read only = false
+lock file = /var/lock/account6032.lock
+
+[account6042]
+max connections = 25
+path = /srv/4/node/
+read only = false
+lock file = /var/lock/account6042.lock
+
+[container6011]
+max connections = 25
+path = /srv/1/node/
+read only = false
+lock file = /var/lock/container6011.lock
+
+[container6021]
+max connections = 25
+path = /srv/2/node/
+read only = false
+lock file = /var/lock/container6021.lock
+
+[container6031]
+max connections = 25
+path = /srv/3/node/
+read only = false
+lock file = /var/lock/container6031.lock
+
+[container6041]
+max connections = 25
+path = /srv/4/node/
+read only = false
+lock file = /var/lock/container6041.lock
+
+[object6010]
+max connections = 25
+path = /srv/1/node/
+read only = false
+lock file = /var/lock/object6010.lock
+
+[object6020]
+max connections = 25
+path = /srv/2/node/
+read only = false
+lock file = /var/lock/object6020.lock
+
+[object6030]
+max connections = 25
+path = /srv/3/node/
+read only = false
+lock file = /var/lock/object6030.lock
+
+[object6040]
+max connections = 25
+path = /srv/4/node/
+read only = false
+lock file = /var/lock/object6040.lock
+</screen>
+      </step>
+      <step>
+        <para>On Ubuntu, edit the following line in <literal>/etc/default/rsync</literal>:</para>
+        <screen>RSYNC_ENABLE=true</screen>
+        <para>On Fedora, edit the following line in <literal>/etc/xinetd.d/rsync</literal>:</para>
+        <screen>disable = no</screen>
+        <para>One might have to create the above files to perform the edits.</para>
+      </step>
+      <step>
+        <para>On platforms with SELinux in <literal>Enforcing</literal> mode, either set to <literal>Permissive</literal>:</para>
+        <screen>sudo setenforce Permissive</screen>
+        <para>Or just allow rsync full access:</para>
+        <screen>sudo setsebool -P rsync_full_access 1</screen>
+      </step>
+      <step>
+        <para>Start the rsync daemon</para>
+        <itemizedlist>
+          <listitem>
+            <para>On Ubuntu 14.04, run:</para>
+            <screen>sudo service rsync restart</screen>
+          </listitem>
+          <listitem>
+            <para>On Ubuntu 16.04, run:</para>
+            <screen>sudo systemctl enable rsync
+sudo systemctl start rsync</screen>
+          </listitem>
+          <listitem>
+            <para>On Fedora, run:</para>
+            <screen>sudo systemctl restart xinetd.service
+sudo systemctl enable rsyncd.service
+sudo systemctl start rsyncd.service</screen>
+          </listitem>
+          <listitem>
+            <para>On other xinetd based systems simply run:</para>
+            <screen>sudo service xinetd restart</screen>
+          </listitem>
+        </itemizedlist>
+      </step>
+      <step>
+        <para>Verify rsync is accepting connections for all servers:</para>
+        <screen>rsync rsync://pub@localhost/</screen>
+        <para>You should see the following output from the above command:</para>
+        <screen>account6012
+account6022
+account6032
+account6042
+container6011
+container6021
+container6031
+container6041
+object6010
+object6020
+object6030
+object6040</screen>
+      </step>
+    </procedure>
+  </section>
+  <section>
+    <title>Starting memcached</title>
+    <para>On non-Ubuntu distros you need to ensure memcached is running:</para>
+    <screen>sudo service memcached start
+sudo chkconfig memcached on</screen>
+    <para>or:</para>
+    <screen>sudo systemctl enable memcached.service
+sudo systemctl start memcached.service</screen>
+    <para>The tempauth middleware stores tokens in memcached. If memcached is not
+                running, tokens cannot be validated, and accessing Swift becomes impossible.</para>
+  </section>
+  <section>
+    <title>Optional: Setting up rsyslog for individual logging</title>
+    <procedure>
+      <step>
+        <para>Install the swift rsyslogd configuration:</para>
+        <screen>sudo cp $HOME/swift/doc/saio/rsyslog.d/10-swift.conf /etc/rsyslog.d/</screen>
+        <para>Be sure to review that conf file to determine if you want all the logs
+                            in one file vs. all the logs separated out, and if you want hourly logs
+                            for stats processing. For convenience, we provide its default contents
+                            below:</para>
+        <screen># Uncomment the following to have a log containing all logs together
+#local1,local2,local3,local4,local5.*   /var/log/swift/all.log
+
+# Uncomment the following to have hourly proxy logs for stats processing
+#$template HourlyProxyLog,"/var/log/swift/hourly/%$YEAR%%$MONTH%%$DAY%%$HOUR%"
+#local1.*;local1.!notice ?HourlyProxyLog
+
+local1.*;local1.!notice /var/log/swift/proxy.log
+local1.notice           /var/log/swift/proxy.error
+local1.*                ~
+
+local2.*;local2.!notice /var/log/swift/storage1.log
+local2.notice           /var/log/swift/storage1.error
+local2.*                ~
+
+local3.*;local3.!notice /var/log/swift/storage2.log
+local3.notice           /var/log/swift/storage2.error
+local3.*                ~
+
+local4.*;local4.!notice /var/log/swift/storage3.log
+local4.notice           /var/log/swift/storage3.error
+local4.*                ~
+
+local5.*;local5.!notice /var/log/swift/storage4.log
+local5.notice           /var/log/swift/storage4.error
+local5.*                ~
+
+local6.*;local6.!notice /var/log/swift/expirer.log
+local6.notice           /var/log/swift/expirer.error
+local6.*                ~
+</screen>
+      </step>
+      <step>
+        <para>Edit <literal>/etc/rsyslog.conf</literal> and make the following change (usually in the
+                            “GLOBAL DIRECTIVES” section):</para>
+        <screen>$PrivDropToGroup adm</screen>
+      </step>
+      <step>
+        <para>If using hourly logs (see above) perform:</para>
+        <screen>sudo mkdir -p /var/log/swift/hourly</screen>
+        <para>Otherwise perform:</para>
+        <screen>sudo mkdir -p /var/log/swift</screen>
+      </step>
+      <step>
+        <para>Setup the logging directory and start syslog:</para>
+        <itemizedlist>
+          <listitem>
+            <para>On Ubuntu:</para>
+            <screen>sudo chown -R syslog.adm /var/log/swift
+sudo chmod -R g+w /var/log/swift
+sudo service rsyslog restart</screen>
+          </listitem>
+          <listitem>
+            <para>On Fedora:</para>
+            <screen>sudo chown -R root:adm /var/log/swift
+sudo chmod -R g+w /var/log/swift
+sudo systemctl restart rsyslog.service</screen>
+          </listitem>
+        </itemizedlist>
+      </step>
+    </procedure>
+  </section>
+  <section>
+    <title>Configuring each node</title>
+    <para>After performing the following steps, be sure to verify that Swift has access
+                to resulting configuration files (sample configuration files are provided with
+                all defaults in line-by-line comments).</para>
+    <procedure>
+      <step>
+        <para>Optionally remove an existing swift directory:</para>
+        <screen>sudo rm -rf /etc/swift</screen>
+      </step>
+      <step>
+        <para>Populate the <literal>/etc/swift</literal> directory itself:</para>
+        <screen>cd $HOME/swift/doc; sudo cp -r saio/swift /etc/swift; cd -
+sudo chown -R ${USER}:${USER} /etc/swift</screen>
+      </step>
+      <step>
+        <para>Update <literal>&lt;your-user-name&gt;</literal> references in the Swift config files:</para>
+        <screen>find /etc/swift/ -name \*.conf | xargs sudo sed -i "s/&lt;your-user-name&gt;/${USER}/"</screen>
+      </step>
+    </procedure>
+    <para>The contents of the configuration files provided by executing the above
+                commands are as follows:</para>
+    <procedure>
+      <step>
+        <para>
+          <literal>/etc/swift/swift.conf</literal>
+        </para>
+        <screen>[swift-hash]
+# random unique strings that can never change (DO NOT LOSE)
+# Use only printable chars (python -c "import string; print(string.printable)")
+swift_hash_path_prefix = changeme
+swift_hash_path_suffix = changeme
+
+[storage-policy:0]
+name = gold
+policy_type = replication
+default = yes
+
+[storage-policy:1]
+name = silver
+policy_type = replication
+
+[storage-policy:2]
+name = ec42
+policy_type = erasure_coding
+ec_type = liberasurecode_rs_vand
+ec_num_data_fragments = 4
+ec_num_parity_fragments = 2
+</screen>
+      </step>
+      <step>
+        <para>
+          <literal>/etc/swift/proxy-server.conf</literal>
+        </para>
+        <screen><?dbsuse-fo font-size="8pt"?>[DEFAULT]
+bind_ip = 127.0.0.1
+bind_port = 8080
+workers = 1
+user = &lt;your-user-name&gt;
+log_facility = LOG_LOCAL1
+eventlet_debug = true
+
+[pipeline:main]
+# Yes, proxy-logging appears twice. This is so that
+# middleware-originated requests get logged too.
+pipeline = catch_errors gatekeeper healthcheck proxy-logging cache bulk tempurl ratelimit crossdomain container_sync tempauth staticweb copy container-quotas account-quotas slo dlo versioned_writes proxy-logging proxy-server
+
+[filter:catch_errors]
+use = egg:swift#catch_errors
+
+[filter:healthcheck]
+use = egg:swift#healthcheck
+
+[filter:proxy-logging]
+use = egg:swift#proxy_logging
+
+[filter:bulk]
+use = egg:swift#bulk
+
+[filter:ratelimit]
+use = egg:swift#ratelimit
+
+[filter:crossdomain]
+use = egg:swift#crossdomain
+
+[filter:dlo]
+use = egg:swift#dlo
+
+[filter:slo]
+use = egg:swift#slo
+
+[filter:container_sync]
+use = egg:swift#container_sync
+current = //saio/saio_endpoint
+
+[filter:tempurl]
+use = egg:swift#tempurl
+
+[filter:tempauth]
+use = egg:swift#tempauth
+user_admin_admin = admin .admin .reseller_admin
+user_test_tester = testing .admin
+user_test2_tester2 = testing2 .admin
+user_test_tester3 = testing3
+
+[filter:staticweb]
+use = egg:swift#staticweb
+
+[filter:account-quotas]
+use = egg:swift#account_quotas
+
+[filter:container-quotas]
+use = egg:swift#container_quotas
+
+[filter:cache]
+use = egg:swift#memcache
+
+[filter:gatekeeper]
+use = egg:swift#gatekeeper
+
+[filter:versioned_writes]
+use = egg:swift#versioned_writes
+allow_versioned_writes = true
+
+[filter:copy]
+use = egg:swift#copy
+
+[app:proxy-server]
+use = egg:swift#proxy
+allow_account_management = true
+account_autocreate = true
+</screen>
+      </step>
+      <step>
+        <para>
+          <literal>/etc/swift/object-expirer.conf</literal>
+        </para>
+        <screen>[DEFAULT]
+# swift_dir = /etc/swift
+user = &lt;your-user-name&gt;
+# You can specify default log routing here if you want:
+log_name = object-expirer
+log_facility = LOG_LOCAL6
+log_level = INFO
+#log_address = /dev/log
+#
+# comma separated list of functions to call to setup custom log handlers.
+# functions get passed: conf, name, log_to_console, log_route, fmt, logger,
+# adapted_logger
+# log_custom_handlers =
+#
+# If set, log_udp_host will override log_address
+# log_udp_host =
+# log_udp_port = 514
+#
+# You can enable StatsD logging here:
+# log_statsd_host =
+# log_statsd_port = 8125
+# log_statsd_default_sample_rate = 1.0
+# log_statsd_sample_rate_factor = 1.0
+# log_statsd_metric_prefix =
+
+[object-expirer]
+interval = 300
+# auto_create_account_prefix = .
+# report_interval = 300
+# concurrency is the level of concurrency o use to do the work, this value
+# must be set to at least 1
+# concurrency = 1
+# processes is how many parts to divide the work into, one part per process
+#   that will be doing the work
+# processes set 0 means that a single process will be doing all the work
+# processes can also be specified on the command line and will override the
+#   config value
+# processes = 0
+# process is which of the parts a particular process will work on
+# process can also be specified on the command line and will override the config
+#   value
+# process is "zero based", if you want to use 3 processes, you should run
+#  processes with process set to 0, 1, and 2
+# process = 0
+
+[pipeline:main]
+pipeline = catch_errors cache proxy-server
+
+[app:proxy-server]
+use = egg:swift#proxy
+# See proxy-server.conf-sample for options
+
+[filter:cache]
+use = egg:swift#memcache
+# See proxy-server.conf-sample for options
+
+[filter:catch_errors]
+use = egg:swift#catch_errors
+# See proxy-server.conf-sample for options
+</screen>
+      </step>
+      <step>
+        <para>
+          <literal>/etc/swift/container-reconciler.conf</literal>
+        </para>
+        <screen>[DEFAULT]
+# swift_dir = /etc/swift
+user = &lt;your-user-name&gt;
+# You can specify default log routing here if you want:
+# log_name = swift
+# log_facility = LOG_LOCAL0
+# log_level = INFO
+# log_address = /dev/log
+#
+# comma separated list of functions to call to setup custom log handlers.
+# functions get passed: conf, name, log_to_console, log_route, fmt, logger,
+# adapted_logger
+# log_custom_handlers =
+#
+# If set, log_udp_host will override log_address
+# log_udp_host =
+# log_udp_port = 514
+#
+# You can enable StatsD logging here:
+# log_statsd_host =
+# log_statsd_port = 8125
+# log_statsd_default_sample_rate = 1.0
+# log_statsd_sample_rate_factor = 1.0
+# log_statsd_metric_prefix =
+
+[container-reconciler]
+# reclaim_age = 604800
+# interval = 300
+# request_tries = 3
+
+[pipeline:main]
+pipeline = catch_errors proxy-logging cache proxy-server
+
+[app:proxy-server]
+use = egg:swift#proxy
+# See proxy-server.conf-sample for options
+
+[filter:cache]
+use = egg:swift#memcache
+# See proxy-server.conf-sample for options
+
+[filter:proxy-logging]
+use = egg:swift#proxy_logging
+
+[filter:catch_errors]
+use = egg:swift#catch_errors
+# See proxy-server.conf-sample for options
+</screen>
+      </step>
+      <step>
+        <para>
+          <literal>/etc/swift/container-sync-realms.conf</literal>
+        </para>
+        <screen>[saio]
+key = changeme
+key2 = changeme
+cluster_saio_endpoint = http://127.0.0.1:8080/v1/
+
+</screen>
+      </step>
+      <step>
+        <para>
+          <literal>/etc/swift/account-server/1.conf</literal>
+        </para>
+        <screen>[DEFAULT]
+devices = /srv/1/node
+mount_check = false
+disable_fallocate = true
+bind_ip = 127.0.0.1
+bind_port = 6012
+workers = 1
+user = &lt;your-user-name&gt;
+log_facility = LOG_LOCAL2
+recon_cache_path = /var/cache/swift
+eventlet_debug = true
+
+[pipeline:main]
+pipeline = recon account-server
+
+[app:account-server]
+use = egg:swift#account
+
+[filter:recon]
+use = egg:swift#recon
+
+[account-replicator]
+rsync_module = {replication_ip}::account{replication_port}
+
+[account-auditor]
+
+[account-reaper]
+</screen>
+      </step>
+      <step>
+        <para>
+          <literal>/etc/swift/container-server/1.conf</literal>
+        </para>
+        <screen>[DEFAULT]
+devices = /srv/1/node
+mount_check = false
+disable_fallocate = true
+bind_ip = 127.0.0.1
+bind_port = 6011
+workers = 1
+user = &lt;your-user-name&gt;
+log_facility = LOG_LOCAL2
+recon_cache_path = /var/cache/swift
+eventlet_debug = true
+
+[pipeline:main]
+pipeline = recon container-server
+
+[app:container-server]
+use = egg:swift#container
+
+[filter:recon]
+use = egg:swift#recon
+
+[container-replicator]
+rsync_module = {replication_ip}::container{replication_port}
+
+[container-updater]
+
+[container-auditor]
+
+[container-sync]
+</screen>
+      </step>
+      <step>
+        <para>
+          <literal>/etc/swift/object-server/1.conf</literal>
+        </para>
+        <screen>[DEFAULT]
+devices = /srv/1/node
+mount_check = false
+disable_fallocate = true
+bind_ip = 127.0.0.1
+bind_port = 6010
+workers = 1
+user = &lt;your-user-name&gt;
+log_facility = LOG_LOCAL2
+recon_cache_path = /var/cache/swift
+eventlet_debug = true
+
+[pipeline:main]
+pipeline = recon object-server
+
+[app:object-server]
+use = egg:swift#object
+
+[filter:recon]
+use = egg:swift#recon
+
+[object-replicator]
+rsync_module = {replication_ip}::object{replication_port}
+
+[object-reconstructor]
+
+[object-updater]
+
+[object-auditor]
+</screen>
+      </step>
+      <step>
+        <para>
+          <literal>/etc/swift/account-server/2.conf</literal>
+        </para>
+        <screen>[DEFAULT]
+devices = /srv/2/node
+mount_check = false
+disable_fallocate = true
+bind_ip = 127.0.0.2
+bind_port = 6022
+workers = 1
+user = &lt;your-user-name&gt;
+log_facility = LOG_LOCAL3
+recon_cache_path = /var/cache/swift2
+eventlet_debug = true
+
+[pipeline:main]
+pipeline = recon account-server
+
+[app:account-server]
+use = egg:swift#account
+
+[filter:recon]
+use = egg:swift#recon
+
+[account-replicator]
+rsync_module = {replication_ip}::account{replication_port}
+
+[account-auditor]
+
+[account-reaper]
+</screen>
+      </step>
+      <step>
+        <para>
+          <literal>/etc/swift/container-server/2.conf</literal>
+        </para>
+        <screen>[DEFAULT]
+devices = /srv/2/node
+mount_check = false
+disable_fallocate = true
+bind_ip = 127.0.0.2
+bind_port = 6021
+workers = 1
+user = &lt;your-user-name&gt;
+log_facility = LOG_LOCAL3
+recon_cache_path = /var/cache/swift2
+eventlet_debug = true
+
+[pipeline:main]
+pipeline = recon container-server
+
+[app:container-server]
+use = egg:swift#container
+
+[filter:recon]
+use = egg:swift#recon
+
+[container-replicator]
+rsync_module = {replication_ip}::container{replication_port}
+
+[container-updater]
+
+[container-auditor]
+
+[container-sync]
+</screen>
+      </step>
+      <step>
+        <para>
+          <literal>/etc/swift/object-server/2.conf</literal>
+        </para>
+        <screen>[DEFAULT]
+devices = /srv/2/node
+mount_check = false
+disable_fallocate = true
+bind_ip = 127.0.0.2
+bind_port = 6020
+workers = 1
+user = &lt;your-user-name&gt;
+log_facility = LOG_LOCAL3
+recon_cache_path = /var/cache/swift2
+eventlet_debug = true
+
+[pipeline:main]
+pipeline = recon object-server
+
+[app:object-server]
+use = egg:swift#object
+
+[filter:recon]
+use = egg:swift#recon
+
+[object-replicator]
+rsync_module = {replication_ip}::object{replication_port}
+
+[object-reconstructor]
+
+[object-updater]
+
+[object-auditor]
+</screen>
+      </step>
+      <step>
+        <para>
+          <literal>/etc/swift/account-server/3.conf</literal>
+        </para>
+        <screen>[DEFAULT]
+devices = /srv/3/node
+mount_check = false
+disable_fallocate = true
+bind_ip = 127.0.0.3
+bind_port = 6032
+workers = 1
+user = &lt;your-user-name&gt;
+log_facility = LOG_LOCAL4
+recon_cache_path = /var/cache/swift3
+eventlet_debug = true
+
+[pipeline:main]
+pipeline = recon account-server
+
+[app:account-server]
+use = egg:swift#account
+
+[filter:recon]
+use = egg:swift#recon
+
+[account-replicator]
+rsync_module = {replication_ip}::account{replication_port}
+
+[account-auditor]
+
+[account-reaper]
+</screen>
+      </step>
+      <step>
+        <para>
+          <literal>/etc/swift/container-server/3.conf</literal>
+        </para>
+        <screen>[DEFAULT]
+devices = /srv/3/node
+mount_check = false
+disable_fallocate = true
+bind_ip = 127.0.0.3
+bind_port = 6031
+workers = 1
+user = &lt;your-user-name&gt;
+log_facility = LOG_LOCAL4
+recon_cache_path = /var/cache/swift3
+eventlet_debug = true
+
+[pipeline:main]
+pipeline = recon container-server
+
+[app:container-server]
+use = egg:swift#container
+
+[filter:recon]
+use = egg:swift#recon
+
+[container-replicator]
+rsync_module = {replication_ip}::container{replication_port}
+
+[container-updater]
+
+[container-auditor]
+
+[container-sync]
+</screen>
+      </step>
+      <step>
+        <para>
+          <literal>/etc/swift/object-server/3.conf</literal>
+        </para>
+        <screen>[DEFAULT]
+devices = /srv/3/node
+mount_check = false
+disable_fallocate = true
+bind_ip = 127.0.0.3
+bind_port = 6030
+workers = 1
+user = &lt;your-user-name&gt;
+log_facility = LOG_LOCAL4
+recon_cache_path = /var/cache/swift3
+eventlet_debug = true
+
+[pipeline:main]
+pipeline = recon object-server
+
+[app:object-server]
+use = egg:swift#object
+
+[filter:recon]
+use = egg:swift#recon
+
+[object-replicator]
+rsync_module = {replication_ip}::object{replication_port}
+
+[object-reconstructor]
+
+[object-updater]
+
+[object-auditor]
+</screen>
+      </step>
+      <step>
+        <para>
+          <literal>/etc/swift/account-server/4.conf</literal>
+        </para>
+        <screen>[DEFAULT]
+devices = /srv/4/node
+mount_check = false
+disable_fallocate = true
+bind_ip = 127.0.0.4
+bind_port = 6042
+workers = 1
+user = &lt;your-user-name&gt;
+log_facility = LOG_LOCAL5
+recon_cache_path = /var/cache/swift4
+eventlet_debug = true
+
+[pipeline:main]
+pipeline = recon account-server
+
+[app:account-server]
+use = egg:swift#account
+
+[filter:recon]
+use = egg:swift#recon
+
+[account-replicator]
+rsync_module = {replication_ip}::account{replication_port}
+
+[account-auditor]
+
+[account-reaper]
+</screen>
+      </step>
+      <step>
+        <para>
+          <literal>/etc/swift/container-server/4.conf</literal>
+        </para>
+        <screen>[DEFAULT]
+devices = /srv/4/node
+mount_check = false
+disable_fallocate = true
+bind_ip = 127.0.0.4
+bind_port = 6041
+workers = 1
+user = &lt;your-user-name&gt;
+log_facility = LOG_LOCAL5
+recon_cache_path = /var/cache/swift4
+eventlet_debug = true
+
+[pipeline:main]
+pipeline = recon container-server
+
+[app:container-server]
+use = egg:swift#container
+
+[filter:recon]
+use = egg:swift#recon
+
+[container-replicator]
+rsync_module = {replication_ip}::container{replication_port}
+
+[container-updater]
+
+[container-auditor]
+
+[container-sync]
+</screen>
+      </step>
+      <step>
+        <para>
+          <literal>/etc/swift/object-server/4.conf</literal>
+        </para>
+        <screen>[DEFAULT]
+devices = /srv/4/node
+mount_check = false
+disable_fallocate = true
+bind_ip = 127.0.0.4
+bind_port = 6040
+workers = 1
+user = &lt;your-user-name&gt;
+log_facility = LOG_LOCAL5
+recon_cache_path = /var/cache/swift4
+eventlet_debug = true
+
+[pipeline:main]
+pipeline = recon object-server
+
+[app:object-server]
+use = egg:swift#object
+
+[filter:recon]
+use = egg:swift#recon
+
+[object-replicator]
+rsync_module = {replication_ip}::object{replication_port}
+
+[object-reconstructor]
+
+[object-updater]
+
+[object-auditor]
+</screen>
+      </step>
+    </procedure>
+  </section>
+  <section xml:id="setup-scripts">
+    <title>Setting up scripts for running Swift</title>
+    <procedure>
+      <step>
+        <para>Copy the SAIO scripts for resetting the environment:</para>
+        <screen>mkdir -p $HOME/bin
+cd $HOME/swift/doc; cp saio/bin/* $HOME/bin; cd -
+chmod +x $HOME/bin/*</screen>
+      </step>
+      <step>
+        <para>Edit the <literal>$HOME/bin/resetswift</literal> script</para>
+        <para>The template <literal>resetswift</literal> script looks like the following:</para>
+        <screen>#!/bin/bash
+
+set -e
+
+swift-init all kill
+# Remove the following line if you did not set up rsyslog for individual logging:
+sudo find /var/log/swift -type f -exec rm -f {} \;
+if cut -d' ' -f2 /proc/mounts | grep -q /mnt/sdb1 ; then
+    sudo umount /mnt/sdb1
+fi
+# If you are using a loopback device set SAIO_BLOCK_DEVICE to "/srv/swift-disk"
+sudo mkfs.xfs -f ${SAIO_BLOCK_DEVICE:-/dev/sdb1}
+sudo mount /mnt/sdb1
+sudo mkdir /mnt/sdb1/1 /mnt/sdb1/2 /mnt/sdb1/3 /mnt/sdb1/4
+sudo chown ${USER}:${USER} /mnt/sdb1/*
+mkdir -p /srv/1/node/sdb1 /srv/1/node/sdb5 \
+         /srv/2/node/sdb2 /srv/2/node/sdb6 \
+         /srv/3/node/sdb3 /srv/3/node/sdb7 \
+         /srv/4/node/sdb4 /srv/4/node/sdb8
+sudo rm -f /var/log/debug /var/log/messages /var/log/rsyncd.log /var/log/syslog
+find /var/cache/swift* -type f -name *.recon -exec rm -f {} \;
+if [ "`type -t systemctl`" == "file" ]; then
+    sudo systemctl restart rsyslog
+    sudo systemctl restart memcached
+else
+    sudo service rsyslog restart
+    sudo service memcached restart
+fi
+</screen>
+        <para>If you are using a loopback device add an environment var to
+                            substitute <literal>/dev/sdb1</literal> with <literal>/srv/swift-disk</literal>:</para>
+        <screen>echo "export SAIO_BLOCK_DEVICE=/srv/swift-disk" &gt;&gt; $HOME/.bashrc</screen>
+        <para>If you did not set up rsyslog for individual logging, remove the <literal>find
+/var/log/swift...</literal> line:</para>
+        <screen>sed -i "/find \/var\/log\/swift/d" $HOME/bin/resetswift</screen>
+      </step>
+      <step>
+        <para>Install the sample configuration file for running tests:</para>
+        <screen>cp $HOME/swift/test/sample.conf /etc/swift/test.conf</screen>
+        <para>The template <literal>test.conf</literal> looks like the following:</para>
+        <screen>[func_test]
+# Sample config for Swift with tempauth
+auth_host = 127.0.0.1
+auth_port = 8080
+auth_ssl = no
+auth_prefix = /auth/
+# Sample config for Swift with Keystone v2 API.
+# For keystone v2 change auth_version to 2 and auth_prefix to /v2.0/.
+# And "allow_account_management" should not be set "true".
+#auth_version = 3
+#auth_host = localhost
+#auth_port = 5000
+#auth_ssl = no
+#auth_prefix = /v3/
+
+# Primary functional test account (needs admin access to the account)
+account = test
+username = tester
+password = testing
+
+# User on a second account (needs admin access to the account)
+account2 = test2
+username2 = tester2
+password2 = testing2
+
+# User on same account as first, but without admin access
+username3 = tester3
+password3 = testing3
+
+# Fourth user is required for keystone v3 specific tests.
+# Account must be in a non-default domain.
+#account4 = test4
+#username4 = tester4
+#password4 = testing4
+#domain4 = test-domain
+
+# Fifth user is required for service token-specific tests.
+# The account must be different from the primary test account.
+# The user must not have a group (tempauth) or role (keystoneauth) on
+# the primary test account. The user must have a group/role that is unique
+# and not given to the primary tester and is specified in the options
+# &lt;prefix&gt;_require_group (tempauth) or &lt;prefix&gt;_service_roles (keystoneauth).
+#account5 = test5
+#username5 = tester5
+#password5 = testing5
+
+# The service_prefix option is used for service token-specific tests.
+# If service_prefix or username5 above is not supplied, the tests are skipped.
+# To set the value and enable the service token tests, look at the
+# reseller_prefix option in /etc/swift/proxy-server.conf. There must be at
+# least two prefixes. If not, add a prefix as follows (where we add SERVICE):
+#     reseller_prefix = AUTH, SERVICE
+# The service_prefix must match the &lt;prefix&gt; used in &lt;prefix&gt;_require_group
+# (tempauth) or &lt;prefix&gt;_service_roles (keystoneauth); for example:
+#    SERVICE_require_group = service
+#    SERVICE_service_roles = service
+# Note: Do not enable service token tests if the first prefix in
+# reseller_prefix is the empty prefix AND the primary functional test
+# account contains an underscore.
+#service_prefix = SERVICE
+
+# Sixth user is required for access control tests.
+# Account must have a role for reseller_admin_role(keystoneauth).
+#account6 = test
+#username6 = tester6
+#password6 = testing6
+
+collate = C
+
+# Only necessary if a pre-existing server uses self-signed certificate
+insecure = no
+
+[unit_test]
+fake_syslog = False
+
+[probe_test]
+# check_server_timeout = 30
+# validate_rsync = false
+
+[swift-constraints]
+# The functional test runner will try to use the constraint values provided in
+# the swift-constraints section of test.conf.
+#
+# If a constraint value does not exist in that section, or because the
+# swift-constraints section does not exist, the constraints values found in
+# the /info API call (if successful) will be used.
+#
+# If a constraint value cannot be found in the /info results, either because
+# the /info API call failed, or a value is not present, the constraint value
+# used will fall back to those loaded by the constraints module at time of
+# import (which will attempt to load /etc/swift/swift.conf, see the
+# swift.common.constraints module for more information).
+#
+# Note that the cluster must have "sane" values for the test suite to pass
+# (for some definition of sane).
+#
+#max_file_size = 5368709122
+#max_meta_name_length = 128
+#max_meta_value_length = 256
+#max_meta_count = 90
+#max_meta_overall_size = 4096
+#max_header_size = 8192
+#extra_header_count = 0
+#max_object_name_length = 1024
+#container_listing_limit = 10000
+#account_listing_limit = 10000
+#max_account_name_length = 256
+#max_container_name_length = 256
+
+# Newer swift versions default to strict cors mode, but older ones were the
+# opposite.
+#strict_cors_mode = true
+</screen>
+      </step>
+      <step>
+        <para>Add an environment variable for running tests below:</para>
+        <screen>echo "export SWIFT_TEST_CONFIG_FILE=/etc/swift/test.conf" &gt;&gt; $HOME/.bashrc</screen>
+      </step>
+      <step>
+        <para>Be sure that your <literal>PATH</literal> includes the <literal>bin</literal> directory:</para>
+        <screen>echo "export PATH=${PATH}:$HOME/bin" &gt;&gt; $HOME/.bashrc</screen>
+      </step>
+      <step>
+        <para>Source the above environment variables into your current environment:</para>
+        <screen>. $HOME/.bashrc</screen>
+      </step>
+      <step>
+        <para>Construct the initial rings using the provided script:</para>
+        <screen>remakerings</screen>
+        <para>The <literal>remakerings</literal> script looks like the following:</para>
+        <screen>#!/bin/bash
+
+set -e
+
+cd /etc/swift
+
+rm -f *.builder *.ring.gz backups/*.builder backups/*.ring.gz
+
+swift-ring-builder object.builder create 10 3 1
+swift-ring-builder object.builder add r1z1-127.0.0.1:6010/sdb1 1
+swift-ring-builder object.builder add r1z2-127.0.0.2:6020/sdb2 1
+swift-ring-builder object.builder add r1z3-127.0.0.3:6030/sdb3 1
+swift-ring-builder object.builder add r1z4-127.0.0.4:6040/sdb4 1
+swift-ring-builder object.builder rebalance
+swift-ring-builder object-1.builder create 10 2 1
+swift-ring-builder object-1.builder add r1z1-127.0.0.1:6010/sdb1 1
+swift-ring-builder object-1.builder add r1z2-127.0.0.2:6020/sdb2 1
+swift-ring-builder object-1.builder add r1z3-127.0.0.3:6030/sdb3 1
+swift-ring-builder object-1.builder add r1z4-127.0.0.4:6040/sdb4 1
+swift-ring-builder object-1.builder rebalance
+swift-ring-builder object-2.builder create 10 6 1
+swift-ring-builder object-2.builder add r1z1-127.0.0.1:6010/sdb1 1
+swift-ring-builder object-2.builder add r1z1-127.0.0.1:6010/sdb5 1
+swift-ring-builder object-2.builder add r1z2-127.0.0.2:6020/sdb2 1
+swift-ring-builder object-2.builder add r1z2-127.0.0.2:6020/sdb6 1
+swift-ring-builder object-2.builder add r1z3-127.0.0.3:6030/sdb3 1
+swift-ring-builder object-2.builder add r1z3-127.0.0.3:6030/sdb7 1
+swift-ring-builder object-2.builder add r1z4-127.0.0.4:6040/sdb4 1
+swift-ring-builder object-2.builder add r1z4-127.0.0.4:6040/sdb8 1
+swift-ring-builder object-2.builder rebalance
+swift-ring-builder container.builder create 10 3 1
+swift-ring-builder container.builder add r1z1-127.0.0.1:6011/sdb1 1
+swift-ring-builder container.builder add r1z2-127.0.0.2:6021/sdb2 1
+swift-ring-builder container.builder add r1z3-127.0.0.3:6031/sdb3 1
+swift-ring-builder container.builder add r1z4-127.0.0.4:6041/sdb4 1
+swift-ring-builder container.builder rebalance
+swift-ring-builder account.builder create 10 3 1
+swift-ring-builder account.builder add r1z1-127.0.0.1:6012/sdb1 1
+swift-ring-builder account.builder add r1z2-127.0.0.2:6022/sdb2 1
+swift-ring-builder account.builder add r1z3-127.0.0.3:6032/sdb3 1
+swift-ring-builder account.builder add r1z4-127.0.0.4:6042/sdb4 1
+swift-ring-builder account.builder rebalance
+</screen>
+        <para>You can expect the output from this command to produce the following.  Note
+                            that 3 object rings are created in order to test storage policies and EC in
+                            the SAIO environment.  The EC ring is the only one with all 8 devices.
+                            There are also two replication rings, one for 3x replication and another
+                            for 2x replication, but those rings only use 4 devices:</para>
+        <screen>Device d0r1z1-127.0.0.1:6010R127.0.0.1:6010/sdb1_"" with 1.0 weight got id 0
+Device d1r1z2-127.0.0.2:6020R127.0.0.2:6020/sdb2_"" with 1.0 weight got id 1
+Device d2r1z3-127.0.0.3:6030R127.0.0.3:6030/sdb3_"" with 1.0 weight got id 2
+Device d3r1z4-127.0.0.4:6040R127.0.0.4:6040/sdb4_"" with 1.0 weight got id 3
+Reassigned 3072 (300.00%) partitions. Balance is now 0.00.  Dispersion is now 0.00
+Device d0r1z1-127.0.0.1:6010R127.0.0.1:6010/sdb1_"" with 1.0 weight got id 0
+Device d1r1z2-127.0.0.2:6020R127.0.0.2:6020/sdb2_"" with 1.0 weight got id 1
+Device d2r1z3-127.0.0.3:6030R127.0.0.3:6030/sdb3_"" with 1.0 weight got id 2
+Device d3r1z4-127.0.0.4:6040R127.0.0.4:6040/sdb4_"" with 1.0 weight got id 3
+Reassigned 2048 (200.00%) partitions. Balance is now 0.00.  Dispersion is now 0.00
+Device d0r1z1-127.0.0.1:6010R127.0.0.1:6010/sdb1_"" with 1.0 weight got id 0
+Device d1r1z1-127.0.0.1:6010R127.0.0.1:6010/sdb5_"" with 1.0 weight got id 1
+Device d2r1z2-127.0.0.2:6020R127.0.0.2:6020/sdb2_"" with 1.0 weight got id 2
+Device d3r1z2-127.0.0.2:6020R127.0.0.2:6020/sdb6_"" with 1.0 weight got id 3
+Device d4r1z3-127.0.0.3:6030R127.0.0.3:6030/sdb3_"" with 1.0 weight got id 4
+Device d5r1z3-127.0.0.3:6030R127.0.0.3:6030/sdb7_"" with 1.0 weight got id 5
+Device d6r1z4-127.0.0.4:6040R127.0.0.4:6040/sdb4_"" with 1.0 weight got id 6
+Device d7r1z4-127.0.0.4:6040R127.0.0.4:6040/sdb8_"" with 1.0 weight got id 7
+Reassigned 6144 (600.00%) partitions. Balance is now 0.00.  Dispersion is now 0.00
+Device d0r1z1-127.0.0.1:6011R127.0.0.1:6011/sdb1_"" with 1.0 weight got id 0
+Device d1r1z2-127.0.0.2:6021R127.0.0.2:6021/sdb2_"" with 1.0 weight got id 1
+Device d2r1z3-127.0.0.3:6031R127.0.0.3:6031/sdb3_"" with 1.0 weight got id 2
+Device d3r1z4-127.0.0.4:6041R127.0.0.4:6041/sdb4_"" with 1.0 weight got id 3
+Reassigned 3072 (300.00%) partitions. Balance is now 0.00.  Dispersion is now 0.00
+Device d0r1z1-127.0.0.1:6012R127.0.0.1:6012/sdb1_"" with 1.0 weight got id 0
+Device d1r1z2-127.0.0.2:6022R127.0.0.2:6022/sdb2_"" with 1.0 weight got id 1
+Device d2r1z3-127.0.0.3:6032R127.0.0.3:6032/sdb3_"" with 1.0 weight got id 2
+Device d3r1z4-127.0.0.4:6042R127.0.0.4:6042/sdb4_"" with 1.0 weight got id 3
+Reassigned 3072 (300.00%) partitions. Balance is now 0.00.  Dispersion is now 0.00</screen>
+      </step>
+      <step>
+        <para>Read more about Storage Policies and your SAIO </para>
+      </step>
+      <step>
+        <para>Verify the unit tests run:</para>
+        <screen>$HOME/swift/.unittests</screen>
+        <para>Note that the unit tests do not require any swift daemons running.</para>
+      </step>
+      <step>
+        <para>Start the “main” Swift daemon processes (proxy, account, container, and
+                            object):</para>
+        <screen>startmain</screen>
+        <para>(The “<literal>Unable to increase file descriptor limit.  Running as non-root?</literal>”
+                            warnings are expected and ok.)</para>
+        <para>The <literal>startmain</literal> script looks like the following:</para>
+        <screen>#!/bin/bash
+
+set -e
+
+swift-init main start
+</screen>
+      </step>
+      <step>
+        <para>Get an <literal>X-Storage-Url</literal> and <literal>X-Auth-Token</literal>:</para>
+        <screen><?dbsuse-fo font-size="8pt"?>curl -v -H 'X-Storage-User: test:tester' -H 'X-Storage-Pass: testing' http://127.0.0.1:8080/auth/v1.0</screen>
+      </step>
+      <step>
+        <para>Check that you can <literal>GET</literal> account:</para>
+        <screen><?dbsuse-fo font-size="8pt"?>curl -v -H 'X-Auth-Token: &lt;token-from-x-auth-token-above&gt;' &lt;url-from-x-storage-url-above&gt;</screen>
+      </step>
+      <step>
+        <para>Check that <literal>swift</literal> command provided by the python-swiftclient package works:</para>
+        <screen>swift -A http://127.0.0.1:8080/auth/v1.0 -U test:tester -K testing stat</screen>
+      </step>
+      <step>
+        <para>Verify the functional tests run:</para>
+        <screen>$HOME/swift/.functests</screen>
+        <para>(Note: functional tests will first delete everything in the configured
+                            accounts.)</para>
+      </step>
+      <step>
+        <para>Verify the probe tests run:</para>
+        <screen>$HOME/swift/.probetests</screen>
+        <para>(Note: probe tests will reset your environment as they call <literal>resetswift</literal>
+                            for each test.)</para>
+      </step>
+    </procedure>
+  </section>
+  <section>
+    <title>Debugging Issues</title>
+    <para>If all doesn’t go as planned, and tests fail, or you can’t auth, or something
+                doesn’t work, here are some good starting places to look for issues:</para>
+    <procedure>
+      <step>
+        <para>Everything is logged using system facilities – usually in <literal>/var/log/syslog</literal>,
+                        but possibly in <literal>/var/log/messages</literal> on e.g. Fedora – so that is a good first
+                        place to look for errors (most likely python tracebacks).</para>
+      </step>
+      <step>
+        <para>Make sure all of the server processes are running.  For the base
+                        functionality, the Proxy, Account, Container, and Object servers
+                        should be running.</para>
+      </step>
+      <step>
+        <para>If one of the servers are not running, and no errors are logged to syslog,
+                        it may be useful to try to start the server manually, for example:
+                        <literal>swift-object-server /etc/swift/object-server/1.conf</literal> will start the
+                        object server.  If there are problems not showing up in syslog,
+                        then you will likely see the traceback on startup.</para>
+      </step>
+      <step>
+        <para>If you need to, you can turn off syslog for unit tests. This can be
+                        useful for environments where <literal>/dev/log</literal> is unavailable, or which
+                        cannot rate limit (unit tests generate a lot of logs very quickly).
+                        Open the file <literal>SWIFT_TEST_CONFIG_FILE</literal> points to, and change the
+                        value of <literal>fake_syslog</literal> to <literal>True</literal>.</para>
+      </step>
+      <step>
+        <para>If you encounter a <literal>401 Unauthorized</literal> when following Step 12 where
+                        you check that you can <literal>GET</literal> account, use <literal>sudo service memcached status</literal>
+                        and check if memcache is running. If memcache is not running, start it using
+                        <literal>sudo service memcached start</literal>. Once memcache is running, rerun <literal>GET</literal> account.</para>
+      </step>
+    </procedure>
+  </section>
+  <section>
+    <title>Known Issues</title>
+    <para>Listed here are some “gotcha’s” that you may run into when using or testing your SAIO:</para>
+    <procedure>
+      <step>
+        <para>fallocate_reserve - in most cases a SAIO doesn’t have a very large XFS partition
+                        so having fallocate enabled and fallocate_reserve set can cause issues, specifically
+                        when trying to run the functional tests. For this reason fallocate has been turned
+                        off on the object-servers in the SAIO. If you want to play with the fallocate_reserve
+                        settings then know that functional tests will fail unless you change the max_file_size
+                        constraint to something more reasonable then the default (5G). Ideally you’d make
+                        it 1/4 of your XFS file system size so the tests can pass.</para>
+      </step>
+    </procedure>
+  </section>
+</section>

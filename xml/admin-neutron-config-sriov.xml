@@ -1,0 +1,443 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1" xml:id="config-sriov">
+  <title>SR-IOV</title>
+  <para>The purpose of this page is to describe how to enable SR-IOV functionality
+            available in OpenStack (using OpenStack Networking). This functionality was
+            first introduced in the OpenStack Juno release. This page intends to serve as
+            a guide for how to configure OpenStack Networking and OpenStack Compute to
+            create SR-IOV ports.</para>
+  <section>
+    <title>The basics</title>
+    <para>PCI-SIG Single Root I/O Virtualization and Sharing (SR-IOV) functionality is
+                available in OpenStack since the Juno release. The SR-IOV specification
+                defines a standardized mechanism to virtualize PCIe devices. This mechanism
+                can virtualize a single PCIe Ethernet controller to appear as multiple PCIe
+                devices. Each device can be directly assigned to an instance, bypassing the
+                hypervisor and virtual switch layer. As a result, users are able to achieve
+                low latency and near-line wire speed.</para>
+    <para>The following terms are used throughout this document:</para>
+    <informaltable>
+      <tgroup cols="2">
+        <colspec colname="c1" colwidth="10.0*"/>
+        <colspec colname="c2" colwidth="90.0*"/>
+        <thead>
+          <row>
+            <entry>
+              <para>Term</para>
+            </entry>
+            <entry>
+              <para>Definition</para>
+            </entry>
+          </row>
+        </thead>
+        <tbody>
+          <row>
+            <entry>
+              <para>PF</para>
+            </entry>
+            <entry>
+              <para>Physical Function. The physical Ethernet controller that supports
+                                    SR-IOV.</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>VF</para>
+            </entry>
+            <entry>
+              <para>Virtual Function. The virtual PCIe device created from a physical
+                                    Ethernet controller.</para>
+            </entry>
+          </row>
+        </tbody>
+      </tgroup>
+    </informaltable>
+    <section>
+      <title>SR-IOV agent</title>
+      <para>The SR-IOV agent allows you to set the admin state of ports, configure port
+                    security (enable and disable spoof checking), and configure QoS rate limiting
+                    and minimum bandwidth. You must include the SR-IOV agent on each compute node
+                    using SR-IOV ports.</para>
+      <note>
+        <para>The SR-IOV agent was optional before Mitaka, and was not enabled by default
+                        before Liberty.</para>
+      </note>
+      <note>
+        <para>The ability to control port security and QoS rate limit settings was added
+                        in Liberty.</para>
+      </note>
+    </section>
+    <section>
+      <title>Supported Ethernet controllers</title>
+      <para>The following manufacturers are known to work:</para>
+      <itemizedlist>
+        <listitem>
+          <para>Intel</para>
+        </listitem>
+        <listitem>
+          <para>Mellanox</para>
+        </listitem>
+        <listitem>
+          <para>QLogic</para>
+        </listitem>
+      </itemizedlist>
+      <para>For information on <emphasis role="bold">Mellanox SR-IOV Ethernet ConnectX-3/ConnectX-3 Pro cards</emphasis>, see
+                    <link xlink:href="https://community.mellanox.com/docs/DOC-1484">Mellanox: How To Configure SR-IOV VFs</link>.</para>
+      <para>For information on <emphasis role="bold">QLogic SR-IOV Ethernet cards</emphasis>, see
+                    <link xlink:href="http://www.qlogic.com/solutions/Documents/UsersGuide_OpenStack_SR-IOV.pdf">User’s Guide OpenStack Deployment with SR-IOV Configuration</link>.</para>
+    </section>
+  </section>
+  <section>
+    <title>Using SR-IOV interfaces</title>
+    <para>In order to enable SR-IOV, the following steps are required:</para>
+    <procedure>
+      <step>
+        <para>Create Virtual Functions (Compute)</para>
+      </step>
+      <step>
+        <para>Whitelist PCI devices in nova-compute (Compute)</para>
+      </step>
+      <step>
+        <para>Configure neutron-server (Controller)</para>
+      </step>
+      <step>
+        <para>Configure nova-scheduler (Controller)</para>
+      </step>
+      <step>
+        <para>Enable neutron sriov-agent (Compute)</para>
+      </step>
+    </procedure>
+    <para>We recommend using VLAN provider networks for segregation. This way you can
+                combine instances without SR-IOV ports and instances with SR-IOV ports on a
+                single network.</para>
+    <note>
+      <para>Throughout this guide, <literal>eth3</literal> is used as the PF and <literal>physnet2</literal> is used
+                    as the provider network configured as a VLAN range. These ports may vary in
+                    different environments.</para>
+    </note>
+    <section>
+      <title>Create Virtual Functions (Compute)</title>
+      <para>Create the VFs for the network interface that will be used for SR-IOV. We use
+                    <literal>eth3</literal> as PF, which is also used as the interface for the VLAN provider
+                    network and has access to the private networks of all machines.</para>
+      <note>
+        <para>The steps detail how to create VFs using Mellanox ConnectX-4 and newer/Intel
+                        SR-IOV Ethernet cards on an Intel system. Steps may differ for different
+                        hardware configurations.</para>
+      </note>
+      <procedure>
+        <step>
+          <para>Ensure SR-IOV and VT-d are enabled in BIOS.</para>
+        </step>
+        <step>
+          <para>Enable IOMMU in Linux by adding <literal>intel_iommu=on</literal> to the kernel parameters,
+                            for example, using GRUB.</para>
+        </step>
+        <step>
+          <para>On each compute node, create the VFs via the PCI SYS interface:</para>
+          <screen language="console"># echo '8' &gt; /sys/class/net/eth3/device/sriov_numvfs</screen>
+          <note>
+            <para>On some PCI devices, observe that when changing the amount of VFs you
+                                receive the error <literal>Device or resource busy</literal>. In this case, you must
+                                first set <literal>sriov_numvfs</literal> to <literal>0</literal>, then set it to your new value.</para>
+          </note>
+          <note>
+            <para>A network interface could be used both for PCI passthrough, using the PF,
+                                and SR-IOV, using the VFs. If the PF is used, the VF number stored in
+                                the <literal>sriov_numvfs</literal> file is lost. If the PF is attached again to the
+                                operating system, the number of VFs assigned to this interface will be
+                                zero. To keep the number of VFs always assigned to this interface,
+                                modify the interfaces configuration file adding an <literal>ifup</literal> script
+                                command.</para>
+            <para>In Ubuntu, modify the <literal>/etc/network/interfaces</literal> file:</para>
+            <screen language="ini">auto eth3
+iface eth3 inet dhcp
+pre-up echo '4' &gt; /sys/class/net/eth3/device/sriov_numvfs</screen>
+            <para>In Red Hat, modify the <literal>/sbin/ifup-local</literal> file:</para>
+            <screen language="bash">#!/bin/sh
+if [[ "$1" == "eth3" ]]
+then
+    echo '4' &gt; /sys/class/net/eth3/device/sriov_numvfs
+fi</screen>
+          </note>
+          <warning>
+            <para>Alternatively, you can create VFs by passing the <literal>max_vfs</literal> to the
+                  kernel module of your network interface. However, the <literal>max_vfs</literal>
+                  parameter has been deprecated, so the PCI SYS interface is the preferred
+                    method.</para>
+          </warning>
+          <para>You can determine the maximum number of VFs a PF can support:</para>
+          <screen language="console"># cat /sys/class/net/eth3/device/sriov_totalvfs
+63</screen>
+        </step>
+        <step>
+          <para>Verify that the VFs have been created and are in <literal>up</literal> state:</para>
+          <screen language="console"><?dbsuse-fo font-size="8pt"?># lspci | grep Ethernet
+82:00.0 Ethernet controller: Intel Corporation 82599ES 10-Gigabit SFI/SFP+ Network Connection (rev 01)
+82:00.1 Ethernet controller: Intel Corporation 82599ES 10-Gigabit SFI/SFP+ Network Connection (rev 01)
+82:10.0 Ethernet controller: Intel Corporation 82599 Ethernet Controller Virtual Function (rev 01)
+82:10.2 Ethernet controller: Intel Corporation 82599 Ethernet Controller Virtual Function (rev 01)
+82:10.4 Ethernet controller: Intel Corporation 82599 Ethernet Controller Virtual Function (rev 01)
+82:10.6 Ethernet controller: Intel Corporation 82599 Ethernet Controller Virtual Function (rev 01)
+82:11.0 Ethernet controller: Intel Corporation 82599 Ethernet Controller Virtual Function (rev 01)
+82:11.2 Ethernet controller: Intel Corporation 82599 Ethernet Controller Virtual Function (rev 01)
+82:11.4 Ethernet controller: Intel Corporation 82599 Ethernet Controller Virtual Function (rev 01)
+82:11.6 Ethernet controller: Intel Corporation 82599 Ethernet Controller Virtual Function (rev 01)</screen>
+          <screen language="console"><?dbsuse-fo font-size="8pt"?># ip link show eth3
+8: eth3: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc mq state UP mode DEFAULT qlen 1000
+   link/ether a0:36:9f:8f:3f:b8 brd ff:ff:ff:ff:ff:ff
+   vf 0 MAC 00:00:00:00:00:00, spoof checking on, link-state auto
+   vf 1 MAC 00:00:00:00:00:00, spoof checking on, link-state auto
+   vf 2 MAC 00:00:00:00:00:00, spoof checking on, link-state auto
+   vf 3 MAC 00:00:00:00:00:00, spoof checking on, link-state auto
+   vf 4 MAC 00:00:00:00:00:00, spoof checking on, link-state auto
+   vf 5 MAC 00:00:00:00:00:00, spoof checking on, link-state auto
+   vf 6 MAC 00:00:00:00:00:00, spoof checking on, link-state auto
+   vf 7 MAC 00:00:00:00:00:00, spoof checking on, link-state auto</screen>
+          <para>If the interfaces are down, set them to <literal>up</literal> before launching a guest,
+                            otherwise the instance will fail to spawn:</para>
+          <screen language="console"># ip link set eth3 up</screen>
+        </step>
+        <step>
+          <para>Persist created VFs on reboot:</para>
+          <screen language="console"># echo "echo '7' &gt; /sys/class/net/eth3/device/sriov_numvfs" &gt;&gt; /etc/rc.local</screen>
+          <note>
+            <para>The suggested way of making PCI SYS settings persistent is through
+                                the <literal>sysfsutils</literal> tool. However, this is not available by default on
+                                many major distributions.</para>
+          </note>
+        </step>
+      </procedure>
+    </section>
+    <section>
+      <title>Whitelist PCI devices nova-compute (Compute)</title>
+      <procedure>
+        <step>
+          <para>Configure which PCI devices the <literal>nova-compute</literal> service may use. Edit
+                            the <literal>nova.conf</literal> file:</para>
+          <screen language="ini">[default]
+pci_passthrough_whitelist = { "devname": "eth3", "physical_network": "physnet2"}</screen>
+          <para>This tells the Compute service that all VFs belonging to <literal>eth3</literal> are
+                            allowed to be passed through to instances and belong to the provider network
+                            <literal>physnet2</literal>.</para>
+          <para>Alternatively the <literal>pci_passthrough_whitelist</literal> parameter also supports
+                            whitelisting by:</para>
+          <itemizedlist>
+            <listitem>
+              <para>PCI address: The address uses the same syntax as in <literal>lspci</literal> and an
+                                    asterisk (*) can be used to match anything.</para>
+              <screen language="ini"><?dbsuse-fo font-size="8pt"?>pci_passthrough_whitelist = { "address": "[[[[&lt;domain&gt;]:]&lt;bus&gt;]:][&lt;slot&gt;][.[&lt;function&gt;]]", "physical_network": "physnet2" }</screen>
+              <para>For example, to match any domain, bus 0a, slot 00, and all functions:</para>
+              <screen language="ini"><?dbsuse-fo font-size="8pt"?>pci_passthrough_whitelist = { "address": "*:0a:00.*", "physical_network": "physnet2" }</screen>
+            </listitem>
+            <listitem>
+              <para>PCI <literal>vendor_id</literal> and <literal>product_id</literal> as displayed by the Linux utility
+                                    <literal>lspci</literal>.</para>
+              <screen language="ini"><?dbsuse-fo font-size="8pt"?>pci_passthrough_whitelist = { "vendor_id": "&lt;id&gt;", "product_id": "&lt;id&gt;", "physical_network": "physnet2" }</screen>
+            </listitem>
+          </itemizedlist>
+          <para>If the device defined by the PCI address or <literal>devname</literal> corresponds to an
+                            SR-IOV PF, all VFs under the PF will match the entry. Multiple
+                            <literal>pci_passthrough_whitelist</literal> entries per host are supported.</para>
+        </step>
+        <step>
+          <para>Restart the <literal>nova-compute</literal> service for the changes to go into effect.</para>
+        </step>
+      </procedure>
+    </section>
+    <section>
+      <title>Configure neutron-server (Controller)</title>
+      <procedure>
+        <step>
+          <para>Add <literal>sriovnicswitch</literal> as mechanism driver. Edit the <literal>ml2_conf.ini</literal> file
+                            on each controller:</para>
+          <screen language="ini">mechanism_drivers = openvswitch,sriovnicswitch</screen>
+        </step>
+        <step>
+          <para>Add the <literal>plugin.ini</literal> file as a parameter to the <literal>neutron-server</literal>
+                            service. Edit the appropriate initialization script to configure the
+                            <literal>neutron-server</literal> service to load the plugin configuration file:</para>
+          <screen language="bash">--config-file /etc/neutron/neutron.conf
+--config-file /etc/neutron/plugin.ini</screen>
+        </step>
+        <step>
+          <para>Restart the <literal>neutron-server</literal> service.</para>
+        </step>
+      </procedure>
+    </section>
+    <section>
+      <title>Configure nova-scheduler (Controller)</title>
+      <procedure>
+        <step>
+          <para>On every controller node running the <literal>nova-scheduler</literal> service, add
+                            <literal>PciPassthroughFilter</literal> to <literal>scheduler_default_filters</literal> to enable
+                            <literal>PciPassthroughFilter</literal> by default.
+                            Also ensure <literal>scheduler_available_filters</literal> parameter under the
+                            <literal>[DEFAULT]</literal> section in <literal>nova.conf</literal> is set to <literal>all_filters</literal>
+                            to enable all filters provided by the Compute service.</para>
+          <screen language="ini"><?dbsuse-fo font-size="8pt"?>[DEFAULT]
+scheduler_default_filters = RetryFilter, AvailabilityZoneFilter, RamFilter, ComputeFilter, ComputeCapabilitiesFilter, ImagePropertiesFilter, ServerGroupAntiAffinityFilter, ServerGroupAffinityFilter, PciPassthroughFilter
+scheduler_available_filters = nova.scheduler.filters.all_filters</screen>
+        </step>
+        <step>
+          <para>Restart the <literal>nova-scheduler</literal> service.</para>
+        </step>
+      </procedure>
+    </section>
+    <section>
+      <title>Enable neutron sriov-agent (Compute)</title>
+      <procedure>
+        <step>
+          <para>Install the SR-IOV agent.</para>
+        </step>
+        <step>
+          <para>Edit the <literal>sriov_agent.ini</literal> file on each compute node. For example:</para>
+          <screen language="ini">[securitygroup]
+firewall_driver = neutron.agent.firewall.NoopFirewallDriver
+
+[sriov_nic]
+physical_device_mappings = physnet2:eth3
+exclude_devices =</screen>
+          <note>
+            <para>The <literal>physical_device_mappings</literal> parameter is not limited to be a 1-1
+                                mapping between physical networks and NICs. This enables you to map the
+                                same physical network to more than one NIC. For example, if <literal>physnet2</literal>
+                                is connected to <literal>eth3</literal> and <literal>eth4</literal>, then
+                                <literal>physnet2:eth3,physnet2:eth4</literal> is a valid option.</para>
+          </note>
+          <para>The <literal>exclude_devices</literal> parameter is empty, therefore, all the VFs
+                            associated with eth3 may be configured by the agent. To exclude specific
+                            VFs, add them to the <literal>exclude_devices</literal> parameter as follows:</para>
+          <screen language="ini">exclude_devices = eth1:0000:07:00.2;0000:07:00.3,eth2:0000:05:00.1;0000:05:00.2</screen>
+        </step>
+        <step>
+          <para>Ensure the neutron sriov-agent runs successfully:</para>
+          <screen language="console"># neutron-sriov-nic-agent \
+  --config-file /etc/neutron/neutron.conf \
+  --config-file /etc/neutron/plugins/ml2/sriov_agent.ini</screen>
+        </step>
+        <step>
+          <para>Enable the neutron sriov-agent service.</para>
+          <para>If installing from source, you must configure a daemon file for the init
+                            system manually.</para>
+        </step>
+      </procedure>
+      <section>
+        <title>(Optional) FDB L2 agent extension</title>
+        <para>Forwarding DataBase (FDB) population is an L2 agent extension to OVS agent or
+                        Linux bridge. Its objective is to update the FDB table for existing instance
+                        using normal port. This enables communication between SR-IOV instances and
+                        normal instances. The use cases of the FDB population extension are:</para>
+        <itemizedlist>
+          <listitem>
+            <para>Direct port and normal port instances reside on the same compute node.</para>
+          </listitem>
+          <listitem>
+            <para>Direct port instance that uses floating IP address and network node
+                                are located on the same host.</para>
+          </listitem>
+        </itemizedlist>
+        <para>For additional information describing the problem, refer to:
+                        <link xlink:href="http://events.linuxfoundation.org/sites/events/files/slides/LinuxConJapan2014_makita_0.pdf">Virtual switching technologies and Linux bridge.</link></para>
+        <procedure>
+          <step>
+            <para>Edit the <literal>ovs_agent.ini</literal> or <literal>linuxbridge_agent.ini</literal> file on each compute
+                                node. For example:</para>
+            <screen language="console">[agent]
+extensions = fdb</screen>
+          </step>
+          <step>
+            <para>Add the FDB section and the <literal>shared_physical_device_mappings</literal> parameter.
+                                This parameter maps each physical port to its physical network name. Each
+                                physical network can be mapped to several ports:</para>
+            <screen language="console">[FDB]
+shared_physical_device_mappings = physnet1:p1p1, physnet1:p1p2</screen>
+          </step>
+        </procedure>
+      </section>
+    </section>
+    <section>
+      <title>Launching instances with SR-IOV ports</title>
+      <para>Once configuration is complete, you can launch instances with SR-IOV ports.</para>
+      <procedure>
+        <step>
+          <para>Get the <literal>id</literal> of the network where you want the SR-IOV port to be created:</para>
+          <screen language="console">$ net_id=`neutron net-show net04 | grep "\ id\ " | awk '{ print $4 }'`</screen>
+        </step>
+        <step>
+          <para>Create the SR-IOV port. <literal>vnic_type=direct</literal> is used here, but other options
+                            include <literal>normal</literal>, <literal>direct-physical</literal>, and <literal>macvtap</literal>:</para>
+          <screen language="console"><?dbsuse-fo font-size="8pt"?>$ port_id=`neutron port-create $net_id --name sriov_port --binding:vnic_type direct | grep "\ id\ " | awk '{ print $4 }'`</screen>
+        </step>
+        <step>
+          <para>Create the instance using <command>openstack server create</command>. Ensure you specify the
+                SR-IOV port created in step two for the NIC.</para>
+          <note>
+            <para>There are two ways to attach VFs to an instance. You can create an SR-IOV
+                                port or use the <literal>pci_alias</literal> in the Compute service. For more
+                                information about using <literal>pci_alias</literal>, refer to <link xlink:href="https://docs.openstack.org/admin-guide/compute-pci-passthrough.html#configure-nova-api-controller">nova-api configuration</link>.</para>
+          </note>
+        </step>
+      </procedure>
+    </section>
+  </section>
+  <section>
+    <title>SR-IOV with InfiniBand</title>
+    <para>The support for SR-IOV with InfiniBand allows a Virtual PCI device (VF) to
+                be directly mapped to the guest, allowing higher performance and advanced
+                features such as RDMA (remote direct memory access). To use this feature,
+                you must:</para>
+    <procedure>
+      <step>
+        <para>Use InfiniBand enabled network adapters.</para>
+      </step>
+      <step>
+        <para>Run InfiniBand subnet managers to enable InfiniBand fabric.</para>
+        <para>All InfiniBand networks must have a subnet manager running for the network
+                        to function. This is true even when doing a simple network of two
+                        machines with no switch and the cards are plugged in back-to-back. A
+                        subnet manager is required for the link on the cards to come up.
+                        It is possible to have more than one subnet manager. In this case, one
+                        of them will act as the master, and any other will act as a slave that
+                        will take over when the master subnet manager fails.</para>
+      </step>
+      <step>
+        <para>Install the <literal>ebrctl</literal> utility on the compute nodes.</para>
+        <para>Check that <literal>ebrctl</literal> is listed somewhere in <literal>/etc/nova/rootwrap.d/*</literal>:</para>
+        <screen language="console">$ grep 'ebrctl' /etc/nova/rootwrap.d/*</screen>
+        <para>If <literal>ebrctl</literal> does not appear in any of the rootwrap files, add this to the
+                        <literal>/etc/nova/rootwrap.d/compute.filters</literal> file in the <literal>[Filters]</literal> section.</para>
+        <screen language="none">[Filters]
+ebrctl: CommandFilter, ebrctl, root</screen>
+      </step>
+    </procedure>
+  </section>
+  <section>
+    <title>Known limitations</title>
+    <itemizedlist>
+      <listitem>
+        <para>When using Quality of Service (QoS), <literal>max_burst_kbps</literal> (burst over
+                        <literal>max_kbps</literal>) is not supported. In addition, <literal>max_kbps</literal> is rounded to
+                        Mbps.</para>
+      </listitem>
+      <listitem>
+        <para>Security groups are not supported when using SR-IOV, thus, the firewall
+                        driver must be disabled. This can be done in the <literal>neutron.conf</literal> file.</para>
+        <screen language="ini">[securitygroup]
+firewall_driver = neutron.agent.firewall.NoopFirewallDriver</screen>
+      </listitem>
+      <listitem>
+        <para>SR-IOV is not integrated into the OpenStack Dashboard (horizon). Users must
+                        use the CLI or API to configure SR-IOV interfaces.</para>
+      </listitem>
+      <listitem>
+        <para>Live migration is not supported for instances with SR-IOV ports.</para>
+        <note>
+          <para>SR-IOV features may require a specific NIC driver version, depending on the vendor.
+                            Intel NICs, for example, require ixgbe version 4.4.6 or greater, and ixgbevf version
+                            3.2.2 or greater.</para>
+        </note>
+      </listitem>
+    </itemizedlist>
+  </section>
+</section>

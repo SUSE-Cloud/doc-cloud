@@ -1,0 +1,462 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+  <title>Configure Identity service for Networking</title>
+  <para>
+    <emphasis role="bold">To configure the Identity service for use with Networking</emphasis>
+  </para>
+  <procedure>
+    <step>
+      <para>Create the <literal>get_id()</literal> function</para>
+      <para>The <literal>get_id()</literal> function stores the ID of created objects, and removes
+                    the need to copy and paste object IDs in later steps:</para>
+      <substeps>
+        <step>
+          <para>Add the following function to your <literal>.bashrc</literal> file:</para>
+          <screen language="bash">function get_id () {
+echo `"$@" | awk '/ id / { print $4 }'`
+}</screen>
+        </step>
+        <step>
+          <para>Source the <literal>.bashrc</literal> file:</para>
+          <screen language="console">$ source .bashrc</screen>
+        </step>
+      </substeps>
+    </step>
+    <step>
+      <para>Create the Networking service entry</para>
+      <para>Networking must be available in the Compute service catalog. Create the
+                    service:</para>
+      <screen language="console">$ NEUTRON_SERVICE_ID=$(get_id openstack service create network \
+  --name neutron --description 'OpenStack Networking Service')</screen>
+    </step>
+    <step>
+      <para>Create the Networking service endpoint entry</para>
+      <para>The way that you create a Networking endpoint entry depends on whether
+                    you are using the SQL or the template catalog driver:</para>
+      <itemizedlist>
+        <listitem>
+          <para>If you are using the <literal>SQL driver</literal>, run the following command with the
+                            specified region (<literal>$REGION</literal>), IP address of the Networking server
+                            (<literal>$IP</literal>), and service ID (<literal>$NEUTRON_SERVICE_ID</literal>, obtained in the
+                            previous step).</para>
+          <screen language="console">$ openstack endpoint create $NEUTRON_SERVICE_ID --region $REGION \
+  --publicurl 'http://$IP:9696/' --adminurl 'http://$IP:9696/' \
+  --internalurl 'http://$IP:9696/'</screen>
+          <para>For example:</para>
+          <screen language="console">$ openstack endpoint create $NEUTRON_SERVICE_ID --region myregion \
+  --publicurl "http://10.211.55.17:9696/" \
+  --adminurl "http://10.211.55.17:9696/" \
+  --internalurl "http://10.211.55.17:9696/"</screen>
+        </listitem>
+        <listitem>
+          <para>If you are using the <literal>template driver</literal>, specify the following
+                            parameters in your Compute catalog template file
+                            (<literal>default_catalog.templates</literal>), along with the region (<literal>$REGION</literal>)
+                            and IP address of the Networking server (<literal>$IP</literal>).</para>
+          <screen language="bash">catalog.$REGION.network.publicURL = http://$IP:9696
+catalog.$REGION.network.adminURL = http://$IP:9696
+catalog.$REGION.network.internalURL = http://$IP:9696
+catalog.$REGION.network.name = Network Service</screen>
+          <para>For example:</para>
+          <screen language="bash">catalog.$Region.network.publicURL = http://10.211.55.17:9696
+catalog.$Region.network.adminURL = http://10.211.55.17:9696
+catalog.$Region.network.internalURL = http://10.211.55.17:9696
+catalog.$Region.network.name = Network Service</screen>
+        </listitem>
+      </itemizedlist>
+    </step>
+    <step>
+      <para>Create the Networking service user</para>
+      <para>You must provide admin user credentials that Compute and some internal
+                    Networking components can use to access the Networking API. Create a
+                    special <literal>service</literal> project and a <literal>neutron</literal> user within this project,
+                    and assign an <literal>admin</literal> role to this role.</para>
+      <substeps>
+        <step>
+          <para>Create the <literal>admin</literal> role:</para>
+          <screen language="console">$ ADMIN_ROLE=$(get_id openstack role create admin)</screen>
+        </step>
+        <step>
+          <para>Create the <literal>neutron</literal> user:</para>
+          <screen language="console">$ NEUTRON_USER=$(get_id openstack user create neutron \
+  --password "$NEUTRON_PASSWORD" --email demo@example.com \
+  --project service)</screen>
+        </step>
+        <step>
+          <para>Create the <literal>service</literal> project:</para>
+          <screen language="console">$ SERVICE_TENANT=$(get_id openstack project create service \
+  --description "Services project" --domain default)</screen>
+        </step>
+        <step>
+          <para>Establish the relationship among the project, user, and role:</para>
+          <screen language="console">$ openstack role add $ADMIN_ROLE --user $NEUTRON_USER \
+  --project $SERVICE_TENANT</screen>
+        </step>
+      </substeps>
+    </step>
+  </procedure>
+  <para>For information about how to create service entries and users, see the <link xlink:href="https://docs.openstack.org/project-install-guide/ocata/">Ocata Installation
+                Tutorials and Guides</link>
+            for your distribution.</para>
+  <section>
+    <title>Compute</title>
+    <para>If you use Networking, do not run the Compute <literal>nova-network</literal> service (like
+                you do in traditional Compute deployments). Instead, Compute delegates
+                most network-related decisions to Networking.</para>
+    <note>
+      <para>Uninstall <literal>nova-network</literal> and reboot any physical nodes that have been
+                    running <literal>nova-network</literal> before using them to run Networking.
+                    Inadvertently running the <literal>nova-network</literal> process while using
+                    Networking can cause problems, as can stale iptables rules pushed
+                    down by previously running <literal>nova-network</literal>.</para>
+    </note>
+    <para>Compute proxies project-facing API calls to manage security groups and
+                floating IPs to Networking APIs. However, operator-facing tools such
+                as <literal>nova-manage</literal>, are not proxied and should not be used.</para>
+    <warning>
+      <para>When you configure networking, you must use this guide. Do not rely
+                    on Compute networking documentation or past experience with Compute.
+                    If a <command>nova</command> command or configuration option related to networking
+                    is not mentioned in this guide, the command is probably not
+                    supported for use with Networking. In particular, you cannot use CLI
+                    tools like <literal>nova-manage</literal> and <literal>nova</literal> to manage networks or IP
+                    addressing, including both fixed and floating IPs, with Networking.</para>
+    </warning>
+    <para>To ensure that Compute works properly with Networking (rather than the
+                legacy <literal>nova-network</literal> mechanism), you must adjust settings in the
+                <literal>nova.conf</literal> configuration file.</para>
+  </section>
+  <section>
+    <title>Networking API and credential configuration</title>
+    <para>Each time you provision or de-provision a VM in Compute, <literal>nova-\*</literal>
+                services communicate with Networking using the standard API. For this to
+                happen, you must configure the following items in the <literal>nova.conf</literal> file
+                (used by each <literal>nova-compute</literal> and <literal>nova-api</literal> instance).</para>
+    <table>
+      <title>nova.conf API and credential settings prior to Mitaka</title>
+      <tgroup cols="2">
+        <colspec colname="c1" colwidth="28.6*"/>
+        <colspec colname="c2" colwidth="71.4*"/>
+        <thead>
+          <row>
+            <entry>
+              <para>Attribute name</para>
+            </entry>
+            <entry>
+              <para>Required</para>
+            </entry>
+          </row>
+        </thead>
+        <tbody>
+          <row>
+            <entry>
+              <para>
+                <literal>[DEFAULT] use_neutron</literal>
+              </para>
+            </entry>
+            <entry>
+              <para>Modify from the default to <literal>True</literal> to
+                                    indicate that Networking should be used rather than the traditional
+                                    nova-network networking model.</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>
+                <literal>[neutron] url</literal>
+              </para>
+            </entry>
+            <entry>
+              <para>Update to the host name/IP and port of the neutron-server instance
+                                    for this deployment.</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>
+                <literal>[neutron] auth_strategy</literal>
+              </para>
+            </entry>
+            <entry>
+              <para>Keep the default <literal>keystone</literal> value for all production deployments.</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>
+                <literal>[neutron] admin_project_name</literal>
+              </para>
+            </entry>
+            <entry>
+              <para>Update to the name of the service tenant created in the above section on
+                                    Identity configuration.</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>
+                <literal>[neutron] admin_username</literal>
+              </para>
+            </entry>
+            <entry>
+              <para>Update to the name of the user created in the above section on Identity
+                                    configuration.</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>
+                <literal>[neutron] admin_password</literal>
+              </para>
+            </entry>
+            <entry>
+              <para>Update to the password of the user created in the above section on
+                                    Identity configuration.</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>
+                <literal>[neutron] admin_auth_url</literal>
+              </para>
+            </entry>
+            <entry>
+              <para>Update to the Identity server IP and port. This is the Identity
+                                    (keystone) admin API server IP and port value, and not the Identity
+                                    service API IP and port.</para>
+            </entry>
+          </row>
+        </tbody>
+      </tgroup>
+    </table>
+    <table>
+      <title>nova.conf API and credential settings in Newton</title>
+      <tgroup cols="2">
+        <colspec colname="c1" colwidth="28.6*"/>
+        <colspec colname="c2" colwidth="71.4*"/>
+        <thead>
+          <row>
+            <entry>
+              <para>Attribute name</para>
+            </entry>
+            <entry>
+              <para>Required</para>
+            </entry>
+          </row>
+        </thead>
+        <tbody>
+          <row>
+            <entry>
+              <para>
+                <literal>[DEFAULT] use_neutron</literal>
+              </para>
+            </entry>
+            <entry>
+              <para>Modify from the default to <literal>True</literal> to
+                                    indicate that Networking should be used rather than the traditional
+                                    nova-network networking model.</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>
+                <literal>[neutron] url</literal>
+              </para>
+            </entry>
+            <entry>
+              <para>Update to the host name/IP and port of the neutron-server instance
+                                    for this deployment.</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>
+                <literal>[neutron] auth_strategy</literal>
+              </para>
+            </entry>
+            <entry>
+              <para>Keep the default <literal>keystone</literal> value for all production deployments.</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>
+                <literal>[neutron] project_name</literal>
+              </para>
+            </entry>
+            <entry>
+              <para>Update to the name of the service tenant created in the above section on
+                                    Identity configuration.</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>
+                <literal>[neutron] username</literal>
+              </para>
+            </entry>
+            <entry>
+              <para>Update to the name of the user created in the above section on Identity
+                                    configuration.</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>
+                <literal>[neutron] password</literal>
+              </para>
+            </entry>
+            <entry>
+              <para>Update to the password of the user created in the above section on
+                                    Identity configuration.</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>
+                <literal>[neutron] auth_url</literal>
+              </para>
+            </entry>
+            <entry>
+              <para>Update to the Identity server IP and port. This is the Identity
+                                    (keystone) admin API server IP and port value, and not the Identity
+                                    service API IP and port.</para>
+            </entry>
+          </row>
+        </tbody>
+      </tgroup>
+    </table>
+  </section>
+  <section>
+    <title>Configure security groups</title>
+    <para>The Networking service provides security group functionality using a
+                mechanism that is more flexible and powerful than the security group
+                capabilities built into Compute. Therefore, if you use Networking, you
+                should always disable built-in security groups and proxy all security
+                group calls to the Networking API. If you do not, security policies
+                will conflict by being simultaneously applied by both services.</para>
+    <para>To proxy security groups to Networking, use the following configuration
+                values in the <literal>nova.conf</literal> file:</para>
+    <para>
+      <emphasis role="bold">nova.conf security group settings</emphasis>
+    </para>
+    <informaltable>
+      <tgroup cols="2">
+        <colspec colname="c1" colwidth="30.3*"/>
+        <colspec colname="c2" colwidth="69.7*"/>
+        <thead>
+          <row>
+            <entry>
+              <para>Item</para>
+            </entry>
+            <entry>
+              <para>Configuration</para>
+            </entry>
+          </row>
+        </thead>
+        <tbody>
+          <row>
+            <entry>
+              <para>
+                <literal>firewall_driver</literal>
+              </para>
+            </entry>
+            <entry>
+              <para>Update to <literal>nova.virt.firewall.NoopFirewallDriver</literal>,
+                                    so that nova-compute does not perform
+                                    iptables-based filtering itself.</para>
+            </entry>
+          </row>
+        </tbody>
+      </tgroup>
+    </informaltable>
+  </section>
+  <section>
+    <title>Configure metadata</title>
+    <para>The Compute service allows VMs to query metadata associated with a VM by
+                making a web request to a special 169.254.169.254 address. Networking
+                supports proxying those requests to nova-api, even when the requests are
+                made from isolated networks, or from multiple networks that use
+                overlapping IP addresses.</para>
+    <para>To enable proxying the requests, you must update the following fields in
+                <literal>[neutron]</literal> section in the <literal>nova.conf</literal>.</para>
+    <para>
+      <emphasis role="bold">nova.conf metadata settings</emphasis>
+    </para>
+    <informaltable>
+      <tgroup cols="2">
+        <colspec colname="c1" colwidth="44.0*"/>
+        <colspec colname="c2" colwidth="56.0*"/>
+        <thead>
+          <row>
+            <entry>
+              <para>Item</para>
+            </entry>
+            <entry>
+              <para>Configuration</para>
+            </entry>
+          </row>
+        </thead>
+        <tbody>
+          <row>
+            <entry>
+              <para>
+                <literal>service_metadata_proxy</literal>
+              </para>
+            </entry>
+            <entry>
+              <para>Update to <literal>true</literal>, otherwise nova-api
+                                    will not properly respond to requests
+                                    from the neutron-metadata-agent.</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>
+                <literal>metadata_proxy_shared_secret</literal>
+              </para>
+            </entry>
+            <entry>
+              <para>Update to a string “password” value.
+                                    You must also configure the same value in
+                                    the <literal>metadata_agent.ini</literal> file, to
+                                    authenticate requests made for metadata.</para>
+              <para>The default value of an empty string in
+                                    both files will allow metadata to
+                                    function, but will not be secure if any
+                                    non-trusted entities have access to the
+                                    metadata APIs exposed by nova-api.</para>
+            </entry>
+          </row>
+        </tbody>
+      </tgroup>
+    </informaltable>
+    <note>
+      <para>As a precaution, even when using <literal>metadata_proxy_shared_secret</literal>,
+                    we recommend that you do not expose metadata using the same
+                    nova-api instances that are used for projects. Instead, you should
+                    run a dedicated set of nova-api instances for metadata that are
+                    available only on your management network. Whether a given nova-api
+                    instance exposes metadata APIs is determined by the value of
+                    <literal>enabled_apis</literal> in its <literal>nova.conf</literal>.</para>
+    </note>
+  </section>
+  <section>
+    <title>Example nova.conf (for nova-compute and nova-api)</title>
+    <para>Example values for the above settings, assuming a cloud controller node
+                running Compute and Networking with an IP address of 192.168.1.2:</para>
+    <screen language="ini">[DEFAULT]
+use_neutron = True
+firewall_driver=nova.virt.firewall.NoopFirewallDriver
+
+[neutron]
+url=http://192.168.1.2:9696
+auth_strategy=keystone
+admin_tenant_name=service
+admin_username=neutron
+admin_password=password
+admin_auth_url=http://192.168.1.2:35357/v2.0
+service_metadata_proxy=true
+metadata_proxy_shared_secret=foo</screen>
+  </section>
+</section>

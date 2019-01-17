@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+  <title>Development Guidelines</title>
+  <section>
+    <title>Coding Guidelines</title>
+    <para>For the most part we try to follow PEP 8 guidelines which can be viewed
+                here: <link xlink:href="http://www.python.org/dev/peps/pep-0008/"/></para>
+  </section>
+  <section>
+    <title>Testing Guidelines</title>
+    <para>Swift has a comprehensive suite of tests and pep8 checks that are run on all
+                submitted code, and it is recommended that developers execute the tests
+                themselves to catch regressions early.  Developers are also expected to keep
+                the test suite up-to-date with any submitted code changes.</para>
+    <para>Swift’s tests and pep8 checks can be executed in an isolated environment
+                with <literal>tox</literal>: <link xlink:href="http://tox.testrun.org/"/></para>
+    <para>To execute the tests:</para>
+    <itemizedlist>
+      <listitem>
+        <para>Ensure <literal>pip</literal> and <literal>virtualenv</literal> are upgraded to satisfy the version
+                        requirements listed in the OpenStack <link xlink:href="https://github.com/openstack/requirements/blob/master/global-requirements.txt">global requirements</link>:</para>
+        <screen>pip install pip -U
+pip install virtualenv -U</screen>
+      </listitem>
+    </itemizedlist>
+    <itemizedlist>
+      <listitem>
+        <para>Install <literal>tox</literal>:</para>
+        <screen>pip install tox</screen>
+      </listitem>
+      <listitem>
+        <para>Generate list of  distribution packages to install for testing:</para>
+        <screen>tox -e bindep</screen>
+        <para>Now install these packages using your distribution package manager
+                        like apt-get, dnf, yum, or zypper.</para>
+      </listitem>
+      <listitem>
+        <para>Run <literal>tox</literal> from the root of the swift repo:</para>
+        <screen>tox</screen>
+      </listitem>
+    </itemizedlist>
+    <note>
+      <para>If you installed using <literal>cd ~/swift; sudo python setup.py develop</literal>, you may
+                    need to do <literal>cd ~/swift; sudo chown -R ${USER}:${USER} swift.egg-info</literal> prior
+                    to running <literal>tox</literal>.</para>
+    </note>
+    <itemizedlist>
+      <listitem>
+        <para>By default <literal>tox</literal> will run all of the unit test and pep8 checks listed in
+                        the <literal>tox.ini</literal> file <literal>envlist</literal> option. A subset of the test environments
+                        can be specified on the <literal>tox</literal> command line or by setting the <literal>TOXENV</literal>
+                        environment variable. For example, to run only the pep8 checks and python2.7
+                        unit tests use:</para>
+        <screen>tox -e pep8,py27</screen>
+        <para>or:</para>
+        <screen>TOXENV=py27,pep8 tox</screen>
+      </listitem>
+    </itemizedlist>
+    <note>
+      <para>As of <literal>tox</literal> version 2.0.0, most environment variables are not automatically
+                    passed to the test environment. Swift’s <literal>tox.ini</literal> overrides this default
+                    behavior so that variable names matching <literal>SWIFT_*</literal> and <literal>*_proxy</literal> will be
+                    passed, but you may need to run <literal>tox --recreate</literal> for this to take effect
+                    after upgrading from <literal>tox</literal> &lt;2.0.0.</para>
+      <para>Conversely, if you do not want those environment variables to be passed to
+                    the test environment then you will need to unset them before calling <literal>tox</literal>.</para>
+      <para>Also, if you ever encounter DistributionNotFound, try to use <literal>tox
+--recreate</literal> or remove the <literal>.tox</literal> directory to force <literal>tox</literal> to recreate the
+                    dependency list.</para>
+    </note>
+    <para>Swift’s functional tests may be executed against a  or
+                other running Swift cluster using the command:</para>
+    <screen>tox -e func</screen>
+    <para>The endpoint and authorization credentials to be used by functional tests
+                should be configured in the <literal>test.conf</literal> file as described in the section
+                <xref linkend="setup-scripts"/>.</para>
+    <para>The environment variable <literal>SWIFT_TEST_POLICY</literal> may be set to specify a
+                particular storage policy <emphasis>name</emphasis> that will be used for testing. When set, tests
+                that would otherwise not specify a policy or choose a random policy from
+                those available will instead use the policy specified. Tests that use more than
+                one policy will include the specified policy in the set of policies used. The
+                specified policy must be available on the cluster under test.</para>
+    <para>For example, this command would run the functional tests using policy
+                ‘silver’:</para>
+    <screen>SWIFT_TEST_POLICY=silver tox -e func</screen>
+    <para>To run a single functional test, use the <literal>--no-discover</literal> option together with
+                a path to a specific test method, for example:</para>
+    <screen>tox -e func -- --no-discover test.functional.tests.TestFile.testCopy</screen>
+    <section>
+      <title>In-process functional testing</title>
+      <para>If the <literal>test.conf</literal> file is not found then the functional test framework will
+                    instantiate a set of Swift servers in the same process that executes the
+                    functional tests. This ‘in-process test’ mode may also be enabled (or disabled)
+                    by setting the environment variable <literal>SWIFT_TEST_IN_PROCESS</literal> to a true (or
+                    false) value prior to executing <literal>tox -e func</literal>.</para>
+      <para>When using the ‘in-process test’ mode some server configuration options may be
+                    set using environment variables:</para>
+      <itemizedlist>
+        <listitem>
+          <para>the optional in-memory object server may be selected by setting the
+                            environment variable <literal>SWIFT_TEST_IN_MEMORY_OBJ</literal> to a true value.</para>
+        </listitem>
+        <listitem>
+          <para>encryption may be added to the proxy pipeline by setting the
+                            environment variable <literal>SWIFT_TEST_IN_PROCESS_CONF_LOADER</literal> to
+                            <literal>encryption</literal>.</para>
+        </listitem>
+        <listitem>
+          <para>a 2+1 EC policy may be installed as the default policy by setting the
+                            environment variable <literal>SWIFT_TEST_IN_PROCESS_CONF_LOADER</literal> to
+                            <literal>ec</literal>.</para>
+        </listitem>
+        <listitem>
+          <para>the deprecated proxy-server <literal>object_post_as_copy</literal> option may be set using
+                            the environment variable <literal>SWIFT_TEST_IN_PROCESS_OBJECT_POST_AS_COPY</literal>.</para>
+        </listitem>
+        <listitem>
+          <para>logging to stdout may be enabled by setting <literal>SWIFT_TEST_DEBUG_LOGS</literal>.</para>
+        </listitem>
+      </itemizedlist>
+      <para>For example, this command would run the in-process mode functional tests with
+                    encryption enabled in the proxy-server:</para>
+      <screen>SWIFT_TEST_IN_PROCESS=1 SWIFT_TEST_IN_PROCESS_CONF_LOADER=encryption \
+    tox -e func</screen>
+      <para>This particular example may also be run using the <literal>func-encryption</literal>
+                    tox environment:</para>
+      <screen>tox -e func-encryption</screen>
+      <para>The <literal>tox.ini</literal> file also specifies test environments for running other
+                    in-process functional test configurations, e.g.:</para>
+      <screen>tox -e func-ec
+tox -e func-post-as-copy</screen>
+      <para>To debug the functional tests, use the ‘in-process test’ mode and pass the
+                    <literal>--pdb</literal> flag to <literal>tox</literal>:</para>
+      <screen>SWIFT_TEST_IN_PROCESS=1 tox -e func -- --pdb \
+    test.functional.tests.TestFile.testCopy</screen>
+      <para>The ‘in-process test’ mode searches for <literal>proxy-server.conf</literal> and
+                    <literal>swift.conf</literal> config files from which it copies config options and overrides
+                    some options to suit in process testing. The search will first look for config
+                    files in a <literal>&lt;custom_conf_source_dir&gt;</literal> that may optionally be specified using
+                    the environment variable:</para>
+      <screen>SWIFT_TEST_IN_PROCESS_CONF_DIR=&lt;custom_conf_source_dir&gt;</screen>
+      <para>If <literal>SWIFT_TEST_IN_PROCESS_CONF_DIR</literal> is not set, or if a config file is not
+                    found in <literal>&lt;custom_conf_source_dir&gt;</literal>, the search will then look in the
+                    <literal>etc/</literal> directory in the source tree. If the config file is still not found,
+                    the corresponding sample config file from <literal>etc/</literal> is used (e.g.
+                    <literal>proxy-server.conf-sample</literal> or <literal>swift.conf-sample</literal>).</para>
+      <para>When using the ‘in-process test’ mode <literal>SWIFT_TEST_POLICY</literal> may be set to
+                    specify a particular storage policy <emphasis>name</emphasis> that will be used for testing as
+                    described above. When set, this policy must exist in the <literal>swift.conf</literal> file
+                    and its corresponding ring file must exist in <literal>&lt;custom_conf_source_dir&gt;</literal> (if
+                    specified) or <literal>etc/</literal>. The test setup will set the specified policy to be the
+                    default and use its ring file properties for constructing the test object ring.
+                    This allows in-process testing to be run against various policy types and ring
+                    files.</para>
+      <para>For example, this command would run the in-process mode functional tests
+                    using config files found in <literal>$HOME/my_tests</literal> and policy ‘silver’:</para>
+      <screen>SWIFT_TEST_IN_PROCESS=1 SWIFT_TEST_IN_PROCESS_CONF_DIR=$HOME/my_tests \
+   SWIFT_TEST_POLICY=silver tox -e func</screen>
+    </section>
+  </section>
+  <section>
+    <title>Coding Style</title>
+    <para>Swift uses flake8 with the OpenStack <link xlink:href="https://pypi.python.org/pypi/hacking">hacking</link> module to enforce
+                coding style.</para>
+    <para>Install flake8 and hacking with pip or by the packages of your
+                Operating System.</para>
+    <para>It is advised to integrate flake8+hacking with your editor to get it
+                automated and not get <literal>caught</literal> by Jenkins.</para>
+    <para>For example for Vim the <link xlink:href="https://github.com/scrooloose/syntastic">syntastic</link> plugin can do this for you.</para>
+  </section>
+  <section>
+    <title>Documentation Guidelines</title>
+    <para>The documentation in docstrings should follow the PEP 257 conventions
+                (as mentioned in the PEP 8 guidelines).</para>
+    <para>More specifically:</para>
+    <procedure>
+      <step>
+        <para>Triple quotes should be used for all docstrings.</para>
+      </step>
+      <step>
+        <para>If the docstring is simple and fits on one line, then just use
+                        one line.</para>
+      </step>
+      <step>
+        <para>For docstrings that take multiple lines, there should be a newline
+                        after the opening quotes, and before the closing quotes.</para>
+      </step>
+      <step>
+        <para>Sphinx is used to build documentation, so use the restructured text
+                        markup to designate parameters, return values, etc.  Documentation on
+                        the sphinx specific markup can be found here:
+                        <link xlink:href="http://sphinx.pocoo.org/markup/index.html"/></para>
+      </step>
+    </procedure>
+    <para>Installing Sphinx:</para>
+    <procedure>
+      <step>
+        <para>Install sphinx (On Ubuntu: <literal>sudo apt-get install python-sphinx</literal>)</para>
+      </step>
+      <step>
+        <para>
+          <literal>python setup.py build_sphinx</literal>
+        </para>
+      </step>
+    </procedure>
+  </section>
+  <section>
+    <title>Manpages</title>
+    <para>For sanity check of your change in manpage, use this command in the root
+                of your Swift repo:</para>
+    <screen>./.manpages</screen>
+  </section>
+  <section>
+    <title>License and Copyright</title>
+    <para>You can have the following copyright and license statement at
+                the top of each source file. Copyright assignment is optional.</para>
+    <para>New files should contain the current year. Substantial updates can have
+                another year added, and date ranges are not needed.:</para>
+    <screen># Copyright (c) 2013 OpenStack Foundation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.</screen>
+  </section>
+</section>
