@@ -7,7 +7,6 @@
  xmlns:xi="http://www.w3.org/2001/XInclude"
  xmlns:xlink="http://www.w3.org/1999/xlink">
  <title>Using Git for Configuration Management</title>
-<!-- FIXME: Comment from DITA original: "untested" -->
  <para>
   In &kw-hos-phrase;, a local git repository is used to track configuration
   changes; the Configuration Processor (CP) uses this repository. Use of a git
@@ -257,4 +256,345 @@ ansible-playbook -i hosts/verb_hosts site.yml
    </step>
   </procedure>
  </section>
+ <section xml:id="git_merge">
+  <title>Resolving Git merge conflicts</title>
+  <para>
+   When you make changes, &productname; attempts to incorporate new or updated
+   configuration information on top of your existing environment. However, with
+   some changes to your environment, &productname; cannot automatically
+   determine whether to keep your changes or drop them in favor of the new or
+   updated configurations. This will result in <literal>merge
+   conflicts</literal>, and it will be up to you to manually resolve the
+   conflicts before you can proceed. This is common, but it can be
+   confusing. Git provides a way to resolve these situations.
+  </para>
+  <para>
+   This section gives an overview of how to approach the issue of merge
+   conflicts, showing general procedures for determining where the conflict is
+   occurring, alternative methods for resolution, and a fallback procedure for
+   the case where the resolution goes wrong and you need to start changes from
+   the beginning.
+  </para>
+  <para>
+   For a general overview of how &productname; uses Git, see the introductory
+   article <xref linkend="using_git"/>. In particular, note how the
+   <literal>site</literal> branch is the one most used by the end-user, while
+   the <literal>ardana</literal> branch contains the "upstream" source code
+   corresponding to the contents of the <literal>~/openstack</literal>
+   directory on a pristine fresh installation.
+  </para>
+ <section>
+  <title>Identifying the occurrence of a <literal>merge conflict</literal></title>
+  <para>
+   If you get a <literal>merge conflict</literal>, you will observe output
+   similar to the following on the console:
+  </para>
+<screen>Auto-merging ardana/ansible/roles/nova-compute-esx/defaults/main.yml
+Auto-merging ardana/ansible/roles/nova-common/templates/nova.conf.j2
+<emphasis role="bold">CONFLICT (content): Merge conflict in ardana/ansible/roles/nova-common/templates/nova.conf.j2</emphasis>
+Auto-merging ardana/ansible/roles/nova-cli/tasks/availability_zones.yml
+Auto-merging ardana/ansible/roles/nova-api/templates/api-paste.ini.j2</screen>
+ </section>
+ <section>
+  <title>Examining Conflicts</title>
+  <para>
+   Use <literal>git status</literal> to discover the source of the problem:
+  </para>
+<screen>...
+        new file:   tech-preview/entry-scale-kvm-mml/data/swift/rings.yml
+        modified:   tech-preview/mid-scale/README.md
+        modified:   tech-preview/mid-scale/data/control_plane.yml
+
+Unmerged paths:
+  (use "git add/rm &lt;file&gt;..." as appropriate to mark resolution)
+
+        <emphasis role="bold">both modified:   ardana/ansible/roles/nova-common/templates/nova.conf.j2</emphasis></screen>
+  <para>
+   Edit the file
+   <literal>ardana/ansible/roles/nova-common/templates/nova.conf.j2</literal>
+   to see the conflict markers:
+  </para>
+<screen>[neutron]
+admin_auth_url = {{ neutron_admin_auth_url }}
+admin_password = {{ neutron_admin_password }}
+admin_tenant_name = {{ neutron_admin_tenant_name }}
+admin_username = {{ neutron_admin_username }}
+<emphasis role="bold">&lt;&lt;&lt;&lt;&lt;&lt;&lt;HEAD
+metadata_proxy_shared_secret = top_secret_password111
+=======
+metadata_proxy_shared_secret = {{ neutron_metadata_proxy_shared_secret }}
+&gt;&gt;&gt;&gt;&gt;&gt;&gt; ardana</emphasis>
+neutron_auth_strategy = keystone
+neutron_ca_certificates_file = /etc/ssl/certs/ca-certificates.crt
+service_metadata_proxy = True</screen>
+  <para>
+   This indicates that &productname; &productnumber;is trying to set the value of
+   <literal>metadata_proxy_shared_secret</literal> to be <literal>{{
+   neutron_metadata_proxy_shared_secret }}</literal> whereas previously you
+   have set its value to <literal>top_secret_password111</literal>.
+  </para>
+ </section>
+ <section>
+  <title>Examining differences between your current version and the previous upstream version</title>
+  <para>
+   Typically, the previous upstream version will be the last-but-one commit on
+   the <literal>ardana</literal> branch. This version will have been created
+   during the initial installation of your cloud (or perhaps during a previous
+   upgrade or configuration change). So in total, there are three significant
+   versions of the file:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     The previous "upstream" version on the <literal>ardana</literal> branch.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Your current version on the <literal>site</literal> branch.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     The new "upstream" version on the <literal>ardana</literal> branch.
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   You can identify the commit number of the previous "upstream" version using
+   <literal>git merge-base</literal>.
+  </para>
+<screen>&prompt.user;git merge-base ardana site
+<emphasis role="bold">2eda1df48e2822533c50f80f5bfd7a9d788bdf73</emphasis></screen>
+  <para>
+   And then use <literal>git log</literal> to see where this commit occurs in
+   the history of the <literal>ardana</literal> branch.
+  </para>
+<screen>&prompt.user;git log ardana --
+commit 22cfa83f3526baf30b3697e971a712930f86f611
+Author: Openstack git user &lt;openstack@example.com&gt;
+Date:   Mon Jan 18 00:30:33 2018 +0000
+
+    New drop
+
+commit <emphasis role="bold">2eda1df48e2822533c50f80f5bfd7a9d788bdf73</emphasis>
+Author: Openstack git user &lt;openstack@example.com&gt;
+Date:   Sun Jan 17 19:14:01 2018 +0000
+
+    New drop</screen>
+  <para>
+   In this instance, we can see that the relevant commit is in fact the
+   last-but-one commit. We can use the simplified name
+   <literal>ardana^1</literal> to identify that commit.
+  </para>
+<screen>&prompt.user;git diff <emphasis role="bold">ardana^1</emphasis> HEAD -- ardana/ansible/roles/nova-common/templates/nova.conf.j2</screen>
+  <para>
+   In the diff output, you should be able to see how you changed the value for
+   <literal>metadata_proxy_shared_secret</literal> from
+   <literal>unset</literal> to <literal>top_secret_password111</literal>:
+  </para>
+<screen>&prompt.user;diff --git a/ardana/ansible/roles/nova-common/templates/nova.conf.j2 b/ardana/ansible/roles/nova-common/templates/nova.conf.j2
+index 597a982..05cb07c 100644
+--- a/ardana/ansible/roles/nova-common/templates/nova.conf.j2
++++ b/ardana/ansible/roles/nova-common/templates/nova.conf.j2
+@@ -132,7 +132,7 @@ admin_auth_url = {{ neutron_admin_auth_url }}
+ admin_password = {{ neutron_admin_password }}
+ admin_tenant_name = {{ neutron_admin_tenant_name }}
+ admin_username = {{ neutron_admin_username }}
+<emphasis role="bold">-metadata_proxy_shared_secret = unset
++metadata_proxy_shared_secret = top_secret_password111</emphasis>
+ neutron_auth_strategy = keystone
+ neutron_ca_certificates_file = /etc/ssl/certs/ca-certificates.crt
+ service_metadata_proxy = True</screen>
+ </section>
+ <section>
+  <title>Examining differences between your current version and the new upstream version</title>
+  <para>
+   To compare your change with the new upstream version from &productname; &productnumber; on
+   the <literal>ardana</literal> branch you can use <literal>git diff HEAD
+   ardana -- &lt;&lt;path/to/file&gt;&gt;</literal>:
+  </para>
+<screen>&prompt.user;git diff HEAD ardana -- ardana/ansible/roles/nova-common/templates/nova.conf.j2</screen>
+  <para>
+   In the extract of output below, you can see your value
+   <literal>top_secret_password111</literal> and the new value <literal>{{
+   neutron_metadata_proxy_shared_secret }}</literal> that &productname; &productnumber; wants
+   to set.
+  </para>
+<screen>..
+ admin_username = {{ neutron_admin_username }}
+<emphasis role="bold">-metadata_proxy_shared_secret = top_secret_password111
++metadata_proxy_shared_secret = {{ neutron_metadata_proxy_shared_secret }}</emphasis>
+ neutron_auth_strategy = keystone
+ neutron_ca_certificates_file = /etc/ssl/certs/ca-certificates.crt</screen>
+ </section>
+ <section>
+  <title>Examining differences between the new upstream version and the previous upstream version</title>
+  <para>
+   To compare the new upstream version from &productname; &productnumber; with the previous
+   upstream version from your initial install (or previous change):
+  </para>
+<screen>&prompt.user;git diff $(git merge-base ardana HEAD) ardana -- ardana/ansible/roles/nova-common/templates/nova.conf.j2</screen>
+  <para>
+   In the extract of output below, you can see the new upstream value
+   <literal>{{ neutron_metadata_proxy_shared_secret }}</literal> that
+   &productname; &productnumber; wants to set and the previous upstream value
+   <literal>unset</literal>.
+  </para>
+<screen> admin_password = {{ neutron_admin_password }}
+ admin_tenant_name = {{ neutron_admin_tenant_name }}
+ admin_username = {{ neutron_admin_username }}
+<emphasis role="bold">-metadata_proxy_shared_secret = unset
++metadata_proxy_shared_secret = {{ neutron_metadata_proxy_shared_secret }}</emphasis>
+ neutron_auth_strategy = keystone
+ neutron_ca_certificates_file = /etc/ssl/certs/ca-certificates.crt</screen>
+ </section>
+ <section>
+  <title>Using <literal>stage markers</literal> to view clean versions of files (without conflict markers)</title>
+  <para>
+   You can use the <literal>git show</literal> command with stage markers to
+   view files without having conflict markers embedded in them. Stage 1 is the
+   previous upstream version (<emphasis role="bold">:1</emphasis>), stage 2 is
+   your current version (<emphasis role="bold">:2</emphasis>) while stage 3 is
+   the new upstream version (<emphasis role="bold">:3</emphasis>).
+  </para>
+  <para>
+   <emphasis role="bold">Stage 1</emphasis>
+  </para>
+<screen>&prompt.user;git show <emphasis role="bold">:1</emphasis>:ardana/ansible/roles/nova-common/templates/nova.conf.j2 </screen>
+<screen>...
+admin_username = {{ neutron_admin_username }}
+<emphasis role="bold">metadata_proxy_shared_secret = unset</emphasis>
+neutron_auth_strategy = keystone
+neutron_ca_certificates_file = /etc/ssl/certs/ca-certificates.crt
+...</screen>
+  <para>
+   <emphasis role="bold">Stage 2</emphasis>
+  </para>
+<screen>&prompt.user;git show <emphasis role="bold">:2</emphasis>:ardana/ansible/roles/nova-common/templates/nova.conf.j2</screen>
+<screen>...
+admin_username = {{ neutron_admin_username }}
+<emphasis role="bold">metadata_proxy_shared_secret = top_secret_password111</emphasis>
+neutron_auth_strategy = keystone
+neutron_ca_certificates_file = /etc/ssl/certs/ca-certificates.crt
+...</screen>
+  <para>
+   <emphasis role="bold">Stage 3</emphasis>
+  </para>
+<screen>&prompt.user;git show <emphasis role="bold">:3</emphasis>:ardana/ansible/roles/nova-common/templates/nova.conf.j2</screen>
+<screen>...
+admin_username = {{ neutron_admin_username }}
+<emphasis role="bold">metadata_proxy_shared_secret = {{ neutron_metadata_proxy_shared_secret }}</emphasis>
+neutron_auth_strategy = keystone
+neutron_ca_certificates_file = /etc/ssl/certs/ca-certificates.crt
+...</screen>
+ </section>
+ <section>
+  <title>Resolving the conflict</title>
+  <para>
+   There are two approaches to resolving the conflict:
+  </para>
+  <orderedlist>
+   <listitem>
+    <para>
+     Edit the merged file containing the conflict markers, keeping the change
+     you want to preserve and removing the conflict markers and any changes you
+     want to discard.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Take the new upstream version of the file and re-apply any changes you
+     would like to keep from your current version.
+    </para>
+   </listitem>
+  </orderedlist>
+ </section>
+ <section>
+  <title>Resolving the conflict - editing the file containing the conflict markers</title>
+  <para>
+   Edit the file
+   <literal>ardana/ansible/roles/nova-common/templates/nova.conf.j2</literal>
+   and if you want to maintain your change, then delete the lines in bold
+   below:
+  </para>
+<screen>[neutron]
+admin_auth_url = {{ neutron_admin_auth_url }}
+admin_password = {{ neutron_admin_password }}
+admin_tenant_name = {{ neutron_admin_tenant_name }}
+admin_username = {{ neutron_admin_username }}
+<emphasis role="bold">&lt;&lt;&lt;&lt;&lt;&lt;&lt;HEAD</emphasis>
+metadata_proxy_shared_secret = top_secret_password111
+<emphasis role="bold">=======
+metadata_proxy_shared_secret = {{ neutron_metadata_proxy_shared_secret }}
+&gt;&gt;&gt;&gt;&gt;&gt;&gt; ardana</emphasis>
+neutron_auth_strategy = keystone
+neutron_ca_certificates_file = /etc/ssl/certs/ca-certificates.crt
+service_metadata_proxy = True</screen>
+  <para>
+   Your file should now look like this:
+  </para>
+<screen>[neutron]
+admin_auth_url = {{ neutron_admin_auth_url }}
+admin_password = {{ neutron_admin_password }}
+admin_tenant_name = {{ neutron_admin_tenant_name }}
+admin_username = {{ neutron_admin_username }}
+metadata_proxy_shared_secret = top_secret_password111
+neutron_auth_strategy = keystone
+neutron_ca_certificates_file = /etc/ssl/certs/ca-certificates.crt
+service_metadata_proxy = True</screen>
+ </section>
+ <section>
+  <title>Resolving the conflict - re-applying your changes to new upstream version</title>
+  <para>
+   Create a copy of the new upstream version (see Stage 3 above) in your
+   working directory:
+  </para>
+<screen>&prompt.user;git show <emphasis role="bold">:3</emphasis>:ardana/ansible/roles/nova-common/templates/nova.conf.j2 &gt; \
+ardana/ansible/roles/nova-common/templates/nova.conf.j2</screen>
+  <para>
+   Now edit the file
+   <literal>ardana/ansible/roles/nova-common/templates/nova.conf.j2</literal>
+   and manually re-apply the changes you want.
+  </para>
+ </section>
+ <section>
+  <title>Completing the merge procedure</title>
+  <para>
+   You may want to check that the changes you have applied are correct. Compare
+   the new upstream version with the version in your working directory:
+  </para>
+<screen>&prompt.user;git diff ardana -- ardana/ansible/roles/nova-common/templates/nova.conf.j2</screen>
+  <para>
+   If you are happy with the resolution, you can stage your changes using:
+  </para>
+<screen>&prompt.user;git add ardana/ansible/roles/nova-common/templates/nova.conf.j2</screen>
+  <para>
+   Apply the above steps to all the merge conflicts you encounter, and when you
+   have them resolved to your satisfaction, complete the merge:
+  </para>
+<screen>git commit -m "complete merge"</screen>
+ </section>
+ <section>
+  <title>Recovering from Errors</title>
+  <para>
+   If you make a mistake during the resolution process, you can return your
+   working directory to a clean copy of the <literal>site</literal> branch
+   using:
+  </para>
+<screen>&prompt.user;git reset --hard</screen>
+  <para>
+   If the new upstream version contains files that did not exist in the previous
+   version, these files will be left behind - you can see them using
+   <literal>git status</literal>. To clean up these files, remove them and then
+   reset:
+  </para>
+<screen>&prompt.user;git rm -rf ardana
+&prompt.user;git reset --hard</screen>
+  <para>
+   Alternatively, you can use <literal>git stash</literal> to save these files
+   to a transient stash queue.
+  </para>
+ </section>
+</section>
 </chapter>

@@ -1,0 +1,226 @@
+<?xml version="1.0"?>
+<!DOCTYPE chapter [
+ <!ENTITY % entities SYSTEM "entities.ent"> %entities;
+]>
+<chapter xml:id="provisioning_rhel"
+ xmlns="http://docbook.org/ns/docbook" version="5.1"
+ xmlns:xi="http://www.w3.org/2001/XInclude"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+ <title>Provisioning &rhla; Yourself</title>
+ <para>
+  This section outlines how to manually provision a &rhla; node, so that it can
+  be added to a new or existing cloud created with &productname;.
+ </para>
+ <section xml:id="sec.provision-rhel.install">
+  <title>Installing &rhla; 7.5</title>
+  <para>
+   Install &rhla; 7.5 using the standard ISO
+  </para>
+ </section>
+ <section xml:id="sec.provision-rhel.assign-ip">
+  <title>Assigning a Static IP</title>
+  <procedure>
+   <step>
+    <para>
+     Use the <literal>ip addr</literal> command to find out what network
+     devices are on your system:
+    </para>
+<screen>1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host
+       valid_lft forever preferred_lft forever
+2: <emphasis role="bold">eno1</emphasis>: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc mq state UP qlen 1000
+    link/ether <emphasis role="bold">f0:92:1c:05:89:70</emphasis> brd ff:ff:ff:ff:ff:ff
+    inet 10.13.111.178/26 brd 10.13.111.191 scope global eno1
+       valid_lft forever preferred_lft forever
+    inet6 fe80::f292:1cff:fe05:8970/64 scope link
+       valid_lft forever preferred_lft forever
+3: eno2: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc mq state UP qlen 1000
+    link/ether f0:92:1c:05:89:74 brd ff:ff:ff:ff:ff:ff</screen>
+   </step>
+   <step>
+    <para>
+     Identify the entry that matches the MAC address of your server and edit
+     the corresponding configuration file in
+     <filename>/etc/sysconfig/network-scripts</filename>:
+    </para>
+<screen>vi /etc/sysconfig/network-scripts/<emphasis role="bold">ifcfg-eno1</emphasis></screen>
+   </step>
+   <step>
+    <para>
+     Edit the <literal>IPADDR</literal> and <literal>NETMASK</literal> values
+     to match your environment. Note that the <literal>IPADDR</literal> is used
+     in the corresponding stanza in <literal>servers.yml</literal>. You may
+     also need to set <literal>BOOTPROTO</literal> to <literal>none</literal>.
+    </para>
+<screen>TYPE=Ethernet
+<emphasis role="bold">BOOTPROTO=none</emphasis>
+DEFROUTE=yes
+PEERDNS=yes
+PEERROUTES=yes
+IPV4_FAILURE_FATAL=no
+IPV6INIT=yes
+IPV6_AUTOCONF=yes
+IPV6_DEFROUTE=yes
+IPV6_PEERDNS=yes
+IPV6_PEERROUTES=yes
+IPV6_FAILURE_FATAL=no
+NAME=eno1
+UUID=36060f7a-12da-469b-a1da-ee730a3b1d7c
+DEVICE=eno1
+ONBOOT=yes
+<emphasis role="bold">NETMASK=255.255.255.192</emphasis>
+<emphasis role="bold">IPADDR=10.13.111.14</emphasis></screen>
+   </step>
+   <step performance="optional">
+    <para>
+     Reboot your &rhla; node and ensure that it can be accessed from the &lcm;.
+    </para>
+   </step>
+  </procedure>
+ </section>
+ <section xml:id="sec.provision-rhel.user">
+  <title>Adding The User and Home Directory for <systemitem class="username">ardana</systemitem></title>
+<screen>&prompt.sudo;useradd -m ardana
+&prompt.sudo;passwd ardana</screen>
+ </section>
+ <section>
+  <title>Allow User <systemitem class="username">ardana</systemitem> to Use <command>sudo</command> Without Password</title>
+  <para>
+   There are a number of different ways to achieve this. Here is one
+   possibility using the pre-existing
+   <systemitem class="groupname">wheel</systemitem> group.
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Add the user <systemitem class="username">ardana</systemitem> to the
+     <systemitem class="groupname">wheel</systemitem> group.
+    </para>
+<screen>&prompt.sudo;usermod -aG wheel ardana</screen>
+   </step>
+   <step>
+    <para>
+     Run the command <command>visudo</command>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Uncomment the line specifying <literal>NOPASSWD: ALL</literal> for the
+     <systemitem class="groupname">wheel</systemitem> group.
+    </para>
+<screen>## Allows people in group wheel to run all commands
+%wheel  ALL=(ALL)       ALL
+
+## Same thing without a password
+<emphasis role="bold">%wheel ALL=(ALL)       NOPASSWD: ALL</emphasis></screen>
+   </step>
+   <step>
+    <para>
+     To facilitate using SSH from the deployer and running a command via
+     <command>sudo</command>, comment the lines for
+     <literal>requiretty</literal> and <literal>!visiblepw</literal>
+    </para>
+<screen>#
+# Disable "ssh hostname sudo &lt;cmd&gt;", because it will show the password in clear.
+#         You have to run "ssh -t hostname sudo &lt;cmd&gt;".
+#
+<emphasis role="bold">#</emphasis>Defaults    requiretty
+
+#
+# Refuse to run if unable to disable echo on the tty. This setting should also be
+# changed in order to be able to use sudo without a tty. See requiretty above.
+#
+<emphasis role="bold">#</emphasis>Defaults   !visiblepw</screen>
+   </step>
+  </procedure>
+ </section>
+ <section xml:id="sec.provision-rhel.yum-iso">
+  <title>Setting Up a Yum Repository from a &rhla; ISO</title>
+  <para>
+   This section is only required if RHEL node is set up manually, You need to
+   set up a Yum repository, either external or local, containing a &rhla;
+   distribution supported by &productname;. This repository must mirror the
+   entire product repository including the <literal>ResilientStorage</literal>
+   and <literal>HighAvailability</literal> add-ons. To create this repository,
+   perform these steps in compute node:
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Mount the &rhla; ISO and expand it:
+    </para>
+<screen>&prompt.sudo;mkdir /tmp/localrhel
+&prompt.sudo;mount -o loop rhel7.iso /mnt
+&prompt.sudo;cd /mnt
+&prompt.sudo;tar cvf - . | (cd /tmp/localrhel ; tar xvf -)
+&prompt.sudo;cd /
+&prompt.sudo;umount /mnt</screen>
+   </step>
+   <step>
+    <para>
+     Create a repository file named
+     <filename>/etc/yum.repos.d/localrhel.repo</filename> with the following
+     contents:
+    </para>
+<screen>[localrhel]
+name=localrhel
+baseurl=file:///tmp/localrhel
+enabled=1
+gpgcheck=0
+
+[localrhel-1]
+name=localrhel-1
+baseurl=file:///tmp/localrhel/addons/ResilientStorage
+enabled=1
+gpgcheck=0
+
+[localrhel-2]
+name=localrhel-2
+baseurl=file:///tmp/localrhel/addons/HighAvailability
+enabled=1
+gpgcheck=0</screen>
+   </step>
+   <step>
+    <para>
+     Run:
+    </para>
+<screen>&prompt.sudo;yum clean all</screen>
+   </step>
+  </procedure>
+ </section>
+ <section xml:id="sec.provision-rhel.package">
+  <title>Adding Required Packages</title>
+  <para>
+   Extra packages that are required. Ensure that
+   <package>openssh-server</package>, <package>python</package>,
+   <package>python-apt</package>, and
+   <package>rsync</package> are installed.
+  </para>
+ </section>
+ <section xml:id="sec.provision-rhel.ssh">
+  <title>Setting Up Passwordless SSH Access</title>
+  <para>
+   After you have started your installation using the &lcm;, or if you are
+   adding a &rhla; node to an existing cloud, you need to copy the deployer
+   public key to the &rhla; node. One way of doing this is to copy the
+   <filename>~/.ssh/authorized_keys</filename> from another node in
+   the cloud to the same location on the &rhla; node. If you are installing a
+   new cloud, this file will be available on the nodes after running the
+   <filename>bm-reimage.yml</filename> playbook.
+  </para>
+  <important>
+   <para>
+    Ensure that there is global read access to the file
+    <filename>~/.ssh/authorized_keys</filename>.
+   </para>
+  </important>
+  <para>
+   Now test passwordless SSH from the deployer and check your ability to
+   remotely execute sudo commands:
+  </para>
+<screen>ssh ardana@<replaceable>IP_OF_RHEL_NODE</replaceable> "sudo tail -5 /var/log/messages"</screen>
+ </section>
+</chapter>
