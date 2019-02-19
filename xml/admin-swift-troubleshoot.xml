@@ -1,0 +1,296 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+  <title>Troubleshoot Object Storage</title>
+  <para>For Object Storage, everything is logged in <literal>/var/log/syslog</literal> (or
+            <literal>messages</literal> on some distros). Several settings enable further
+            customization of logging, such as <literal>log_name</literal>, <literal>log_facility</literal>, and
+            <literal>log_level</literal>, within the object server configuration files.</para>
+  <section>
+    <title>Drive failure</title>
+    <section>
+      <title>Problem</title>
+      <para>Drive failure can prevent Object Storage performing replication.</para>
+    </section>
+    <section>
+      <title>Solution</title>
+      <para>In the event that a drive has failed, the first step is to make sure the
+                    drive is unmounted. This will make it easier for Object Storage to work
+                    around the failure until it has been resolved. If the drive is going to
+                    be replaced immediately, then it is just best to replace the drive,
+                    format it, remount it, and let replication fill it up.</para>
+      <para>If you cannot replace the drive immediately, then it is best to leave it
+                    unmounted, and remove the drive from the ring. This will allow all the
+                    replicas that were on that drive to be replicated elsewhere until the
+                    drive is replaced. Once the drive is replaced, it can be re-added to the
+                    ring.</para>
+      <para>You can look at error messages in the <literal>/var/log/kern.log</literal> file for
+                    hints of drive failure.</para>
+    </section>
+  </section>
+  <section>
+    <title>Server failure</title>
+    <section>
+      <title>Problem</title>
+      <para>The server is potentially offline, and may have failed, or require a
+                    reboot.</para>
+    </section>
+    <section xml:id="id2">
+      <title>Solution</title>
+      <para>If a server is having hardware issues, it is a good idea to make sure
+                    the Object Storage services are not running. This will allow Object
+                    Storage to work around the failure while you troubleshoot.</para>
+      <para>If the server just needs a reboot, or a small amount of work that should
+                    only last a couple of hours, then it is probably best to let Object
+                    Storage work around the failure and get the machine fixed and back
+                    online. When the machine comes back online, replication will make sure
+                    that anything that is missing during the downtime will get updated.</para>
+      <para>If the server has more serious issues, then it is probably best to
+                    remove all of the server’s devices from the ring. Once the server has
+                    been repaired and is back online, the server’s devices can be added back
+                    into the ring. It is important that the devices are reformatted before
+                    putting them back into the ring as it is likely to be responsible for a
+                    different set of partitions than before.</para>
+    </section>
+  </section>
+  <section>
+    <title>Detect failed drives</title>
+    <section>
+      <title>Problem</title>
+      <para>When drives fail, it can be difficult to detect that a drive has failed,
+                    and the details of the failure.</para>
+    </section>
+    <section>
+      <title>Solution</title>
+      <para>It has been our experience that when a drive is about to fail, error
+                    messages appear in the <literal>/var/log/kern.log</literal> file. There is a script called
+                    <literal>swift-drive-audit</literal> that can be run via cron to watch for bad drives. If
+                    errors are detected, it will unmount the bad drive, so that Object
+                    Storage can work around it. The script takes a configuration file with
+                    the following settings:</para>
+      <table>
+        <title>Description of configuration options for [drive-audit] in drive-audit.conf</title>
+        <tgroup cols="2">
+          <colspec colname="c1" colwidth="50.0*"/>
+          <colspec colname="c2" colwidth="50.0*"/>
+          <thead>
+            <row>
+              <entry>
+                <para>Configuration option = Default value</para>
+              </entry>
+              <entry>
+                <para>Description</para>
+              </entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry>
+                <para>
+                  <literal>device_dir = /srv/node</literal>
+                </para>
+              </entry>
+              <entry>
+                <para>Directory devices are mounted under</para>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <para>
+                  <literal>error_limit = 1</literal>
+                </para>
+              </entry>
+              <entry>
+                <para>Number of errors to find before a device is unmounted</para>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <para>
+                  <literal>log_address = /dev/log</literal>
+                </para>
+              </entry>
+              <entry>
+                <para>Location where syslog sends the logs to</para>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <para>
+                  <literal>log_facility = LOG_LOCAL0</literal>
+                </para>
+              </entry>
+              <entry>
+                <para>Syslog log facility</para>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <para>
+                  <literal>log_file_pattern = /var/log/kern.*[!.][!g][!z]</literal>
+                </para>
+              </entry>
+              <entry>
+                <para>Location of the log file with globbing pattern to check against device
+                                        errors locate device blocks with errors in the log file</para>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <para>
+                  <literal>log_level = INFO</literal>
+                </para>
+              </entry>
+              <entry>
+                <para>Logging level</para>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <para>
+                  <literal>log_max_line_length = 0</literal>
+                </para>
+              </entry>
+              <entry>
+                <para>Caps the length of log lines to the value given; no limit if set to 0,
+                                        the default.</para>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <para>
+                  <literal>log_to_console = False</literal>
+                </para>
+              </entry>
+              <entry>
+                <para>No help text available for this option.</para>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <para>
+                  <literal>minutes = 60</literal>
+                </para>
+              </entry>
+              <entry>
+                <para>Number of minutes to look back in <literal>/var/log/kern.log</literal></para>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <para>
+                  <literal>recon_cache_path = /var/cache/swift</literal>
+                </para>
+              </entry>
+              <entry>
+                <para>Directory where stats for a few items will be stored</para>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <para>
+                  <literal>regex_pattern_1 = \berror\b.*\b(dm-[0-9]{1,2}\d?)\b</literal>
+                </para>
+              </entry>
+              <entry>
+                <para>No help text available for this option.</para>
+              </entry>
+            </row>
+            <row>
+              <entry>
+                <para>
+                  <literal>unmount_failed_device = True</literal>
+                </para>
+              </entry>
+              <entry>
+                <para>No help text available for this option.</para>
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </table>
+      <warning>
+        <para>This script has only been tested on Ubuntu 10.04; use with caution on
+                        other operating systems in production.</para>
+      </warning>
+    </section>
+  </section>
+  <section>
+    <title>Emergency recovery of ring builder files</title>
+    <section>
+      <title>Problem</title>
+      <para>An emergency might prevent a successful backup from restoring the
+                    cluster to operational status.</para>
+    </section>
+    <section>
+      <title>Solution</title>
+      <para>You should always keep a backup of swift ring builder files. However, if
+                    an emergency occurs, this procedure may assist in returning your cluster
+                    to an operational state.</para>
+      <para>Using existing swift tools, there is no way to recover a builder file
+                    from a <literal>ring.gz</literal> file. However, if you have a knowledge of Python, it
+                    is possible to construct a builder file that is pretty close to the one
+                    you have lost.</para>
+      <warning>
+        <para>This procedure is a last-resort for emergency circumstances. It
+                        requires knowledge of the swift python code and may not succeed.</para>
+      </warning>
+      <procedure>
+        <step>
+          <para>Load the ring and a new ringbuilder object in a Python REPL:</para>
+          <screen language="python">&gt;&gt;&gt; from swift.common.ring import RingData, RingBuilder
+&gt;&gt;&gt; ring = RingData.load('/path/to/account.ring.gz')</screen>
+        </step>
+        <step>
+          <para>Start copying the data we have in the ring into the builder:</para>
+          <screen language="python">&gt;&gt;&gt; import math
+&gt;&gt;&gt; partitions = len(ring._replica2part2dev_id[0])
+&gt;&gt;&gt; replicas = len(ring._replica2part2dev_id)
+
+&gt;&gt;&gt; builder = RingBuilder(int(math.log(partitions, 2)), replicas, 1)
+&gt;&gt;&gt; builder.devs = ring.devs
+&gt;&gt;&gt; builder._replica2part2dev = ring._replica2part2dev_id
+&gt;&gt;&gt; builder._last_part_moves_epoch = 0
+&gt;&gt;&gt; from array import array
+&gt;&gt;&gt; builder._last_part_moves = array('B', (0 for _ in xrange(partitions)))
+&gt;&gt;&gt; builder._set_parts_wanted()
+&gt;&gt;&gt; for d in builder._iter_devs():
+            d['parts'] = 0
+&gt;&gt;&gt; for p2d in builder._replica2part2dev:
+            for dev_id in p2d:
+                builder.devs[dev_id]['parts'] += 1
+
+This is the extent of the recoverable fields.</screen>
+        </step>
+        <step>
+          <para>For <literal>min_part_hours</literal> you either have to remember what the value you
+                            used was, or just make up a new one:</para>
+          <screen language="python">&gt;&gt;&gt; builder.change_min_part_hours(24) # or whatever you want it to be</screen>
+        </step>
+        <step>
+          <para>Validate the builder. If this raises an exception, check your
+                            previous code:</para>
+          <screen language="python">&gt;&gt;&gt; builder.validate()</screen>
+        </step>
+        <step>
+          <para>After it validates, save the builder and create a new <literal>account.builder</literal>:</para>
+          <screen language="python">&gt;&gt;&gt; import pickle
+&gt;&gt;&gt; pickle.dump(builder.to_dict(), open('account.builder', 'wb'), protocol=2)
+&gt;&gt;&gt; exit ()</screen>
+        </step>
+        <step>
+          <para>You should now have a file called <literal>account.builder</literal> in the current
+                            working directory. Run
+                            <command>swift-ring-builder account.builder write_ring</command> and compare the new
+                            <literal>account.ring.gz</literal> to the <literal>account.ring.gz</literal> that you started
+                            from. They probably are not byte-for-byte identical, but if you load them
+                            in a REPL and their <literal>_replica2part2dev_id</literal> and <literal>devs</literal> attributes are
+                            the same (or nearly so), then you are in good shape.</para>
+        </step>
+        <step>
+          <para>Repeat the procedure for <literal>container.ring.gz</literal> and
+                            <literal>object.ring.gz</literal>, and you might get usable builder files.</para>
+        </step>
+      </procedure>
+    </section>
+  </section>
+</section>

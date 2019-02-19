@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+  <title>Migrate volumes</title>
+  <para>OpenStack has the ability to migrate volumes between back-ends which support
+            its volume-type. Migrating a volume transparently moves its data from the
+            current back-end for the volume to a new one. This is an administrator
+            function, and can be used for functions including storage evacuation (for
+            maintenance or decommissioning), or manual optimizations (for example,
+            performance, reliability, or cost).</para>
+  <para>These workflows are possible for a migration:</para>
+  <procedure>
+    <step>
+      <para>If the storage can migrate the volume on its own, it is given the
+                    opportunity to do so. This allows the Block Storage driver to enable
+                    optimizations that the storage might be able to perform. If the back-end
+                    is not able to perform the migration, the Block Storage uses one of two
+                    generic flows, as follows.</para>
+    </step>
+    <step>
+      <para>If the volume is not attached, the Block Storage service creates a volume
+                    and copies the data from the original to the new volume.</para>
+      <note>
+        <para>While most back-ends support this function, not all do. See the <link xlink:href="https://docs.openstack.org/ocata/config-reference/block-storage/volume-drivers.html">driver
+                            documentation</link>
+                        in the OpenStack Configuration Reference for more details.</para>
+      </note>
+    </step>
+    <step>
+      <para>If the volume is attached to a VM instance, the Block Storage creates a
+                    volume, and calls Compute to copy the data from the original to the new
+                    volume. Currently this is supported only by the Compute libvirt driver.</para>
+    </step>
+  </procedure>
+  <para>As an example, this scenario shows two LVM back-ends and migrates an attached
+            volume from one to the other. This scenario uses the third migration flow.</para>
+  <para>First, list the available back-ends:</para>
+  <screen language="console"># cinder get-pools
++----------+----------------------------------------------------+
+| Property |                       Value                        |
++----------+----------------------------------------------------+
+|   name   |           server1@lvmstorage-1#lvmstorage-1        |
++----------+----------------------------------------------------+
++----------+----------------------------------------------------+
+| Property |                      Value                         |
++----------+----------------------------------------------------+
+|   name   |           server2@lvmstorage-2#lvmstorage-2        |
++----------+----------------------------------------------------+</screen>
+  <note>
+    <para>Only Block Storage V2 API supports <command>cinder get-pools</command>.</para>
+  </note>
+  <para>You can also get available back-ends like following:</para>
+  <screen language="console"># cinder-manage host list
+server1@lvmstorage-1    zone1
+server2@lvmstorage-2    zone1</screen>
+  <para>But it needs to add pool name in the end. For example,
+            <literal>server1@lvmstorage-1#zone1</literal>.</para>
+  <para>Next, as the admin user, you can see the current status of the volume
+            (replace the example ID with your own):</para>
+  <screen language="console">$ openstack volume show 6088f80a-f116-4331-ad48-9afb0dfb196c
+
++--------------------------------+--------------------------------------+
+| Field                          | Value                                |
++--------------------------------+--------------------------------------+
+| attachments                    | []                                   |
+| availability_zone              | zone1                                |
+| bootable                       | false                                |
+| consistencygroup_id            | None                                 |
+| created_at                     | 2013-09-01T14:53:22.000000           |
+| description                    | test                                 |
+| encrypted                      | False                                |
+| id                             | 6088f80a-f116-4331-ad48-9afb0dfb196c |
+| migration_status               | None                                 |
+| multiattach                    | False                                |
+| name                           | test                                 |
+| os-vol-host-attr:host          | server1@lvmstorage-1#lvmstorage-1    |
+| os-vol-mig-status-attr:migstat | None                                 |
+| os-vol-mig-status-attr:name_id | None                                 |
+| os-vol-tenant-attr:tenant_id   | d88310717a8e4ebcae84ed075f82c51e     |
+| properties                     | readonly='False'                     |
+| replication_status             | disabled                             |
+| size                           | 1                                    |
+| snapshot_id                    | None                                 |
+| source_volid                   | None                                 |
+| status                         | in-use                               |
+| type                           | None                                 |
+| updated_at                     | 2016-07-31T07:22:19.000000           |
+| user_id                        | d8e5e5727f3a4ce1886ac8ecec058e83     |
++--------------------------------+--------------------------------------+</screen>
+  <para>Note these attributes:</para>
+  <itemizedlist>
+    <listitem>
+      <para><literal>os-vol-host-attr:host</literal> - the volume’s current back-end.</para>
+    </listitem>
+    <listitem>
+      <para><literal>os-vol-mig-status-attr:migstat</literal> - the status of this volume’s migration
+                    (None means that a migration is not currently in progress).</para>
+    </listitem>
+    <listitem>
+      <para><literal>os-vol-mig-status-attr:name_id</literal> - the volume ID that this volume’s name
+                    on the back-end is based on. Before a volume is ever migrated, its name on
+                    the back-end storage may be based on the volume’s ID (see the
+                    <literal>volume_name_template</literal> configuration parameter). For example, if
+                    <literal>volume_name_template</literal> is kept as the default value (<literal>volume-%s</literal>), your
+                    first LVM back-end has a logical volume named
+                    <literal>volume-6088f80a-f116-4331-ad48-9afb0dfb196c</literal>. During the course of a
+                    migration, if you create a volume and copy over the data, the volume get
+                    the new name but keeps its original ID. This is exposed by the <literal>name_id</literal>
+                    attribute.</para>
+      <note>
+        <para>If you plan to decommission a block storage node, you must stop the
+                        <literal>cinder</literal> volume service on the node after performing the migration.</para>
+        <para>On SUSE Linux Enterprise, run:</para>
+        <screen language="console"># service openstack-cinder-volume stop
+# chkconfig openstack-cinder-volume off</screen>
+        <para>Stopping the cinder volume service will prevent volumes from being
+                        allocated to the node.</para>
+      </note>
+    </listitem>
+  </itemizedlist>
+  <para>Migrate this volume to the second LVM back-end:</para>
+  <screen language="console">$ cinder migrate 6088f80a-f116-4331-ad48-9afb0dfb196c \
+  server2@lvmstorage-2#lvmstorage-2
+
+Request to migrate volume 6088f80a-f116-4331-ad48-9afb0dfb196c has been
+accepted.</screen>
+  <para>You can use the <command>openstack volume show</command> command to see the status of
+            the migration. While migrating, the <literal>migstat</literal> attribute shows states such as
+            <literal>migrating</literal> or <literal>completing</literal>. On error, <literal>migstat</literal> is set to None and the
+            host attribute shows the original <literal>host</literal>. On success, in this example, the
+            output looks like:</para>
+  <screen language="console">$ openstack volume show 6088f80a-f116-4331-ad48-9afb0dfb196c
+
++--------------------------------+--------------------------------------+
+| Field                          | Value                                |
++--------------------------------+--------------------------------------+
+| attachments                    | []                                   |
+| availability_zone              | zone1                                |
+| bootable                       | false                                |
+| consistencygroup_id            | None                                 |
+| created_at                     | 2013-09-01T14:53:22.000000           |
+| description                    | test                                 |
+| encrypted                      | False                                |
+| id                             | 6088f80a-f116-4331-ad48-9afb0dfb196c |
+| migration_status               | None                                 |
+| multiattach                    | False                                |
+| name                           | test                                 |
+| os-vol-host-attr:host          | server2@lvmstorage-2#lvmstorage-2    |
+| os-vol-mig-status-attr:migstat | completing                           |
+| os-vol-mig-status-attr:name_id | None                                 |
+| os-vol-tenant-attr:tenant_id   | d88310717a8e4ebcae84ed075f82c51e     |
+| properties                     | readonly='False'                     |
+| replication_status             | disabled                             |
+| size                           | 1                                    |
+| snapshot_id                    | None                                 |
+| source_volid                   | None                                 |
+| status                         | in-use                               |
+| type                           | None                                 |
+| updated_at                     | 2017-02-22T02:35:03.000000           |
+| user_id                        | d8e5e5727f3a4ce1886ac8ecec058e83     |
++--------------------------------+--------------------------------------+</screen>
+  <para>Note that <literal>migstat</literal> is None, host is the new host, and <literal>name_id</literal> holds the
+            ID of the volume created by the migration. If you look at the second LVM back
+            end, you find the logical volume
+            <literal>volume-133d1f56-9ffc-4f57-8798-d5217d851862</literal>.</para>
+  <note>
+    <para>The migration is not visible to non-admin users (for example, through the
+                volume <literal>status</literal>). However, some operations are not allowed while a
+                migration is taking place, such as attaching/detaching a volume and
+                deleting a volume. If a user performs such an action during a migration,
+                an error is returned.</para>
+  </note>
+  <note>
+    <para>Migrating volumes that have snapshots are currently not allowed.</para>
+  </note>
+</section>
