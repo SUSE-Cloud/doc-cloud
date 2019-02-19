@@ -1,0 +1,316 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+  <title>Trunking</title>
+  <para>The network trunk service allows multiple networks to be connected to an
+            instance using a single virtual NIC (vNIC). Multiple networks can be presented
+            to an instance by connecting it to a single port.</para>
+  <section>
+    <title>Operation</title>
+    <para>Network trunking consists of a service plug-in and a set of drivers that
+                manage trunks on different layer-2 mechanism drivers. Users can create a
+                port, associate it with a trunk, and launch an instance on that port. Users
+                can dynamically attach and detach additional networks without disrupting
+                operation of the instance.</para>
+    <para>Every trunk has a parent port and can have any number of subports.
+                The parent port is the port that the trunk is associated with. Users
+                create instances and specify the parent port of the trunk when launching
+                instances attached to a trunk.</para>
+    <para>The network presented by the subport is the network of the associated
+                port. When creating a subport, a <literal>segmentation-id</literal> may be required by
+                the driver. <literal>segmentation-id</literal> defines the segmentation ID on which the
+                subport network is presented to the instance. <literal>segmentation-type</literal> may be
+                required by certain drivers like OVS, although at this time only <literal>vlan</literal> is
+                supported as a <literal>segmentation-type</literal>.</para>
+    <note>
+      <para>The <literal>segmentation-type</literal> and <literal>segmentation-id</literal> parameters are optional
+                    in the Networking API. However, all drivers as of the Newton release
+                    require both to be provided when adding a subport to a trunk. Future
+                    drivers may be implemented without this requirement.</para>
+    </note>
+    <para>The <literal>segmentation-type</literal> and <literal>segmentation-id</literal> specified by the user on the
+                subports is intentionally decoupled from the <literal>segmentation-type</literal> and ID of
+                the networks. For example, it is possible to configure the Networking service
+                with <literal>tenant_network_types = vxlan</literal> and still create subports with
+                <literal>segmentation_type = vlan</literal>. The Networking service performs remapping as
+                necessary.</para>
+  </section>
+  <section>
+    <title>Example configuration</title>
+    <para>The ML2 plug-in supports trunking with the following mechanism drivers:</para>
+    <itemizedlist>
+      <listitem>
+        <para>Open vSwitch (OVS)</para>
+      </listitem>
+      <listitem>
+        <para>Linux bridge</para>
+      </listitem>
+      <listitem>
+        <para>Open Virtual Network (OVN)</para>
+      </listitem>
+    </itemizedlist>
+    <para>When using a <literal>segmentation-type</literal> of <literal>vlan</literal>, the OVS and Linux bridge
+                drivers present the network of the parent port as the untagged VLAN and all
+                subports as tagged VLANs.</para>
+    <section>
+      <title>Controller node</title>
+      <itemizedlist>
+        <listitem>
+          <para>In the <literal>neutron.conf</literal> file, enable the trunk service plug-in:</para>
+          <screen language="ini">[DEFAULT]
+service_plugins = trunk</screen>
+        </listitem>
+      </itemizedlist>
+    </section>
+    <section>
+      <title>Verify service operation</title>
+      <procedure>
+        <step>
+          <para>Source the administrative project credentials and list the enabled
+                            extensions.</para>
+        </step>
+        <step>
+          <para>Use the command <command>openstack extension list --network</command> to verify
+                            that the <literal>Trunk Extension</literal> and <literal>Trunk port details</literal> extensions are
+                            enabled.</para>
+        </step>
+      </procedure>
+    </section>
+    <section>
+      <title>Workflow</title>
+      <para>At a high level, the basic steps to launching an instance on a trunk are
+                    the following:</para>
+      <procedure>
+        <step>
+          <para>Create networks and subnets for the trunk and subports</para>
+        </step>
+        <step>
+          <para>Create the trunk</para>
+        </step>
+        <step>
+          <para>Add subports to the trunk</para>
+        </step>
+        <step>
+          <para>Launch an instance on the trunk</para>
+        </step>
+      </procedure>
+    </section>
+    <section>
+      <title>Create networks and subnets for the trunk and subports</title>
+      <para>Create the appropriate networks for the trunk and subports that will be added
+                    to the trunk. Create subnets on these networks to ensure the desired layer-3
+                    connectivity over the trunk.</para>
+    </section>
+    <section>
+      <title>Create the trunk</title>
+      <itemizedlist>
+        <listitem>
+          <para>Create a parent port for the trunk.</para>
+          <screen language="console"><?dbsuse-fo font-size="8pt"?>$ openstack port create --network project-net-A trunk-parent
++-------------------+-------------------------------------------------------------------------+
+| Field             | Value                                                                   |
++-------------------+-------------------------------------------------------------------------+
+| admin_state_up    | UP                                                                      |
+| binding_vif_type  | unbound                                                                 |
+| binding_vnic_type | normal                                                                  |
+| fixed_ips         | ip_address='192.0.2.7',subnet_id='8b957198-d3cf-4953-8449-ad4e4dd712cc' |
+| id                | 73fb9d54-43a7-4bb1-a8dc-569e0e0a0a38                                    |
+| mac_address       | fa:16:3e:dd:c4:d1                                                       |
+| name              | trunk-parent                                                            |
+| network_id        | 1b47d3e7-cda5-48e4-b0c8-d20bd7e35f55                                    |
++-------------------+-------------------------------------------------------------------------+</screen>
+        </listitem>
+        <listitem>
+          <para>Create the trunk using <literal>--parent-port</literal> to reference the port from
+                            the previous step:</para>
+          <screen language="console">$ openstack network trunk create --parent-port trunk-parent trunk1
++-----------------+--------------------------------------+
+| Field           | Value                                |
++-----------------+--------------------------------------+
+| admin_state_up  | UP                                   |
+| id              | fdf02fcb-1844-45f1-9d9b-e4c2f522c164 |
+| name            | trunk1                               |
+| port_id         | 73fb9d54-43a7-4bb1-a8dc-569e0e0a0a38 |
+| sub_ports       |                                      |
++-----------------+--------------------------------------+</screen>
+        </listitem>
+      </itemizedlist>
+    </section>
+    <section>
+      <title>Add subports to the trunk</title>
+      <para>Subports can be added to a trunk in two ways: creating the trunk with subports
+                    or adding subports to an existing trunk.</para>
+      <itemizedlist>
+        <listitem>
+          <para>Create trunk with subports:</para>
+          <para>This method entails creating the trunk with subports specified at trunk
+                            creation.</para>
+          <screen language="console"><?dbsuse-fo font-size="8pt"?>$ openstack port create --network project-net-A trunk-parent
++-------------------+-------------------------------------------------------------------------+
+| Field             | Value                                                                   |
++-------------------+-------------------------------------------------------------------------+
+| admin_state_up    | UP                                                                      |
+| binding_vif_type  | unbound                                                                 |
+| binding_vnic_type | normal                                                                  |
+| fixed_ips         | ip_address='192.0.2.7',subnet_id='8b957198-d3cf-4953-8449-ad4e4dd712cc' |
+| id                | 73fb9d54-43a7-4bb1-a8dc-569e0e0a0a38                                    |
+| mac_address       | fa:16:3e:dd:c4:d1                                                       |
+| name              | trunk-parent                                                            |
+| network_id        | 1b47d3e7-cda5-48e4-b0c8-d20bd7e35f55                                    |
++-------------------+-------------------------------------------------------------------------+
+
+$ openstack port create --network trunked-net subport1
++-------------------+----------------------------------------------------------------------------+
+| Field             | Value                                                                      |
++-------------------+----------------------------------------------------------------------------+
+| admin_state_up    | UP                                                                         |
+| binding_vif_type  | unbound                                                                    |
+| binding_vnic_type | normal                                                                     |
+| fixed_ips         | ip_address='198.51.100.8',subnet_id='2a860e2c-922b-437b-a149-b269a8c9b120' |
+| id                | 91f9dde8-80a4-4506-b5da-c287feb8f5d8                                       |
+| mac_address       | fa:16:3e:ba:f0:4d                                                          |
+| name              | subport1                                                                   |
+| network_id        | aef78ec5-16e3-4445-b82d-b2b98c6a86d9                                       |
++-------------------+----------------------------------------------------------------------------+
+
+$ openstack network trunk create \
+  --parent-port trunk-parent \
+  --subport port=subport1,segmentation-type=vlan,segmentation-id=100 \
+  trunk1
++----------------+-------------------------------------------------------------------------------------------------+
+| Field          | Value                                                                                           |
++----------------+-------------------------------------------------------------------------------------------------+
+| admin_state_up | UP                                                                                              |
+| id             | 61d8e620-fe3a-4d8f-b9e6-e1b0dea6d9e3                                                            |
+| name           | trunk1                                                                                          |
+| port_id        | 73fb9d54-43a7-4bb1-a8dc-569e0e0a0a38                                                            |
+| sub_ports      | port_id='73fb9d54-43a7-4bb1-a8dc-569e0e0a0a38', segmentation_id='100', segmentation_type='vlan' |
++----------------+-------------------------------------------------------------------------------------------------+</screen>
+        </listitem>
+        <listitem>
+          <para>Add subports to an existing trunk:</para>
+          <para>This method entails creating a trunk, then adding subports to the trunk
+                            after it has already been created.</para>
+          <screen language="console">$ openstack network trunk set --subport \
+  port=subport1,segmentation-type=vlan,segmentation-id=100 \
+  trunk1</screen>
+          <note>
+            <para>The command provides no output.</para>
+          </note>
+          <screen language="console"><?dbsuse-fo font-size="8pt"?>$ openstack network trunk show trunk1
++----------------+-------------------------------------------------------------------------------------------------+
+| Field          | Value                                                                                           |
++----------------+-------------------------------------------------------------------------------------------------+
+| admin_state_up | UP                                                                                              |
+| id             | 61d8e620-fe3a-4d8f-b9e6-e1b0dea6d9e3                                                            |
+| name           | trunk1                                                                                          |
+| port_id        | 73fb9d54-43a7-4bb1-a8dc-569e0e0a0a38                                                            |
+| sub_ports      | port_id='73fb9d54-43a7-4bb1-a8dc-569e0e0a0a38', segmentation_id='100', segmentation_type='vlan' |
++----------------+-------------------------------------------------------------------------------------------------+</screen>
+        </listitem>
+      </itemizedlist>
+    </section>
+    <section>
+      <title>Launch an instance on the trunk</title>
+      <itemizedlist>
+        <listitem>
+          <para>Show trunk details to get the <literal>port_id</literal> of the trunk.</para>
+          <screen language="console">$ openstack network trunk show trunk1
++----------------+--------------------------------------+
+| Field          | Value                                |
++----------------+--------------------------------------+
+| admin_state_up | UP                                   |
+| id             | 61d8e620-fe3a-4d8f-b9e6-e1b0dea6d9e3 |
+| name           | trunk                                |
+| port_id        | 73fb9d54-43a7-4bb1-a8dc-569e0e0a0a38 |
+| sub_ports      |                                      |
++----------------+--------------------------------------+</screen>
+        </listitem>
+        <listitem>
+          <para>Launch the instance by specifying <literal>port-id</literal> using the value of <literal>port_id</literal>
+                            from the trunk details. Launching an instance on a subport is not supported.</para>
+        </listitem>
+      </itemizedlist>
+    </section>
+  </section>
+  <section>
+    <title>Using trunks and subports inside an instance</title>
+    <para>When configuring instances to use a subport, ensure that the interface on the
+                instance is set to use the MAC address assigned to the port by the Networking
+                service. Instances are not made aware of changes made to the trunk after they
+                are active. For example, when a subport with a <literal>segmentation-type</literal> of
+                <literal>vlan</literal> is added to a trunk, any operations specific to the instance operating
+                system that allow the instance to send and receive traffic on the new VLAN must
+                be handled outside of the Networking service.</para>
+    <para>When creating subports, the MAC address of the trunk parent port can be set
+                on the subport. This will allow VLAN subinterfaces inside an instance launched
+                on a trunk to be configured without explicitly setting a MAC address. Although
+                unique MAC addresses can be used for subports, this can present issues with
+                ARP spoof protections and the native OVS firewall driver. If the native OVS
+                firewall driver is to be used, we recommend that the MAC address of the parent
+                port be re-used on all subports.</para>
+  </section>
+  <section>
+    <title>Trunk states</title>
+    <itemizedlist>
+      <listitem>
+        <para>
+          <literal>ACTIVE</literal>
+        </para>
+        <para>The trunk is <literal>ACTIVE</literal> when both the logical and physical resources have
+                        been created. This means that all operations within the Networking and
+                        Compute services have completed and the trunk is ready for use.</para>
+      </listitem>
+      <listitem>
+        <para>
+          <literal>DOWN</literal>
+        </para>
+        <para>A trunk is <literal>DOWN</literal> when it is first created without an instance launched on
+                        it, or when the instance associated with the trunk has been deleted.</para>
+      </listitem>
+      <listitem>
+        <para>
+          <literal>DEGRADED</literal>
+        </para>
+        <para>A trunk can be in a <literal>DEGRADED</literal> state when a temporary failure during
+                        the provisioning process is encountered. This includes situations where a
+                        subport add or remove operation fails. When in a degraded state, the trunk
+                        is still usable and some subports may be usable as well. Operations that
+                        cause the trunk to go into a <literal>DEGRADED</literal> state can be retried to fix
+                        temporary failures and move the trunk into an <literal>ACTIVE</literal> state.</para>
+      </listitem>
+      <listitem>
+        <para>
+          <literal>ERROR</literal>
+        </para>
+        <para>A trunk is in <literal>ERROR</literal> state if the request leads to a conflict or an
+                        error that cannot be fixed by retrying the request. The <literal>ERROR</literal> status
+                        can be encountered if the network is not compatible with the trunk
+                        configuration or the binding process leads to a persistent failure. When
+                        a trunk is in <literal>ERROR</literal> state, it must be brought to a sane state
+                        (<literal>ACTIVE</literal>), or else requests to add subports will be rejected.</para>
+      </listitem>
+      <listitem>
+        <para>
+          <literal>BUILD</literal>
+        </para>
+        <para>A trunk is in <literal>BUILD</literal> state while the resources associated with the
+                        trunk are in the process of being provisioned. Once the trunk and all of
+                        the subports have been provisioned successfully, the trunk transitions
+                        to <literal>ACTIVE</literal>. If there was a partial failure, the trunk transitions
+                        to <literal>DEGRADED</literal>.</para>
+        <para>When <literal>admin_state</literal> is set to <literal>DOWN</literal>, the user is blocked from performing
+                        operations on the trunk. <literal>admin_state</literal> is set by the user and should not be
+                        used to monitor the health of the trunk.</para>
+      </listitem>
+    </itemizedlist>
+  </section>
+  <section>
+    <title>Limitations and issues</title>
+    <itemizedlist>
+      <listitem>
+        <para>See <link xlink:href="https://bugs.launchpad.net/neutron/+bugs?field.tag=trunk">bugs</link> for
+                        more information.</para>
+      </listitem>
+    </itemizedlist>
+  </section>
+</section>

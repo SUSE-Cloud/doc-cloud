@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+  <title>Oversubscription in thin provisioning</title>
+  <para>OpenStack Block Storage enables you to choose a volume back-end based on
+            virtual capacities for thin provisioning using the oversubscription ratio.</para>
+  <para>A reference implementation is provided for the default LVM driver. The
+            illustration below uses the LVM driver as an example.</para>
+  <section>
+    <title>Configure oversubscription settings</title>
+    <para>To support oversubscription in thin provisioning, a flag
+                <literal>max_over_subscription_ratio</literal> is introduced into <literal>cinder.conf</literal>.
+                This is a float representation of the oversubscription ratio when thin
+                provisioning is involved. Default ratio is 20.0, meaning provisioned
+                capacity can be 20 times of the total physical capacity. A ratio of 10.5
+                means provisioned capacity can be 10.5 times of the total physical capacity.
+                A ratio of 1.0 means provisioned capacity cannot exceed the total physical
+                capacity. A ratio lower than 1.0 is ignored and the default value is used
+                instead.</para>
+    <note>
+      <para><literal>max_over_subscription_ratio</literal> can be configured for each back-end when
+                    multiple-storage back-ends are enabled. It is provided as a reference
+                    implementation and is used by the LVM driver. However, it is not a
+                    requirement for a driver to use this option from <literal>cinder.conf</literal>.</para>
+      <para><literal>max_over_subscription_ratio</literal> is for configuring a back-end. For a
+                    driver that supports multiple pools per back-end, it can report this
+                    ratio for each pool. The LVM driver does not support multiple pools.</para>
+    </note>
+    <para>The existing <literal>reserved_percentage</literal> flag is used to prevent over provisioning.
+                This flag represents the percentage of the back-end capacity that is reserved.</para>
+    <note>
+      <para>There is a change on how <literal>reserved_percentage</literal> is used. It was measured
+                    against the free capacity in the past. Now it is measured against the total
+                    capacity.</para>
+    </note>
+  </section>
+  <section>
+    <title>Capabilities</title>
+    <para>Drivers can report the following capabilities for a back-end or a pool:</para>
+    <screen language="ini">thin_provisioning_support = True(or False)
+thick_provisioning_support = True(or False)
+provisioned_capacity_gb = PROVISIONED_CAPACITY
+max_over_subscription_ratio = MAX_RATIO</screen>
+    <para>Where <literal>PROVISIONED_CAPACITY</literal> is the apparent allocated space indicating
+                how much capacity has been provisioned and <literal>MAX_RATIO</literal> is the maximum
+                oversubscription ratio. For the LVM driver, it is
+                <literal>max_over_subscription_ratio</literal> in <literal>cinder.conf</literal>.</para>
+    <para>Two capabilities are added here to allow a back-end or pool to claim support
+                for thin provisioning, or thick provisioning, or both.</para>
+    <para>The LVM driver reports <literal>thin_provisioning_support=True</literal> and
+                <literal>thick_provisioning_support=False</literal> if the <literal>lvm_type</literal> flag in
+                <literal>cinder.conf</literal> is <literal>thin</literal>. Otherwise it reports
+                <literal>thin_provisioning_support=False</literal> and <literal>thick_provisioning_support=True</literal>.</para>
+  </section>
+  <section>
+    <title>Volume type extra specs</title>
+    <para>If volume type is provided as part of the volume creation request, it can
+                have the following extra specs defined:</para>
+    <screen language="python">'capabilities:thin_provisioning_support': '&lt;is&gt; True' or '&lt;is&gt; False'
+'capabilities:thick_provisioning_support': '&lt;is&gt; True' or '&lt;is&gt; False'</screen>
+    <note>
+      <para><literal>capabilities</literal> scope key before <literal>thin_provisioning_support</literal> and
+                    <literal>thick_provisioning_support</literal> is not required. So the following works too:</para>
+    </note>
+    <screen language="python">'thin_provisioning_support': '&lt;is&gt; True' or '&lt;is&gt; False'
+'thick_provisioning_support': '&lt;is&gt; True' or '&lt;is&gt; False'</screen>
+    <para>The above extra specs are used by the scheduler to find a back-end that
+                supports thin provisioning, thick provisioning, or both to match the needs
+                of a specific volume type.</para>
+  </section>
+  <section>
+    <title>Volume replication extra specs</title>
+    <para>OpenStack Block Storage has the ability to create volume replicas.
+                Administrators can define a storage policy that includes
+                replication by adjusting the cinder volume driver. Volume replication
+                for OpenStack Block Storage helps safeguard OpenStack environments from
+                data loss during disaster recovery.</para>
+    <para>To enable replication when creating volume types, configure the cinder
+                volume with <literal>capabilities:replication="&lt;is&gt; True"</literal>.</para>
+    <para>Each volume created with the replication capability set to <literal>True</literal>
+                generates a copy of the volume on a storage back-end.</para>
+    <para>One use case for replication involves an OpenStack cloud environment
+                installed across two data centers located nearby each other. The
+                distance between the two data centers in this use case is the length of
+                a city.</para>
+    <para>At each data center, a cinder host supports the Block Storage service.
+                Both data centers include storage back-ends.</para>
+    <para>Depending on the storage requirements, there can be one or two cinder
+                hosts. The administrator accesses the
+                <literal>/etc/cinder/cinder.conf</literal> configuration file and sets
+                <literal>capabilities:replication="&lt;is&gt; True"</literal>.</para>
+    <para>If one data center experiences a service failure, administrators
+                can redeploy the VM. The VM will run using a replicated, backed up
+                volume on a host in the second data center.</para>
+  </section>
+  <section>
+    <title>Capacity filter</title>
+    <para>In the capacity filter, <literal>max_over_subscription_ratio</literal> is used when
+                choosing a back-end if <literal>thin_provisioning_support</literal> is <literal>True</literal> and
+                <literal>max_over_subscription_ratio</literal> is greater than 1.0.</para>
+  </section>
+  <section>
+    <title>Capacity weigher</title>
+    <para>In the capacity weigher, virtual free capacity is used for ranking if
+                <literal>thin_provisioning_support</literal> is <literal>True</literal>. Otherwise, real free capacity
+                will be used as before.</para>
+  </section>
+</section>

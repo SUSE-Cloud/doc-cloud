@@ -1,0 +1,695 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+  <title>Data processing and pipelines</title>
+  <para>The mechanism by which data is processed is called a pipeline. Pipelines,
+            at the configuration level, describe a coupling between sources of data and
+            the corresponding sinks for transformation and publication of data. This
+            functionality is handled by the notification agents.</para>
+  <para>A source is a producer of data: <literal>samples</literal> or <literal>events</literal>. In effect, it is a
+            set of notification handlers emitting datapoints for a set of matching meters
+            and event types.</para>
+  <para>Each source configuration encapsulates name matching and mapping
+            to one or more sinks for publication.</para>
+  <para>A sink, on the other hand, is a consumer of data, providing logic for
+            the transformation and publication of data emitted from related sources.</para>
+  <para>In effect, a sink describes a chain of handlers. The chain starts with
+            zero or more transformers and ends with one or more publishers. The
+            first transformer in the chain is passed data from the corresponding
+            source, takes some action such as deriving rate of change, performing
+            unit conversion, or aggregating, before <xref linkend="publishing"/>.</para>
+  <section xml:id="telemetry-pipeline-configuration">
+    <title>Pipeline configuration</title>
+    <para>The pipeline configuration is, by default stored in separate configuration
+                files called <literal>pipeline.yaml</literal> and <literal>event_pipeline.yaml</literal> next to
+                the <literal>ceilometer.conf</literal> file. The meter pipeline and event pipeline
+                configuration files can be set by the <literal>pipeline_cfg_file</literal> and
+                <literal>event_pipeline_cfg_file</literal> options listed in <link xlink:href="https://docs.openstack.org/ceilometer/pike/configuration/index.html#configuring">Ceilometer Configuration Options</link>.</para>
+
+    <para>The meter pipeline definition looks like:</para>
+    <screen language="yaml">---
+sources:
+  - name: 'source name'
+    meters:
+      - 'meter filter'
+    sinks:
+      - 'sink name'
+sinks:
+  - name: 'sink name'
+    transformers: 'definition of transformers'
+    publishers:
+      - 'list of publishers'</screen>
+    <para>There are several ways to define the list of meters for a pipeline
+                source. The list of valid meters can be found in <xref linkend="telemetry-measurements"/>.
+                There is a possibility to define all the meters, or just included or excluded
+                meters, with which a source should operate:</para>
+    <itemizedlist>
+      <listitem>
+        <para>To include all meters, use the <literal>*</literal> wildcard symbol. It is highly
+                        advisable to select only the meters that you intend on using to avoid
+                        flooding the metering database with unused data.</para>
+      </listitem>
+      <listitem>
+        <para>To define the list of meters, use either of the following:</para>
+        <itemizedlist>
+          <listitem>
+            <para>To define the list of included meters, use the <literal>meter_name</literal>
+                                syntax.</para>
+          </listitem>
+          <listitem>
+            <para>To define the list of excluded meters, use the <literal>!meter_name</literal>
+                                syntax.</para>
+          </listitem>
+        </itemizedlist>
+      </listitem>
+    </itemizedlist>
+    <note>
+      <para>The OpenStack Telemetry service does not have any duplication check
+                    between pipelines, and if you add a meter to multiple pipelines then it is
+                    assumed the duplication is intentional and may be stored multiple
+                    times according to the specified sinks.</para>
+    </note>
+    <para>The above definition methods can be used in the following combinations:</para>
+    <itemizedlist>
+      <listitem>
+        <para>Use only the wildcard symbol.</para>
+      </listitem>
+      <listitem>
+        <para>Use the list of included meters.</para>
+      </listitem>
+      <listitem>
+        <para>Use the list of excluded meters.</para>
+      </listitem>
+      <listitem>
+        <para>Use wildcard symbol with the list of excluded meters.</para>
+      </listitem>
+    </itemizedlist>
+    <note>
+      <para>At least one of the above variations should be included in the
+                    meters section. Included and excluded meters cannot co-exist in the
+                    same pipeline. Wildcard and included meters cannot co-exist in the
+                    same pipeline definition section.</para>
+    </note>
+    <para>The transformers section of a pipeline sink provides the possibility to
+                add a list of transformer definitions. The available transformers are:</para>
+    <informaltable>
+      <tgroup cols="2">
+        <colspec colname="c1" colwidth="50.0*"/>
+        <colspec colname="c2" colwidth="50.0*"/>
+        <thead>
+          <row>
+            <entry>
+              <para>Name of transformer</para>
+            </entry>
+            <entry>
+              <para>Reference name for configuration</para>
+            </entry>
+          </row>
+        </thead>
+        <tbody>
+          <row>
+            <entry>
+              <para>Accumulator</para>
+            </entry>
+            <entry>
+              <para>accumulator</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>Aggregator</para>
+            </entry>
+            <entry>
+              <para>aggregator</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>Arithmetic</para>
+            </entry>
+            <entry>
+              <para>arithmetic</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>Rate of change</para>
+            </entry>
+            <entry>
+              <para>rate_of_change</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>Unit conversion</para>
+            </entry>
+            <entry>
+              <para>unit_conversion</para>
+            </entry>
+          </row>
+          <row>
+            <entry>
+              <para>Delta</para>
+            </entry>
+            <entry>
+              <para>delta</para>
+            </entry>
+          </row>
+        </tbody>
+      </tgroup>
+    </informaltable>
+    <para>The publishers section contains the list of publishers, where the
+                samples data should be sent after the possible transformations.</para>
+    <para>Similarly, the event pipeline definition looks like:</para>
+    <screen language="yaml">---
+sources:
+  - name: 'source name'
+    events:
+      - 'event filter'
+    sinks:
+      - 'sink name'
+sinks:
+  - name: 'sink name'
+    publishers:
+      - 'list of publishers'</screen>
+    <para>The event filter uses the same filtering logic as the meter pipeline.</para>
+    <section xml:id="telemetry-transformers">
+      <title>Transformers</title>
+      <note>
+        <para>Transformers maintain data in memory and therefore do not guarantee
+                        durability in certain scenarios. A more durable and efficient solution
+                        may be achieved post-storage using solutions like Gnocchi.</para>
+      </note>
+      <para>The definition of transformers can contain the following fields:</para>
+      <variablelist>
+        <varlistentry>
+          <term>name</term>
+          <listitem>
+            <para>Name of the transformer.</para>
+          </listitem>
+        </varlistentry>
+        <varlistentry>
+          <term>parameters</term>
+          <listitem>
+            <para>Parameters of the transformer.</para>
+          </listitem>
+        </varlistentry>
+      </variablelist>
+      <para>The parameters section can contain transformer specific fields, like
+                    source and target fields with different subfields in case of the rate of
+                    change, which depends on the implementation of the transformer.</para>
+      <para>The following are supported transformers:</para>
+      <section>
+        <title>Rate of change transformer</title>
+        <para>Transformer that computes the change in value between two data points in time.
+                        In the case of the transformer that creates the <literal>cpu_util</literal> meter, the
+                        definition looks like:</para>
+        <screen language="yaml">transformers:
+    - name: "rate_of_change"
+      parameters:
+          target:
+              name: "cpu_util"
+              unit: "%"
+              type: "gauge"
+              scale: "100.0 / (10**9 * (resource_metadata.cpu_number or 1))"</screen>
+        <para>The rate of change transformer generates the <literal>cpu_util</literal> meter
+                        from the sample values of the <literal>cpu</literal> counter, which represents
+                        cumulative CPU time in nanoseconds. The transformer definition above
+                        defines a scale factor (for nanoseconds and multiple CPUs), which is
+                        applied before the transformation derives a sequence of gauge samples
+                        with unit <literal>%</literal>, from sequential values of the <literal>cpu</literal> meter.</para>
+        <para>The definition for the disk I/O rate, which is also generated by the
+                        rate of change transformer:</para>
+        <screen language="yaml">transformers:
+    - name: "rate_of_change"
+      parameters:
+          source:
+              map_from:
+                  name: "disk\\.(read|write)\\.(bytes|requests)"
+                  unit: "(B|request)"
+          target:
+              map_to:
+                  name: "disk.\\1.\\2.rate"
+                  unit: "\\1/s"
+              type: "gauge"</screen>
+      </section>
+      <section>
+        <title>Unit conversion transformer</title>
+        <para>Transformer to apply a unit conversion. It takes the volume of the meter
+                        and multiplies it with the given <literal>scale</literal> expression. Also supports
+                        <literal>map_from</literal> and <literal>map_to</literal> like the rate of change transformer.</para>
+        <para>Sample configuration:</para>
+        <screen language="yaml">transformers:
+    - name: "unit_conversion"
+      parameters:
+          target:
+              name: "disk.kilobytes"
+              unit: "KB"
+              scale: "volume * 1.0 / 1024.0"</screen>
+        <para>With <literal>map_from</literal> and <literal>map_to</literal>:</para>
+        <screen language="yaml">transformers:
+    - name: "unit_conversion"
+      parameters:
+          source:
+              map_from:
+                  name: "disk\\.(read|write)\\.bytes"
+          target:
+              map_to:
+                  name: "disk.\\1.kilobytes"
+              scale: "volume * 1.0 / 1024.0"
+              unit: "KB"</screen>
+      </section>
+      <section>
+        <title>Aggregator transformer</title>
+        <para>A transformer that sums up the incoming samples until enough samples
+                        have come in or a timeout has been reached.</para>
+        <para>Timeout can be specified with the <literal>retention_time</literal> option. If you want
+                        to flush the aggregation, after a set number of samples have been
+                        aggregated, specify the size parameter.</para>
+        <para>The volume of the created sample is the sum of the volumes of samples
+                        that came into the transformer. Samples can be aggregated by the
+                        attributes <literal>project_id</literal>, <literal>user_id</literal> and <literal>resource_metadata</literal>. To aggregate
+                        by the chosen attributes, specify them in the configuration and set which
+                        value of the attribute to take for the new sample (first to take the
+                        first sample’s attribute, last to take the last sample’s attribute, and
+                        drop to discard the attribute).</para>
+        <para>To aggregate 60 seconds worth of samples by <literal>resource_metadata</literal> and keep the
+                        <literal>resource_metadata</literal> of the latest received sample:</para>
+        <screen language="yaml">transformers:
+    - name: "aggregator"
+      parameters:
+          retention_time: 60
+          resource_metadata: last</screen>
+        <para>To aggregate each 15 samples by <literal>user_id</literal> and <literal>resource_metadata</literal> and keep
+                        the <literal>user_id</literal> of the first received sample and drop the
+                        <literal>resource_metadata</literal>:</para>
+        <screen language="yaml">transformers:
+    - name: "aggregator"
+      parameters:
+          size: 15
+          user_id: first
+          resource_metadata: drop</screen>
+      </section>
+      <section>
+        <title>Accumulator transformer</title>
+        <para>This transformer simply caches the samples until enough samples have
+                        arrived and then flushes them all down the pipeline at once:</para>
+        <screen language="yaml">transformers:
+    - name: "accumulator"
+      parameters:
+          size: 15</screen>
+      </section>
+      <section>
+        <title>Multi meter arithmetic transformer</title>
+        <para>This transformer enables us to perform arithmetic calculations over one
+                        or more meters and/or their metadata, for example:</para>
+        <screen language="none">memory_util = 100 * memory.usage / memory</screen>
+        <para>A new sample is created with the properties described in the <literal>target</literal>
+                        section of the transformer’s configuration. The sample’s
+                        volume is the result of the provided expression. The calculation is
+                        performed on samples from the same resource.</para>
+        <note>
+          <para>The calculation is limited to meters with the same interval.</para>
+        </note>
+        <para>Example configuration:</para>
+        <screen language="yaml">transformers:
+    - name: "arithmetic"
+      parameters:
+        target:
+          name: "memory_util"
+          unit: "%"
+          type: "gauge"
+          expr: "100 * $(memory.usage) / $(memory)"</screen>
+        <para>To demonstrate the use of metadata, the following implementation of a
+                        novel meter shows average CPU time per core:</para>
+        <screen language="yaml">transformers:
+    - name: "arithmetic"
+      parameters:
+        target:
+          name: "avg_cpu_per_core"
+          unit: "ns"
+          type: "cumulative"
+          expr: "$(cpu) / ($(cpu).resource_metadata.cpu_number or 1)"</screen>
+        <note>
+          <para>Expression evaluation gracefully handles NaNs and exceptions. In
+                            such a case it does not create a new sample but only logs a warning.</para>
+        </note>
+      </section>
+      <section>
+        <title>Delta transformer</title>
+        <para>This transformer calculates the change between two sample datapoints of a
+                        resource. It can be configured to capture only the positive growth deltas.</para>
+        <para>Example configuration:</para>
+        <screen language="yaml">transformers:
+    - name: "delta"
+      parameters:
+        target:
+            name: "cpu.delta"
+        growth_only: True</screen>
+      </section>
+    </section>
+    <section xml:id="publishing">
+      <title>Publishers</title>
+      <para>The Telemetry service provides several transport methods to transfer the
+                    data collected to an external system. The consumers of this data are widely
+                    different, like monitoring systems, for which data loss is acceptable and
+                    billing systems, which require reliable data transportation. Telemetry provides
+                    methods to fulfill the requirements of both kind of systems.</para>
+      <para>The publisher component makes it possible to save the data into persistent
+                    storage through the message bus or to send it to one or more external
+                    consumers. One chain can contain multiple publishers.</para>
+      <para>To solve this problem, the multi-publisher can
+                    be configured for each data point within the Telemetry service, allowing
+                    the same technical meter or event to be published multiple times to
+                    multiple destinations, each potentially using a different transport.</para>
+      <para>The following publisher types are supported:</para>
+      <section>
+        <title>gnocchi (default)</title>
+        <para>When the gnocchi publisher is enabled, measurement and resource information is
+                        pushed to gnocchi for time-series optimized storage. Gnocchi must be registered
+                        in the Identity service as Ceilometer discovers the exact path via the Identity
+                        service.</para>
+        <para>More details on how to enable and configure gnocchi can be found on its
+                        <link xlink:href="http://gnocchi.xyz">official documentation page</link>.</para>
+      </section>
+      <section>
+        <title>panko</title>
+        <para>Event data in Ceilometer can be stored in panko which provides an HTTP REST
+                        interface to query system events in OpenStack. To push data to panko,
+                        set the publisher to <literal>direct://?dispatcher=panko</literal>. Beginning in panko’s
+                        Pike release, the publisher can be set as <literal>panko://</literal></para>
+      </section>
+      <section>
+        <title>notifier</title>
+        <para>The notifier publisher can be specified in the form of
+                        <literal>notifier://?option1=value1&amp;option2=value2</literal>. It emits data over AMQP using
+                        oslo.messaging. Any consumer can then subscribe to the published topic
+                        for additional processing.</para>
+        <note>
+          <para>Prior to Ocata, the collector would consume this publisher but has since
+                            been deprecated and therefore not required.</para>
+        </note>
+        <para>The following customization options are available:</para>
+        <variablelist>
+          <varlistentry>
+            <term>
+              <literal>per_meter_topic</literal>
+            </term>
+            <listitem>
+              <para>The value of this parameter is 1. It is used for publishing the samples on
+                                    additional <literal>metering_topic.sample_name</literal> topic queue besides the
+                                    default <literal>metering_topic</literal> queue.</para>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term>
+              <literal>policy</literal>
+            </term>
+            <listitem>
+              <para>Used for configuring the behavior for the case, when the
+                                    publisher fails to send the samples, where the possible predefined
+                                    values are:</para>
+              <variablelist>
+                <varlistentry>
+                  <term>default</term>
+                  <listitem>
+                    <para>Used for waiting and blocking until the samples have been sent.</para>
+                  </listitem>
+                </varlistentry>
+                <varlistentry>
+                  <term>drop</term>
+                  <listitem>
+                    <para>Used for dropping the samples which are failed to be sent.</para>
+                  </listitem>
+                </varlistentry>
+                <varlistentry>
+                  <term>queue</term>
+                  <listitem>
+                    <para>Used for creating an in-memory queue and retrying to send the
+                                                samples on the queue in the next samples publishing period (the
+                                                queue length can be configured with <literal>max_queue_length</literal>, where
+                                                1024 is the default value).</para>
+                  </listitem>
+                </varlistentry>
+              </variablelist>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term>
+              <literal>topic</literal>
+            </term>
+            <listitem>
+              <para>The topic name of the queue to publish to. Setting this will override the
+                                    default topic defined by <literal>metering_topic</literal> and <literal>event_topic</literal> options.
+                                    This option can be used to support multiple consumers.</para>
+            </listitem>
+          </varlistentry>
+        </variablelist>
+      </section>
+      <section>
+        <title>udp</title>
+        <para>This publisher can be specified in the form of <literal>udp://&lt;host&gt;:&lt;port&gt;/</literal>. It
+                        emits metering data over UDP.</para>
+      </section>
+      <section>
+        <title>file</title>
+        <para>The file publisher can be specified in the form of
+                        <literal>file://path?option1=value1&amp;option2=value2</literal>. This publisher
+                        records metering data into a file.</para>
+        <note>
+          <para>If a file name and location is not specified, the <literal>file</literal> publisher
+                            does not log any meters, instead it logs a warning message in
+                            the configured log file for Telemetry.</para>
+        </note>
+        <para>The following options are available for the <literal>file</literal> publisher:</para>
+        <variablelist>
+          <varlistentry>
+            <term>
+              <literal>max_bytes</literal>
+            </term>
+            <listitem>
+              <para>When this option is greater than zero, it will cause a rollover.
+                                    When the specified size is about to be exceeded, the file is closed and a
+                                    new file is silently opened for output. If its value is zero, rollover
+                                    never occurs.</para>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term>
+              <literal>backup_count</literal>
+            </term>
+            <listitem>
+              <para>If this value is non-zero, an extension will be appended to the
+                                    filename of the old log, as ‘.1’, ‘.2’, and so forth until the
+                                    specified value is reached. The file that is written and contains
+                                    the newest data is always the one that is specified without any
+                                    extensions.</para>
+            </listitem>
+          </varlistentry>
+        </variablelist>
+      </section>
+      <section>
+        <title>http</title>
+        <para>The Telemetry service supports sending samples to an external HTTP
+                        target. The samples are sent without any modification. To set this
+                        option as the notification agents’ target, set <literal>http://</literal> as a publisher
+                        endpoint in the pipeline definition files. The HTTP target should be set along
+                        with the publisher declaration. For example, additional configuration options
+                        can be passed in: <literal>http://localhost:80/?option1=value1&amp;option2=value2</literal></para>
+        <para>The following options are availble:</para>
+        <variablelist>
+          <varlistentry>
+            <term>
+              <literal>timeout</literal>
+            </term>
+            <listitem>
+              <para>The number of seconds before HTTP request times out.</para>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term>
+              <literal>max_retries</literal>
+            </term>
+            <listitem>
+              <para>The number of times to retry a request before failing.</para>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term>
+              <literal>batch</literal>
+            </term>
+            <listitem>
+              <para>If false, the publisher will send each sample and event individually,
+                                    whether or not the notification agent is configured to process in batches.</para>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term>
+              <literal>poolsize</literal>
+            </term>
+            <listitem>
+              <para>The maximum number of open connections the publisher will maintain.
+                                    Increasing value may improve performance but will also increase memory and
+                                    socket consumption requirements.</para>
+            </listitem>
+          </varlistentry>
+        </variablelist>
+        <para>The default publisher is <literal>gnocchi</literal>, without any additional options
+                        specified. A sample <literal>publishers</literal> section in the
+                        <literal>/etc/ceilometer/pipeline.yaml</literal> looks like the following:</para>
+        <screen language="yaml">publishers:
+    - gnocchi://
+    - panko://
+    - udp://10.0.0.2:1234
+    - notifier://?policy=drop&amp;max_queue_length=512&amp;topic=custom_target</screen>
+      </section>
+    </section>
+    <section>
+      <title>Deprecated publishers</title>
+      <para>The following publishers are deprecated as of Ocata and may be removed in
+                    subsequent releases.</para>
+      <section>
+        <title>direct</title>
+        <para>This publisher can be specified in the form of <literal>direct://?dispatcher=http</literal>.
+                        The dispatcher’s options include: <literal>database</literal>, <literal>file</literal>, <literal>http</literal>, and
+                        <literal>gnocchi</literal>. It emits data in the configured dispatcher directly, default
+                        configuration (the form is <literal>direct://</literal>) is database dispatcher.
+                        In the Mitaka release, this method can only emit data to the database
+                        dispatcher, and the form is <literal>direct://</literal>.</para>
+      </section>
+      <section>
+        <title>kafka</title>
+        <note>
+          <para>We recommened you use oslo.messaging if possible as it provides consistent
+                            OpenStack API.</para>
+        </note>
+        <para>The <literal>kafka</literal> publisher can be specified in the form of:
+                        <literal>kafka://kafka_broker_ip: kafka_broker_port?topic=kafka_topic
+&amp;option1=value1</literal>.</para>
+        <para>This publisher sends metering data to a kafka broker. The kafka publisher
+                        offers similar options as <literal>notifier</literal> publisher.</para>
+        <note>
+          <para>If the topic parameter is missing, this publisher brings out
+                            metering data under a topic name, <literal>ceilometer</literal>. When the port
+                            number is not specified, this publisher uses 9092 as the
+                            broker’s port.</para>
+        </note>
+      </section>
+      <section xml:id="telemetry-expiry">
+        <title>database</title>
+        <note>
+          <para>This functionality was replaced by <literal>gnocchi</literal> and <literal>panko</literal> publishers.</para>
+        </note>
+        <para>When the database dispatcher is configured as a data store, you have the
+                        option to set a <literal>time_to_live</literal> option (ttl) for samples. By default
+                        the ttl value for samples is set to -1, which means that they
+                        are kept in the database forever.</para>
+        <para>The time to live value is specified in seconds. Each sample has a time
+                        stamp, and the <literal>ttl</literal> value indicates that a sample will be deleted
+                        from the database when the number of seconds has elapsed since that
+                        sample reading was stamped. For example, if the time to live is set to
+                        600, all samples older than 600 seconds will be purged from the
+                        database.</para>
+        <para>Certain databases support native TTL expiration. In cases where this is
+                        not possible, a command-line script, which you can use for this purpose
+                        is <literal>ceilometer-expirer</literal>. You can run it in a cron job, which helps to keep
+                        your database in a consistent state.</para>
+        <para>The level of support differs in case of the configured back-end:</para>
+        <informaltable>
+          <tgroup cols="3">
+            <colspec colname="c1" colwidth="33.3*"/>
+            <colspec colname="c2" colwidth="33.3*"/>
+            <colspec colname="c3" colwidth="33.3*"/>
+            <thead>
+              <row>
+                <entry>
+                  <para>Database</para>
+                </entry>
+                <entry>
+                  <para>TTL value support</para>
+                </entry>
+                <entry>
+                  <para>Note</para>
+                </entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <para>MongoDB</para>
+                </entry>
+                <entry>
+                  <para>Yes</para>
+                </entry>
+                <entry>
+                  <para>MongoDB has native TTL support for deleting samples
+                                            that are older than the configured TTL value.</para>
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <para>SQL-based back-ends</para>
+                </entry>
+                <entry>
+                  <para>Yes</para>
+                </entry>
+                <entry>
+                  <para><literal>ceilometer-expirer</literal> has to be used for deleting
+                                            samples and its related data from the database.</para>
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <para>HBase</para>
+                </entry>
+                <entry>
+                  <para>No</para>
+                </entry>
+                <entry>
+                  <para>Telemetry’s HBase support does not include native TTL
+                                            nor <literal>ceilometer-expirer</literal> support.</para>
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <para>DB2 NoSQL</para>
+                </entry>
+                <entry>
+                  <para>No</para>
+                </entry>
+                <entry>
+                  <para>DB2 NoSQL does not have native TTL
+                                            nor <literal>ceilometer-expirer</literal> support.</para>
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </section>
+    </section>
+  </section>
+  <section>
+    <title>Pipeline Partitioning</title>
+    <note>
+      <para>Partitioning is only required if pipelines contain transformations. It has
+                    secondary benefit of supporting batching in certain publishers.</para>
+    </note>
+    <para>On large workloads, multiple notification agents can be deployed to handle the
+                flood of incoming messages from monitored services. If transformations are
+                enabled in the pipeline, the notification agents must be coordinated to ensure
+                related messages are routed to the same agent. To enable coordination, set the
+                <literal>workload_partitioning</literal> value in <literal>notification</literal> section.</para>
+    <para>To distribute messages across agents, <literal>pipeline_processing_queues</literal> option
+                should be set. This value defines how many pipeline queues to create which will
+                then be distributed to the active notification agents. It is recommended that
+                the number of processing queues, at the very least, match the number of agents.</para>
+    <para>Increasing the number of processing queues will improve the distribution of
+                messages across the agents. It will also help batching which minimises the
+                requests to Gnocchi storage backend. It will also increase the load the on
+                message queue as it uses the queue to shard data.</para>
+    <warning>
+      <para>Decreasing the number of processing queues may result in lost data as any
+                    previously created queues may no longer be assigned to active agents. It
+                    is only recommended that you <emphasis role="bold">increase</emphasis> processing queues.</para>
+    </warning>
+  </section>
+</section>

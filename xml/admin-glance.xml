@@ -1,0 +1,3052 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<chapter xml:id="administration-guide" xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xi="http://www.w3.org/2001/XInclude" version="5.1">
+<title>Glance Administration Guide</title><info/>
+
+      <section xml:id="authentication" xml:base="authentication">
+        <title>Authentication With Keystone</title>
+        <para>Glance may optionally be integrated with Keystone.  Setting this up is
+            relatively straightforward, as the Keystone distribution includes the
+            necessary middleware. Once you have installed Keystone
+            and edited your configuration files, newly created images will have
+            their <literal>owner</literal> attribute set to the tenant of the authenticated users,
+            and the <literal>is_public</literal> attribute will cause access to those images for
+            which it is <literal>false</literal> to be restricted to only the owner, users with
+            admin context, or tenants/users with whom the image has been shared.</para>
+        <section xml:id="configuring-the-glance-servers-to-use-keystone">
+          <title>Configuring the Glance servers to use Keystone</title>
+          <para>Keystone is integrated with Glance through the use of middleware. The
+                default configuration files for both the Glance API and the Glance
+                Registry use a single piece of middleware called <literal>unauthenticated-context</literal>,
+                which generates a request context containing blank authentication
+                information. In order to configure Glance to use Keystone, the
+                <literal>authtoken</literal> and <literal>context</literal> middlewares must be deployed in place of the
+                <literal>unauthenticated-context</literal> middleware. The <literal>authtoken</literal> middleware performs
+                the authentication token validation and retrieves actual user authentication
+                information. It can be found in the Keystone distribution.</para>
+        </section>
+        <section xml:id="configuring-glance-api-to-use-keystone">
+          <title>Configuring Glance API to use Keystone</title>
+          <para>Configuring Glance API to use Keystone is relatively straight
+                forward.  The first step is to ensure that declarations for the two
+                pieces of middleware exist in the <literal>glance-api-paste.ini</literal>.  Here is
+                an example for <literal>authtoken</literal>:</para>
+          <screen><![CDATA[[filter:authtoken]
+paste.filter_factory = keystonemiddleware.auth_token:filter_factory
+auth_url = http://localhost:35357
+project_domain_id = default
+project_name = service_admins
+user_domain_id = default
+username = glance_admin
+password = password1234]]></screen>
+          <para>The actual values for these variables will need to be set depending on
+                your situation.  For more information, please refer to the Keystone
+                <link xlink:href="https://docs.openstack.org/keystonemiddleware/latest/middlewarearchitecture.html#configuration">documentation</link> on the <literal>auth_token</literal> middleware.</para>
+          <para>In short:</para>
+          <itemizedlist>
+            <listitem>
+              <para>The <literal>auth_url</literal> variable points to the Keystone service.
+                        This information is used by the middleware to actually query Keystone about
+                        the validity of the authentication tokens.</para>
+            </listitem>
+            <listitem>
+              <para>The auth credentials (<literal>project_name</literal>, <literal>project_domain_id</literal>,
+                        <literal>user_domain_id</literal>, <literal>username</literal>, and <literal>password</literal>) will be used to
+                        retrieve a service token. That token will be used to authorize user
+                        tokens behind the scenes.</para>
+            </listitem>
+          </itemizedlist>
+          <para>Finally, to actually enable using Keystone authentication, the
+                application pipeline must be modified.  By default, it looks like:</para>
+          <screen><![CDATA[[pipeline:glance-api]
+pipeline = versionnegotiation unauthenticated-context apiv1app]]></screen>
+          <para>Your particular pipeline may vary depending on other options, such as
+                the image cache. This must be changed by replacing <literal>unauthenticated-context</literal>
+                with <literal>authtoken</literal> and <literal>context</literal>:</para>
+          <screen><![CDATA[[pipeline:glance-api]
+pipeline = versionnegotiation authtoken context apiv1app]]></screen>
+        </section>
+        <section xml:id="configuring-glance-registry-to-use-keystone">
+          <title>Configuring Glance Registry to use Keystone</title>
+          <para>Configuring Glance Registry to use Keystone is also relatively
+                straight forward.  The same middleware needs to be added
+                to <literal>glance-registry-paste.ini</literal> as was needed by Glance API;
+                see above for an example of the <literal>authtoken</literal> configuration.</para>
+          <para>Again, to enable using Keystone authentication, the appropriate
+                application pipeline must be selected.  By default, it looks like:</para>
+          <screen><![CDATA[[pipeline:glance-registry-keystone]
+pipeline = authtoken context registryapp]]></screen>
+          <para>To enable the above application pipeline, in your main <literal>glance-registry.conf</literal>
+                configuration file, select the appropriate deployment flavor by adding a
+                <literal>flavor</literal> attribute in the <literal>paste_deploy</literal> group:</para>
+          <screen><![CDATA[[paste_deploy]
+flavor = keystone]]></screen>
+          <note>
+            <para>If your authentication service uses a role other than <literal>admin</literal> to identify
+                    which users should be granted admin-level privileges, you must define it
+                    in the <literal>admin_role</literal> config attribute in both <literal>glance-registry.conf</literal> and
+                    <literal>glance-api.conf</literal>.</para>
+          </note>
+        </section>
+      </section>
+      <section xml:id="image-cache" xml:base="cache">
+        <title>The Glance Image Cache</title>
+        <para>The Glance API server may be configured to have an optional local image cache.
+            A local image cache stores a copy of image files, essentially enabling multiple
+            API servers to serve the same image file, resulting in an increase in
+            scalability due to an increased number of endpoints serving an image file.</para>
+        <para>This local image cache is transparent to the end user – in other words, the
+            end user doesn’t know that the Glance API is streaming an image file from
+            its local cache or from the actual backend storage system.</para>
+        <section xml:id="managing-the-glance-image-cache">
+          <title>Managing the Glance Image Cache</title>
+          <para>While image files are automatically placed in the image cache on successful
+                requests to <literal>GET /images/&lt;IMAGE_ID&gt;</literal>, the image cache is not automatically
+                managed. Here, we describe the basics of how to manage the local image cache
+                on Glance API servers and how to automate this cache management.</para>
+        </section>
+        <section xml:id="configuration-options-for-the-image-cache">
+          <title>Configuration options for the Image Cache</title>
+          <para>The Glance cache uses two files: one for configuring the server and
+                another for the utilities. The <literal>glance-api.conf</literal> is for the server
+                and the <literal>glance-cache.conf</literal> is for the utilities.</para>
+          <para>The following options are in both configuration files. These need the
+                same values otherwise the cache will potentially run into problems.</para>
+          <itemizedlist>
+            <listitem>
+              <para><literal>image_cache_dir</literal> This is the base directory where Glance stores
+                        the cache data (Required to be set, as does not have a default).</para>
+            </listitem>
+            <listitem>
+              <para><literal>image_cache_sqlite_db</literal> Path to the sqlite file database that will
+                        be used for cache management. This is a relative path from the
+                        <literal>image_cache_dir</literal> directory (Default:<literal>cache.db</literal>).</para>
+            </listitem>
+            <listitem>
+              <para><literal>image_cache_driver</literal> The driver used for cache management.
+                        (Default:<literal>sqlite</literal>)</para>
+            </listitem>
+            <listitem>
+              <para><literal>image_cache_max_size</literal> The size when the glance-cache-pruner will
+                        remove the oldest images, to reduce the bytes until under this value.
+                        (Default:<literal>10 GB</literal>)</para>
+            </listitem>
+            <listitem>
+              <para><literal>image_cache_stall_time</literal> The amount of time an incomplete image will
+                        stay in the cache, after this the incomplete image will be deleted.
+                        (Default:<literal>1 day</literal>)</para>
+            </listitem>
+          </itemizedlist>
+          <para>The following values are the ones that are specific to the
+                <literal>glance-cache.conf</literal> and are only required for the prefetcher to run
+                correctly.</para>
+          <itemizedlist>
+            <listitem>
+              <para><literal>admin_user</literal> The username for an admin account, this is so it can
+                        get the image data into the cache.</para>
+            </listitem>
+            <listitem>
+              <para><literal>admin_password</literal> The password to the admin account.</para>
+            </listitem>
+            <listitem>
+              <para><literal>admin_tenant_name</literal> The tenant of the admin account.</para>
+            </listitem>
+            <listitem>
+              <para><literal>auth_url</literal> The URL used to authenticate to keystone. This will
+                        be taken from the environment variables if it exists.</para>
+            </listitem>
+            <listitem>
+              <para><literal>filesystem_store_datadir</literal> This is used if using the filesystem
+                        store, points to where the data is kept.</para>
+            </listitem>
+            <listitem>
+              <para><literal>filesystem_store_datadirs</literal> This is used to point to multiple
+                        filesystem stores.</para>
+            </listitem>
+            <listitem>
+              <para><literal>registry_host</literal> The URL to the Glance registry.</para>
+            </listitem>
+          </itemizedlist>
+          <section xml:id="controlling-the-growth-of-the-image-cache">
+            <title>Controlling the Growth of the Image Cache</title>
+            <para>The image cache has a configurable maximum size (the <literal>image_cache_max_size</literal>
+                    configuration file option). The <literal>image_cache_max_size</literal> is an upper limit
+                    beyond which pruner, if running, starts cleaning the images cache.
+                    However, when images are successfully returned from a call to
+                    <literal>GET /images/&lt;IMAGE_ID&gt;</literal>, the image cache automatically writes the image
+                    file to its cache, regardless of whether the resulting write would make the
+                    image cache’s size exceed the value of <literal>image_cache_max_size</literal>.
+                    In order to keep the image cache at or below this maximum cache size,
+                    you need to run the <literal>glance-cache-pruner</literal> executable.</para>
+            <para>The recommended practice is to use <literal>cron</literal> to fire <literal>glance-cache-pruner</literal>
+                    at a regular interval.</para>
+          </section>
+          <section xml:id="cleaning-the-image-cache">
+            <title>Cleaning the Image Cache</title>
+            <para>Over time, the image cache can accumulate image files that are either in
+                    a stalled or invalid state. Stalled image files are the result of an image
+                    cache write failing to complete. Invalid image files are the result of an
+                    image file not being written properly to disk.</para>
+            <para>To remove these types of files, you run the <literal>glance-cache-cleaner</literal>
+                    executable.</para>
+            <para>The recommended practice is to use <literal>cron</literal> to fire <literal>glance-cache-cleaner</literal>
+                    at a semi-regular interval.</para>
+          </section>
+          <section xml:id="prefetching-images-into-the-image-cache">
+            <title>Prefetching Images into the Image Cache</title>
+            <para>Some installations have base (sometimes called “golden”) images that are
+                    very commonly used to boot virtual machines. When spinning up a new API
+                    server, administrators may wish to prefetch these image files into the
+                    local image cache to ensure that reads of those popular image files come
+                    from a local cache.</para>
+            <para>To queue an image for prefetching, you can use one of the following methods:</para>
+            <itemizedlist>
+              <listitem>
+                <para>If the <literal>cache_manage</literal> middleware is enabled in the application pipeline,
+                                you may call <literal>PUT /queued-images/&lt;IMAGE_ID&gt;</literal> to queue the image with
+                                identifier <literal>&lt;IMAGE_ID&gt;</literal></para>
+                <para>Alternately, you can use the <literal>glance-cache-manage</literal> program to queue the
+                                image. This program may be run from a different host than the host
+                                containing the image cache. Example usage:</para>
+                <screen><![CDATA[$> glance-cache-manage --host=<HOST> queue-image <IMAGE_ID>]]></screen>
+                <para>This will queue the image with identifier <literal>&lt;IMAGE_ID&gt;</literal> for prefetching</para>
+              </listitem>
+            </itemizedlist>
+            <para>Once you have queued the images you wish to prefetch, call the
+                    <literal>glance-cache-prefetcher</literal> executable, which will prefetch all queued images
+                    concurrently, logging the results of the fetch for each image.</para>
+          </section>
+          <section xml:id="finding-which-images-are-in-the-image-cache">
+            <title>Finding Which Images are in the Image Cache</title>
+            <para>You can find out which images are in the image cache using one of the
+                    following methods:</para>
+            <itemizedlist>
+              <listitem>
+                <para>If the <literal>cachemanage</literal> middleware is enabled in the application pipeline,
+                                you may call <literal>GET /cached-images</literal> to see a JSON-serialized list of
+                                mappings that show cached images, the number of cache hits on each image,
+                                the size of the image, and the times they were last accessed.</para>
+                <para>Alternately, you can use the <literal>glance-cache-manage</literal> program. This program
+                                may be run from a different host than the host containing the image cache.
+                                Example usage:</para>
+                <screen><![CDATA[$> glance-cache-manage --host=<HOST> list-cached]]></screen>
+              </listitem>
+              <listitem>
+                <para>You can issue the following call on *nix systems (on the host that contains
+                                the image cache):</para>
+                <screen><![CDATA[$> ls -lhR $IMAGE_CACHE_DIR]]></screen>
+                <para>where <literal>$IMAGE_CACHE_DIR</literal> is the value of the <literal>image_cache_dir</literal>
+                                configuration variable.</para>
+                <para>Note that the image’s cache hit is not shown using this method.</para>
+              </listitem>
+            </itemizedlist>
+          </section>
+          <section xml:id="manually-removing-images-from-the-image-cache">
+            <title>Manually Removing Images from the Image Cache</title>
+            <para>If the <literal>cachemanage</literal> middleware is enabled, you may call
+                    <literal>DELETE /cached-images/&lt;IMAGE_ID&gt;</literal> to remove the image file for image
+                    with identifier <literal>&lt;IMAGE_ID&gt;</literal> from the cache.</para>
+            <para>Alternately, you can use the <literal>glance-cache-manage</literal> program. Example usage:</para>
+            <screen><![CDATA[$> glance-cache-manage --host=<HOST> delete-cached-image <IMAGE_ID>]]></screen>
+          </section>
+        </section>
+      </section>
+      <section xml:id="policies" xml:base="policies">
+        <title>Policies</title>
+        <para>Glance’s public API calls may be restricted to certain sets of users using a
+            policy configuration file. This document explains exactly how policies are
+            configured and what they apply to.</para>
+        <para>A policy is composed of a set of rules that are used by the policy “Brain” in
+            determining if a particular action may be performed by the authorized tenant.</para>
+        <section xml:id="constructing-a-policy-configuration-file">
+          <title>Constructing a Policy Configuration File</title>
+          <para>A policy configuration file is a simply JSON object that contain sets of
+                rules. Each top-level key is the name of a rule. Each rule
+                is a string that describes an action that may be performed in the Glance API.</para>
+          <para>The actions that may have a rule enforced on them are:</para>
+          <itemizedlist>
+            <listitem>
+              <para><literal>get_images</literal> - List available image entities</para>
+              <itemizedlist>
+                <listitem>
+                  <para>
+                    <literal>GET /v1/images</literal>
+                  </para>
+                </listitem>
+                <listitem>
+                  <para>
+                    <literal>GET /v1/images/detail</literal>
+                  </para>
+                </listitem>
+                <listitem>
+                  <para>
+                    <literal>GET /v2/images</literal>
+                  </para>
+                </listitem>
+              </itemizedlist>
+            </listitem>
+            <listitem>
+              <para><literal>get_image</literal> - Retrieve a specific image entity</para>
+              <itemizedlist>
+                <listitem>
+                  <para>
+                    <literal>HEAD /v1/images/&lt;IMAGE_ID&gt;</literal>
+                  </para>
+                </listitem>
+                <listitem>
+                  <para>
+                    <literal>GET /v1/images/&lt;IMAGE_ID&gt;</literal>
+                  </para>
+                </listitem>
+                <listitem>
+                  <para>
+                    <literal>GET /v2/images/&lt;IMAGE_ID&gt;</literal>
+                  </para>
+                </listitem>
+              </itemizedlist>
+            </listitem>
+            <listitem>
+              <para><literal>download_image</literal> - Download binary image data</para>
+              <itemizedlist>
+                <listitem>
+                  <para>
+                    <literal>GET /v1/images/&lt;IMAGE_ID&gt;</literal>
+                  </para>
+                </listitem>
+                <listitem>
+                  <para>
+                    <literal>GET /v2/images/&lt;IMAGE_ID&gt;/file</literal>
+                  </para>
+                </listitem>
+              </itemizedlist>
+            </listitem>
+            <listitem>
+              <para><literal>upload_image</literal> - Upload binary image data</para>
+              <itemizedlist>
+                <listitem>
+                  <para>
+                    <literal>POST /v1/images</literal>
+                  </para>
+                </listitem>
+                <listitem>
+                  <para>
+                    <literal>PUT /v1/images/&lt;IMAGE_ID&gt;</literal>
+                  </para>
+                </listitem>
+                <listitem>
+                  <para>
+                    <literal>PUT /v2/images/&lt;IMAGE_ID&gt;/file</literal>
+                  </para>
+                </listitem>
+              </itemizedlist>
+            </listitem>
+            <listitem>
+              <para><literal>copy_from</literal> - Copy binary image data from URL</para>
+              <itemizedlist>
+                <listitem>
+                  <para>
+                    <literal>POST /v1/images</literal>
+                  </para>
+                </listitem>
+                <listitem>
+                  <para>
+                    <literal>PUT /v1/images/&lt;IMAGE_ID&gt;</literal>
+                  </para>
+                </listitem>
+              </itemizedlist>
+            </listitem>
+            <listitem>
+              <para><literal>add_image</literal> - Create an image entity</para>
+              <itemizedlist>
+                <listitem>
+                  <para>
+                    <literal>POST /v1/images</literal>
+                  </para>
+                </listitem>
+                <listitem>
+                  <para>
+                    <literal>POST /v2/images</literal>
+                  </para>
+                </listitem>
+              </itemizedlist>
+            </listitem>
+            <listitem>
+              <para><literal>modify_image</literal> - Update an image entity</para>
+              <itemizedlist>
+                <listitem>
+                  <para>
+                    <literal>PUT /v1/images/&lt;IMAGE_ID&gt;</literal>
+                  </para>
+                </listitem>
+                <listitem>
+                  <para>
+                    <literal>PUT /v2/images/&lt;IMAGE_ID&gt;</literal>
+                  </para>
+                </listitem>
+              </itemizedlist>
+            </listitem>
+            <listitem>
+              <para><literal>publicize_image</literal> - Create or update public images</para>
+              <itemizedlist>
+                <listitem>
+                  <para><literal>POST /v1/images</literal> with attribute <literal>is_public</literal> = <literal>true</literal></para>
+                </listitem>
+                <listitem>
+                  <para><literal>PUT /v1/images/&lt;IMAGE_ID&gt;</literal> with attribute <literal>is_public</literal> = <literal>true</literal></para>
+                </listitem>
+                <listitem>
+                  <para><literal>POST /v2/images</literal> with attribute <literal>visibility</literal> = <literal>public</literal></para>
+                </listitem>
+                <listitem>
+                  <para><literal>PUT /v2/images/&lt;IMAGE_ID&gt;</literal> with attribute <literal>visibility</literal> = <literal>public</literal></para>
+                </listitem>
+              </itemizedlist>
+            </listitem>
+            <listitem>
+              <para><literal>communitize_image</literal> - Create or update community images</para>
+              <itemizedlist>
+                <listitem>
+                  <para><literal>POST /v2/images</literal> with attribute <literal>visibility</literal> = <literal>community</literal></para>
+                </listitem>
+                <listitem>
+                  <para><literal>PUT /v2/images/&lt;IMAGE_ID&gt;</literal> with attribute <literal>visibility</literal> = <literal>community</literal></para>
+                </listitem>
+              </itemizedlist>
+            </listitem>
+            <listitem>
+              <para><literal>delete_image</literal> - Delete an image entity and associated binary data</para>
+              <itemizedlist>
+                <listitem>
+                  <para>
+                    <literal>DELETE /v1/images/&lt;IMAGE_ID&gt;</literal>
+                  </para>
+                </listitem>
+                <listitem>
+                  <para>
+                    <literal>DELETE /v2/images/&lt;IMAGE_ID&gt;</literal>
+                  </para>
+                </listitem>
+              </itemizedlist>
+            </listitem>
+            <listitem>
+              <para><literal>add_member</literal> - Add a membership to the member repo of an image</para>
+              <itemizedlist>
+                <listitem>
+                  <para>
+                    <literal>POST /v2/images/&lt;IMAGE_ID&gt;/members</literal>
+                  </para>
+                </listitem>
+              </itemizedlist>
+            </listitem>
+            <listitem>
+              <para><literal>get_members</literal> - List the members of an image</para>
+              <itemizedlist>
+                <listitem>
+                  <para>
+                    <literal>GET /v1/images/&lt;IMAGE_ID&gt;/members</literal>
+                  </para>
+                </listitem>
+                <listitem>
+                  <para>
+                    <literal>GET /v2/images/&lt;IMAGE_ID&gt;/members</literal>
+                  </para>
+                </listitem>
+              </itemizedlist>
+            </listitem>
+            <listitem>
+              <para><literal>delete_member</literal> - Delete a membership of an image</para>
+              <itemizedlist>
+                <listitem>
+                  <para>
+                    <literal>DELETE /v1/images/&lt;IMAGE_ID&gt;/members/&lt;MEMBER_ID&gt;</literal>
+                  </para>
+                </listitem>
+                <listitem>
+                  <para>
+                    <literal>DELETE /v2/images/&lt;IMAGE_ID&gt;/members/&lt;MEMBER_ID&gt;</literal>
+                  </para>
+                </listitem>
+              </itemizedlist>
+            </listitem>
+            <listitem>
+              <para><literal>modify_member</literal> - Create or update the membership of an image</para>
+              <itemizedlist>
+                <listitem>
+                  <para>
+                    <literal>PUT /v1/images/&lt;IMAGE_ID&gt;/members/&lt;MEMBER_ID&gt;</literal>
+                  </para>
+                </listitem>
+                <listitem>
+                  <para>
+                    <literal>PUT /v1/images/&lt;IMAGE_ID&gt;/members</literal>
+                  </para>
+                </listitem>
+                <listitem>
+                  <para>
+                    <literal>POST /v2/images/&lt;IMAGE_ID&gt;/members</literal>
+                  </para>
+                </listitem>
+                <listitem>
+                  <para>
+                    <literal>PUT /v2/images/&lt;IMAGE_ID&gt;/members/&lt;MEMBER_ID&gt;</literal>
+                  </para>
+                </listitem>
+              </itemizedlist>
+            </listitem>
+            <listitem>
+              <para><literal>manage_image_cache</literal> - Allowed to use the image cache management API</para>
+            </listitem>
+          </itemizedlist>
+          <para>To limit an action to a particular role or roles, you list the roles like so</para>
+          <screen><![CDATA[{
+  "delete_image": ["role:admin", "role:superuser"]
+}]]></screen>
+          <para>The above would add a rule that only allowed users that had roles of either
+                “admin” or “superuser” to delete an image.</para>
+        </section>
+        <section xml:id="writing-rules">
+          <title>Writing Rules</title>
+          <para>Role checks are going to continue to work exactly as they already do. If the
+                role defined in the check is one that the user holds, then that will pass,
+                e.g., <literal>role:admin</literal>.</para>
+          <para>To write a generic rule, you need to know that there are three values provided
+                by Glance that can be used in a rule on the left side of the colon (<literal>:</literal>).
+                Those values are the current user’s credentials in the form of:</para>
+          <itemizedlist>
+            <listitem>
+              <para>role</para>
+            </listitem>
+            <listitem>
+              <para>tenant</para>
+            </listitem>
+            <listitem>
+              <para>owner</para>
+            </listitem>
+          </itemizedlist>
+          <para>The left side of the colon can also contain any value that Python can
+                understand, e.g.,:</para>
+          <itemizedlist>
+            <listitem>
+              <para>
+                <literal>True</literal>
+              </para>
+            </listitem>
+            <listitem>
+              <para>
+                <literal>False</literal>
+              </para>
+            </listitem>
+            <listitem>
+              <para>
+                <literal>"a string"</literal>
+              </para>
+            </listitem>
+            <listitem>
+              <para>&amp;c.</para>
+            </listitem>
+          </itemizedlist>
+          <para>Using <literal>tenant</literal> and <literal>owner</literal> will only work with images. Consider the
+                following rule:</para>
+          <screen><![CDATA[tenant:%(owner)s]]></screen>
+          <para>This will use the <literal>tenant</literal> value of the currently authenticated user. It
+                will also use <literal>owner</literal> from the image it is acting upon. If those two
+                values are equivalent the check will pass. All attributes on an image (as well
+                as extra image properties) are available for use on the right side of the
+                colon. The most useful are the following:</para>
+          <itemizedlist>
+            <listitem>
+              <para>
+                <literal>owner</literal>
+              </para>
+            </listitem>
+            <listitem>
+              <para>
+                <literal>protected</literal>
+              </para>
+            </listitem>
+            <listitem>
+              <para>
+                <literal>is_public</literal>
+              </para>
+            </listitem>
+          </itemizedlist>
+          <para>Therefore, you could construct a set of rules like the following:</para>
+          <screen><![CDATA[{
+    "not_protected": "False:%(protected)s",
+    "is_owner": "tenant:%(owner)s",
+    "is_owner_or_admin": "rule:is_owner or role:admin",
+    "not_protected_and_is_owner": "rule:not_protected and rule:is_owner",
+
+    "get_image": "rule:is_owner_or_admin",
+    "delete_image": "rule:not_protected_and_is_owner",
+    "add_member": "rule:not_protected_and_is_owner"
+}]]></screen>
+        </section>
+        <section xml:id="examples">
+          <title>Examples</title>
+          <para>Example 1. (The default policy configuration)</para>
+          <screen><![CDATA[{
+    "default": ""
+}]]></screen>
+          <para>Note that an empty JSON list means that all methods of the
+                Glance API are callable by anyone.</para>
+          <para>Example 2. Disallow modification calls to non-admins</para>
+          <screen><![CDATA[{
+    "default": "",
+    "add_image": "role:admin",
+    "modify_image": "role:admin",
+    "delete_image": "role:admin"
+}]]></screen>
+        </section>
+      </section>
+      <section xml:id="property-protections" xml:base="property-protections">
+        <title>Property Protections</title>
+        <para>There are two types of image properties in Glance:</para>
+        <itemizedlist>
+          <listitem>
+            <para>Core Properties, as specified by the image schema.</para>
+          </listitem>
+          <listitem>
+            <para>Meta Properties, which are arbitrary key/value pairs that can be added to an
+                    image.</para>
+          </listitem>
+        </itemizedlist>
+        <para>Access to meta properties through Glance’s public API calls may be
+            restricted to certain sets of users, using a property protections configuration
+            file.</para>
+        <para>This document explains exactly how property protections are configured and what
+            they apply to.</para>
+        <section xml:id="constructing-a-property-protections-configuration-file">
+          <title>Constructing a Property Protections Configuration File</title>
+          <para>A property protections configuration file follows the format of the Glance API
+                configuration file, which consists of sections, led by a <literal>[section]</literal> header
+                and followed by <literal>name = value</literal> entries.  Each section header is a regular
+                expression matching a set of properties to be protected.</para>
+          <note>
+            <para>Section headers must compile to a valid regular expression, otherwise
+                    glance api service will not start. Regular expressions
+                    will be handled by python’s re module which is PERL like.</para>
+          </note>
+          <para>Each section describes four key-value pairs, where the key is one of
+                <literal>create/read/update/delete</literal>, and the value is a comma separated list of user
+                roles that are permitted to perform that operation in the Glance API. <emphasis role="bold">If any of
+                    the keys are not specified, then the glance api service will not start
+                    successfully.</emphasis></para>
+          <para>In the list of user roles, <literal>@</literal> means all roles and <literal>!</literal> means no role.
+                <emphasis role="bold">If both @ and ! are specified for the same rule then the glance api service
+                    will not start</emphasis></para>
+          <note>
+            <para>Only one policy rule is allowed per property operation. <emphasis role="bold">If multiple are
+                        specified, then the glance api service will not start.</emphasis></para>
+          </note>
+          <para>The path to the file should be specified in the <literal>[DEFAULT]</literal> section of
+                <literal>glance-api.conf</literal> as follows.</para>
+          <screen><![CDATA[property_protection_file=/path/to/file]]></screen>
+          <para>If this config value is not specified, property protections are not enforced.
+                <emphasis role="bold">If the path is invalid, glance api service will not start successfully.</emphasis></para>
+          <para>The file may use either roles or policies to describe the property protections.
+                The config value should be specified in the <literal>[DEFAULT]</literal> section of
+                <literal>glance-api.conf</literal> as follows.</para>
+          <screen><![CDATA[property_protection_rule_format=<roles|policies>]]></screen>
+          <para>The default value for <literal>property_protection_rule_format</literal> is <literal>roles</literal>.</para>
+          <para>Property protections are applied in the order specified in the configuration
+                file.  This means that if for example you specify a section with <literal>[.*]</literal> at
+                the top of the file, all proceeding sections will be ignored.</para>
+          <para>If a property does not match any of the given rules, all operations will be
+                disabled for all roles.</para>
+          <para>If an operation is misspelled or omitted, that operation will be disabled for
+                all roles.</para>
+          <para>Disallowing <literal>read</literal> operations will also disallow <literal>update/delete</literal> operations.</para>
+          <para>A successful HTTP request will return status <literal>200 OK</literal>. If the user is not
+                permitted to perform the requested action, <literal>403 Forbidden</literal> will be returned.</para>
+        </section>
+        <section xml:id="v1-api-x-glance-registry-purge-props">
+          <title>V1 API X-glance-registry-Purge-props</title>
+          <para>Property protections will still be honoured if
+                <literal>X-glance-registry-Purge-props</literal> is set to <literal>True</literal>. That is, if you request
+                to modify properties with this header set to <literal>True</literal>, you will not be able to
+                delete or update properties for which you do not have the relevant permissions.
+                Properties which are not included in the request and for which you do have
+                delete permissions will still be removed.</para>
+        </section>
+        <section xml:id="glance.examples">
+          <title>Examples</title>
+          <para><emphasis role="bold">Example 1</emphasis>. Limit all property interactions to admin only.</para>
+          <screen><![CDATA[[.*]
+create = admin
+read = admin
+update = admin
+delete = admin]]></screen>
+          <para><emphasis role="bold">Example 2</emphasis>. Allow both admins and users with the billing role to read
+                and modify properties prefixed with <literal>x_billing_code_</literal>. Allow admins to
+                read and modify any properties.</para>
+          <screen><![CDATA[[^x_billing_code_.*]
+create = admin,billing
+read = admin, billing
+update = admin,billing
+delete = admin,billing
+
+[.*]
+create = admin
+read = admin
+update = admin
+delete = admin]]></screen>
+          <para><emphasis role="bold">Example 3</emphasis>. Limit all property interactions to admin only using policy
+                rule context_is_admin defined in policy.json.</para>
+          <screen><![CDATA[[.*]
+create = context_is_admin
+read = context_is_admin
+update = context_is_admin
+delete = context_is_admin]]></screen>
+        </section>
+      </section>
+      <section xml:id="requirements" xml:base="requirements">
+        <title>Requirements</title>
+        <section xml:id="external-requirements-affecting-glance">
+          <title>External Requirements Affecting Glance</title>
+          <para>Like other OpenStack projects, Glance uses some external libraries for a subset
+                of its features. Some examples include the <literal>qemu-img</literal> utility used by the
+                tasks feature, <literal>sendfile</literal> to utilize the “zero-copy” way of copying data
+                faster, <literal>pydev</literal> to debug using popular IDEs, <literal>python-xattr</literal> for Image Cache
+                using “xattr” driver.</para>
+          <para>On the other hand, if <literal>dnspython</literal> is installed in the environment, Glance
+                provides a workaround to make it work with IPV6.</para>
+          <para>Additionally, some libraries like <literal>xattr</literal> are not compatible when
+                using Glance on Windows<!-- (see <xref linkend="configuring"/>)
+		-->.</para>
+        </section>
+        <section xml:id="guideline-to-include-your-requirement-in-the-requirements-txt-file">
+          <title>Guideline to include your requirement in the requirements.txt file</title>
+          <para>As described above, we don’t include all the possible requirements needed by
+                Glance features in the source tree requirements file. So, when an operator
+                decides to use an <emphasis role="bold">advanced feature</emphasis> in Glance, we ask them to check the
+                documentation/guidelines for those features to set up the feature in a workable
+                way. In order to reduce the operator pain, the development team likes to work
+                with different operators to figure out when a popular feature should have its
+                dependencies included in the requirements file. However, there’s a tradeoff in
+                including more of requirements in source tree as it becomes more painful for
+                packagers. So, it is a bit of a haggle among different stakeholders and a
+                judicious decision is taken by the project PTL or release liaison to determine
+                the outcome.</para>
+          <para>To simplify the identification of an <emphasis role="bold">advanced feature</emphasis> in Glance we can
+                think of it as something not being used and deployed by most of the
+                upstream/known community members.</para>
+          <para>To name a few features that have been identified as advanced:</para>
+          <itemizedlist>
+            <listitem>
+              <para>glance tasks</para>
+            </listitem>
+            <listitem>
+              <para>image signing</para>
+            </listitem>
+            <listitem>
+              <para>image prefetcher</para>
+            </listitem>
+            <listitem>
+              <para>glance db purge utility</para>
+            </listitem>
+            <listitem>
+              <para>image locations</para>
+            </listitem>
+          </itemizedlist>
+        </section>
+        <section xml:id="steps-to-include-your-requirement-in-the-requirements-txt-file">
+          <title>Steps to include your requirement in the requirements.txt file</title>
+          <para>1. First step is to propose a change against the <literal>openstack/requirements</literal>
+                project to include the requirement(s) as a part of <literal>global-requirements</literal> and
+                <literal>upper-constraints</literal> files.</para>
+          <para>2. If your requirement is not a part of the project, you will have to propose a
+                change adding that requirement to the requirements.txt file in Glance. Please
+                include a <literal>Depends-On: &lt;ChangeID&gt;</literal> flag in the commit message, where the
+                <literal>ChangeID</literal> is the gerrit ID of corresponding change against
+                <literal>openstack/requirements</literal> project.</para>
+          <para>3. A sync bot then syncs the global requirements into project requirements on a
+                regular basis, so any updates to the requirements are synchronized on a timely
+                basis.</para>
+        </section>
+      </section>
+      <section xml:id="running-glance-in-httpd" xml:base="apache-httpd">
+        <title>Running Glance in HTTPD</title>
+        <para>Since the Pike release Glance has packaged a wsgi script entrypoint that
+            enables you to run it with a real web server like Apache HTTPD or nginx. To
+            deploy this there are several patterns. This doc shows two common ways of
+            deploying Glance with Apache HTTPD.</para>
+        <note>
+          <para>We are experiencing some problems in the gate when the Pike release of
+                Glance is configured to run in devstack following the guidelines
+                recommended in this documentation. You can follow <link xlink:href="https://bugs.launchpad.net/glance/+bug/1703856">Bug #1703856</link> to learn more.</para>
+        </note>
+        <section xml:id="uwsgi">
+          <title>uwsgi</title>
+          <para>We recommend deploying Glance with a real web server.
+                In this deployment method we use uwsgi as a web server bound to a random local
+                port. Then we configure apache using <literal>mod_proxy</literal> to forward all incoming requests
+                on the specified endpoint to that local webserver. This has the advantage of
+                letting apache manage all inbound http connections, but letting uwsgi manage
+                running the python code. It also means when we make changes to Glance code
+                or configuration we don’t need to restart all of apache (which may be running
+                other services too) and just need to restart the local uwsgi daemon.</para>
+          <para>The <literal>httpd/</literal> directory contains sample files for configuring HTTPD to run Glance
+                under uwsgi in this configuration. To use the sample configs simply copy
+                <literal>httpd/uwsgi-glance-api.conf</literal> to <literal>/etc/apache2/vhosts.d</literal></para>
+          <para>Enable <literal>mod_proxy</literal> by running <literal>sudo a2enmod proxy</literal>.</para>
+          <para>Start or restart HTTPD to pick up the new configuration.</para>
+          <para>Now we need to configure and start the uwsgi service. Copy the
+                <literal>httpd/glance-api-uwsgi.ini</literal> file to <literal>/etc/glance</literal>. Update the file to match
+                your system configuration (for example, you’ll want to set the number of
+                processes and threads).</para>
+          <para>Install uwsgi and start the glance-api server using uwsgi:</para>
+          <screen><![CDATA[sudo zypper install uwsgi
+uwsgi --ini /etc/glance/glance-api-uwsgi.ini]]></screen>
+          <note>
+            <para>In the sample configs port 60999 is used, but this doesn’t matter and is
+                    just a randomly selected number. This is not a contract on the port used
+                    for the local uwsgi daemon.</para>
+          </note>
+          <note>
+            <para>In the sample apache config proxy-sendcl is set. This is to workaround
+                    glance not leveraging uwsgi’s chunked_read() api in the Pike release.
+                    Using this option means apache buffers the input chunked data in the
+                    configured TEMPDIR (which defaults to /tmp) before giving the data to
+                    glance. This can also be quite slow and might require increasing timeouts.</para>
+          </note>
+          <section xml:id="mod-proxy-uwsgi">
+            <title>mod_proxy_uwsgi</title>
+            <warning>
+              <para>Running Glance under HTTPD in this configuration will only work on Python 2
+                        if you use <literal>Transfer-Encoding: chunked</literal>. Also if running with Python 2
+                        apache will be buffering the chunked encoding before passing the request
+                        on to uwsgi. See bug: <link xlink:href="https://github.com/unbit/uwsgi/issues/1540"/></para>
+            </warning>
+            <para>Instead of running uwsgi as a webserver listening on a local port and then
+                    having Apache HTTP proxy all the incoming requests with mod_proxy. The
+                    normally recommended way of deploying uwsgi with Apache HTTPD is to use
+                    mod_proxy_uwsgi and set up a local socket file for uwsgi to listen on. Apache
+                    will send the requests using the uwsgi protocol over this local socket
+                    file. However, there are issues with doing this and using chunked-encoding.</para>
+            <para>You can work around these issues by configuring your apache proxy to buffer the
+                    chunked data and send the full content length to uwsgi. You do this by adding:</para>
+            <screen><![CDATA[SetEnv proxy-sendcl 1]]></screen>
+            <para>to the apache config file using mod_proxy_uwsgi. For more details on using
+                    mod_proxy_uwsgi see the official docs:
+                    <link xlink:href="http://uwsgi-docs.readthedocs.io/en/latest/Apache.html?highlight=mod_uwsgi_proxy#mod-proxy-uwsgi"/></para>
+          </section>
+        </section>
+        <section xml:id="mod-wsgi">
+          <title>mod_wsgi</title>
+          <para>This deployment method is not recommended for using Glance. The mod_wsgi
+                protocol does not support <literal>Transfer-Encoding: chunked</literal> and therefore makes it
+                unsuitable for use with Glance. However, you could theoretically deploy Glance
+                using mod_wsgi but it will fail on any requests that use a chunked transfer
+                encoding.</para>
+        </section>
+      </section>
+      <section xml:id="notifications" xml:base="notifications">
+        <title>Notifications</title>
+        <para>Notifications can be generated for several events in the image lifecycle.
+            These can be used for auditing, troubleshooting, etc.</para>
+        <section xml:id="notification-drivers">
+          <title>Notification Drivers</title>
+          <itemizedlist>
+            <listitem>
+              <para>log</para>
+              <para>This driver uses the standard Python logging infrastructure with
+                        the notifications ending up in file specified by the log_file
+                        configuration directive.</para>
+            </listitem>
+            <listitem>
+              <para>messaging</para>
+              <para>This strategy sends notifications to a message queue configured
+                        using oslo.messaging configuration options.</para>
+            </listitem>
+            <listitem>
+              <para>noop</para>
+              <para>This strategy produces no notifications. It is the default strategy.</para>
+            </listitem>
+          </itemizedlist>
+        </section>
+        <section xml:id="notification-types">
+          <title>Notification Types</title>
+          <itemizedlist>
+            <listitem>
+              <para>
+                <literal>image.create</literal>
+              </para>
+              <para>Emitted when an image record is created in Glance.  Image record creation is
+                        independent of image data upload.</para>
+            </listitem>
+            <listitem>
+              <para>
+                <literal>image.prepare</literal>
+              </para>
+              <para>Emitted when Glance begins uploading image data to its store.</para>
+            </listitem>
+            <listitem>
+              <para>
+                <literal>image.upload</literal>
+              </para>
+              <para>Emitted when Glance has completed the upload of image data to its store.</para>
+            </listitem>
+            <listitem>
+              <para>
+                <literal>image.activate</literal>
+              </para>
+              <para>Emitted when an image goes to <literal>active</literal> status.  This occurs when Glance
+                        knows where the image data is located.</para>
+            </listitem>
+            <listitem>
+              <para>
+                <literal>image.send</literal>
+              </para>
+              <para>Emitted upon completion of an image being sent to a consumer.</para>
+            </listitem>
+            <listitem>
+              <para>
+                <literal>image.update</literal>
+              </para>
+              <para>Emitted when an image record is updated in Glance.</para>
+            </listitem>
+            <listitem>
+              <para>
+                <literal>image.delete</literal>
+              </para>
+              <para>Emitted when an image deleted from Glance.</para>
+            </listitem>
+            <listitem>
+              <para>
+                <literal>task.run</literal>
+              </para>
+              <para>Emitted when a task is picked up by the executor to be run.</para>
+            </listitem>
+            <listitem>
+              <para>
+                <literal>task.processing</literal>
+              </para>
+              <para>Emitted when a task is sent over to the executor to begin processing.</para>
+            </listitem>
+            <listitem>
+              <para>
+                <literal>task.success</literal>
+              </para>
+              <para>Emitted when a task is successfully completed.</para>
+            </listitem>
+            <listitem>
+              <para>
+                <literal>task.failure</literal>
+              </para>
+              <para>Emitted when a task fails.</para>
+            </listitem>
+          </itemizedlist>
+        </section>
+        <section xml:id="content">
+          <title>Content</title>
+          <para>Every message contains a handful of attributes.</para>
+          <itemizedlist>
+            <listitem>
+              <para>message_id</para>
+              <para>UUID identifying the message.</para>
+            </listitem>
+            <listitem>
+              <para>publisher_id</para>
+              <para>The hostname of the glance instance that generated the message.</para>
+            </listitem>
+            <listitem>
+              <para>event_type</para>
+              <para>Event that generated the message.</para>
+            </listitem>
+            <listitem>
+              <para>priority</para>
+              <para>One of WARN, INFO or ERROR.</para>
+            </listitem>
+            <listitem>
+              <para>timestamp</para>
+              <para>UTC timestamp of when event was generated.</para>
+            </listitem>
+            <listitem>
+              <para>payload</para>
+              <para>Data specific to the event type.</para>
+            </listitem>
+          </itemizedlist>
+        </section>
+        <section xml:id="payload">
+          <title>Payload</title>
+          <itemizedlist>
+            <listitem>
+              <para>image.send</para>
+              <para>The payload for INFO, WARN, and ERROR events contain the following:</para>
+              <variablelist>
+                <varlistentry>
+                  <term>image_id</term>
+                  <listitem>
+                    <para>ID of the image (UUID)</para>
+                  </listitem>
+                </varlistentry>
+                <varlistentry>
+                  <term>owner_id</term>
+                  <listitem>
+                    <para>Tenant or User ID that owns this image (string)</para>
+                  </listitem>
+                </varlistentry>
+                <varlistentry>
+                  <term>receiver_tenant_id</term>
+                  <listitem>
+                    <para>Tenant ID of the account receiving the image (string)</para>
+                  </listitem>
+                </varlistentry>
+                <varlistentry>
+                  <term>receiver_user_id</term>
+                  <listitem>
+                    <para>User ID of the account receiving the image (string)</para>
+                  </listitem>
+                </varlistentry>
+                <varlistentry>
+                  <term>destination_ip</term>
+                  <listitem>
+                    <para>The receiver’s IP address to which the image was sent (string)</para>
+                  </listitem>
+                </varlistentry>
+                <varlistentry>
+                  <term>bytes_sent</term>
+                  <listitem>
+                    <para>The number of bytes actually sent</para>
+                  </listitem>
+                </varlistentry>
+              </variablelist>
+            </listitem>
+            <listitem>
+              <para>image.create</para>
+              <para>For INFO events, it is the image metadata.
+                        WARN and ERROR events contain a text message in the payload.</para>
+            </listitem>
+            <listitem>
+              <para>image.prepare</para>
+              <para>For INFO events, it is the image metadata.
+                        WARN and ERROR events contain a text message in the payload.</para>
+            </listitem>
+            <listitem>
+              <para>image.upload</para>
+              <para>For INFO events, it is the image metadata.
+                        WARN and ERROR events contain a text message in the payload.</para>
+            </listitem>
+            <listitem>
+              <para>image.activate</para>
+              <para>For INFO events, it is the image metadata.
+                        WARN and ERROR events contain a text message in the payload.</para>
+            </listitem>
+            <listitem>
+              <para>image.update</para>
+              <para>For INFO events, it is the image metadata.
+                        WARN and ERROR events contain a text message in the payload.</para>
+            </listitem>
+            <listitem>
+              <para>image.delete</para>
+              <para>For INFO events, it is the image id.
+                        WARN and ERROR events contain a text message in the payload.</para>
+            </listitem>
+            <listitem>
+              <para>task.run</para>
+              <para>The payload for INFO, WARN, and ERROR events contain the following:</para>
+              <variablelist>
+                <varlistentry>
+                  <term>task_id</term>
+                  <listitem>
+                    <para>ID of the task (UUID)</para>
+                  </listitem>
+                </varlistentry>
+                <varlistentry>
+                  <term>owner</term>
+                  <listitem>
+                    <para>Tenant or User ID that created this task (string)</para>
+                  </listitem>
+                </varlistentry>
+                <varlistentry>
+                  <term>task_type</term>
+                  <listitem>
+                    <para>Type of the task. Example, task_type is “import”. (string)</para>
+                  </listitem>
+                </varlistentry>
+                <varlistentry>
+                  <term>status,</term>
+                  <listitem>
+                    <para>status of the task. Status can be “pending”, “processing”,
+                                    “success” or “failure”. (string)</para>
+                  </listitem>
+                </varlistentry>
+                <varlistentry>
+                  <term>task_input</term>
+                  <listitem>
+                    <para>Input provided by the user when attempting to create a task. (dict)</para>
+                  </listitem>
+                </varlistentry>
+                <varlistentry>
+                  <term>result</term>
+                  <listitem>
+                    <para>Resulting output from a successful task. (dict)</para>
+                  </listitem>
+                </varlistentry>
+                <varlistentry>
+                  <term>message</term>
+                  <listitem>
+                    <para>Message shown in the task if it fails. None if task succeeds. (string)</para>
+                  </listitem>
+                </varlistentry>
+                <varlistentry>
+                  <term>expires_at</term>
+                  <listitem>
+                    <para>UTC time at which the task would not be visible to the user. (string)</para>
+                  </listitem>
+                </varlistentry>
+                <varlistentry>
+                  <term>created_at</term>
+                  <listitem>
+                    <para>UTC time at which the task was created. (string)</para>
+                  </listitem>
+                </varlistentry>
+                <varlistentry>
+                  <term>updated_at</term>
+                  <listitem>
+                    <para>UTC time at which the task was latest updated. (string)</para>
+                  </listitem>
+                </varlistentry>
+                <varlistentry>
+                  <term>The exceptions are:-</term>
+                  <listitem>
+                    <para>For INFO events, it is the task dict with result and message as None.
+                                    WARN and ERROR events contain a text message in the payload.</para>
+                  </listitem>
+                </varlistentry>
+              </variablelist>
+            </listitem>
+            <listitem>
+              <para>task.processing</para>
+              <para>For INFO events, it is the task dict with result and message as None.
+                        WARN and ERROR events contain a text message in the payload.</para>
+            </listitem>
+            <listitem>
+              <para>task.success</para>
+              <para>For INFO events, it is the task dict with message as None and result is a
+                        dict.
+                        WARN and ERROR events contain a text message in the payload.</para>
+            </listitem>
+            <listitem>
+              <para>task.failure</para>
+              <para>For INFO events, it is the task dict with result as None and message is
+                        text.
+                        WARN and ERROR events contain a text message in the payload.</para>
+            </listitem>
+          </itemizedlist>
+        </section>
+      </section>
+      <section xml:id="tasks" xml:base="tasks">
+        <title>Tasks</title>
+        <section xml:id="conceptual-overview">
+          <title>Conceptual Overview</title>
+          <para>Image files can be quite large, and processing images (converting an image from
+                one format to another, for example) can be extremely resource intensive.
+                Additionally, a one-size-fits-all approach to processing images is not
+                desirable.  A public cloud will have quite different security concerns than,
+                for example, a small private cloud run by an academic department in which all
+                users know and trust each other.  Thus a public cloud deployer may wish to run
+                various validation checks on an image that a user wants to bring in to the
+                cloud, whereas the departmental cloud deployer may view such processing as a
+                waste of resources.</para>
+          <para>To address this situation, Glance contains <emphasis>tasks</emphasis>.  Tasks are intended to
+                offer end users a front end to long running asynchronous operations – the type
+                of operation you kick off and don’t expect to finish until you’ve gone to the
+                coffee shop, had a pleasant chat with your barista, had a coffee, had a
+                pleasant walk home, etc.  The asynchronous nature of tasks is emphasized up
+                front in order to set end user expectations with respect to how long the task
+                may take (hint: longer than other Glance operations).  Having a set of
+                operations performed by tasks allows a deployer flexibility with respect to how
+                many operations will be processed simultaneously, which in turn allows
+                flexibility with respect to what kind of resources need to be set aside for
+                task processing.  Thus, although large cloud deployers are certainly interested
+                in tasks for the alternative custom image processing workflow they enable,
+                smaller deployers find them useful as a means of controlling resource
+                utilization.</para>
+          <para>An additional reason tasks have been introduced into Glance is to support
+                Glance’s role in the OpenStack ecosystem.  Glance provides cataloging, storage,
+                and delivery of virtual machine images.  As such, it needs to be responsive to
+                other OpenStack components.  Nova, for instance, requests images from Glance in
+                order to boot instances; it uploads images to Glance as part of its workflow
+                for the Nova image-create action; and it uses Glance to provide the data for
+                the image-related API calls that are defined in the Compute API that Nova
+                instantiates.  It is necessary to the proper functioning of an OpenStack cloud
+                that these synchronous operations not be compromised by excess load caused by
+                non-essential functionality such as image import.</para>
+          <para>By separating the tasks resource from the images resource in the Images API,
+                it’s easier for deployers to allocate resources and route requests for tasks
+                separately from the resources required to support Glance’s service role.  At
+                the same time this separation avoids confusion for users of an OpenStack cloud.
+                Responses to requests to <literal>/v2/images</literal> should return fairly quickly, while
+                requests to <literal>/v2/tasks</literal> may take a while.</para>
+          <para>In short, tasks provide a common API across OpenStack installations for users
+                of an OpenStack cloud to request image-related operations, yet at the same time
+                tasks are customizable for individual cloud providers.</para>
+        </section>
+        <section xml:id="conceptual-details">
+          <title>Conceptual Details</title>
+          <para>A Glance task is a request to perform an asynchronous image-related
+                operation. The request results in the creation of a <emphasis>task resource</emphasis> that
+                can be polled for information about the status of the operation.</para>
+          <para>A specific type of resource distinct from the traditional Glance image resource
+                is appropriate here for several reasons:</para>
+          <itemizedlist>
+            <listitem>
+              <para>A dedicated task resource can be developed independently of the traditional
+                        Glance image resource, both with respect to structure and workflow.</para>
+            </listitem>
+            <listitem>
+              <para>There may be multiple tasks (for example, image export or image conversion)
+                        operating on an image simultaneously.</para>
+            </listitem>
+            <listitem>
+              <para>A dedicated task resource allows for the delivery to the end user of clear,
+                        detailed error messages specific to the particular operation.</para>
+            </listitem>
+            <listitem>
+              <para>A dedicated task resource respects the principle of least surprise.  For
+                        example, an import task does not create an image in Glance until it’s clear
+                        that the bits submitted pass the deployer’s tests for an allowable image.</para>
+            </listitem>
+          </itemizedlist>
+          <para>Upon reaching a final state (<literal>success</literal> or <literal>error</literal>) a task resource is
+                assigned an expiration datetime that’s displayed in the <literal>expires_at</literal> field.
+                (The time between final state and expiration is configurable.)  After that
+                datetime, the task resource is subject to being deleted.  The result of the
+                task (for example, an imported image) will still exist.</para>
+          <!-- <para>For details about the defined task statuses, please see
+	       <xref linkend="task-statuses"/>.</para> -->
+          <para>Tasks expire eventually because there’s no reason to keep them around,
+                as the user will have the result of the task, which was the point of creating
+                the task in the first place.  The reason tasks aren’t instantly deleted is that
+                there may be information contained in the task resource that’s not easily
+                available elsewhere.  (For example, a successful import task will eventually
+                result in the creation of an image in Glance, and it would be useful to know
+                the UUID of this image.  Similarly, if the import task fails, we want to give
+                the end user time to read the task resource to analyze the error message.)</para>
+        </section>
+        <section xml:id="task-entities">
+          <title>Task Entities</title>
+          <para>A task entity is represented by a JSON-encoded data structure defined by the
+                JSON schema available at <literal>/v2/schemas/task</literal>.</para>
+          <para>A task entity has an identifier (<literal>id</literal>) that is guaranteed to be unique within
+                the endpoint to which it belongs. The id is used as a token in request URIs to
+                interact with that specific task.</para>
+          <para>In addition to the usual properties you’d expect (for example, <literal>created_at</literal>,
+                <literal>self</literal>, <literal>type</literal>, <literal>status</literal>, <literal>updated_at</literal>, etc.), tasks have these properties of
+                interest:</para>
+          <itemizedlist>
+            <listitem>
+              <para><literal>input</literal>: this is defined to be a JSON blob, the exact content of which will
+                        depend upon the requirements set by the specific cloud deployer.  The intent
+                        is that each deployer will document these requirements for end users.</para>
+            </listitem>
+            <listitem>
+              <para><literal>result</literal>: this is also defined to be a JSON blob, the content of which will
+                        be documented by each cloud deployer.  The <literal>result</literal> element will be null
+                        until the task has reached a final state, and if the final status is
+                        <literal>failure</literal>, the result element remains null.</para>
+            </listitem>
+            <listitem>
+              <para><literal>message</literal>: this string field is expected to be null unless the task has
+                        entered <literal>failure</literal> status.  At that point, it contains an informative
+                        human-readable message concerning the reason(s) for the task failure.</para>
+            </listitem>
+          </itemizedlist>
+        </section>
+      </section>
+      <section xml:id="controlling-servers" xml:base="controllingservers">
+        <title>Controlling Glance Servers</title>
+        <para>This section describes the ways to start, stop, and reload Glance’s server
+            programs.</para>
+        <section xml:id="starting-a-server">
+          <title>Starting a server</title>
+          <para>There are two ways to start a Glance server (either the API server or the
+                registry server):</para>
+          <itemizedlist>
+            <listitem>
+              <para>Manually calling the server program</para>
+            </listitem>
+            <listitem>
+              <para>Using the <literal>glance-control</literal> server daemon wrapper program</para>
+            </listitem>
+          </itemizedlist>
+          <para>We recommend using the second method.</para>
+          <section xml:id="manually-starting-the-server">
+            <title>Manually starting the server</title>
+            <para>The first is by directly calling the server program, passing in command-line
+                    options and a single argument for a <literal>paste.deploy</literal> configuration file to
+                    use when configuring the server application.</para>
+            <note>
+              <para>Glance ships with an <literal>etc/</literal> directory that contains sample <literal>paste.deploy</literal>
+                        configuration files that you can copy to a standard configuration directory and
+                        adapt for your own uses. Specifically, bind_host must be set properly.</para>
+            </note>
+            <para>If you do <literal>not</literal> specify a configuration file on the command line, Glance will
+                    do its best to locate a configuration file in one of the
+                    following directories, stopping at the first config file it finds:</para>
+            <itemizedlist>
+              <listitem>
+                <para>
+                  <literal>$CWD</literal>
+                </para>
+              </listitem>
+              <listitem>
+                <para>
+                  <literal>~/.glance</literal>
+                </para>
+              </listitem>
+              <listitem>
+                <para>
+                  <literal>~/</literal>
+                </para>
+              </listitem>
+              <listitem>
+                <para>
+                  <literal>/etc/glance</literal>
+                </para>
+              </listitem>
+              <listitem>
+                <para>
+                  <literal>/etc</literal>
+                </para>
+              </listitem>
+            </itemizedlist>
+            <para>The filename that is searched for depends on the server application name. So,
+                    if you are starting up the API server, <literal>glance-api.conf</literal> is searched for,
+                    otherwise <literal>glance-registry.conf</literal>.</para>
+            <para>If no configuration file is found, you will see an error, like:</para>
+            <screen><![CDATA[$> glance-api
+ERROR: Unable to locate any configuration file. Cannot load application glance-api]]></screen>
+            <para>Here is an example showing how you can manually start the <literal>glance-api</literal> server and <literal>glance-registry</literal> in a shell.:</para>
+            <screen><![CDATA[$ sudo glance-api --config-file glance-api.conf --debug &
+jsuh@mc-ats1:~$ 2011-04-13 14:50:12    DEBUG [glance-api] ********************************************************************************
+2011-04-13 14:50:12    DEBUG [glance-api] Configuration options gathered from config file:
+2011-04-13 14:50:12    DEBUG [glance-api] /home/jsuh/glance-api.conf
+2011-04-13 14:50:12    DEBUG [glance-api] ================================================
+2011-04-13 14:50:12    DEBUG [glance-api] bind_host                      65.114.169.29
+2011-04-13 14:50:12    DEBUG [glance-api] bind_port                      9292
+2011-04-13 14:50:12    DEBUG [glance-api] debug                          True
+2011-04-13 14:50:12    DEBUG [glance-api] default_store                  file
+2011-04-13 14:50:12    DEBUG [glance-api] filesystem_store_datadir       /home/jsuh/images/
+2011-04-13 14:50:12    DEBUG [glance-api] registry_host                  65.114.169.29
+2011-04-13 14:50:12    DEBUG [glance-api] registry_port                  9191
+2011-04-13 14:50:12    DEBUG [glance-api] ********************************************************************************
+2011-04-13 14:50:12    DEBUG [routes.middleware] Initialized with method overriding = True, and path info altering = True
+2011-04-13 14:50:12    DEBUG [eventlet.wsgi.server] (21354) wsgi starting up on http://65.114.169.29:9292/
+
+$ sudo glance-registry --config-file glance-registry.conf &
+jsuh@mc-ats1:~$ 2011-04-13 14:51:16     INFO [sqlalchemy.engine.base.Engine.0x...feac] PRAGMA table_info("images")
+2011-04-13 14:51:16     INFO [sqlalchemy.engine.base.Engine.0x...feac] ()
+2011-04-13 14:51:16    DEBUG [sqlalchemy.engine.base.Engine.0x...feac] Col ('cid', 'name', 'type', 'notnull', 'dflt_value', 'pk')
+2011-04-13 14:51:16    DEBUG [sqlalchemy.engine.base.Engine.0x...feac] Row (0, u'created_at', u'DATETIME', 1, None, 0)
+2011-04-13 14:51:16    DEBUG [sqlalchemy.engine.base.Engine.0x...feac] Row (1, u'updated_at', u'DATETIME', 0, None, 0)
+2011-04-13 14:51:16    DEBUG [sqlalchemy.engine.base.Engine.0x...feac] Row (2, u'deleted_at', u'DATETIME', 0, None, 0)
+2011-04-13 14:51:16    DEBUG [sqlalchemy.engine.base.Engine.0x...feac] Row (3, u'deleted', u'BOOLEAN', 1, None, 0)
+2011-04-13 14:51:16    DEBUG [sqlalchemy.engine.base.Engine.0x...feac] Row (4, u'id', u'INTEGER', 1, None, 1)
+2011-04-13 14:51:16    DEBUG [sqlalchemy.engine.base.Engine.0x...feac] Row (5, u'name', u'VARCHAR(255)', 0, None, 0)
+2011-04-13 14:51:16    DEBUG [sqlalchemy.engine.base.Engine.0x...feac] Row (6, u'disk_format', u'VARCHAR(20)', 0, None, 0)
+2011-04-13 14:51:16    DEBUG [sqlalchemy.engine.base.Engine.0x...feac] Row (7, u'container_format', u'VARCHAR(20)', 0, None, 0)
+2011-04-13 14:51:16    DEBUG [sqlalchemy.engine.base.Engine.0x...feac] Row (8, u'size', u'INTEGER', 0, None, 0)
+2011-04-13 14:51:16    DEBUG [sqlalchemy.engine.base.Engine.0x...feac] Row (9, u'status', u'VARCHAR(30)', 1, None, 0)
+2011-04-13 14:51:16    DEBUG [sqlalchemy.engine.base.Engine.0x...feac] Row (10, u'is_public', u'BOOLEAN', 1, None, 0)
+2011-04-13 14:51:16    DEBUG [sqlalchemy.engine.base.Engine.0x...feac] Row (11, u'location', u'TEXT', 0, None, 0)
+2011-04-13 14:51:16     INFO [sqlalchemy.engine.base.Engine.0x...feac] PRAGMA table_info("image_properties")
+2011-04-13 14:51:16     INFO [sqlalchemy.engine.base.Engine.0x...feac] ()
+2011-04-13 14:51:16    DEBUG [sqlalchemy.engine.base.Engine.0x...feac] Col ('cid', 'name', 'type', 'notnull', 'dflt_value', 'pk')
+2011-04-13 14:51:16    DEBUG [sqlalchemy.engine.base.Engine.0x...feac] Row (0, u'created_at', u'DATETIME', 1, None, 0)
+2011-04-13 14:51:16    DEBUG [sqlalchemy.engine.base.Engine.0x...feac] Row (1, u'updated_at', u'DATETIME', 0, None, 0)
+2011-04-13 14:51:16    DEBUG [sqlalchemy.engine.base.Engine.0x...feac] Row (2, u'deleted_at', u'DATETIME', 0, None, 0)
+2011-04-13 14:51:16    DEBUG [sqlalchemy.engine.base.Engine.0x...feac] Row (3, u'deleted', u'BOOLEAN', 1, None, 0)
+2011-04-13 14:51:16    DEBUG [sqlalchemy.engine.base.Engine.0x...feac] Row (4, u'id', u'INTEGER', 1, None, 1)
+2011-04-13 14:51:16    DEBUG [sqlalchemy.engine.base.Engine.0x...feac] Row (5, u'image_id', u'INTEGER', 1, None, 0)
+2011-04-13 14:51:16    DEBUG [sqlalchemy.engine.base.Engine.0x...feac] Row (6, u'key', u'VARCHAR(255)', 1, None, 0)
+2011-04-13 14:51:16    DEBUG [sqlalchemy.engine.base.Engine.0x...feac] Row (7, u'value', u'TEXT', 0, None, 0)
+
+$ ps aux | grep glance
+root     20009  0.7  0.1  12744  9148 pts/1    S    12:47   0:00 /usr/bin/python /usr/bin/glance-api glance-api.conf --debug
+root     20012  2.0  0.1  25188 13356 pts/1    S    12:47   0:00 /usr/bin/python /usr/bin/glance-registry glance-registry.conf
+jsuh     20017  0.0  0.0   3368   744 pts/1    S+   12:47   0:00 grep glance]]></screen>
+            <para>Simply supply the configuration file as the parameter to the <literal>--config-file</literal> option
+                    (the <literal>etc/glance-api.conf</literal> and  <literal>etc/glance-registry.conf</literal> sample configuration
+                    files were used in the above example) and then any other options
+                    you want to use. (<literal>--debug</literal> was used above to show some of the debugging
+                    output that the server shows when starting up. Call the server program
+                    with <literal>--help</literal> to see all available options you can specify on the
+                    command line.)</para>
+            <!-- FIXME <para>For more information on configuring the server via the <literal>paste.deploy</literal>
+                    configuration files, see the section entitled
+                    <xref linkend="configuring"/></para> -->
+            <para>Note that the server <literal>daemonizes</literal> itself by using the standard
+                    shell backgrounding indicator, <literal>&amp;</literal>, in the previous example. For most use cases, we recommend
+                    using the <literal>glance-control</literal> server daemon wrapper for daemonizing. See below
+                    for more details on daemonization with <literal>glance-control</literal>.</para>
+          </section>
+          <section xml:id="using-the-glance-control-program-to-start-the-server">
+            <title>Using the <literal>glance-control</literal> program to start the server</title>
+            <para>The second way to start up a Glance server is to use the <literal>glance-control</literal>
+                    program. <literal>glance-control</literal> is a wrapper script that allows the user to
+                    start, stop, restart, and reload the other Glance server programs in
+                    a fashion that is more conducive to automation and scripting.</para>
+            <para>Servers started via the <literal>glance-control</literal> program are always <literal>daemonized</literal>,
+                    meaning that the server program process runs in the background.</para>
+            <para>To start a Glance server with <literal>glance-control</literal>, simply call
+                    <literal>glance-control</literal> with a server and the word “start”, followed by
+                    any command-line options you wish to provide. Start the server with <literal>glance-control</literal>
+                    in the following way:</para>
+            <screen><![CDATA[$> sudo glance-control [OPTIONS] <SERVER> start [CONFPATH]]]></screen>
+            <note>
+              <para>You must use the <literal>sudo</literal> program to run <literal>glance-control</literal> currently, as the
+                        pid files for the server programs are written to /var/run/glance/</para>
+            </note>
+            <para>Here is an example that shows how to start the <literal>glance-registry</literal> server
+                    with the <literal>glance-control</literal> wrapper script.</para>
+            <screen><![CDATA[$ sudo glance-control api start glance-api.conf
+Starting glance-api with /home/jsuh/glance.conf
+
+$ sudo glance-control registry start glance-registry.conf
+Starting glance-registry with /home/jsuh/glance.conf
+
+$ ps aux | grep glance
+root     20038  4.0  0.1  12728  9116 ?        Ss   12:51   0:00 /usr/bin/python /usr/bin/glance-api /home/jsuh/glance-api.conf
+root     20039  6.0  0.1  25188 13356 ?        Ss   12:51   0:00 /usr/bin/python /usr/bin/glance-registry /home/jsuh/glance-registry.conf
+jsuh     20042  0.0  0.0   3368   744 pts/1    S+   12:51   0:00 grep glance]]></screen>
+            <para>The same configuration files are used by <literal>glance-control</literal> to start the
+                    Glance server programs, and you can specify (as the example above shows)
+                    a configuration file when starting the server.</para>
+            <para>In order for your launched glance service to be monitored for unexpected death
+                    and respawned if necessary, use the following option:</para>
+            <para>$ sudo glance-control [service] start –respawn …</para>
+            <para>Note that this will cause <literal>glance-control</literal> itself to remain running. Also note
+                    that deliberately stopped services are not respawned, neither are rapidly bouncing
+                    services (where process death occurred within one second of the last launch).</para>
+            <para>By default, output from glance services is discarded when launched with <literal>glance-control</literal>.
+                    In order to capture such output via syslog, use the following option:</para>
+            <para>$ sudo glance-control –capture-output …</para>
+          </section>
+        </section>
+        <section xml:id="stopping-a-server">
+          <title>Stopping a server</title>
+          <para>If you started a Glance server manually and did not use the <literal>&amp;</literal> backgrounding
+                function, simply send a terminate signal to the server process by typing
+                <literal>Ctrl-C</literal></para>
+          <para>If you started the Glance server using the <literal>glance-control</literal> program, you can
+                use the <literal>glance-control</literal> program to stop it. Simply do the following:</para>
+          <screen><![CDATA[$> sudo glance-control <SERVER> stop]]></screen>
+          <para>as this example shows:</para>
+          <screen><![CDATA[$> sudo glance-control registry stop
+Stopping glance-registry  pid: 17602  signal: 15]]></screen>
+        </section>
+        <section xml:id="restarting-a-server">
+          <title>Restarting a server</title>
+          <para>You can restart a server with the <literal>glance-control</literal> program, as demonstrated
+                here:</para>
+          <screen><![CDATA[$> sudo glance-control registry restart etc/glance-registry.conf
+Stopping glance-registry  pid: 17611  signal: 15
+Starting glance-registry with /home/jpipes/repos/glance/trunk/etc/glance-registry.conf]]></screen>
+        </section>
+        <section xml:id="reloading-a-server">
+          <title>Reloading a server</title>
+          <para>You can reload a server with the <literal>glance-control</literal> program, as demonstrated
+                here:</para>
+          <screen><![CDATA[$> sudo glance-control api reload
+Reloading glance-api (pid 18506) with signal(1)]]></screen>
+          <para>A reload sends a SIGHUP signal to the master process and causes new configuration
+                settings to be picked up without any interruption to the running service (provided
+                neither bind_host or bind_port has changed).</para>
+        </section>
+      </section>
+      <section xml:id="glance-flow-plugins" xml:base="flows">
+        <title>Glance Flow Plugins</title>
+        <section xml:id="flows">
+          <title>Flows</title>
+          <section xml:id="api-image-import">
+            <title>api_image_import</title>
+            <para>Return task flow</para>
+          </section>
+          <section xml:id="import">
+            <title>import</title>
+            <para>Return task flow</para>
+          </section>
+        </section>
+        <section xml:id="import-flows">
+          <title>Import Flows</title>
+          <section xml:id="convert">
+            <title>convert</title>
+            <para>Return task flow for converting images to different formats.</para>
+          </section>
+          <section xml:id="introspect">
+            <title>introspect</title>
+            <para>Return task flow for introspecting images to obtain metadata about the
+                    image.</para>
+          </section>
+          <section xml:id="ovf-process">
+            <title>ovf_process</title>
+            <para>Returns task flow for OVF Process.</para>
+          </section>
+        </section>
+      </section>
+      <section xml:id="database-management" xml:base="db">
+        <title>Database Management</title>
+        <para>The default metadata driver for Glance uses <link xlink:href="http://www.sqlalchemy.org/">SQLAlchemy</link>, which implies there
+            exists a backend database which must be managed. The <literal>glance-manage</literal> binary
+            provides a set of commands for making this easier.</para>
+        <para>The commands should be executed as a subcommand of ‘db’:</para>
+        <para>glance-manage db &lt;cmd&gt; &lt;args&gt;</para>
+        <note>
+          <para>In the Ocata release (14.0.0), the database migration engine was changed
+                from <emphasis>SQLAlchemy Migrate</emphasis> to <emphasis>Alembic</emphasis>.  This necessitated some changes in
+                the <literal>glance-manage</literal> tool.  While the user interface has been kept as
+                similar as possible, the <literal>glance-manage</literal> tool included with the Ocata and
+                more recent releases is incompatible with the “legacy” tool.
+		<!-- If you are
+                consulting these documents for information about the <literal>glance-manage</literal> tool
+                in the Newton or earlier releases, please see the
+                <xref linkend="legacy-database-management"/> page. --></para>
+        </note>
+        <section xml:id="migration-scripts">
+          <title>Migration Scripts</title>
+          <para>The migration scripts are stored in the directory:
+                <literal>glance/db/sqlalchemy/alembic_migrations/versions</literal></para>
+          <para>As mentioned above, these scripts utilize the Alembic migration engine, which
+                was first introduced in the Ocata release.  All database migrations up through
+                the Liberty release are consolidated into one Alembic migration script named
+                <literal>liberty_initial</literal>.  Mitaka migrations are retained, but have been rewritten
+                for Alembic and named using the new naming convention.</para>
+          <para>A fresh Glance installation will apply the following
+                migrations:</para>
+          <itemizedlist>
+            <listitem>
+              <para>
+                <literal>liberty-initial</literal>
+              </para>
+            </listitem>
+            <listitem>
+              <para>
+                <literal>mitaka01</literal>
+              </para>
+            </listitem>
+            <listitem>
+              <para>
+                <literal>mitaka02</literal>
+              </para>
+            </listitem>
+            <listitem>
+              <para>
+                <literal>ocata01</literal>
+              </para>
+            </listitem>
+          </itemizedlist>
+          <note>
+            <para>The “old-style” migration scripts have been retained in their <link xlink:href="http://git.openstack.org/cgit/openstack/glance/tree/glance/db/sqlalchemy/migrate_repo/versions?h=stable/ocata">current
+                        directory</link> in the Ocata release so that interested operators can correlate
+                    them with the new migrations.  This directory will be removed in future
+                    releases.</para>
+            <para>In particular, the “old-style” script for the Ocata migration,
+                    <link xlink:href="http://git.openstack.org/cgit/openstack/glance/tree/glance/db/sqlalchemy/migrate_repo/versions/045_add_visibility.py?h=stable/ocata">045_add_visibility.py</link> is retained for operators who are conversant in
+                    SQLAlchemy Migrate and are interested in comparing it with a “new-style”
+                    Alembic migration script.  The Alembic script, which is the one actually
+                    used to do the upgrade to Ocata, is
+                    <link xlink:href="http://git.openstack.org/cgit/openstack/glance/tree/glance/db/sqlalchemy/alembic_migrations/versions/ocata01_add_visibility_remove_is_public.py?h=stable/ocata">ocata01_add_visibility_remove_is_public.py</link>.</para>
+          </note>
+        </section>
+        <section xml:id="sync-the-database">
+          <title>Sync the Database</title>
+          <para>glance-manage db sync [VERSION]</para>
+          <para>Place an existing database under migration control and upgrade it to the
+                specified VERSION or to the latest migration level if VERSION is not specified.</para>
+          <note>
+            <para>Prior to Ocata release the database version was a numeric value.  For
+                    example: for the Newton release, the latest migration level was <literal>44</literal>.
+                    Starting with Ocata, database version is a revision name corresponding to
+                    the latest migration included in the release. For the Ocata release, there
+                    is only one database migration and it is identified by revision
+                    <literal>ocata01</literal>. So, the database version for Ocata release is <literal>ocata01</literal>.</para>
+            <para>This naming convention will change slightly with the introduction of
+                    zero-downtime upgrades, which is EXPERIMENTAL in Ocata, but is projected to
+                    be the official upgrade method beginning with the Pike release.  See
+                    <xref linkend="zero-downtime"/> below for more information.</para>
+          </note>
+        </section>
+        <section xml:id="determining-the-database-version">
+          <title>Determining the Database Version</title>
+          <para>glance-manage db version</para>
+          <para>This will print the current migration level of a Glance database.</para>
+        </section>
+        <section xml:id="upgrading-an-existing-database">
+          <title>Upgrading an Existing Database</title>
+          <para>glance-manage db upgrade [VERSION]</para>
+          <para>This will take an existing database and upgrade it to the specified VERSION.</para>
+        </section>
+        <section xml:id="downgrades">
+          <title>Downgrading an Existing Database</title>
+          <para>Upgrades involve complex operations and can fail. Before attempting any
+                upgrade, you should make a full database backup of your production data. As of
+                Kilo, database downgrades are not supported, and the only method available to
+                get back to a prior database version is to restore from backup [1].</para>
+          <para>[1]: <link xlink:href="http://docs.openstack.org/ops-guide/ops-upgrades.html#perform-a-backup"/></para>
+        </section>
+      </section>
+      <section xml:id="zero-downtime" xml:base="db">
+        <title>Zero-Downtime Database Upgrades</title>
+        <warning>
+          <para>This feature is EXPERIMENTAL in the Ocata release.  We encourage operators
+                to try it out, but its use in production environments is currently NOT
+                SUPPORTED.</para>
+        </warning>
+        <para>A zero-downtime database upgrade enables true rolling upgrades of the Glance
+            nodes in your cloud’s control plane.  At the appropriate point in the upgrade,
+            you can have a mixed deployment of release <emphasis>n</emphasis> (for example, Ocata) and release
+            <emphasis>n-1</emphasis> (for example, Newton) Glance nodes, take the <emphasis>n-1</emphasis> release nodes out of
+            rotation, allow them to drain, and then take them out of service permanently,
+            leaving all Glance nodes in your cloud at release <emphasis>n</emphasis>.</para>
+        <para>That’s a rough sketch of how a rolling upgrade would work.  For full details,
+            see <xref linkend="glance.rolling-upgrades"/>.</para>
+        <note>
+          <para>Downgrading a database is not supported.  See <xref linkend="downgrades"/> for more
+                information.</para>
+        </note>
+        <section xml:id="the-expand-migrate-contract-cycle">
+          <title>The Expand-Migrate-Contract Cycle</title>
+          <para>For Glance, a zero-downtime database upgrade has three phases:</para>
+          <procedure>
+            <step>
+              <para><emphasis role="bold">Expand</emphasis>: in this phase, new columns, tables, indexes, or triggers are
+                        added to the database.</para>
+            </step>
+            <step>
+              <para><emphasis role="bold">Migrate</emphasis>: in this phase, data is migrated to the new columns or tables.</para>
+            </step>
+            <step>
+              <para><emphasis role="bold">Contract</emphasis>: in this phase, the “old” tables or columns (and any database
+                        triggers used during the migration), which are no longer in use, are removed
+                        from the database.</para>
+            </step>
+          </procedure>
+          <para>The above phases are abbreviated as an <emphasis role="bold">E-M-C</emphasis> database upgrade.</para>
+        </section>
+        <section xml:id="new-database-version-identifiers">
+          <title>New Database Version Identifiers</title>
+          <para>In order to perform zero-downtime upgrades, the version identifier of a
+                database becomes more complicated since it must reflect knowledge of what point
+                in the E-M-C cycle the upgrade has reached.  To make this evident, the
+                identifier explicitly contains ‘expand’ or ‘contract’ as part of its name.</para>
+          <para>Thus the <literal>ocata01</literal> migration (that is, the migration that’s currently used in
+                the fully supported upgrade path) has two identifiers associated with it for
+                zero-downtime upgrades: <literal>ocata_expand01</literal> and <literal>ocata_contract01</literal>.</para>
+          <para>During the upgrade process, the database is initially marked with
+                <literal>ocata_expand01</literal>.  Eventually, after completing the full upgrade process, the
+                database will be marked with <literal>ocata_contract01</literal>. So, instead of one database
+                version, an operator will see a composite database version that will have both
+                expand and contract versions.  A database will be considered at Ocata version
+                only when both expand and contract revisions are at the latest revisions.  For
+                a successful Ocata zero-downtime upgrade, for example, the database will be
+                marked with both <literal>ocata_expand01</literal>, <literal>ocata_contract01</literal>.</para>
+          <para>In the case in which there are multiple changes in a cycle, the database
+                version record would go through the following progression:</para>
+          <informaltable>
+            <tgroup cols="3">
+              <colspec colname="c1" colwidth="7"/>
+              <colspec colname="c2" colwidth="38"/>
+              <colspec colname="c3" colwidth="25"/>
+              <thead>
+                <row>
+                  <entry>
+                    <para>stage</para>
+                  </entry>
+                  <entry>
+                    <para>database identifier</para>
+                  </entry>
+                  <entry>
+                    <para>comment</para>
+                  </entry>
+                </row>
+              </thead>
+              <tbody>
+                <row>
+                  <entry>
+                    <para>E</para>
+                  </entry>
+                  <entry>
+                    <para>
+                      <literal>bexar_expand01</literal>
+                    </para>
+                  </entry>
+                  <entry>
+                    <para>upgrade begins</para>
+                  </entry>
+                </row>
+                <row>
+                  <entry>
+                    <para>E</para>
+                  </entry>
+                  <entry>
+                    <para>
+                      <literal>bexar_expand02</literal>
+                    </para>
+                  </entry>
+                  <entry/>
+                </row>
+                <row>
+                  <entry>
+                    <para>E</para>
+                  </entry>
+                  <entry>
+                    <para>
+                      <literal>bexar_expand03</literal>
+                    </para>
+                  </entry>
+                  <entry/>
+                </row>
+                <row>
+                  <entry>
+                    <para>M</para>
+                  </entry>
+                  <entry>
+                    <para>
+                      <literal>bexar_expand03</literal>
+                    </para>
+                  </entry>
+                  <entry>
+                    <para>bexar_migrate01 occurs</para>
+                  </entry>
+                </row>
+                <row>
+                  <entry>
+                    <para>M</para>
+                  </entry>
+                  <entry>
+                    <para>
+                      <literal>bexar_expand03</literal>
+                    </para>
+                  </entry>
+                  <entry>
+                    <para>bexar_migrate02 occurs</para>
+                  </entry>
+                </row>
+                <row>
+                  <entry>
+                    <para>M</para>
+                  </entry>
+                  <entry>
+                    <para>
+                      <literal>bexar_expand03</literal>
+                    </para>
+                  </entry>
+                  <entry>
+                    <para>bexar_migrate03 occurs</para>
+                  </entry>
+                </row>
+                <row>
+                  <entry>
+                    <para>C</para>
+                  </entry>
+                  <entry>
+                    <para>
+                      <literal>bexar_expand03, bexar_contract01</literal>
+                    </para>
+                  </entry>
+                  <entry/>
+                </row>
+                <row>
+                  <entry>
+                    <para>C</para>
+                  </entry>
+                  <entry>
+                    <para>
+                      <literal>bexar_expand03, bexar_contract02</literal>
+                    </para>
+                  </entry>
+                  <entry/>
+                </row>
+                <row>
+                  <entry>
+                    <para>C</para>
+                  </entry>
+                  <entry>
+                    <para>
+                      <literal>bexar_expand03, bexar_contract03</literal>
+                    </para>
+                  </entry>
+                  <entry>
+                    <para>upgrade completed</para>
+                  </entry>
+                </row>
+              </tbody>
+            </tgroup>
+          </informaltable>
+        </section>
+        <section xml:id="database-upgrade">
+          <title>Database Upgrade</title>
+          <para>In order to enable the E-M-C database upgrade cycle, and to enable Glance
+                rolling upgrades, the <literal>glance-manage</literal> tool has been augmented to include the
+                following operations.</para>
+        </section>
+        <section xml:id="expanding-the-database">
+          <title>Expanding the Database</title>
+          <para>glance-manage db expand</para>
+          <para>This will run the expansion phase of a rolling upgrade process.  Database
+                expansion should be run as the first step in the rolling upgrade process before
+                any new services are started.</para>
+        </section>
+        <section xml:id="migrating-the-data">
+          <title>Migrating the Data</title>
+          <para>glance-manage db migrate</para>
+          <para>This will run the data migrate phase of a rolling upgrade process.  Database
+                migration should be run after database expansion but before any new services
+                are started.</para>
+        </section>
+        <section xml:id="contracting-the-database">
+          <title>Contracting the Database</title>
+          <para>glance-manage db contract</para>
+          <para>This will run the contraction phase of a rolling upgrade process.
+                Database contraction should be run as the last step of the rolling upgrade
+                process after all old services are upgraded to new ones.</para>
+        </section>
+      </section>
+      <section xml:id="glance.database-management">
+        <title>Database Management</title>
+        <para>The default metadata driver for Glance uses <link xlink:href="http://www.sqlalchemy.org/">SQLAlchemy</link>, which implies there
+            exists a backend database which must be managed. The <literal>glance-manage</literal> binary
+            provides a set of commands for making this easier.</para>
+        <para>The commands should be executed as a subcommand of ‘db’:</para>
+        <para>glance-manage db &lt;cmd&gt; &lt;args&gt;</para>
+        <note>
+          <para>In the Ocata release (14.0.0), the database migration engine was changed
+                from <emphasis>SQLAlchemy Migrate</emphasis> to <emphasis>Alembic</emphasis>.  This necessitated some changes in
+                the <literal>glance-manage</literal> tool.  While the user interface has been kept as
+                similar as possible, the <literal>glance-manage</literal> tool included with the Ocata and
+                more recent releases is incompatible with the “legacy” tool.
+		<!-- If you are
+                consulting these documents for information about the <literal>glance-manage</literal> tool
+                in the Newton or earlier releases, please see the
+                <xref linkend="legacy-database-management"/> page. --> </para>
+        </note>
+        <section xml:id="glance.migration-scripts">
+          <title>Migration Scripts</title>
+          <para>The migration scripts are stored in the directory:
+                <literal>glance/db/sqlalchemy/alembic_migrations/versions</literal></para>
+          <para>As mentioned above, these scripts utilize the Alembic migration engine, which
+                was first introduced in the Ocata release.  All database migrations up through
+                the Liberty release are consolidated into one Alembic migration script named
+                <literal>liberty_initial</literal>.  Mitaka migrations are retained, but have been rewritten
+                for Alembic and named using the new naming convention.</para>
+          <para>A fresh Glance installation will apply the following
+                migrations:</para>
+          <itemizedlist>
+            <listitem>
+              <para>
+                <literal>liberty-initial</literal>
+              </para>
+            </listitem>
+            <listitem>
+              <para>
+                <literal>mitaka01</literal>
+              </para>
+            </listitem>
+            <listitem>
+              <para>
+                <literal>mitaka02</literal>
+              </para>
+            </listitem>
+            <listitem>
+              <para>
+                <literal>ocata01</literal>
+              </para>
+            </listitem>
+          </itemizedlist>
+          <note>
+            <para>The “old-style” migration scripts have been retained in their <link xlink:href="http://git.openstack.org/cgit/openstack/glance/tree/glance/db/sqlalchemy/migrate_repo/versions?h=stable/ocata">current
+                        directory</link> in the Ocata release so that interested operators can correlate
+                    them with the new migrations.  This directory will be removed in future
+                    releases.</para>
+            <para>In particular, the “old-style” script for the Ocata migration,
+                    <link xlink:href="http://git.openstack.org/cgit/openstack/glance/tree/glance/db/sqlalchemy/migrate_repo/versions/045_add_visibility.py?h=stable/ocata">045_add_visibility.py</link> is retained for operators who are conversant in
+                    SQLAlchemy Migrate and are interested in comparing it with a “new-style”
+                    Alembic migration script.  The Alembic script, which is the one actually
+                    used to do the upgrade to Ocata, is
+                    <link xlink:href="http://git.openstack.org/cgit/openstack/glance/tree/glance/db/sqlalchemy/alembic_migrations/versions/ocata01_add_visibility_remove_is_public.py?h=stable/ocata">ocata01_add_visibility_remove_is_public.py</link>.</para>
+          </note>
+        </section>
+        <section xml:id="glance.sync-the-database">
+          <title>Sync the Database</title>
+          <para>glance-manage db sync [VERSION]</para>
+          <para>Place an existing database under migration control and upgrade it to the
+                specified VERSION or to the latest migration level if VERSION is not specified.</para>
+          <note>
+            <para>Prior to Ocata release the database version was a numeric value.  For
+                    example: for the Newton release, the latest migration level was <literal>44</literal>.
+                    Starting with Ocata, database version is a revision name corresponding to
+                    the latest migration included in the release. For the Ocata release, there
+                    is only one database migration and it is identified by revision
+                    <literal>ocata01</literal>. So, the database version for Ocata release is <literal>ocata01</literal>.</para>
+            <para>This naming convention will change slightly with the introduction of
+                    zero-downtime upgrades, which is EXPERIMENTAL in Ocata, but is projected to
+                    be the official upgrade method beginning with the Pike release.  See
+                    <xref linkend="zero-downtime"/> below for more information.</para>
+          </note>
+        </section>
+        <section xml:id="glance.determining-the-database-version">
+          <title>Determining the Database Version</title>
+          <para>glance-manage db version</para>
+          <para>This will print the current migration level of a Glance database.</para>
+        </section>
+        <section xml:id="glance.upgrading-an-existing-database">
+          <title>Upgrading an Existing Database</title>
+          <para>glance-manage db upgrade [VERSION]</para>
+          <para>This will take an existing database and upgrade it to the specified VERSION.</para>
+        </section>
+        <section xml:id="glance.downgrades">
+          <title>Downgrading an Existing Database</title>
+          <para>Upgrades involve complex operations and can fail. Before attempting any
+                upgrade, you should make a full database backup of your production data. As of
+                Kilo, database downgrades are not supported, and the only method available to
+                get back to a prior database version is to restore from backup [1].</para>
+          <para>[1]: <link xlink:href="http://docs.openstack.org/ops-guide/ops-upgrades.html#perform-a-backup"/></para>
+        </section>
+      </section>
+      <section xml:id="glance.zero-downtime" xml:base="db#zero-downtime-database-upgrades">
+        <title>Zero-Downtime Database Upgrades</title>
+        <warning>
+          <para>This feature is EXPERIMENTAL in the Ocata release.  We encourage operators
+                to try it out, but its use in production environments is currently NOT
+                SUPPORTED.</para>
+        </warning>
+        <para>A zero-downtime database upgrade enables true rolling upgrades of the Glance
+            nodes in your cloud’s control plane.  At the appropriate point in the upgrade,
+            you can have a mixed deployment of release <emphasis>n</emphasis> (for example, Ocata) and release
+            <emphasis>n-1</emphasis> (for example, Newton) Glance nodes, take the <emphasis>n-1</emphasis> release nodes out of
+            rotation, allow them to drain, and then take them out of service permanently,
+            leaving all Glance nodes in your cloud at release <emphasis>n</emphasis>.</para>
+        <para>That’s a rough sketch of how a rolling upgrade would work.  For full details,
+            see <xref linkend="glance.rolling-upgrades"/>.</para>
+        <note>
+          <para>Downgrading a database is not supported.  See <xref linkend="downgrades"/> for more
+                information.</para>
+        </note>
+        <section xml:id="glance.the-expand-migrate-contract-cycle">
+          <title>The Expand-Migrate-Contract Cycle</title>
+          <para>For Glance, a zero-downtime database upgrade has three phases:</para>
+          <procedure>
+            <step>
+              <para><emphasis role="bold">Expand</emphasis>: in this phase, new columns, tables, indexes, or triggers are
+                        added to the database.</para>
+            </step>
+            <step>
+              <para><emphasis role="bold">Migrate</emphasis>: in this phase, data is migrated to the new columns or tables.</para>
+            </step>
+            <step>
+              <para><emphasis role="bold">Contract</emphasis>: in this phase, the “old” tables or columns (and any database
+                        triggers used during the migration), which are no longer in use, are removed
+                        from the database.</para>
+            </step>
+          </procedure>
+          <para>The above phases are abbreviated as an <emphasis role="bold">E-M-C</emphasis> database upgrade.</para>
+        </section>
+        <section xml:id="glance.new-database-version-identifiers">
+          <title>New Database Version Identifiers</title>
+          <para>In order to perform zero-downtime upgrades, the version identifier of a
+                database becomes more complicated since it must reflect knowledge of what point
+                in the E-M-C cycle the upgrade has reached.  To make this evident, the
+                identifier explicitly contains ‘expand’ or ‘contract’ as part of its name.</para>
+          <para>Thus the <literal>ocata01</literal> migration (that is, the migration that’s currently used in
+                the fully supported upgrade path) has two identifiers associated with it for
+                zero-downtime upgrades: <literal>ocata_expand01</literal> and <literal>ocata_contract01</literal>.</para>
+          <para>During the upgrade process, the database is initially marked with
+                <literal>ocata_expand01</literal>.  Eventually, after completing the full upgrade process, the
+                database will be marked with <literal>ocata_contract01</literal>. So, instead of one database
+                version, an operator will see a composite database version that will have both
+                expand and contract versions.  A database will be considered at Ocata version
+                only when both expand and contract revisions are at the latest revisions.  For
+                a successful Ocata zero-downtime upgrade, for example, the database will be
+                marked with both <literal>ocata_expand01</literal>, <literal>ocata_contract01</literal>.</para>
+          <para>In the case in which there are multiple changes in a cycle, the database
+                version record would go through the following progression:</para>
+          <informaltable>
+            <tgroup cols="3">
+              <colspec colname="c1" colwidth="7"/>
+              <colspec colname="c2" colwidth="38"/>
+              <colspec colname="c3" colwidth="25"/>
+              <thead>
+                <row>
+                  <entry>
+                    <para>stage</para>
+                  </entry>
+                  <entry>
+                    <para>database identifier</para>
+                  </entry>
+                  <entry>
+                    <para>comment</para>
+                  </entry>
+                </row>
+              </thead>
+              <tbody>
+                <row>
+                  <entry>
+                    <para>E</para>
+                  </entry>
+                  <entry>
+                    <para>
+                      <literal>bexar_expand01</literal>
+                    </para>
+                  </entry>
+                  <entry>
+                    <para>upgrade begins</para>
+                  </entry>
+                </row>
+                <row>
+                  <entry>
+                    <para>E</para>
+                  </entry>
+                  <entry>
+                    <para>
+                      <literal>bexar_expand02</literal>
+                    </para>
+                  </entry>
+                  <entry/>
+                </row>
+                <row>
+                  <entry>
+                    <para>E</para>
+                  </entry>
+                  <entry>
+                    <para>
+                      <literal>bexar_expand03</literal>
+                    </para>
+                  </entry>
+                  <entry/>
+                </row>
+                <row>
+                  <entry>
+                    <para>M</para>
+                  </entry>
+                  <entry>
+                    <para>
+                      <literal>bexar_expand03</literal>
+                    </para>
+                  </entry>
+                  <entry>
+                    <para>bexar_migrate01 occurs</para>
+                  </entry>
+                </row>
+                <row>
+                  <entry>
+                    <para>M</para>
+                  </entry>
+                  <entry>
+                    <para>
+                      <literal>bexar_expand03</literal>
+                    </para>
+                  </entry>
+                  <entry>
+                    <para>bexar_migrate02 occurs</para>
+                  </entry>
+                </row>
+                <row>
+                  <entry>
+                    <para>M</para>
+                  </entry>
+                  <entry>
+                    <para>
+                      <literal>bexar_expand03</literal>
+                    </para>
+                  </entry>
+                  <entry>
+                    <para>bexar_migrate03 occurs</para>
+                  </entry>
+                </row>
+                <row>
+                  <entry>
+                    <para>C</para>
+                  </entry>
+                  <entry>
+                    <para>
+                      <literal>bexar_expand03, bexar_contract01</literal>
+                    </para>
+                  </entry>
+                  <entry/>
+                </row>
+                <row>
+                  <entry>
+                    <para>C</para>
+                  </entry>
+                  <entry>
+                    <para>
+                      <literal>bexar_expand03, bexar_contract02</literal>
+                    </para>
+                  </entry>
+                  <entry/>
+                </row>
+                <row>
+                  <entry>
+                    <para>C</para>
+                  </entry>
+                  <entry>
+                    <para>
+                      <literal>bexar_expand03, bexar_contract03</literal>
+                    </para>
+                  </entry>
+                  <entry>
+                    <para>upgrade completed</para>
+                  </entry>
+                </row>
+              </tbody>
+            </tgroup>
+          </informaltable>
+        </section>
+        <section xml:id="glance.database-upgrade">
+          <title>Database Upgrade</title>
+          <para>In order to enable the E-M-C database upgrade cycle, and to enable Glance
+                rolling upgrades, the <literal>glance-manage</literal> tool has been augmented to include the
+                following operations.</para>
+        </section>
+        <section xml:id="glance.expanding-the-database">
+          <title>Expanding the Database</title>
+          <para>glance-manage db expand</para>
+          <para>This will run the expansion phase of a rolling upgrade process.  Database
+                expansion should be run as the first step in the rolling upgrade process before
+                any new services are started.</para>
+        </section>
+        <section xml:id="glance.migrating-the-data">
+          <title>Migrating the Data</title>
+          <para>glance-manage db migrate</para>
+          <para>This will run the data migrate phase of a rolling upgrade process.  Database
+                migration should be run after database expansion but before any new services
+                are started.</para>
+        </section>
+        <section xml:id="glance.contracting-the-database">
+          <title>Contracting the Database</title>
+          <para>glance-manage db contract</para>
+          <para>This will run the contraction phase of a rolling upgrade process.
+                Database contraction should be run as the last step of the rolling upgrade
+                process after all old services are upgraded to new ones.</para>
+        </section>
+      </section>
+      <section xml:id="glance.legacy-database-management" xml:base="db-sqlalchemy-migrate">
+        <title>Legacy Database Management</title>
+        <note>
+          <para>This page applies only to Glance releases prior to Ocata.  From Ocata
+                onward, please see <xref linkend="database-management"/>.</para>
+        </note>
+        <para>The default metadata driver for Glance uses sqlalchemy, which implies there
+            exists a backend database which must be managed. The <literal>glance-manage</literal> binary
+            provides a set of commands for making this easier.</para>
+        <para>The commands should be executed as a subcommand of ‘db’:</para>
+        <para>glance-manage db &lt;cmd&gt; &lt;args&gt;</para>
+        <section xml:id="glance.sync-db">
+          <title>Sync the Database</title>
+          <para>glance-manage db sync &lt;version&gt; &lt;current_version&gt;</para>
+          <para>Place a database under migration control and upgrade, creating it first if necessary.</para>
+        </section>
+        <section xml:id="glance.determining-db-version">
+          <title>Determining the Database Version</title>
+          <para>glance-manage db version</para>
+          <para>This will print the current migration level of a Glance database.</para>
+        </section>
+        <section xml:id="glance.upgrading-existing-db">
+          <title>Upgrading an Existing Database</title>
+          <para>glance-manage db upgrade &lt;VERSION&gt;</para>
+          <para>This will take an existing database and upgrade it to the specified VERSION.</para>
+        </section>
+        <section xml:id="glance.downgrading-an-existing-database">
+          <title>Downgrading an Existing Database</title>
+          <para>Upgrades involve complex operations and can fail. Before attempting any
+                upgrade, you should make a full database backup of your production data. As of
+                Kilo, database downgrades are not supported, and the only method available to
+                get back to a prior database version is to restore from backup[1].</para>
+          <para>[1]: <link xlink:href="http://docs.openstack.org/ops-guide/ops-upgrades.html#perform-a-backup"/></para>
+        </section>
+      </section>
+      <section xml:id="glance.rolling-upgrades" xml:base="rollingupgrades">
+        <title>Rolling Upgrades</title>
+        <note>
+          <para>The Rolling Upgrades feature is EXPERIMENTAL and its use in
+                production systems is currently <emphasis role="bold">not supported</emphasis>.</para>
+        </note>
+        <section xml:id="glance.scope-of-this-document">
+          <title>Scope of this document</title>
+          <para>This page describes one way to perform a rolling upgrade from Newton to Ocata
+                for a particular configuration of Glance services.  There may be other ways to
+                perform a rolling upgrade from Newton to Ocata for other configurations of
+                Glance services, but those are beyond the scope of this document.  For the
+                experimental rollout of rolling upgrades, we describe only the following
+                simple case.</para>
+        </section>
+        <section xml:id="glance.prerequisites">
+          <title>Prerequisites</title>
+          <itemizedlist>
+            <listitem>
+              <para>MySQL/MariaDB 5.5 or later</para>
+            </listitem>
+            <listitem>
+              <para>Glance running Images API v2 only</para>
+            </listitem>
+            <listitem>
+              <para>Glance not using the Glance Registry</para>
+            </listitem>
+            <listitem>
+              <para>Multiple Glance nodes</para>
+            </listitem>
+            <listitem>
+              <para>A load balancer or some other type of redirection device is being used
+                        in front of the Glance nodes in such a way that a node can be dropped
+                        out of rotation, that is, that Glance node continues running the Glance
+                        service but is no longer having requests routed to it</para>
+            </listitem>
+          </itemizedlist>
+        </section>
+        <section xml:id="glance.procedure">
+          <title>Procedure</title>
+          <para>Following is the process to upgrade Glance with zero downtime:</para>
+          <procedure>
+            <step>
+              <para>Backup the Glance database.</para>
+            </step>
+            <step>
+              <para>Choose an arbitrary Glance node or provision a new node to install the new
+                        release. If an existing Glance node is chosen, gracefully stop the Glance
+                        services.  In what follows, this node will be referred to as the NEW NODE.</para>
+            </step>
+          </procedure>
+          <note xml:id="stop-the-glance-processes-gracefully">
+            <para>
+              <emphasis role="bold">Gracefully stopping services</emphasis>
+            </para>
+            <para>Before stopping the Glance processes on a node, one may choose to wait until
+                    all the existing connections drain out. This could be achieved by taking the
+                    node out of rotation, that is, by ensuring that requests are no longer
+                    routed to that node. This way all the requests that are currently being
+                    processed will get a chance to finish processing.  However, some Glance
+                    requests like uploading and downloading images may last a long time. This
+                    increases the wait time to drain out all connections and consequently the
+                    time to upgrade Glance completely.  On the other hand, stopping the Glance
+                    services before the connections drain out will present the user with errors.
+                    While arguably this is not downtime given that Images API requests are
+                    continually being serviced by other nodes, this is nonetheless an unpleasant
+                    user experience for the user whose in-flight request has terminated in an
+                    error.  Hence, an operator must be judicious when stopping the services.</para>
+          </note>
+          <procedure>
+            <step>
+              <para>Upgrade the NEW NODE with new release and update the configuration
+                        accordingly.  <emphasis role="bold">DO NOT</emphasis> start the Glance services on the NEW NODE at
+                        this time.</para>
+            </step>
+            <step>
+              <para>Using the NEW NODE, expand the database using the command</para>
+              <para><literal>glance-manage db expand</literal>.</para>
+            </step>
+            <step>
+              <para>Then, also on the NEW NODE, perform the data migrations using the command</para>
+              <para><literal>glance-manage db migrate</literal>.</para>
+              <para>
+                <emphasis>The data migrations must be completed before you proceed to the next step.</emphasis>
+              </para>
+            </step>
+            <step>
+              <para>Start the Glance processes on the NEW NODE.  It is now ready to receive
+                        traffic from the load balancer.</para>
+            </step>
+            <step>
+              <para>Taking one node at a time from the remaining nodes, for each node:</para>
+              <substeps>
+                <step>
+                  <para><xref linkend="stop-the-glance-processes-gracefully"/> as described in Step 2, above.
+                                <emphasis>Do not proceed until the “old” Glance services on the node have been
+                                    completely shut down.</emphasis></para>
+                </step>
+                <step>
+                  <para>Upgrade the node to the new release (and corresponding configuration).</para>
+                </step>
+                <step>
+                  <para>Start the updated Glance processes on the upgraded node.</para>
+                </step>
+              </substeps>
+            </step>
+            <step>
+              <para>After <emphasis role="bold">ALL</emphasis> of the nodes have been upgraded to run the new Glance
+                        services, and there are <emphasis role="bold">NO</emphasis> nodes running any old Glance services,
+                        contract the database by running the command</para>
+              <para>
+                <literal>glance manage db contract</literal>
+              </para>
+              <para>from any one of the upgraded nodes.</para>
+            </step>
+          </procedure>
+        </section>
+      </section>
+      <section xml:id="glance.images-and-instances" xml:base="troubleshooting">
+        <title>Images and instances</title>
+        <para>Virtual machine images contain a virtual disk that holds a
+            bootable operating system on it. Disk images provide templates for
+            virtual machine file systems. The Image service controls image storage
+            and management.</para>
+        <para>Instances are the individual virtual machines that run on physical
+            compute nodes inside the cloud. Users can launch any number of instances
+            from the same image. Each launched instance runs from a copy of the
+            base image. Any changes made to the instance do not affect
+            the base image. Snapshots capture the state of an instances
+            running disk. Users can create a snapshot, and build a new image based
+            on these snapshots. The Compute service controls instance, image, and
+            snapshot storage and management.</para>
+        <para>When you launch an instance, you must choose a <literal>flavor</literal>, which
+            represents a set of virtual resources. Flavors define virtual
+            CPU number, RAM amount available, and ephemeral disks size. Users
+            must select from the set of available flavors
+            defined on their cloud. OpenStack provides a number of predefined
+            flavors that you can edit or add to.</para>
+        <note>
+          <itemizedlist>
+            <listitem>
+              <para>For more information about creating and troubleshooting images,
+                        see the <link xlink:href="https://docs.openstack.org/image-guide/">OpenStack Virtual Machine Image
+                            Guide</link>.</para>
+            </listitem>
+            <listitem>
+              <para>For more information about image configuration options, see the
+                        <link xlink:href="https://docs.openstack.org/ocata/config-reference/image.html">Image services</link>
+                        section of the OpenStack Configuration Reference.</para>
+            </listitem>
+          </itemizedlist>
+        </note>
+        <para>You can add and remove additional resources from running instances, such
+            as persistent volume storage, or public IP addresses. The example used
+            in this chapter is of a typical virtual system within an OpenStack
+            cloud. It uses the <literal>cinder-volume</literal> service, which provides persistent
+            block storage, instead of the ephemeral storage provided by the selected
+            instance flavor.</para>
+        <para>This diagram shows the system state prior to launching an instance. The
+            image store has a number of predefined images, supported by the Image
+            service. Inside the cloud, a compute node contains the
+            available vCPU, memory, and local disk resources. Additionally, the
+            <literal>cinder-volume</literal> service stores predefined volumes.</para>
+        <para>
+          <emphasis role="bold">The base image state with no running instances</emphasis>
+        </para>
+        <informalfigure><mediaobject>
+          <imageobject role="fo">
+            <imagedata fileref="instance-life-1.png"/>
+          </imageobject>
+          <imageobject role="html">
+            <imagedata fileref="instance-life-1.png"/>
+          </imageobject>
+        </mediaobject></informalfigure>
+        <section xml:id="glance.instance-launch">
+          <title>Instance Launch</title>
+          <para>To launch an instance, select an image, flavor, and any optional
+                attributes. The selected flavor provides a root volume, labeled <literal>vda</literal>
+                in this diagram, and additional ephemeral storage, labeled <literal>vdb</literal>. In
+                this example, the <literal>cinder-volume</literal> store is mapped to the third virtual
+                disk on this instance, <literal>vdc</literal>.</para>
+          <para>
+            <emphasis role="bold">Instance creation from an image</emphasis>
+          </para>
+          <informalfigure><mediaobject>
+            <imageobject role="fo">
+              <imagedata fileref="instance-life-2.png"/>
+            </imageobject>
+            <imageobject role="html">
+              <imagedata fileref="instance-life-2.png"/>
+            </imageobject>
+          </mediaobject></informalfigure>
+          <para>The Image service copies the base image from the image store to the
+                local disk. The local disk is the first disk that the instance
+                accesses, which is the root volume labeled <literal>vda</literal>. Smaller
+                instances start faster. Less data needs to be copied across
+                the network.</para>
+          <para>The new empty ephemeral disk is also created, labeled <literal>vdb</literal>.
+                This disk is deleted when you delete the instance.</para>
+          <para>The compute node connects to the attached <literal>cinder-volume</literal> using iSCSI. The
+                <literal>cinder-volume</literal> is mapped to the third disk, labeled <literal>vdc</literal> in this
+                diagram. After the compute node provisions the vCPU and memory
+                resources, the instance boots up from root volume <literal>vda</literal>. The instance
+                runs and changes data on the disks (highlighted in red on the diagram).
+                If the volume store is located on a separate network, the
+                <literal>my_block_storage_ip</literal> option specified in the storage node
+                configuration file directs image traffic to the compute node.</para>
+          <note>
+            <para>Some details in this example scenario might be different in your
+                    environment. For example, you might use a different type of back-end
+                    storage, or different network protocols. One common variant is that
+                    the ephemeral storage used for volumes <literal>vda</literal> and <literal>vdb</literal> could be
+                    backed by network storage rather than a local disk.</para>
+          </note>
+          <para>When you delete an instance, the state is reclaimed with the exception
+                of the persistent volume. The ephemeral storage, whether encrypted or not,
+                is purged. Memory and vCPU resources are released. The image remains
+                unchanged throughout this process.</para>
+          <informalfigure><mediaobject>
+            <imageobject role="fo">
+              <imagedata fileref="instance-life-3.png"/>
+            </imageobject>
+            <imageobject role="html">
+              <imagedata fileref="instance-life-3.png"/>
+            </imageobject>
+          </mediaobject></informalfigure>
+        </section>
+        <section xml:id="glance.image-properties-and-property-protection">
+          <title>Image properties and property protection</title>
+          <para>An image property is a key and value pair that the administrator
+                or the image owner attaches to an OpenStack Image service image, as
+                follows:</para>
+          <itemizedlist>
+            <listitem>
+              <para>The administrator defines core properties, such as the image
+                        name.</para>
+            </listitem>
+            <listitem>
+              <para>The administrator and the image owner can define additional
+                        properties, such as licensing and billing information.</para>
+            </listitem>
+          </itemizedlist>
+          <para>The administrator can configure any property as protected, which
+                limits which policies or user roles can perform CRUD operations on that
+                property. Protected properties are generally additional properties to
+                which only administrators have access.</para>
+          <para>For unprotected image properties, the administrator can manage
+                core properties and the image owner can manage additional properties.</para>
+          <para>
+            <emphasis role="bold">To configure property protection</emphasis>
+          </para>
+          <para>To configure property protection, edit the <literal>policy.json</literal> file. This file
+                can also be used to set policies for Image service actions.</para>
+          <procedure>
+            <step>
+              <para>Define roles or policies in the <literal>policy.json</literal> file:</para>
+              <screen language="json"><![CDATA[{
+    "context_is_admin":  "role:admin",
+    "default": "",
+
+    "add_image": "",
+    "delete_image": "",
+    "get_image": "",
+    "get_images": "",
+    "modify_image": "",
+    "publicize_image": "role:admin",
+    "copy_from": "",
+
+    "download_image": "",
+    "upload_image": "",
+
+    "delete_image_location": "",
+    "get_image_location": "",
+    "set_image_location": "",
+
+    "add_member": "",
+    "delete_member": "",
+    "get_member": "",
+    "get_members": "",
+    "modify_member": "",
+
+    "manage_image_cache": "role:admin",
+
+    "get_task": "",
+    "get_tasks": "",
+    "add_task": "",
+    "modify_task": "",
+
+    "deactivate": "",
+    "reactivate": "",
+
+    "get_metadef_namespace": "",
+    "get_metadef_namespaces":"",
+    "modify_metadef_namespace":"",
+    "add_metadef_namespace":"",
+    "delete_metadef_namespace":"",
+
+    "get_metadef_object":"",
+    "get_metadef_objects":"",
+    "modify_metadef_object":"",
+    "add_metadef_object":"",
+
+    "list_metadef_resource_types":"",
+    "get_metadef_resource_type":"",
+    "add_metadef_resource_type_association":"",
+
+    "get_metadef_property":"",
+    "get_metadef_properties":"",
+    "modify_metadef_property":"",
+    "add_metadef_property":"",
+
+    "get_metadef_tag":"",
+    "get_metadef_tags":"",
+    "modify_metadef_tag":"",
+    "add_metadef_tag":"",
+    "add_metadef_tags":""
+ }]]></screen>
+              <para>For each parameter, use <literal>"rule:restricted"</literal> to restrict access to all
+                        users or <literal>"role:admin"</literal> to limit access to administrator roles.
+                        For example:</para>
+              <screen language="json"><![CDATA[{
+"download_image":
+"upload_image":
+}]]></screen>
+            </step>
+            <step>
+              <para>Define which roles or policies can manage which properties in a property
+                        protections configuration file. For example:</para>
+              <screen language="ini"><![CDATA[[x_none_read]
+create = context_is_admin
+read = !
+update = !
+delete = !
+
+[x_none_update]
+create = context_is_admin
+read = context_is_admin
+update = !
+delete = context_is_admin
+
+[x_none_delete]
+create = context_is_admin
+read = context_is_admin
+update = context_is_admin
+delete = !]]></screen>
+              <itemizedlist>
+                <listitem>
+                  <para>A value of <literal>@</literal> allows the corresponding operation for a property.</para>
+                </listitem>
+                <listitem>
+                  <para>A value of <literal>!</literal> disallows the corresponding operation for a
+                                property.</para>
+                </listitem>
+              </itemizedlist>
+            </step>
+            <step>
+              <para>In the <literal>glance-api.conf</literal> file, define the location of a property
+                        protections configuration file.</para>
+              <screen language="ini"><![CDATA[property_protection_file = {file_name}]]></screen>
+              <para>This file contains the rules for property protections and the roles and
+                        policies associated with it.</para>
+              <para>By default, property protections are not enforced.</para>
+              <para>If you specify a file name value and the file is not found, the
+                        <literal>glance-api</literal> service does not start.</para>
+              <para>To view a sample configuration file, see
+                        <link xlink:href="https://docs.openstack.org/ocata/config-reference/image/glance-api.conf.html">glance-api.conf</link>.</para>
+            </step>
+            <step>
+              <para>Optionally, in the <literal>glance-api.conf</literal> file, specify whether roles or
+                        policies are used in the property protections configuration file</para>
+              <screen language="ini"><![CDATA[property_protection_rule_format = roles]]></screen>
+              <para>The default is <literal>roles</literal>.</para>
+              <para>To view a sample configuration file, see
+                        <link xlink:href="https://docs.openstack.org/ocata/config-reference/image/glance-api.conf.html">glance-api.conf</link>.</para>
+            </step>
+          </procedure>
+        </section>
+        <section xml:id="glance.image-download-how-it-works">
+          <title>Image download: how it works</title>
+          <para>Prior to starting a virtual machine, transfer the virtual machine image
+                to the compute node from the Image service. How this
+                works can change depending on the settings chosen for the compute node
+                and the Image service.</para>
+          <para>Typically, the Compute service will use the image identifier passed to
+                it by the scheduler service and request the image from the Image API.
+                Though images are not stored in glance—rather in a back end, which could
+                be Object Storage, a filesystem or any other supported method—the
+                connection is made from the compute node to the Image service and the
+                image is transferred over this connection. The Image service streams the
+                image from the back end to the compute node.</para>
+          <para>It is possible to set up the Object Storage node on a separate network,
+                and still allow image traffic to flow between the compute and object
+                storage nodes. Configure the <literal>my_block_storage_ip</literal> option in the
+                storage node configuration file to allow block storage traffic to reach
+                the compute node.</para>
+          <para>Certain back ends support a more direct method, where on request the
+                Image service will return a URL that links directly to the back-end store.
+                You can download the image using this approach. Currently, the only store
+                to support the direct download approach is the filesystem store.
+                Configured the approach using the <literal>filesystems</literal> option in
+                the <literal>image_file_url</literal> section of the <literal>nova.conf</literal> file on
+                compute nodes.</para>
+          <para>Compute nodes also implement caching of images, meaning that if an image
+                has been used before it won’t necessarily be downloaded every time.
+                Information on the configuration options for caching on compute nodes
+                can be found in the <link xlink:href="https://docs.openstack.org/ocata/config-reference/">Configuration
+                    Reference</link>.</para>
+        </section>
+        <section xml:id="glance.instance-building-blocks">
+          <title>Instance building blocks</title>
+          <para>In OpenStack, the base operating system is usually copied from an image
+                stored in the OpenStack Image service. This results in an ephemeral
+                instance that starts from a known template state and loses all
+                accumulated states on shutdown.</para>
+          <para>You can also put an operating system on a persistent volume in Compute
+                or the Block Storage volume system. This gives a more traditional,
+                persistent system that accumulates states that are preserved across
+                restarts. To get a list of available images on your system, run:</para>
+          <screen language="console"><![CDATA[$ openstack image list]]></screen>
+          <para>The output contains the following image attributes:</para>
+          <variablelist>
+            <varlistentry>
+              <term>
+                <literal>ID</literal>
+              </term>
+              <listitem>
+                <para>Automatically generated UUID of the image.</para>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>
+                <literal>Name</literal>
+              </term>
+              <listitem>
+                <para>Free form, human-readable name for the image.</para>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>
+                <literal>Status</literal>
+              </term>
+              <listitem>
+                <para>The status of the image. Images marked <literal>active</literal> are available for
+                            use.</para>
+              </listitem>
+            </varlistentry>
+          </variablelist>
+          <para>Virtual hardware templates are called <literal>flavors</literal>, and are defined by
+                administrators. Prior to the Newton release, a default installation also
+                includes five predefined flavors.</para>
+          <para>For a list of flavors that are available on your system, run:</para>
+          <screen language="console"><![CDATA[$ openstack flavor list
++-----+-----------+-------+------+-----------+-------+-----------+
+| ID  | Name      |   RAM | Disk | Ephemeral | VCPUs | Is_Public |
++-----+-----------+-------+------+-----------+-------+-----------+
+| 1   | m1.tiny   |   512 |    1 |         0 |     1 | True      |
+| 2   | m1.small  |  2048 |   20 |         0 |     1 | True      |
+| 3   | m1.medium |  4096 |   40 |         0 |     2 | True      |
+| 4   | m1.large  |  8192 |   80 |         0 |     4 | True      |
+| 5   | m1.xlarge | 16384 |  160 |         0 |     8 | True      |
++-----+-----------+-------+------+-----------+-------+-----------+]]></screen>
+          <para>By default, administrative users can configure the flavors. You can
+                change this behavior by redefining the access controls for
+                <literal>compute_extension:flavormanage</literal> in <literal>/etc/nova/policy.json</literal> on the
+                <literal>compute-api</literal> server.</para>
+        </section>
+        <section xml:id="glance.instance-management-tools">
+          <title>Instance management tools</title>
+          <para>OpenStack provides command-line, web interface, and API-based instance
+                management tools. Third-party management tools are also available, using
+                either the native API or the provided EC2-compatible API.</para>
+          <para>The OpenStack python-openstackclient package provides a basic command-line
+                utility, which uses the <command>openstack</command> command.
+                This is available as a native package for most Linux distributions,
+                or you can install the latest version using the pip python package installer:</para>
+          <screen language="console"><![CDATA[# pip install python-openstackclient]]></screen>
+          <para>For more information about python-openstackclient and other command-line
+                tools, see the <link xlink:href="https://docs.openstack.org/user-guide/cli.html">OpenStack End User
+                    Guide</link>.</para>
+        </section>
+        <section xml:id="glance.control-where-instances-run">
+          <title>Control where instances run</title>
+          <para>The <link xlink:href="https://docs.openstack.org/ocata/config-reference/compute/schedulers.html">Scheduling section</link>
+                of OpenStack Configuration Reference
+                provides detailed information on controlling where your instances run,
+                including ensuring a set of instances run on different compute nodes for
+                service resiliency or on the same node for high performance
+                inter-instance communications.</para>
+          <para>Administrative users can specify which compute node their instances
+                run on. To do this, specify the <literal>--availability-zone
+AVAILABILITY_ZONE:COMPUTE_HOST</literal> parameter.</para>
+        </section>
+        <section xml:id="glance.launch-instances-with-uefi">
+          <title>Launch instances with UEFI</title>
+          <para>Unified Extensible Firmware Interface (UEFI) is a standard firmware
+                designed to replace legacy BIOS. There is a slow but steady trend
+                for operating systems to move to the UEFI format and, in some cases,
+                make it their only format.</para>
+          <para>
+            <emphasis role="bold">To configure UEFI environment</emphasis>
+          </para>
+          <para>To successfully launch an instance from an UEFI image in QEMU/KVM
+                environment, the administrator has to install the following
+                packages on compute node:</para>
+          <itemizedlist>
+            <listitem>
+              <para>OVMF, a port of Intel’s tianocore firmware to QEMU virtual machine.</para>
+            </listitem>
+            <listitem>
+              <para>libvirt, which has been supporting UEFI boot since version 1.2.9.</para>
+            </listitem>
+          </itemizedlist>
+          <para>Because default UEFI loader path is <literal>/usr/share/OVMF/OVMF_CODE.fd</literal>, the
+                administrator must create one link to this location after UEFI package
+                is installed.</para>
+          <para>
+            <emphasis role="bold">To upload UEFI images</emphasis>
+          </para>
+          <para>To launch instances from a UEFI image, the administrator first has to
+                upload one UEFI image. To do so, <literal>hw_firmware_type</literal> property must
+                be set to <literal>uefi</literal> when the image is created. For example:</para>
+          <screen language="console"><![CDATA[$ openstack image create --container-format bare --disk-format qcow2 \
+  --property hw_firmware_type=uefi --file /tmp/cloud-uefi.qcow --name uefi]]></screen>
+          <para>After that, you can launch instances from this UEFI image.</para>
+        </section>
+      </section>
+      <section xml:id="glance.manage-images" xml:base="manage-images">
+        <title>Manage images</title>
+        <para>The cloud operator assigns roles to users. Roles determine who can
+            upload and manage images. The operator might restrict image upload and
+            management to only cloud administrators or operators.</para>
+        <para>You can upload images through the <command>openstack image create</command>
+            command or the Image service API. You can use the <literal>openstack</literal> client
+            for the image management. It provides mechanisms to list and
+            delete images, set and delete image metadata, and create images of a
+            running instance or snapshot and backup types.</para>
+        <para>After you upload an image, you cannot change it.</para>
+        <para>For details about image creation, see the <link xlink:href="https://docs.openstack.org/image-guide/">Virtual Machine Image
+                Guide</link>.</para>
+        <section xml:id="glance.list-or-get-details-for-images-glance">
+          <title>List or get details for images (glance)</title>
+          <para>To get a list of images and to get further details about a single
+                image, use <command>openstack image list</command> and <command>openstack image show</command>
+                commands.</para>
+          <screen language="console"><![CDATA[$ openstack image list
++--------------------------------------+---------------------------------+--------+
+| ID                                   | Name                            | Status |
++--------------------------------------+---------------------------------+--------+
+| dfc1dfb0-d7bf-4fff-8994-319dd6f703d7 | cirros-0.3.5-x86_64-uec         | active |
+| a3867e29-c7a1-44b0-9e7f-10db587cad20 | cirros-0.3.5-x86_64-uec-kernel  | active |
+| 4b916fba-6775-4092-92df-f41df7246a6b | cirros-0.3.5-x86_64-uec-ramdisk | active |
+| d07831df-edc3-4817-9881-89141f9134c3 | myCirrosImage                   | active |
++--------------------------------------+---------------------------------+--------+]]></screen>
+          <screen language="console"><![CDATA[$ openstack image show myCirrosImage
++------------------+------------------------------------------------------+
+| Field            | Value                                                |
++------------------+------------------------------------------------------+
+| checksum         | ee1eca47dc88f4879d8a229cc70a07c6                     |
+| container_format | ami                                                  |
+| created_at       | 2016-08-11T15:07:26Z                                 |
+| disk_format      | ami                                                  |
+| file             | /v2/images/d07831df-edc3-4817-9881-89141f9134c3/file |
+| id               | d07831df-edc3-4817-9881-89141f9134c3                 |
+| min_disk         | 0                                                    |
+| min_ram          | 0                                                    |
+| name             | myCirrosImage                                        |
+| owner            | d88310717a8e4ebcae84ed075f82c51e                     |
+| protected        | False                                                |
+| schema           | /v2/schemas/image                                    |
+| size             | 13287936                                             |
+| status           | active                                               |
+| tags             |                                                      |
+| updated_at       | 2016-08-11T15:20:02Z                                 |
+| virtual_size     | None                                                 |
+| visibility       | private                                              |
++------------------+------------------------------------------------------+]]></screen>
+          <para>When viewing a list of images, you can also use <literal>grep</literal> to filter the
+                list, as follows:</para>
+          <screen language="console"><![CDATA[$ openstack image list | grep 'cirros'
+| dfc1dfb0-d7bf-4fff-8994-319dd6f703d7 | cirros-0.3.5-x86_64-uec         | active |
+| a3867e29-c7a1-44b0-9e7f-10db587cad20 | cirros-0.3.5-x86_64-uec-kernel  | active |
+| 4b916fba-6775-4092-92df-f41df7246a6b | cirros-0.3.5-x86_64-uec-ramdisk | active |]]></screen>
+          <note>
+            <para>To store location metadata for images, which enables direct file access for a client,
+                    update the <literal>/etc/glance/glance-api.conf</literal> file with the following statements:</para>
+            <itemizedlist>
+              <listitem>
+                <para>
+                  <literal>show_multiple_locations = True</literal>
+                </para>
+              </listitem>
+              <listitem>
+                <para>
+                  <literal>filesystem_store_metadata_file = filePath</literal>
+                </para>
+                <para>where filePath points to a JSON file that defines the mount point for OpenStack
+                            images on your system and a unique ID. For example:</para>
+              </listitem>
+            </itemizedlist>
+            <screen language="json"><![CDATA[[{
+    "id": "2d9bb53f-70ea-4066-a68b-67960eaae673",
+    "mountpoint": "/var/lib/glance/images/"
+}]]]></screen>
+            <para>After you restart the Image service, you can use the following syntax to view
+                    the image’s location information:</para>
+            <screen language="console"><![CDATA[$ openstack --os-image-api-version 2 image show imageID]]></screen>
+            <para>For example, using the image ID shown above, you would issue the command as follows:</para>
+            <screen language="console"><![CDATA[$ openstack --os-image-api-version 2 image show 2d9bb53f-70ea-4066-a68b-67960eaae673]]></screen>
+          </note>
+        </section>
+        <section xml:id="glance.create-or-update-an-image-glance">
+          <title>Create or update an image (glance)</title>
+          <para>To create an image, use <command>openstack image create</command>:</para>
+          <screen language="console"><![CDATA[$ openstack image create imageName]]></screen>
+          <para>To update an image by name or ID, use <command>openstack image set</command>:</para>
+          <screen language="console"><![CDATA[$ openstack image set imageName]]></screen>
+          <para>The following list explains the optional arguments that you can use with
+                the <literal>create</literal> and <literal>set</literal> commands to modify image properties. For
+                more information, refer to the <link xlink:href="https://docs.openstack.org/developer/python-openstackclient/command-objects/image.html">OpenStack Image command reference</link>.</para>
+          <para>The following example shows the command that you would use to upload a
+                CentOS 6.3 image in qcow2 format and configure it for public access:</para>
+          <screen language="console"><![CDATA[$ openstack image create --disk-format qcow2 --container-format bare \
+  --public --file ./centos63.qcow2 centos63-image]]></screen>
+          <para>The following example shows how to update an existing image with a
+                properties that describe the disk bus, the CD-ROM bus, and the VIF
+                model:</para>
+          <note>
+            <para>When you use OpenStack with VMware vCenter Server, you need to specify
+                    the <literal>vmware_disktype</literal> and <literal>vmware_adaptertype</literal> properties with
+                    <command>openstack image create</command>.
+                    Also, we recommend that you set the <literal>hypervisor_type="vmware"</literal> property.
+                    For more information, see <link xlink:href="https://docs.openstack.org/ocata/config-reference/compute/hypervisor-vmware.html#images-with-vmware-vsphere">Images with VMware vSphere</link>
+                    in the OpenStack Configuration Reference.</para>
+          </note>
+          <screen language="console"><![CDATA[$ openstack image set \
+    --property hw_disk_bus=scsi \
+    --property hw_cdrom_bus=ide \
+    --property hw_vif_model=e1000 \
+    f16-x86_64-openstack-sda]]></screen>
+          <para>Currently the libvirt virtualization tool determines the disk, CD-ROM,
+                and VIF device models based on the configured hypervisor type
+                (<literal>libvirt_type</literal> in <literal>/etc/nova/nova.conf</literal> file). For the sake of optimal
+                performance, libvirt defaults to using virtio for both disk and VIF
+                (NIC) models. The disadvantage of this approach is that it is not
+                possible to run operating systems that lack virtio drivers, for example,
+                BSD, Solaris, and older versions of Linux and Windows.</para>
+          <para>If you specify a disk or CD-ROM bus model that is not supported, see
+                the <xref linkend="disk-and-cd-rom-bus-model-values-table"/>.
+                If you specify a VIF model that is not supported, the instance fails to
+                launch. See the <xref linkend="vif-model-values-table"/>.</para>
+          <para>The valid model values depend on the <literal>libvirt_type</literal> setting, as shown
+                in the following tables.</para>
+           <table xml:id="disk-and-cd-rom-bus-model-values-table">
+	    <title>Disk and CD-ROM bus model values</title>
+            <tgroup cols="2">
+              <colspec colname="c1" colwidth="25"/>
+              <colspec colname="c2" colwidth="26"/>
+              <thead>
+                <row>
+                  <entry>
+                    <para>libvirt_type setting</para>
+                  </entry>
+                  <entry>
+                    <para>Supported model values</para>
+                  </entry>
+                </row>
+              </thead>
+              <tbody>
+                <row>
+                  <entry>
+                    <para>qemu or kvm</para>
+                  </entry>
+                  <entry>
+                    <itemizedlist>
+                      <listitem>
+                        <para>ide</para>
+                      </listitem>
+                      <listitem>
+                        <para>scsi</para>
+                      </listitem>
+                      <listitem>
+                        <para>virtio</para>
+                      </listitem>
+                    </itemizedlist>
+                  </entry>
+                </row>
+                <row>
+                  <entry>
+                    <para>xen</para>
+                  </entry>
+                  <entry>
+                    <itemizedlist>
+                      <listitem>
+                        <para>ide</para>
+                      </listitem>
+                      <listitem>
+                        <para>xen</para>
+                      </listitem>
+                    </itemizedlist>
+                  </entry>
+                </row>
+              </tbody>
+            </tgroup>
+           </table>
+           <table xml:id="vif-model-values-table">
+	    <title>VIF model values</title>
+            <tgroup cols="2">
+              <colspec colname="c1" colwidth="25"/>
+              <colspec colname="c2" colwidth="26"/>
+              <thead>
+                <row>
+                  <entry>
+                    <para>libvirt_type setting</para>
+                  </entry>
+                  <entry>
+                    <para>Supported model values</para>
+                  </entry>
+                </row>
+              </thead>
+              <tbody>
+                <row>
+                  <entry>
+                    <para>qemu or kvm</para>
+                  </entry>
+                  <entry>
+                    <itemizedlist>
+                      <listitem>
+                        <para>e1000</para>
+                      </listitem>
+                      <listitem>
+                        <para>ne2k_pci</para>
+                      </listitem>
+                      <listitem>
+                        <para>pcnet</para>
+                      </listitem>
+                      <listitem>
+                        <para>rtl8139</para>
+                      </listitem>
+                      <listitem>
+                        <para>virtio</para>
+                      </listitem>
+                    </itemizedlist>
+                  </entry>
+                </row>
+                <row>
+                  <entry>
+                    <para>xen</para>
+                  </entry>
+                  <entry>
+                    <itemizedlist>
+                      <listitem>
+                        <para>e1000</para>
+                      </listitem>
+                      <listitem>
+                        <para>netfront</para>
+                      </listitem>
+                      <listitem>
+                        <para>ne2k_pci</para>
+                      </listitem>
+                      <listitem>
+                        <para>pcnet</para>
+                      </listitem>
+                      <listitem>
+                        <para>rtl8139</para>
+                      </listitem>
+                    </itemizedlist>
+                  </entry>
+                </row>
+                <row>
+                  <entry>
+                    <para>vmware</para>
+                  </entry>
+                  <entry>
+                    <itemizedlist>
+                      <listitem>
+                        <para>VirtualE1000</para>
+                      </listitem>
+                      <listitem>
+                        <para>VirtualPCNet32</para>
+                      </listitem>
+                      <listitem>
+                        <para>VirtualVmxnet</para>
+                      </listitem>
+                    </itemizedlist>
+                  </entry>
+                </row>
+              </tbody>
+            </tgroup>
+           </table>
+          <note>
+            <para>By default, hardware properties are retrieved from the image
+                    properties. However, if this information is not available, the
+                    <literal>libosinfo</literal> database provides an alternative source for these
+                    values.</para>
+            <para>If the guest operating system is not in the database, or if the use
+                    of <literal>libosinfo</literal> is disabled, the default system values are used.</para>
+            <para>Users can set the operating system ID or a <literal>short-id</literal> in image
+                    properties. Alternatively, users can set <literal>id</literal> to a URL.</para>
+          </note>
+          <section xml:id="glance.create-an-image-from-iso-image">
+            <title>Create an image from ISO image</title>
+            <para>You can upload ISO images to the Image service (glance).
+                    You can subsequently boot an ISO image using Compute.</para>
+            <para>In the Image service, run the following command:</para>
+            <screen language="console"><![CDATA[$ openstack image create ISO_IMAGE --file IMAGE.iso \
+  --disk-format iso --container-format bare]]></screen>
+            <para>Optionally, to confirm the upload in Image service, run:</para>
+            <screen language="console"><![CDATA[$ openstack image list]]></screen>
+          </section>
+        </section>
+        <section xml:id="glance.troubleshoot-image-creation">
+          <title>Troubleshoot image creation</title>
+          <para>If you encounter problems in creating an image in the Image service or
+                Compute, the following information may help you troubleshoot the
+                creation process.</para>
+          <itemizedlist>
+            <listitem>
+              <para>Ensure that the version of qemu you are using is version 0.14 or
+                        later. Earlier versions of qemu result in an <literal>unknown option -s</literal>
+                        error message in the <literal>/var/log/nova/nova-compute.log</literal> file.</para>
+            </listitem>
+            <listitem>
+              <para>Examine the <literal>/var/log/nova/nova-api.log</literal> and
+                        <literal>/var/log/nova/nova-compute.log</literal> log files for error messages.</para>
+            </listitem>
+          </itemizedlist>
+        </section>
+      </section>
+      <section xml:id="glance.requirements" xml:base="requirements">
+        <title>Requirements</title>
+        <section xml:id="glance.external-requirements-affecting-glance">
+          <title>External Requirements Affecting Glance</title>
+          <para>Like other OpenStack projects, Glance uses some external libraries for a subset
+                of its features. Some examples include the <literal>qemu-img</literal> utility used by the
+                tasks feature, <literal>sendfile</literal> to utilize the “zero-copy” way of copying data
+                faster, <literal>pydev</literal> to debug using popular IDEs, <literal>python-xattr</literal> for Image Cache
+                using “xattr” driver.</para>
+          <para>On the other hand, if <literal>dnspython</literal> is installed in the environment, Glance
+                provides a workaround to make it work with IPV6.</para>
+          <para>Additionally, some libraries like <literal>xattr</literal> are not compatible when
+                using Glance on Windows<!--(see <xref linkend="configuring"/>)-->.</para>
+        </section>
+        <section xml:id="glance.guideline-to-include-your-requirement-in-the-requirements-txt-file">
+          <title>Guideline to include your requirement in the requirements.txt file</title>
+          <para>As described above, we don’t include all the possible requirements needed by
+                Glance features in the source tree requirements file. So, when an operator
+                decides to use an <emphasis role="bold">advanced feature</emphasis> in Glance, we ask them to check the
+                documentation/guidelines for those features to set up the feature in a workable
+                way. In order to reduce the operator pain, the development team likes to work
+                with different operators to figure out when a popular feature should have its
+                dependencies included in the requirements file. However, there’s a tradeoff in
+                including more of requirements in source tree as it becomes more painful for
+                packagers. So, it is a bit of a haggle among different stakeholders and a
+                judicious decision is taken by the project PTL or release liaison to determine
+                the outcome.</para>
+          <para>To simplify the identification of an <emphasis role="bold">advanced feature</emphasis> in Glance we can
+                think of it as something not being used and deployed by most of the
+                upstream/known community members.</para>
+          <para>To name a few features that have been identified as advanced:</para>
+          <itemizedlist>
+            <listitem>
+              <para>glance tasks</para>
+            </listitem>
+            <listitem>
+              <para>image signing</para>
+            </listitem>
+            <listitem>
+              <para>image prefetcher</para>
+            </listitem>
+            <listitem>
+              <para>glance db purge utility</para>
+            </listitem>
+            <listitem>
+              <para>image locations</para>
+            </listitem>
+          </itemizedlist>
+        </section>
+        <section xml:id="glance.steps-to-include-your-requirement-in-the-requirements-txt-file">
+          <title>Steps to include your requirement in the requirements.txt file</title>
+          <para>1. First step is to propose a change against the <literal>openstack/requirements</literal>
+                project to include the requirement(s) as a part of <literal>global-requirements</literal> and
+                <literal>upper-constraints</literal> files.</para>
+          <para>2. If your requirement is not a part of the project, you will have to propose a
+                change adding that requirement to the requirements.txt file in Glance. Please
+                include a <literal>Depends-On: &lt;ChangeID&gt;</literal> flag in the commit message, where the
+                <literal>ChangeID</literal> is the gerrit ID of corresponding change against
+                <literal>openstack/requirements</literal> project.</para>
+          <para>3. A sync bot then syncs the global requirements into project requirements on a
+                regular basis, so any updates to the requirements are synchronized on a timely
+                basis.</para>
+        </section>
+      </section>
+    </chapter>
