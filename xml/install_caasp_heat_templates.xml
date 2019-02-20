@@ -17,7 +17,7 @@
    <title>Preparation</title>
    <step>
     <para>
-     Download the latest &caasp; for &ostack; image (for example,
+     Download the latest &caasp; (CaaSP) for &ostack; image (for example,
      <filename>SUSE-CaaS-Platform-3.0-OpenStack-Cloud.x86_64-1.0.0-GM.qcow2</filename>)
      from <link xlink:href="https://download.suse.com"/>.
     </para>
@@ -116,7 +116,506 @@ git clone https://github.com/SUSE/caasp-openstack-heat-templates
    When you have successfully accessed the admin node web interface via the
    floating IP, follow the instructions at <link
    xlink:href="https://www.suse.com/documentation/suse-caasp-3/book_caasp_deployment/data/book_caasp_deployment.html"/> to
-   continue the Setup of &caasp;.
+   continue the setup of &caasp;.
   </para>
+ </section>
+ <section>
+  <title>Installing &caasp; with Multiple Masters</title>
+  <note>
+   <para>
+    A &o_orch; stack with load balancing and multiple master nodes can only be
+    created from the command line, because &o_dash; does not have support for nested
+    &o_orch; templates.
+   </para>
+  </note>
+  <para>
+   Install the <package>caasp-openstack-heat-templates</package> package on a
+   machine with &productname; repositories:
+  </para>
+  <screen>zypper in caasp-openstack-heat-templates</screen>
+  <para>
+   The installed templates are located in
+   <filename>/usr/share/caasp-openstack-heat-templates</filename>.
+  </para>
+  <para>
+   A working load balancer is needed in your &cloud; deployment. Two
+   load balancer providers are available: Octavia and HAProxy.
+  </para>
+  <para>
+   Verify that load balancing with Octavia or HAProxy is working correctly
+   in your &ostack; installation by creating a load balancer manually and
+   checking that the <literal>provisioning_status</literal> changes to
+   <literal>Active</literal>.
+  </para>
+  <screen>&prompt.ardana;neutron lbaas-loadbalancer-create --name test-lb
+--provider octavia &lt;<replaceable>SUBNET_ID</replaceable>&gt;
+OR
+&prompt.ardana;neutron lbaas-loadbalancer-create --name test-lb --provider haproxy &lt;<replaceable>SUBNET_ID</replaceable>&gt;</screen>
+  <screen>&prompt.ardana;neutron lbaas-loadbalancer-show &lt;<replaceable>LOAD_BALANCER_ID</replaceable>&gt;
+OR
+&prompt.ardana;openstack loadbalancer show
+&lt;<replaceable>LOAD_BALANCER_ID</replaceable>&gt;</screen>
+  <para>
+   Octavia is the default load balancer provider in &productname;. It has some
+   prerequisites for its installation such as the availability of an
+   <literal>amphora</literal> image in &o_img;.
+  </para>
+  <para>
+   The steps below can be used to set up a network, subnet, router, security
+   and IPs for a test <literal>lb_net1</literal> network with
+   <literal>lb_subnet1</literal> subnet. If you use this setup for verifying
+   the load balancer in the example above, please set
+   <literal>lb_subnet1</literal> as
+   &lt;<replaceable>SUBNET_ID</replaceable>&gt; in the <command>neutron
+   lbaas-loadbalancer-create</command> command.
+  </para>
+  <screen>&prompt.ardana;openstack network create lb_net1
+  &prompt.ardana;openstack subnet create --name lb_subnet1 lb_net1 \
+--subnet-range 172.29.0.0/24 --gateway 172.29.0.2
+&prompt.ardana;openstack router create lb_router1
+&prompt.ardana;openstack router add subnet lb_router1 lb_subnet1
+&prompt.ardana;openstack router set lb_router1 --external-gateway ext-net
+&prompt.ardana;openstack network list</screen>
+  <procedure>
+   <title>Steps to Install &caasp; with Multiple Masters</title>
+   <step>
+    <para>
+     Specify the appropriate flavor and network settings in the
+     <filename>caasp-multi-master-environment.yaml</filename> file.
+    </para>
+   </step>
+   <step>
+    <para>
+     Set <literal>master_count</literal> to the desired number in the
+     <filename>caasp-multi-master-environment.yaml</filename> file. The master
+     count must be set to an odd number of nodes.
+    </para>
+    <screen>master_count: 3</screen>
+   </step>
+   <step>
+    <para>
+     Create a stack in &o_orch; by passing the template, environment file, and
+     parameters:
+    </para>
+    <screen>&prompt.ardana;openstack stack create -t caasp-multi-master-stack.yaml \
+-e caasp-multi-master-environment.yaml --parameter image=CaaSP-3 caasp-multi-master-stack
+    </screen>
+   </step>
+   <step>
+    <para>
+     Find the floating IP address of the load balancer. This is necessary for
+     accessing the Velum &caasp; dashboard.
+    </para>
+    <substeps>
+     <step>
+      <screen>&prompt.ardana;openstack loadbalancer list --provider</screen>
+     </step>
+     <step>
+      <para>
+       From the output, copy the <literal>id</literal> and enter it in the
+       following command as shown in the following example:
+      </para>
+      <screen>&prompt.ardana;openstack loadbalancer show id</screen>
+      <screen>+---------------------+------------------------------------------------+
+| Field               | Value                                          |
++---------------------+------------------------------------------------+
+| admin_state_up      | True                                           |
+| description         |                                                |
+| id                  | 0d973d80-1c79-40a4-881b-42d111ee9625           |
+| listeners           | {"id": "c9a34b63-a1c8-4a57-be22-75264769132d"} |
+|                     | {"id": "4fa2dae0-126b-4eb0-899f-b2b6f5aab461"} |
+| name                | caasp-stack-master_lb-bhr66gtrx3ue             |
+| operating_status    | ONLINE                                         |
+| pools               | {"id": "8c011309-150c-4252-bb04-6550920e0059"} |
+|                     | {"id": "c5f55af7-0a25-4dfa-a088-79e548041929"} |
+| provider            | haproxy                                        |
+| provisioning_status | ACTIVE                                         |
+| tenant_id           | fd7ffc07400642b1b05dbef647deb4c1               |
+| vip_address         | 172.28.0.6                                     |
+| vip_port_id         | 53ad27ba-1ae0-4cd7-b798-c96b53373e8b           |
+| vip_subnet_id       | 87d18a53-ad0c-4d71-b82a-050c229b710a           |
++---------------------+------------------------------------------------+</screen>
+     </step>
+     <step>
+      <para>
+       Search the floating IP list for <literal>vip_address</literal>
+      </para>
+      <screen>&prompt.ardana;openstack floating ip list | grep 172.28.0.6
+| d636f3...481b0c | fd7ff...deb4c1 | 172.28.0.6  | 10.84.65.37  | 53ad2...373e8b |</screen>
+     </step>
+     <step>
+      <para>
+       The load balancer floating ip address is 10.84.65.37
+      </para>
+     </step>
+    </substeps>
+   </step>
+  </procedure>
+  <para>
+   <emphasis role="bold">Accessing the Velum &caasp; Dashboard</emphasis>
+  </para>
+  <para>
+   After the stack has been created, the Velum &caasp; dashboard runs on the
+   admin node. You can access it using the floating IP address of the admin
+   node.
+  </para>
+  <para>
+   Create an account and follow the steps in the Velum &caasp; dashboard to
+   complete the &caasp; installation.
+  </para>
+  <para>
+   CaaSP Admin Node Install: Screen 1
+  </para>
+  <informalfigure>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="caasp_1.png" width="70%" format="PNG"></imagedata>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="caasp_1.png" width="90%" format="PNG"></imagedata>
+    </imageobject>
+   </mediaobject>
+  </informalfigure>
+  <para>
+   CaaSP Admin Node Install: Screen 2
+  </para>
+  <informalfigure>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="caasp_2.png" width="70%" format="PNG"></imagedata>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="caasp_2.png" width="90%" format="PNG"></imagedata>
+    </imageobject>
+   </mediaobject>
+  </informalfigure>
+  <para>
+   CaaSP Admin Node Install: Screen 3
+  </para>
+  <informalfigure>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="caasp_3.png" width="70%" format="PNG"></imagedata>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="caasp_3.png" width="90%" format="PNG"></imagedata>
+    </imageobject>
+   </mediaobject>
+  </informalfigure>
+  <para>
+   CaaSP Admin Node Install: Screen 4
+  </para>
+  <informalfigure>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="caasp_4.png" width="70%" format="PNG"></imagedata>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="caasp_4.png" width="90%" format="PNG"></imagedata>
+    </imageobject>
+   </mediaobject>
+  </informalfigure>
+  <para>
+   CaaSP Admin Node Install: Screen 5
+  </para>
+  <para>
+   Set External Kubernetes API to
+   <replaceable>LOADBALANCER_FLOATING_IP</replaceable>, External Dashboard FQDN
+   to <replaceable>ADMIN_NODE_FLOATING_IP</replaceable>
+  </para>
+  <informalfigure>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="caasp_5.png" width="70%" format="PNG"></imagedata>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="caasp_5.png" width="90%" format="PNG"></imagedata>
+    </imageobject>
+   </mediaobject>
+  </informalfigure>
+  <para>
+   CaaSP Admin Node Install: Screen 6
+  </para>
+  <informalfigure>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="caasp_6.png" width="70%" format="PNG"></imagedata>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="caasp_6.png" width="90%" format="PNG"></imagedata>
+    </imageobject>
+   </mediaobject>
+  </informalfigure>
+  <para>
+   CaaSP Admin Node Install: Screen 7
+  </para>
+  <informalfigure>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="caasp_7.png" width="70%" format="PNG"></imagedata>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="caasp_7.png" width="90%" format="PNG"></imagedata>
+    </imageobject>
+   </mediaobject>
+  </informalfigure>
+ </section>
+ <section>
+  <title>Deploy CaaSP Stack Using &o_orch; CaaSP Playbook</title>
+  <procedure>
+   <step>
+    <para>
+     Install the <package>caasp-openstack-heat-templates</package> package on a
+     machine with &productname; repositories:
+    </para>
+    <screen>&prompt.ardana;zypper in caasp-openstack-heat-templates</screen>
+    <para>
+     The installed templates are located in
+     <filename>/usr/share/caasp-openstack-heat-templates</filename>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Run <filename>heat-caasp-deploy.yml</filename> on the &lcm; to create a
+     CaaSP cluster with &o_orch; templates from the
+     <literal>caasp-openstack-heat-templates</literal> package.
+    </para>
+    <screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/localhost heat-caasp-deploy.yml</screen>
+   </step>
+   <step>
+    <para>
+     In a browser, navigate to the &o_dash; UI to determine the floating IP
+     address assigned to the admin node.
+    </para>
+   </step>
+   <step>
+    <para>
+     Go to http://<replaceable>ADMIN-NODE-FLOATING-IP</replaceable>/ to bring
+     up the Velum dashboard.
+    </para>
+   </step>
+   <step>
+    <para>
+     Follow the steps for <literal>bootstrap</literal> and <literal>add nodes
+     to the cluster</literal> to bring up the CaaSP Kubernetes cluster.
+    </para>
+   </step>
+  </procedure>
+ </section>
+ <section>
+  <title>Deploy CaaSP Cluster with Multiple Masters Using &o_orch; CaasP
+  Playbook</title>
+  <procedure>
+   <step>
+    <para>
+     Install the <package>caasp-openstack-heat-templates</package> package on a
+     machine with &productname; repositories:
+    </para>
+    <screen>&prompt.ardana;zypper in caasp-openstack-heat-templates</screen>
+    <para>
+     The installed templates are located in
+     <filename>/usr/share/caasp-openstack-heat-templates</filename>.
+    </para>
+   </step>
+   <step>
+    <para>
+     On the &lcm;, run the <filename>heat-caasp-deploy.yml</filename> playbook
+     and pass parameters for <literal>caasp_stack_name</literal>, <literal>caasp_stack_yaml_file</literal> and
+     <literal>caasp_stack_env_yaml_file</literal>.
+    </para>
+    <screen>&prompt.ardana;ansible-playbook -i hosts/localhost heat-caasp-deploy.yml -e "caasp_stack_name=caasp_multi-master caasp_stack_yaml_file=caasp-multi-master-stack.yaml caasp_stack_env_yaml_file=caasp-multi-master-environment.yaml"</screen>
+   </step>
+  </procedure>
+ </section>
+ <section>
+  <title>CaaSP &ostack-bare; Image for &o_orch; CaaSP Playbook</title>
+  <para>
+   By default the &o_orch; CaaSP playbook downloads the CaaSP image from <link
+   xlink:href="http://download.suse.de/install/SUSE-CaaSP-3-GM/SUSE-CaaS-Platform-3.0-for-OpenStack-Cloud.x86_64-3.0.0-GM.qcow2"/>. If
+   this URL is not accessible, the CaaSP image can be downloaded from <link
+   xlink:href="https://download.suse.com/Download?buildid=z7ezhywXXRc"/> and
+   copied to the deployer.
+  </para>
+  <para>
+   To create a CaaSP cluster and pass the path to the downloaded image, run the
+   following commands:
+  </para>
+  <screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/localhost heat-caasp-deploy.yml -e "caasp_image_tmp_path=~/SUSE-CaaS-Platform-3.0-for-OpenStack-Cloud.x86_64-3.0.0-GM.qcow2"</screen>
+  <para>
+   To create a CaaSP cluster with multiple masters and pass the path to the
+   downloaded image, run the following commands:
+  </para>
+  <screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/localhost heat-caasp-deploy.yml -e "caasp_image_tmp_path=caasp_image_tmp_path=~/SUSE-CaaS-Platform-3.0-for-OpenStack-Cloud.x86_64-3.0.0-GM.qcow2
+ caasp_stack_name=caasp_multi-master caasp_stack_yaml_file=caasp-multi-master-stack.yaml caasp_stack_env_yaml_file=caasp-multi-master-environment.yaml"</screen>
+ </section>
+ <section>
+   <title>Enabling the Cloud Provider Integration (CPI) Feature</title>
+   <para>
+    When deploying a CaaaSP cluster using CaaSP &ostack-bare; &o_orch;
+    templates, the following CPI parameters can be set in
+    <filename>caasp-environment.yaml</filename> or
+    <filename>caasp-multi-master-environment.yaml</filename>.
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>cpi_auth_url</term>
+     <listitem>
+      <para>
+       The URL of the &o_ident; API used to authenticate the user. This value
+       can be found on the &ostack-bare; Dashboard under
+       <menuchoice><guimenu>Access and Security</guimenu><guimenu>API
+       Access</guimenu><guimenu>Credentials</guimenu></menuchoice> (for
+       example, https://api.keystone.example.net:5000/v3/)
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>cpi_domain_name</term>
+     <listitem>
+      <para>
+       Name of the domain the user belongs to.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>cpi_tenant_name</term>
+     <listitem>
+      <para>
+       Name of the project the user belongs to. This is the project where the
+       resources will be created.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>cpi_region</term>
+     <listitem>
+      <para>
+       Name of the region to use when running a multi-region &ostack-bare;
+       cloud. The region is a general division of an &ostack-bare; deployment.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>cpi_username</term>
+     <listitem>
+      <para>
+       Username of a valid user that has been set in &o_ident;. Default: admin
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>cpi_password</term>
+     <listitem>
+      <para>
+       Password of a valid user that has been set in &o_ident;.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>cpi_monitor_max_retries</term>
+     <listitem>
+      <para>
+       &o_netw; load balancer monitoring max retries. Default: 3
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>cpi_bs_version</term>
+     <listitem>
+      <para>
+       &o_blockstore; Block Storage API version. Possible values are v1, v2 , v3 or
+       auto. Default: auto
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>cpi_ignore_volume_az</term>
+     <listitem>
+      <para>
+       Ignore &o_blockstore; and &o_comp; availability zones. Default: true
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <para>
+    When the CaaSP cluster has been deployed by the &o_orch; templates, the
+    Velum dashboard on the admin node
+    (https://<replaceable>ADMIN-NODE-IP</replaceable>/) will have entries for
+    <guimenu>Cloud Provider Integration</guimenu> (CPI). The &ostack-bare;
+    settings form will show the values that were set in the
+    <filename>caasp-environment.yaml</filename> or
+    <filename>caasp-multi-master-environment.yaml</filename> files.
+   </para>
+   <informalfigure>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="cpi_1.png" width="70%" format="PNG"></imagedata>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="cpi_1.png" width="90%" format="PNG"></imagedata>
+     </imageobject>
+    </mediaobject>
+   </informalfigure>
+   <para>
+    After the CaaSP cluster comes up, install the latest CaaSP 3.0 Maintenance
+    Update using the following steps:
+   </para>
+   <procedure>
+    <step>
+     <para>
+      Spin up a CaaSP cluster using &o_orch; templates following the
+      instructions in <xref linkend="sec.heat.templates.install"/>. Do not go
+      through the bootstrapping steps, because the CaaSP Maintenance Update
+      (MU) must be applied first. After the maintenance update succeeds, return
+      to the CaaSP installation instructions and follow the admin node
+      bootstrapping steps.
+     </para>
+     <para>
+      Apply the CaaSP 3.0 Maintenance Update with the following steps:
+     </para>
+     <substeps>
+      <step>
+       <para>
+        Log in to each node and add the update repository.
+       </para>
+       <screen>&prompt.ardana;sudo zypper ar http://nu.novell.com/SUSE/Updates/SUSE-CAASP/3.0/x86_64/update/ caasp_update</screen>
+      </step>
+      <step>
+       <para>
+        With root privileges, run <literal>transactional-update</literal> on each node.
+       </para>
+      </step>
+      <step>
+       <para>
+        Reboot each node
+       </para>
+      </step>
+      <step>
+       <para>
+        Verify that the Velum image packages were updated
+       </para>
+       <screen>&prompt.ardana;zypper se --detail velum-image
+i | sles12-velum-image | package    | 3.1.7-3.27.3  | x86_64 | update_caasp</screen>
+      </step>
+     </substeps>
+    </step>
+    <step>
+     <para>
+      After the nodes come up, continue with the installation instructions in
+      <xref linkend="sec.heat.templates.install"/> following the admin node
+      cluster bootstrapping steps.
+     </para>
+    </step>
+   </procedure>
+  </section>
+ <section>
+  <title>More Information about &caasp;</title>
+   <para>
+  More information about the &caasp; is available at <link
+  xlink:href="https://www.suse.com/documentation/suse-caasp-3/book_caasp_deployment/data/book_caasp_deployment.html"/>
+ </para>
  </section>
 </chapter>
