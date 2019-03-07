@@ -1,0 +1,430 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entity-decl.ent"> %entities;
+]>
+
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude"
+   xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="deploying_apache_mesos_ubuntu">
+ <title>Deploying an Apache Mesos Cluster on Ubuntu</title>
+ <section xml:id="idg-all-userguide-container_service-deploying_apache_mesos_ubuntu-xml-6">
+  <title>Prerequisites</title>
+  <para>
+   These steps assume the following have been completed:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     The Magnum service has been installed. For more information, see
+     <xref linkend="MagnumInstall"/>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Deploying an Apache Mesos Cluster requires the Fedora Atomic image
+     that is compatible for the OpenStack release. You can download
+     the <emphasis role="bold">ubuntu-mesos-latest.qcow2</emphasis>
+     image from
+     <link xlink:href="https://fedorapeople.org/groups/magnum/"/>
+    </para>
+   </listitem>
+  </itemizedlist>
+ </section>
+ <section xml:id="idg-all-userguide-container_service-deploying_apache_mesos_ubuntu-xml-7">
+  <title>Creating the Cluster</title>
+  <para>
+   The following example is created using Kubernetes Container Orchestration
+   Engine (COE) running on Fedora Atomic guest OS on &productname; VMs.
+  </para>
+  <procedure>
+   <step>
+    <para>
+     As <emphasis role="bold">stack</emphasis> user, login to the lifecycle
+     manager.
+    </para>
+   </step>
+   <step>
+    <para>
+     Source openstack admin credentials.
+    </para>
+<screen>$ source service.osrc</screen>
+   </step>
+   <step>
+    <para>
+     If you haven't already, download Fedora Atomic image that is compatible for the
+     OpenStack release.
+    </para>
+    <note>
+     <para>
+      The <literal>https_proxy</literal> is only needed if your environment
+      requires a proxy.
+     </para>
+    </note>
+<screen>$ https_proxy=http://proxy.yourcompany.net:8080 wget https://fedorapeople.org/groups/magnum/ubuntu-mesos-latest.qcow2</screen>
+   </step>
+   <step>
+    <para>
+     Create a Glance image.
+    </para>
+<screen>
+$ glance image-create --name ubuntu-mesos-latest --visibility public --disk-format qcow2 --os-distro ubuntu --container-format bare --file ubuntu-mesos-latest.qcow2 --progress
+[=============================&gt;] 100%
++------------------+--------------------------------------+
+| Property         | Value                                |
++------------------+--------------------------------------+
+| checksum         | 97cc1fdb9ca80bf80dbd6842aab7dab5     |
+| container_format | bare                                 |
+| created_at       | 2017-04-21T19:40:20Z                 |
+| disk_format      | qcow2                                |
+| id               | d6a4e6f9-9e34-4816-99fe-227e0131244f |
+| min_disk         | 0                                    |
+| min_ram          | 0                                    |
+| name             | ubuntu-mesos-latest                  |
+| os_distro        | ubuntu                               |
+| owner            | 2f5b83ab49d54aaea4b39f5082301d09     |
+| protected        | False                                |
+| size             | 753616384                            |
+| status           | active                               |
+| tags             | []                                   |
+| updated_at       | 2017-04-21T19:40:32Z                 |
+| virtual_size     | None                                 |
+| visibility       | public                               |
++------------------+--------------------------------------+</screen>
+   </step>
+   <step>
+    <para>
+     Create a Nova keypair.
+    </para>
+<screen>$ test -f ~/.ssh/id_rsa.pub || ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa
+$ nova keypair-add --pub-key ~/.ssh/id_rsa.pub testkey</screen>
+   </step>
+   <step>
+    <para>
+     Create a Magnum cluster template.
+    </para>
+<screen>$ magnum cluster-template-create --name my-mesos-template \
+  --image-id d6a4e6f9-9e34-4816-99fe-227e0131244f \
+  --keypair-id testkey \
+  --external-network-id ext-net \
+  --dns-nameserver 8.8.8.8 \
+  --flavor-id m1.small \
+  --docker-volume-size 5 \
+  --network-driver docker \
+  --coe mesos \
+  --http-proxy http://proxy.yourcompany.net:8080/ \
+  --https-proxy http://proxy.yourcompany.net:8080/</screen>
+    <note>
+     <orderedlist>
+      <listitem>
+       <para>
+        Use the <emphasis>image_id</emphasis> from <literal>glance
+        image-create</literal> command output in the previous step.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Use your organization's DNS server. If the &productname; public endpoint is
+        configured with the hostname, this server should provide resolution for
+        this hostname.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        The proxy is only needed if public internet (for example,
+        <literal>https://discovery.etcd.io/</literal> or
+        <literal>https://gcr.io/</literal>) is not accessible
+        without proxy.
+       </para>
+      </listitem>
+     </orderedlist>
+    </note>
+   </step>
+   <step>
+    <para>
+     Create cluster. The command below will create a minimalistic cluster
+     consisting of a single Kubernetes Master (kubemaster) and single
+     Kubernetes Node (worker, kubeminion).
+    </para>
+<screen>$ magnum cluster-create --name my-mesos-cluster --cluster-template my-mesos-template --node-count 1 --master-count 1</screen>
+   </step>
+   <step>
+    <para>
+     Immediately after issuing <literal>cluster-create</literal> command,
+     cluster status should turn to
+     <emphasis role="bold">CREATE_IN_PROGRESS</emphasis> and stack_id assigned.
+    </para>
+<screen>$ magnum cluster-show my-mesos-cluster
++---------------------+--------------------------------------+
+| Property            | Value                                |
++---------------------+--------------------------------------+
+| status              | CREATE_IN_PROGRESS                   |
+| cluster_template_id | be354919-fa6c-4db8-9fd1-69792040f095 |
+| uuid                | b1493402-8571-4683-b81e-ddc129ff8937 |
+| stack_id            | 50aa20a6-bf29-4663-9181-cf7ba3070a25 |
+| status_reason       | -                                    |
+| created_at          | 2017-04-21T19:50:34+00:00            |
+| name                | my-mesos-cluster                     |
+| updated_at          | -                                    |
+| discovery_url       | -                                    |
+| api_address         | -                                    |
+| coe_version         | -                                    |
+| master_addresses    | []                                   |
+| create_timeout      | 60                                   |
+| node_addresses      | []                                   |
+| master_count        | 1                                    |
+| container_version   | -                                    |
+| node_count          | 1                                    |
++---------------------+--------------------------------------+</screen>
+   </step>
+   <step>
+    <para>
+     You can monitor cluster creation progress by listing the resources of the
+     Heat stack. Use the <literal>stack_id</literal> value from the
+     <literal>magnum cluster-status</literal> output above in the following
+     command:
+    </para>
+<screen>$ heat resource-list -n2 50aa20a6-bf29-4663-9181-cf7ba3070a25
+WARNING (shell) "heat resource-list" is deprecated, please use "openstack stack resource list" instead
++------------------------------+--------------------------------------+-----------------------------------+-----------------+----------------------+-------------------------------+
+| resource_name                | physical_resource_id                 | resource_type                     | resource_status | updated_time         | stack_name                    |
++------------------------------+--------------------------------------+-----------------------------------+-----------------+----------------------+-------------------------------+
+| add_proxy_master             | 10394a74-1503-44b4-969a-44258c9a7be1 | OS::Heat::SoftwareConfig          | CREATE_COMPLETE | 2017-04-21T19:50:33Z | my-mesos-cluster-w2trq7m46qus |
+| add_proxy_master_deployment  |                                      | OS::Heat::SoftwareDeploymentGroup | INIT_COMPLETE   | 2017-04-21T19:50:33Z | my-mesos-cluster-w2trq7m46qus |
+...</screen>
+   </step>
+   <step>
+    <para>
+     The cluster is complete when all resources show
+     <emphasis role="bold">CREATE_COMPLETE</emphasis>.
+    </para>
+<screen>$ magnum cluster-show my-mesos-cluster
++---------------------+--------------------------------------+
+| Property            | Value                                |
++---------------------+--------------------------------------+
+| status              | CREATE_COMPLETE                      |
+| cluster_template_id | 9e942bfa-2c78-4837-82f5-6bea88ba1bf9 |
+| uuid                | 9d7bb502-8865-4cbd-96fa-3cd75f0f6945 |
+| stack_id            | 339a72b4-a131-47c6-8d10-365e6f6a18cf |
+| status_reason       | Stack CREATE completed successfully  |
+| created_at          | 2017-04-24T20:54:31+00:00            |
+| name                | my-mesos-cluster                     |
+| updated_at          | 2017-04-24T20:59:18+00:00            |
+| discovery_url       | -                                    |
+| api_address         | 172.31.0.10                          |
+| coe_version         | -                                    |
+| master_addresses    | ['172.31.0.10']                      |
+| create_timeout      | 60                                   |
+| node_addresses      | ['172.31.0.5']                       |
+| master_count        | 1                                    |
+| container_version   | 1.9.1                                |
+| node_count          | 1                                    |
++---------------------+--------------------------------------+</screen>
+   </step>
+   <step>
+    <para>
+     Verify that
+     <link xlink:href="https://mesosphere.github.io/marathon/">Marathon</link>
+     web console is available at http://${MASTER_IP}:8080/, and
+     <link xlink:href="http://mesos.apache.org/documentation/latest/">Mesos</link>
+     UI is available at http://${MASTER_IP}:5050/
+    </para>
+<screen>$ https_proxy=http://proxy.yourcompany.net:8080 curl -LO \
+  https://storage.googleapis.com/kubernetes-release/release/v1.2.0/bin/linux/amd64/kubectl
+$ chmod +x ./kubectl
+$ sudo mv ./kubectl /usr/local/bin/kubectl</screen>
+   </step>
+   <step>
+    <para>
+     Create an example Mesos application.
+    </para>
+<screen>$ mkdir my_mesos_cluster
+$ cd my_mesos_cluster/
+$ cat &gt; sample.json &lt;&lt;-EOFc
+{
+  "id": "sample",
+  "cmd": "python3 -m http.server 8080",
+  "cpus": 0.5,
+  "mem": 32.0,
+  "container": {
+    "type": "DOCKER",
+    "docker": {
+      "image": "python:3",
+      "network": "BRIDGE",
+      "portMappings": [
+        { "containerPort": 8080, "hostPort": 0 }
+      ]
+    }
+  }
+}
+EOF
+</screen>
+<screen>$ curl -s -X POST -H "Content-Type: application/json" \
+  http://172.31.0.10:8080/v2/apps -d@sample.json | json_pp
+{
+   "dependencies" : [],
+   "healthChecks" : [],
+   "user" : null,
+   "mem" : 32,
+   "requirePorts" : false,
+   "tasks" : [],
+   "cpus" : 0.5,
+   "upgradeStrategy" : {
+      "minimumHealthCapacity" : 1,
+      "maximumOverCapacity" : 1
+   },
+   "maxLaunchDelaySeconds" : 3600,
+   "disk" : 0,
+   "constraints" : [],
+   "executor" : "",
+   "cmd" : "python3 -m http.server 8080",
+   "id" : "/sample",
+   "labels" : {},
+   "ports" : [
+      0
+   ],
+   "storeUrls" : [],
+   "instances" : 1,
+   "tasksRunning" : 0,
+   "tasksHealthy" : 0,
+   "acceptedResourceRoles" : null,
+   "env" : {},
+   "tasksStaged" : 0,
+   "tasksUnhealthy" : 0,
+   "backoffFactor" : 1.15,
+   "version" : "2017-04-25T16:37:40.657Z",
+   "uris" : [],
+   "args" : null,
+   "container" : {
+      "volumes" : [],
+      "docker" : {
+         "portMappings" : [
+            {
+               "containerPort" : 8080,
+               "hostPort" : 0,
+               "servicePort" : 0,
+               "protocol" : "tcp"
+            }
+         ],
+         "parameters" : [],
+         "image" : "python:3",
+         "forcePullImage" : false,
+         "network" : "BRIDGE",
+         "privileged" : false
+      },
+      "type" : "DOCKER"
+   },
+   "deployments" : [
+      {
+         "id" : "6fbe48f0-6a3c-44b7-922e-b172bcae1be8"
+      }
+   ],
+   "backoffSeconds" : 1
+}</screen>
+   </step>
+   <step>
+    <para>
+     Wait for sample application to start. Use REST API or Marathon web console
+     to monitor status:
+    </para>
+<screen>$ curl -s http://172.31.0.10:8080/v2/apps/sample | json_pp
+{
+   "app" : {
+      "deployments" : [],
+      "instances" : 1,
+      "tasks" : [
+         {
+            "id" : "sample.7fdd1ee4-29d5-11e7-9ee0-02427da4ced1",
+            "stagedAt" : "2017-04-25T16:37:40.807Z",
+            "version" : "2017-04-25T16:37:40.657Z",
+            "ports" : [
+               31827
+            ],
+            "appId" : "/sample",
+            "slaveId" : "21444bc5-3eb8-49cd-b020-77041e0c88d0-S0",
+            "host" : "10.0.0.9",
+            "startedAt" : "2017-04-25T16:37:42.003Z"
+         }
+      ],
+      "upgradeStrategy" : {
+         "maximumOverCapacity" : 1,
+         "minimumHealthCapacity" : 1
+      },
+      "storeUrls" : [],
+      "requirePorts" : false,
+      "user" : null,
+      "id" : "/sample",
+      "acceptedResourceRoles" : null,
+      "tasksRunning" : 1,
+      "cpus" : 0.5,
+      "executor" : "",
+      "dependencies" : [],
+      "args" : null,
+      "backoffFactor" : 1.15,
+      "ports" : [
+         10000
+      ],
+      "version" : "2017-04-25T16:37:40.657Z",
+      "container" : {
+         "volumes" : [],
+         "docker" : {
+            "portMappings" : [
+               {
+                  "servicePort" : 10000,
+                  "protocol" : "tcp",
+                  "hostPort" : 0,
+                  "containerPort" : 8080
+               }
+            ],
+            "forcePullImage" : false,
+            "parameters" : [],
+            "image" : "python:3",
+            "privileged" : false,
+            "network" : "BRIDGE"
+         },
+         "type" : "DOCKER"
+      },
+      "constraints" : [],
+      "tasksStaged" : 0,
+      "env" : {},
+      "mem" : 32,
+      "disk" : 0,
+      "labels" : {},
+      "tasksHealthy" : 0,
+      "healthChecks" : [],
+      "cmd" : "python3 -m http.server 8080",
+      "backoffSeconds" : 1,
+      "maxLaunchDelaySeconds" : 3600,
+      "versionInfo" : {
+         "lastConfigChangeAt" : "2017-04-25T16:37:40.657Z",
+         "lastScalingAt" : "2017-04-25T16:37:40.657Z"
+      },
+      "uris" : [],
+      "tasksUnhealthy" : 0
+   }
+}</screen>
+   </step>
+   <step>
+    <para>
+     Verify that deployed application is responding on automatically assigned
+     port on floating IP address of worker node.
+    </para>
+<screen>$ curl http://172.31.0.5:31827
+&lt;!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd"&gt;
+&lt;html&gt;
+&lt;head&gt;
+&lt;meta http-equiv="Content-Type" content="text/html; charset=utf-8"&gt;
+&lt;title&gt;Directory listing for /&lt;/title&gt;
+...</screen>
+   </step>
+   <step>
+    <para>
+     If LBaaS v2 is enabled in &productname; environment, a new load balancer can be
+     created to perform request rotation between several masters. For more
+     information about LBaaS v2 support, see <xref linkend="OctaviaInstall"/>.
+    </para>
+   </step>
+  </procedure>
+ </section>
+</section>

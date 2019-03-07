@@ -1,0 +1,303 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entity-decl.ent"> %entities;
+]>
+
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude"
+  xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="deploying_kubernetes_fedora_atomic">
+ <title>Deploying a Kubernetes Cluster on Fedora Atomic</title>
+ <section xml:id="idg-all-userguide-container_service-deploying_kubernetes_fedora_atomic-xml-6">
+  <title>Prerequisites</title>
+  <para>
+   These steps assume the following have been completed:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     The Magnum service has been installed. For more information, see
+     <xref linkend="MagnumInstall"/>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Deploying a Kubernetes Cluster on Fedora Atomic requires the Fedora Atomic
+     image <emphasis role="bold">fedora-atomic-26-20170723.0.x86_64.qcow2</emphasis> prepared
+     specifically for the OpenStack release. You can download the
+     <emphasis role="bold">fedora-atomic-26-20170723.0.x86_64.qcow2</emphasis>
+     image from
+     <link xlink:href="https://fedorapeople.org/groups/magnum/"/>
+    </para>
+   </listitem>
+  </itemizedlist>
+ </section>
+ <section xml:id="idg-all-userguide-container_service-deploying_kubernetes_fedora_atomic-xml-7">
+  <title>Creating the Cluster</title>
+  <para>
+   The following example is created using Kubernetes Container Orchestration
+   Engine (COE) running on Fedora Atomic guest OS on &productname; VMs.
+  </para>
+  <orderedlist>
+   <listitem>
+    <para>
+     As <emphasis role="bold">stack</emphasis> user, login to the lifecycle
+     manager.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Source openstack admin credentials.
+    </para>
+<screen>$ source service.osrc</screen>
+   </listitem>
+   <listitem>
+    <para>
+     If you haven't already, download Fedora Atomic image, prepared for the
+     Openstack Pike release.
+    </para>
+<screen>$ wget https://download.fedoraproject.org/pub/alt/atomic/stable/Fedora-Atomic-26-20170723.0/CloudImages/x86_64/images/Fedora-Atomic-26-20170723.0.x86_64.qcow2</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Create a Glance image.
+    </para>
+<screen>$ glance image-create --name fedora-atomic-26-20170723.0.x86_64 --visibility public \
+  --disk-format qcow2 --os-distro fedora-atomic --container-format bare \
+  --file Fedora-Atomic-26-20170723.0.x86_64.qcow2 --progress
+[=============================&gt;] 100%
++------------------+--------------------------------------+
+| Property         | Value                                |
++------------------+--------------------------------------+
+| checksum         | 9d233b8e7fbb7ea93f20cc839beb09ab     |
+| container_format | bare                                 |
+| created_at       | 2017-04-10T21:13:48Z                 |
+| disk_format      | qcow2                                |
+| id               | 4277115a-f254-46c0-9fb0-fffc45d2fd38 |
+| min_disk         | 0                                    |
+| min_ram          | 0                                    |
+| name             | fedora-atomic-26-20170723.0.x86_64   |
+| os_distro        | fedora-atomic                        |
+| owner            | 2f5b83ab49d54aaea4b39f5082301d09     |
+| protected        | False                                |
+| size             | 515112960                            |
+| status           | active                               |
+| tags             | []                                   |
+| updated_at       | 2017-04-10T21:13:56Z                 |
+| virtual_size     | None                                 |
+| visibility       | public                               |
++------------------+--------------------------------------+</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Create a Nova keypair.
+    </para>
+<screen>$ test -f ~/.ssh/id_rsa.pub || ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa
+$ nova keypair-add --pub-key ~/.ssh/id_rsa.pub testkey</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Create a Magnum cluster template.
+    </para>
+<screen>$ magnum cluster-template-create --name my-template \
+  --image-id 4277115a-f254-46c0-9fb0-fffc45d2fd38 \
+  --keypair-id testkey \
+  --external-network-id ext-net \
+  --dns-nameserver 8.8.8.8 \
+  --flavor-id m1.small \
+  --docker-volume-size 5 \
+  --network-driver flannel \
+  --coe kubernetes \
+  --http-proxy http://proxy.yourcompany.net:8080/ \
+  --https-proxy http://proxy.yourcompany.net:8080/</screen>
+    <note>
+     <orderedlist>
+      <listitem>
+       <para>
+        Use the <emphasis>image_id</emphasis> from <literal>glance
+        image-create</literal> command output in the previous step.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Use your organization's DNS server. If the &productname; public endpoint is
+        configured with the hostname, this server should provide resolution for
+        this hostname.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        The proxy is only needed if public internet (for example,
+        <literal>https://discovery.etcd.io/</literal> or
+        <literal>https://gcr.io/</literal>) is not accessible without proxy.
+       </para>
+      </listitem>
+     </orderedlist>
+    </note>
+   </listitem>
+   <listitem>
+    <para>
+     Create cluster. The command below will create a minimalistic cluster
+     consisting of a single Kubernetes Master (kubemaster) and single
+     Kubernetes Node (worker, kubeminion).
+    </para>
+<screen>$ magnum cluster-create --name my-cluster --cluster-template my-template --node-count 1 --master-count 1</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Immediately after issuing <literal>cluster-create</literal> command,
+     cluster status should turn to
+     <emphasis role="bold">CREATE_IN_PROGRESS</emphasis> and stack_id assigned.
+    </para>
+<screen>$ magnum cluster-show my-cluster
++---------------------+------------------------------------------------------------+
+| Property            | Value                                                      |
++---------------------+------------------------------------------------------------+
+| status              | CREATE_IN_PROGRESS                                         |
+| cluster_template_id | 245c6bf8-c609-4ea5-855a-4e672996cbbc                       |
+| uuid                | 0b78a205-8543-4589-8344-48b8cfc24709                       |
+| stack_id            | 22385a42-9e15-49d9-a382-f28acef36810                       |
+| status_reason       | -                                                          |
+| created_at          | 2017-04-10T21:25:11+00:00                                  |
+| name                | my-cluster                                                 |
+| updated_at          | -                                                          |
+| discovery_url       | https://discovery.etcd.io/193d122f869c497c2638021eae1ab0f7 |
+| api_address         | -                                                          |
+| coe_version         | -                                                          |
+| master_addresses    | []                                                         |
+| create_timeout      | 60                                                         |
+| node_addresses      | []                                                         |
+| master_count        | 1                                                          |
+| container_version   | -                                                          |
+| node_count          | 1                                                          |
++---------------------+------------------------------------------------------------+</screen>
+   </listitem>
+   <listitem>
+    <para>
+     You can monitor cluster creation progress by listing the resources of the
+     Heat stack. Use the <literal>stack_id</literal> value from the
+     <literal>magnum cluster-status</literal> output above in the following
+     command:
+    </para>
+<screen>$ heat resource-list -n2 22385a42-9e15-49d9-a382-f28acef36810
+WARNING (shell) "heat resource-list" is deprecated, please use "openstack stack resource list" instead
++-------------------------------+--------------------------------------+-----------------------------------+--------------------+----------------------+-------------------------+
+| resource_name                 | physical_resource_id                 | resource_type                     | resource_status    | updated_time         | stack_name              |
++-------------------------------+--------------------------------------+-----------------------------------+--------------------+----------------------+-------------------------+
+| api_address_floating_switch   | 06b2cc0d-77f9-4633-8d96-f51e2db1faf3 | Magnum::FloatingIPAddressSwitcher | CREATE_COMPLETE    | 2017-04-10T21:25:10Z | my-cluster-z4aquda2mgpv |
+| api_address_lb_switch         | 965124ca-5f62-4545-bbae-8d9cda7aff2e | Magnum::ApiGatewaySwitcher        | CREATE_COMPLETE    | 2017-04-10T21:25:10Z | my-cluster-z4aquda2mgpv |
+. . .</screen>
+   </listitem>
+   <listitem>
+    <para>
+     The cluster is complete when all resources show
+     <emphasis role="bold">CREATE_COMPLETE</emphasis>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Install kubectl onto your &lcm;.
+    </para>
+<screen>$ export https_proxy=http://proxy.yourcompany.net:8080
+$ wget https://storage.googleapis.com/kubernetes-release/release/v1.2.0/bin/linux/amd64/kubectl
+$ chmod +x ./kubectl
+$ sudo mv ./kubectl /usr/local/bin/kubectl</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Generate the cluster configuration using
+     <command>magnum cluster-config</command>. If the CLI option
+     <option>--tls-disabled</option> was not
+     specified during cluster template creation, authentication in the cluster
+     will be turned on. In this case, <command>magnum cluster-config</command>
+     command will generate client authentication certificate
+     (<filename>cert.pem</filename>) and key (<filename>key.pem</filename>).
+     Copy and paste <command>magnum cluster-config</command> output
+     to your command line input to finalize configuration (that is, export
+     KUBECONFIG environment variable).
+    </para>
+<screen>$ mkdir my_cluster
+$ cd my_cluster
+/my_cluster $ ls
+/my_cluster $ magnum cluster-config my-cluster
+export KUBECONFIG=./config
+/my_cluster $ ls
+ca.pem cert.pem config key.pem
+/my_cluster $ export KUBECONFIG=./config
+/my_cluster $ kubectl version
+Client Version: version.Info{Major:"1", Minor:"2", GitVersion:"v1.2.0", GitCommit:"5cb86ee022267586db386f62781338b0483733b3", GitTreeState:"clean"}
+Server Version: version.Info{Major:"1", Minor:"2", GitVersion:"v1.2.0", GitCommit:"cffae0523cfa80ddf917aba69f08508b91f603d5", GitTreeState:"clean"}</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Create a simple Nginx replication controller, exposed as a service of type
+     NodePort.
+    </para>
+<screen>$ cat &gt;nginx.yml &lt;&lt;-EOF
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: nginx-controller
+spec:
+  replicas: 1
+  selector:
+    app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+        - name: nginx
+          image: nginx
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+spec:
+  type: NodePort
+  ports:
+  - port: 80
+    nodePort: 30080
+  selector:
+    app: nginx
+EOF
+
+$ kubectl create -f nginx.yml</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Check pod status until it turns from
+     <emphasis role="bold">Pending</emphasis> to
+     <emphasis role="bold">Running</emphasis>.
+    </para>
+<screen>$ kubectl get pods
+NAME                      READY    STATUS     RESTARTS    AGE
+nginx-controller-5cmev    1/1      Running    0           2m</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Ensure that the Nginx welcome page is displayed at port 30080 using the
+     kubemaster floating IP.
+    </para>
+<screen>$ http_proxy= curl http://172.31.0.6:30080
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+&lt;title&gt;Welcome to nginx!&lt;/title&gt;</screen>
+   </listitem>
+   <listitem>
+    <para>
+     If LBaaS v2 is enabled in &productname; environment, and your cluster was
+     created with more than one kubemaster, a new load balancer can be created
+     to perform request rotation between several masters. For more
+     information about LBaaS v2 support, see <xref linkend="OctaviaInstall"/>.
+    </para>
+   </listitem>
+  </orderedlist>
+ </section>
+</section>
