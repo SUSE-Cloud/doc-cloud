@@ -1,0 +1,308 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entity-decl.ent"> %entities;
+]>
+
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude"
+          xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="deploying_docker_fedora_atomic">
+ <title>Deploying a Docker Swarm Cluster on Fedora Atomic</title>
+ <section xml:id="idg-all-userguide-container_service-deploying_docker_fedora_atomic-xml-6">
+  <title>Prerequisites</title>
+  <para>
+   These steps assume the following have been completed:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     The Magnum service has been installed. For more information, see
+     <xref linkend="MagnumInstall"/>.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Deploying a Docker Swarm Cluster on Fedora Atomic requires the Fedora
+     Atomic image
+     <emphasis role="bold">fedora-atomic-26-20170723.0.x86_64.qcow2</emphasis>
+     prepared specifically for the OpenStack Pike release. You can download
+     the <emphasis role="bold">fedora-atomic-26-20170723.0.x86_64.qcow2</emphasis>
+     image from
+     <link xlink:href="https://download.fedoraproject.org/pub/alt/atomic/stable/Fedora-Atomic-26-20170723.0/CloudImages/x86_64/"/>
+    </para>
+   </listitem>
+  </itemizedlist>
+ </section>
+ <section xml:id="idg-all-userguide-container_service-deploying_docker_fedora_atomic-xml-7">
+  <title>Creating the Cluster</title>
+  <para>
+   The following example is created using Kubernetes Container Orchestration
+   Engine (COE) running on Fedora Atomic guest OS on &productname; VMs.
+  </para>
+  <orderedlist>
+   <listitem>
+    <para>
+     As <emphasis role="bold">stack</emphasis> user, login to the lifecycle
+     manager.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Source openstack admin credentials.
+    </para>
+<screen>$ source service.osrc</screen>
+   </listitem>
+   <listitem>
+    <para>
+     If you haven't already, download Fedora Atomic image, prepared for
+     Openstack Pike release.
+    </para>
+<screen>$ wget https://download.fedoraproject.org/pub/alt/atomic/stable/Fedora-Atomic-26-20170723.0/CloudImages/x86_64/images/Fedora-Atomic-26-20170723.0.x86_64.qcow2</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Create a Glance image.
+    </para>
+<screen>$ glance image-create --name fedora-atomic-26-20170723.0.x86_64 --visibility public \
+  --disk-format qcow2 --os-distro fedora-atomic --container-format bare \
+  --file Fedora-Atomic-26-20170723.0.x86_64.qcow2 --progress
+[=============================&gt;] 100%
++------------------+--------------------------------------+
+| Property         | Value                                |
++------------------+--------------------------------------+
+| checksum         | 9d233b8e7fbb7ea93f20cc839beb09ab     |
+| container_format | bare                                 |
+| created_at       | 2017-04-10T21:13:48Z                 |
+| disk_format      | qcow2                                |
+| id               | 4277115a-f254-46c0-9fb0-fffc45d2fd38 |
+| min_disk         | 0                                    |
+| min_ram          | 0                                    |
+| name             | fedora-atomic-26-20170723.0.x86_64   |
+| os_distro        | fedora-atomic                        |
+| owner            | 2f5b83ab49d54aaea4b39f5082301d09     |
+| protected        | False                                |
+| size             | 515112960                            |
+| status           | active                               |
+| tags             | []                                   |
+| updated_at       | 2017-04-10T21:13:56Z                 |
+| virtual_size     | None                                 |
+| visibility       | public                               |
++------------------+--------------------------------------+</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Create a Nova keypair.
+    </para>
+<screen>$ test -f ~/.ssh/id_rsa.pub || ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa
+$ nova keypair-add --pub-key ~/.ssh/id_rsa.pub testkey</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Create a Magnum cluster template.
+    </para>
+    <note>
+     <para>
+      The <literal>--tls-disabled</literal> flag is not specified in the
+      included template. Authentication via client certificate will be turned
+      on in clusters created from this template.
+     </para>
+    </note>
+<screen>$  magnum cluster-template-create --name my-swarm-template \
+  --image-id 4277115a-f254-46c0-9fb0-fffc45d2fd38 \
+  --keypair-id testkey \
+  --external-network-id ext-net \
+  --dns-nameserver 8.8.8.8 \
+  --flavor-id m1.small \
+  --docker-volume-size 5 \
+  --network-driver docker \
+  --coe swarm \
+  --http-proxy http://proxy.yourcompany.net:8080/ \
+  --https-proxy http://proxy.yourcompany.net:8080/</screen>
+    <note>
+     <orderedlist>
+      <listitem>
+       <para>
+        Use the <literal>image_id</literal> from
+        <literal>glance image-create</literal> command output in the previous
+        step.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Use your organization's DNS server. If the &productname; public endpoint
+        is configured with the hostname, this server should provide
+        resolution for this hostname.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        The proxy is only needed if public internet (for example,
+        <literal>https://discovery.etcd.io/</literal> or
+        <literal>https://gcr.io/</literal>) is not accessible without proxy.
+       </para>
+      </listitem>
+     </orderedlist>
+    </note>
+   </listitem>
+   <listitem>
+    <para>
+     Create cluster. The command below will create a minimalistic cluster
+     consisting of a single Kubernetes Master (kubemaster) and single
+     Kubernetes Node (worker, kubeminion).
+    </para>
+<screen>$ magnum cluster-create --name my-swarm-cluster --cluster-template my-swarm-template \
+  --node-count 1 --master-count 1</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Immediately after issuing <literal>cluster-create</literal> command,
+     cluster status should turn to
+     <emphasis role="bold">CREATE_IN_PROGRESS</emphasis>
+     and <literal>stack_id</literal> assigned.
+    </para>
+<screen>$ magnum cluster-show my-swarm-cluster
++---------------------+------------------------------------------------------------+
+| Property            | Value                                                      |
++---------------------+------------------------------------------------------------+
+| status              | CREATE_IN_PROGRESS                                         |
+| cluster_template_id | 17df266e-f8e1-4056-bdee-71cf3b1483e3                       |
+| uuid                | c3e13e5b-85c7-44f4-839f-43878fe5f1f8                       |
+| stack_id            | 3265d843-3677-4fed-bbb7-e0f56c27905a                       |
+| status_reason       | -                                                          |
+| created_at          | 2017-04-21T17:13:08+00:00                                  |
+| name                | my-swarm-cluster                                           |
+| updated_at          | -                                                          |
+| discovery_url       | https://discovery.etcd.io/54e83ea168313b0c2109d0f66cd0aa6f |
+| api_address         | -                                                          |
+| coe_version         | -                                                          |
+| master_addresses    | []                                                         |
+| create_timeout      | 60                                                         |
+| node_addresses      | []                                                         |
+| master_count        | 1                                                          |
+| container_version   | -                                                          |
+| node_count          | 1                                                          |
++---------------------+------------------------------------------------------------+</screen>
+   </listitem>
+   <listitem>
+    <para>
+     You can monitor cluster creation progress by listing the resources of the
+     Heat stack. Use the <literal>stack_id</literal> value from the
+     <literal>magnum cluster-status</literal> output above in the following
+     command:
+    </para>
+<screen>$ heat resource-list -n2 3265d843-3677-4fed-bbb7-e0f56c27905a
+WARNING (shell) "heat resource-list" is deprecated, please use "openstack stack resource list" instead
++--------------------+--------------------------------------+--------------------------------------------+-----------------+----------------------+-------------------------------+
+| resource_name      | physical_resource_id                 | resource_type                              | resource_status | updated_time         | stack_name                    |
+|--------------------+--------------------------------------+--------------------------------------------+-----------------+----------------------+-------------------------------+
+| api_address_switch | 430f82f2-03e3-4085-8c07-b4a6b6d7e261 | Magnum::ApiGatewaySwitcher                 | CREATE_COMPLETE | 2017-04-21T17:13:07Z | my-swarm-cluster-j7gbjcxaremy |
+| api_listener       | a306fd54-e569-4673-8fd3-7ae5ebdf53c3 | Magnum::Optional::Neutron::LBaaS::Listener | CREATE_COMPLETE | 2017-04-21T17:13:07Z | my-swarm-cluster-j7gbjcxaremy |
+. . .</screen>
+   </listitem>
+   <listitem>
+    <para>
+     The cluster is complete when all resources show
+     <emphasis role="bold">CREATE_COMPLETE</emphasis>. You can also obtain the
+     floating IP address once the cluster has been created.
+    </para>
+<screen>$ magnum cluster-show my-swarm-cluster
++---------------------+------------------------------------------------------------+
+| Property            | Value                                                      |
++---------------------+------------------------------------------------------------+
+| status              | CREATE_COMPLETE                                            |
+| cluster_template_id | 17df266e-f8e1-4056-bdee-71cf3b1483e3                       |
+| uuid                | c3e13e5b-85c7-44f4-839f-43878fe5f1f8                       |
+| stack_id            | 3265d843-3677-4fed-bbb7-e0f56c27905a                       |
+| status_reason       | Stack CREATE completed successfully                        |
+| created_at          | 2017-04-21T17:13:08+00:00                                  |
+| name                | my-swarm-cluster                                           |
+| updated_at          | 2017-04-21T17:18:26+00:00                                  |
+| discovery_url       | https://discovery.etcd.io/54e83ea168313b0c2109d0f66cd0aa6f |
+| api_address         | tcp://172.31.0.7:2376                                      |
+| coe_version         | 1.0.0                                                      |
+| master_addresses    | ['172.31.0.7']                                             |
+| create_timeout      | 60                                                         |
+| node_addresses      | ['172.31.0.5']                                             |
+| master_count        | 1                                                          |
+| container_version   | 1.9.1                                                      |
+| node_count          | 1                                                          |
++---------------------+------------------------------------------------------------+</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Generate and sign client certificate using <literal>magnum
+     cluster-config</literal> command.
+    </para>
+<screen>$ mkdir my_swarm_cluster
+$ cd my_swarm_cluster/
+~/my_swarm_cluster $ magnum cluster-config my-swarm-cluster
+{'tls': True, 'cfg_dir': '.', 'docker_host': u'tcp://172.31.0.7:2376'}
+~/my_swarm_cluster $ ls
+ca.pem  cert.pem  key.pem</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Copy generated certificates and key to ~/.docker folder on first cluster
+     master node.
+    </para>
+<screen>$ scp -r ~/my_swarm_cluster fedora@172.31.0.7:.docker
+ca.pem                                             100% 1066     1.0KB/s   00:00
+key.pem                                            100% 1679     1.6KB/s   00:00
+cert.pem                                           100% 1005     1.0KB/s   00:00</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Login to first master node and set up cluster access environment
+     variables.
+    </para>
+<screen>$ ssh fedora@172.31.0.7
+[fedora@my-6zxz5ukdu-0-bvqbsn2z2uwo-swarm-master-n6wfplu7jcwo ~]$ export DOCKER_TLS_VERIFY=1
+[fedora@my-6zxz5ukdu-0-bvqbsn2z2uwo-swarm-master-n6wfplu7jcwo ~]$ export DOCKER_HOST=tcp://172.31.0.7:2376</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Verfy that the swarm container is up and running.
+    </para>
+<screen>[fedora@my-6zxz5ukdu-0-bvqbsn2z2uwo-swarm-master-n6wfplu7jcwo ~]$ docker ps -a
+CONTAINER ID        IMAGE               COMMAND                  CREATED             STATUS              PORTS               NAMES
+fcbfab53148c        swarm:1.0.0         "/swarm join --addr 1"   24 minutes ago      Up 24 minutes       2375/tcp            my-xggjts5zbgr-0-d4qhxhdujh4q-swarm-node-vieanhwdonon.novalocal/swarm-agent</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Deploy a sample docker application (nginx) and verify that Nginx is
+     serving requests at port 8080 on worker node(s), on both floating and
+     private IPs:
+    </para>
+<screen>[fedora@my-6zxz5ukdu-0-bvqbsn2z2uwo-swarm-master-n6wfplu7jcwo ~]$ docker run -itd -p 8080:80 nginx
+192030325fef0450b7b917af38da986edd48ac5a6d9ecb1e077b017883d18802
+
+[fedora@my-6zxz5ukdu-0-bvqbsn2z2uwo-swarm-master-n6wfplu7jcwo ~]$ docker port 192030325fef
+80/tcp -&gt; 10.0.0.11:8080
+
+[fedora@my-6zxz5ukdu-0-bvqbsn2z2uwo-swarm-master-n6wfplu7jcwo ~]$ curl http://10.0.0.11:8080
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+&lt;title&gt;Welcome to nginx!&lt;/title&gt;
+&lt;style&gt;
+...
+[fedora@my-6zxz5ukdu-0-bvqbsn2z2uwo-swarm-master-n6wfplu7jcwo ~]$ curl http://172.31.0.5:8080
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+&lt;title&gt;Welcome to nginx!&lt;/title&gt;
+&lt;style&gt;
+...</screen>
+   </listitem>
+   <listitem>
+    <para>
+     If LBaaS v2 is enabled in your &productname; environment, a new load balancer
+     can be created to perform request rotation between several masters. For
+     more information about LBaaS v2 support, see
+     <xref linkend="OctaviaInstall"/>.
+    </para>
+   </listitem>
+  </orderedlist>
+ </section>
+</section>
