@@ -6,10 +6,14 @@ templates_dir=$(readlink -e "${scripts_dir}/../templates")
 
 source ${scripts_dir}/upstream-docs.conf
 
+# Some docs contain unicode, so avoid failures trying to process them as ascii
+export LANG=en_US.utf8
+
 set -e
 
 # Author: Thomas Bechtold <tbechtold@suse.com>
 # Author: Jeremy Moffitt <jmoffitt@suse.com>
+# Author: Gary Smith <gary.smith@suse.com>
 # License: Apache-2.0
 
 # extra tox options (eg. -r)
@@ -59,10 +63,11 @@ for project in $PROJECTS; do
 
     if [[ ! -d ${OPENSTACK_REPO_DIR}/${project} ]]; then
         echo "### Cloning git repo"
-        git clone https://git.openstack.org/openstack/${project} ${OPENSTACK_REPO_DIR}/${project}
+        git clone https://git.openstack.org/openstack/${project} ${OPENSTACK_REPO_DIR}/${project} -b ${OPENSTACK_REPO_BRANCH}
     fi
     cd ${OPENSTACK_REPO_DIR}/${project}
     echo "### Clear out any changes that may have come from previous runs"
+    git checkout --force ${OPENSTACK_REPO_BRANCH}
     git reset --hard HEAD
     git clean -fd
 
@@ -162,4 +167,4 @@ for project in $PROJECTS ; do
 done
 
 # Print the message with surrounding lines of hashes
-print_title "Your html files for the different projects are in ${scripts_dir}/build"
+print_title "The generated docs are in scripts/build/admin/html and scripts/build/user/html"
