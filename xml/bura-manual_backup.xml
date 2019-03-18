@@ -5,12 +5,40 @@
 <section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude"
         xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="bura-manual_backup">
  <title>Manual Backup and Restore Procedures</title>
+ <para>
+  Each backup requires the following steps:
+ </para>
+ <procedure>
+  <step>
+   <para>
+    Create a snapshot.
+   </para>
+  </step>
+  <step>
+   <para>
+    Mount the snapshot.
+   </para>
+  </step>
+  <step>
+   <para>
+    Generate a TAR archive and save it.
+   </para>
+  </step>
+  <step>
+   <para>
+    Unmount and delete the snapshot.
+   </para>
+  </step>
+ </procedure>
  <section>
   <title>&clm; Data Backup</title>
   <para>
    The following procedure is used for each
    <replaceable>BACKUP_TARGET</replaceable>. Incremental backup instructions
-   follow the new backup procedures.
+   follow the full backup procedures. In both cases, the last step of the
+   backup procedure is to unmount and delete the snapshot after the TAR archive
+   has been created and saved. A new snapshot must be created every time a
+   backup is created.
   </para>
   <procedure xml:id="manual_backup_setup">
    <title>Manual Backup Setup</title>
@@ -18,10 +46,19 @@
     <para>
      Create a snapshot on the &clm; in (<literal>ardana-vg</literal>), the
      location where all &clm; data is stored.
-     all .
     </para>
-<screen>&prompt.ardana;sudo lvcreate --size 1G --snapshot --permission r \
+    <screen>&prompt.ardana;sudo lvcreate --size 2G --snapshot --permission r \
 --name lvm_clm_snapshot /dev/ardana-vg/root</screen>
+    <note>
+     <para>
+      If you have stored additional data or files in your
+      <literal>ardana-vg</literal> directory, you may need to increase the
+      <literal>size</literal> parameter. In this situation, create a TAR
+      archive with <command>tar</command> command on the directory before
+      creating a snapshot. Set the <literal>size</literal> snapshot parameter
+      larger than the size of the archive.
+     </para>
+    </note>
    </step>
    <step>
     <para>
@@ -75,7 +112,7 @@
      </listitem>
     </itemizedlist>
     <para>
-     We want the backup TAR archive to have only the necessary data; nothing
+     The backup TAR archive should have only the necessary data; nothing
      extra. Some of the archives will be stored as directories, others as
      files. The backup commands are slightly different for each type. The
      <literal>-C</literal> flag instructs the <command>tar</command> command to
@@ -128,6 +165,13 @@
 --ignore-failed-read --file passwd.tar.gz -C /var/tmp/clm_snapshot/etc/passwd</screen>
      </listitem>
     </itemizedlist>
+   </step>
+   <step>
+    <para>
+     Use the following commands to unmount and delete a snapshot.
+    </para>
+    <screen>&prompt.ardana;sudo umount -l -f /var/tmp/clm_snapshot; rm -rf /var/tmp/clm_snapshot</screen>
+<screen>&prompt.ardana;sudo lvremove -f /dev/ardana-vg/lvm_clm_snapshot</screen>
    </step>
   </procedure>
   <para>
@@ -247,16 +291,20 @@
     Incremental backups require a <literal>meta</literal> file. If you want to
     use the incremental backup option, this meta file must be included in the
     <command>tar</command> command in the initial backup and whenever you do an
-    incremental backup. A copy of the original
-    <literal>meta</literal> file should be stored in each backup. The
-    <literal>meta</literal> file is used by Gnu Tar to determine the
-    incremental changes from the previous backup, so it is rewritten with each
-    incremental backup.
+    incremental backup. A copy of the original <literal>meta</literal> file
+    should be stored in each backup. The <literal>meta</literal> file is used
+    by <literal>Gnu Tar</literal> to determine the incremental changes from the
+    previous backup, so it is rewritten with each incremental backup.
    </para>
    <para>
     Versions are useful for incremental backup because they provide a way
     to differentiate between each backup. Versions are included in the
     <command>tar</command> command.
+   </para>
+   <para>
+    Every incremental backup requires creating and mounting a separate
+    snapshot. After the TAR archive is created, the snapshot is unmounted and
+    deleted.
    </para>
    <para>
     To prepare for incremental backup, follow the steps in
@@ -276,7 +324,7 @@
 /var/tmp/clm_snapshot<replaceable>TARGET_DIR</replaceable>|<replaceable>BACKUP_TARGET_WITHOUT_LEADING_DIR</replaceable></screen>
      <para>
       For example, where
-      <replaceable>BACKUP_PATH</replaceable>=<filename>/etc/ssh/</filename>:
+      <replaceable>BACKUP_PATH</replaceable>=<filename>/etc/ssh/</filename>
      </para>
 <screen>&prompt.ardana;sudo tar --create -z --warning=none --no-check-device \
 --one-file-system --preserve-permissions --same-owner --seek --ignore-failed-read \
@@ -303,6 +351,12 @@
 /var/tmp/clm_snapshot/etc/ssh .</screen>
     </listitem>
    </itemizedlist>
+   <para>
+    After creating an incremental backup, use the following commands to unmount
+    and delete a snapshot.
+    </para>
+    <screen>&prompt.ardana;sudo umount -l -f /var/tmp/clm_snapshot; rm -rf /var/tmp/clm_snapshot
+&prompt.ardana;sudo lvremove -f /dev/ardana-vg/lvm_clm_snapshot</screen>
   </section>
   <section xml:id="manual_backup_encryption">
    <title>Encryption</title>
@@ -317,14 +371,6 @@
    </para>
 <screen>&prompt.ardana;sudo openssl enc  -aes-256-cfb -pass file:myEncFile -in ssh.tar.gz  -out ssh.tar.gz.enc</screen>
   </section>
-  <section>
-   <title>Unmount and Delete Snapshot</title>
-   <para>
-    Use the following commands to unmount or delete a snapshot.
-   </para>
-<screen>&prompt.ardana;sudo umount -l -f /var/tmp/clm_snapshot; rm -rf /var/tmp/clm_snapshot</screen>
-<screen>&prompt.ardana;sudo lvremove -f /dev/ardana-vg/lvm_clm_snapshot</screen>
-  </section>
  </section>
  <section>
   <title>&mariadb; Database Backup</title>
@@ -332,9 +378,76 @@
    When backing up &mariadb;, the following process must be performed on all
    nodes in the cluster. With the addition of SQL commands, it is similar to
    the backup procedure above for the &clm; (see <xref
-   linkend="manual_backup_setup"/>). The SQL commands must be run before
-   beginning the general &mariadb; backup procedure.
+   linkend="manual_backup_setup"/>). The SQL commands are run with the
+   <filename>spread_read_lock.yml</filename> playbook. This playbook must be
+   run before beginning the &mariadb; backup procedure.
   </para>
+  <para>
+   Create the <filename>spread_read_lock.yml</filename> file in
+   <filename>~/scratch/ansible/next/ardana/ansible/</filename> with the
+   following content:
+  </para>
+  <screen>- hosts: FND-MDB
+vars:
+ - snapshot_name: lvm_mysql_snapshot
+ - lvm_target: /dev/ardana-vg/mysql
+
+ tasks:
+ - name: Cleanup old snapshots
+   become: yes
+   shell: |
+    lvremove -f /dev/ardana-vg/{{ snapshot_name }}
+   ignore_errors: True
+
+ - name: Check that the node can receive queries from cluster
+   become: yes
+   shell: |
+    mysql -e "SHOW GLOBAL STATUS LIKE 'wsrep_ready';" \
+    | grep wsrep_ready | awk '{print$2}'
+   register: wsrep_ready
+
+ - name: Check the connectivity of the node
+   become: yes
+   shell: |
+    mysql -e "SHOW GLOBAL STATUS LIKE 'wsrep_connected';" \
+    | grep wsrep_connected | awk '{print$2}'
+   register: wsrep_connected
+
+ - name: Check the state of the node
+   become: yes
+   shell: |
+    mysql -e "SHOW GLOBAL STATUS LIKE 'wsrep_local_state_comment';" \
+    | grep wsrep_local_state_comment | awk '{print$2}'
+   register: wsrep_local_state_comment
+
+ - fail:
+     msg: "Please check the cluster and make sure nodes are synced."
+   when: wsrep_ready.stdout != "ON" and wsrep_connected.stdout != "ON" and
+      wsrep_local_state_comment.stdout != "Synced"
+
+ - name: Apply read-lock
+   become: yes
+   shell: |
+    mysql -e "FLUSH TABLES WITH READ LOCK;"
+
+ - name: Create snapshot
+   become: yes
+   shell: |
+    lvcreate --size 2G --snapshot --permission r --name {{ snapshot_name }} {{ lvm_target }}
+   register: snapshot_st
+   ignore_errors: True
+
+ - name: Release lock
+   become: yes
+   shell: |
+    mysql -e "UNLOCK TABLES;"
+
+ - fail:
+     msg: "Fail to create snapshot on  {{ lvm_target }}"
+   when: snapshot_st.rc != 0</screen>
+   <para>
+    <emphasis role="bold">Doing the &mariadb; backup</emphasis>
+   </para>
   <procedure>
    <step>
     <para>
@@ -346,86 +459,11 @@
    </step>
    <step>
     <para>
-     Log in to &mariadb; and run the SQL command to lock tables.
+     Run the <filename>spread_read_lock.yml</filename> playbook on all nodes in
+     the cluster.
     </para>
-    <screen>mysql>> FLUSH TABLES WITH READ LOCK;</screen>
-   </step>
-   <step>
-    <para>
-     Apply the previous steps on all database nodes before proceeding. The
-     <command>READ LOCK</command> will spread after applying command above. In
-     a cluster scenario, any order of applying <command>READ LOCK</command>
-     command will work because HAProxy always directs traffic to the main node.
-    </para>
-   </step>
-   <step>
-    <para>
-     Make sure that the database is fully synchronized by checking the status
-     of individual nodes from the database client.
-    </para>
-    <table>
-     <title></title>
-     <tgroup cols="2">
-      <colspec colnum="1" colname="1" colwidth="50*"/>
-      <colspec colnum="2" colname="2" colwidth="50*"/>
-      <thead>
-       <row>
-        <entry><para>Command</para></entry>
-        <entry><para>Shows</para></entry>
-</row></thead>
-<tbody>
- <row>
-  <entry><para>wsrep_ready</para></entry>
-  <entry><para>Whether the node is accepting queries</para></entry>
- </row>
- <row>
-  <entry><para>wsrep_connected</para></entry>
-  <entry><para>Whether the node has network connectivity</para></entry>
- </row>
- <row>
-  <entry><para>wsrep_local_state_comment</para></entry>
-  <entry><para>The node state</para></entry>
- </row>
-</tbody></tgroup></table>
-<screen>mysql&gt;&gt;SHOW GLOBAL STATUS LIKE 'wsrep_ready';
-
-+---------------+-------+
-| Variable_name | Value |
-+---------------+-------+
-| wsrep_ready   | ON    |
-+---------------+-------+</screen>
-<screen>mysql&gt;&gt;SHOW GLOBAL STATUS LIKE 'wsrep_connected';
-
-+-----------------+-------+
-| Variable_name   | Value |
-+-----------------+-------+
-| wsrep_connected | ON    |
-+-----------------+-------+</screen>
-<screen>mysql&gt;&gt;SHOW GLOBAL STATUS LIKE 'wsrep_local_state_comment';
-
-+---------------------------+--------+
-| Variable_name             | Value  |
-+---------------------------+--------+
-| wsrep_local_state_comment | Joined |
-+---------------------------+--------+</screen>
-<para>
- More information about database clusters and node status is available at <link
- xlink:href="http://galeracluster.com/documentation-webpages/monitoringthecluster.html">Monitoring
- Cluster Status</link>
-</para>
-   </step>
-   <step>
-    <para>
-     Create a snapshot on each database node before proceeding
-    </para>
-    <screen>dbnode&gt;&gt; sudo lvcreate --size 1G --snapshot --permission r \
---name lvm_mysql_snapshot /dev/ardana-vg/mysql</screen>
-   </step>
-   <step>
-    <para>
-     Log in to &mariadb; on each node and run the SQL command to release the table lock.
-    </para>
-    <screen>mysql>> UNLOCK TABLES;</screen>
+    <screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible/
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts spread_read_lock.yml</screen>
    </step>
    <step>
     <para>
@@ -453,6 +491,13 @@ dbnode&gt;&gt; sudo mount -o r /dev/ardana-vg/lvm_mysql_snapshot  /var/tmp/mysql
 --one-file-system --preserve-permissions --same-owner --seek \
 --ignore-failed-read --file <emphasis role="bold">mydb</emphasis>.tar.gz -C \
 /var/tmp/mysql_snapshot<emphasis role="bold">/var/lib/mysql</emphasis> .</screen>
+   </step>
+   <step>
+    <para>
+     Unmount and delete a &mariadb; snapshot.
+    </para>
+    <screen>dbnode&gt;&gt; sudo  umount -l -f /var/tmp/mysql_snapshot; \
+sudo rm -rf /var/tmp/mysql_snapshot; sudo lvremove -f /dev/ardana-vg/lvm_mysql_snapshot</screen>
    </step>
   </procedure>
   <table>
@@ -543,6 +588,11 @@ dbnode&gt;&gt; sudo mount -o r /dev/ardana-vg/lvm_mysql_snapshot  /var/tmp/mysql
 <emphasis role="bold">mydb_v1.tar.gz</emphasis> -C /var/tmp/mysql_snapshot/var/lib/mysql .</screen>
     </listitem>
    </itemizedlist>
+   <para>
+    After creating and saving the TAR archive, unmount and delete the snapshot.
+   </para>
+   <screen>dbnode&gt;&gt; sudo  umount -l -f /var/tmp/mysql_snapshot; \
+sudo rm -rf /var/tmp/mysql_snapshot; sudo lvremove -f /dev/ardana-vg/lvm_mysql_snapshot</screen>
   </section>
   <section>
    <title>&mariadb; Database Encryption</title>
@@ -559,14 +609,6 @@ dbnode&gt;&gt; sudo mount -o r /dev/ardana-vg/lvm_mysql_snapshot  /var/tmp/mysql
      </para>
     </step>
    </procedure>
-  </section>
-  <section>
-   <title>Unmount and Delete Snapshot</title>
-   <para>
-    Unmount and delete a snapshot.
-   </para>
-   <screen>dbnode&gt;&gt; sudo  umount -l -f /var/tmp/mysql_snapshot; \
-sudo rm -rf /var/tmp/mysql_snapshot; sudo lvremove -f /dev/ardana-vg/lvm_mysql_snapshot</screen>
   </section>
  </section>
  <section>
@@ -587,7 +629,7 @@ sudo rm -rf /var/tmp/mysql_snapshot; sudo lvremove -f /dev/ardana-vg/lvm_mysql_s
     <para>
      Create a snapshot
     </para>
-    <screen>&prompt.ardana;sudo lvcreate --size 1G --snapshot --permission r \
+    <screen>&prompt.ardana;sudo lvcreate --size 2G --snapshot --permission r \
 --name lvm_root_snapshot /dev/ardana-vg/root</screen>
    </step>
    <step>
@@ -607,12 +649,12 @@ sudo rm -rf /var/tmp/mysql_snapshot; sudo lvremove -f /dev/ardana-vg/lvm_mysql_s
    </step>
    <step>
     <para>
-     Upload your swring.tar.gz TAR archive to your preferred remote server.
+     Upload your <filename>swring.tar.gz</filename> TAR archive to your preferred remote server.
     </para>
    </step>
    <step>
     <para>
-     Unmount and delete a snapshot
+     Unmount and delete the snapshot
     </para>
     <screen>&prompt.ardana;sudo umount -l -f /var/tmp/root_snapshot; sudo rm -rf \
 /var/tmp/root_snapshot; sudo lvremove -f /dev/ardana-vg/lvm_root_snapshot</screen>
@@ -640,7 +682,7 @@ sudo rm -rf /var/tmp/mysql_snapshot; sudo lvremove -f /dev/ardana-vg/lvm_mysql_s
     <para>
      Create a snapshot
     </para>
-    <screen>&prompt.ardana;sudo lvcreate --size 1G --snapshot --permission r --name \
+    <screen>&prompt.ardana;sudo lvcreate --size 2G --snapshot --permission r --name \
 lvm_root_snapshot /dev/ardana-vg/root</screen>
    </step>
    <step>
@@ -660,7 +702,8 @@ lvm_root_snapshot /dev/ardana-vg/root</screen>
    </step>
    <step>
     <para>
-     Upload your swring.tar.gz TAR archive to your preferred remote server.
+     Upload your <filename>audit.tar.gz</filename> TAR archive to your
+     preferred remote server.
     </para>
    </step>
    <step>
