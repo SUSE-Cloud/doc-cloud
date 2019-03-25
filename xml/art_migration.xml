@@ -120,14 +120,6 @@
    </listitem>
    <listitem>
     <para>
-     There is no migration process for OpenStack-provisioned load balancers.
-     This support will be available in a future release, but at this time,
-     virtual load balancers must be removed from your cloud and re-added
-     after migration is complete.
-    </para>
-   </listitem>
-   <listitem>
-    <para>
      In order to migrate ESX compute VMs as part of this process, existing
      ESX hosts must be capable of migrating VMs between them, as rebalancing
      workloads will be necessary while ESX hosts are individually removed
@@ -1416,9 +1408,10 @@ sudo zypper dup --from PTF
 sudo zypper in ardana-ses
 rpm -qa | grep PTF</screen>
     <para>
-     Ensure that all migration RPMs available to you via your &suse; support
-     contract are present in the resulting list. If any are missing, repeat
-     the above process or contact technical support before continuing.
+     Ensure that all migration RPMs starting with the prefix "ardana-" available
+     via your &suse; support contract are present in the resulting list. If
+     any are missing, repeat the above process or contact technical support
+     before continuing.
     </para>
    </step>
    <step>
@@ -1539,8 +1532,64 @@ ansible-playbook -i hosts/verb_hosts ardana-replace-legacy-repos.yml</screen>
    </step>
    <step>
     <para>
-     After the base installation has completed, the PTF and other temporary packages
-     can be removed:
+     Now that the upgrade has completed, it will be necessary to reboot the
+     control plane nodes in your cloud for changes to take effect. At this time,
+     reboot only the control plane nodes (not compute nodes) in your cloud per
+     the instructions in <xref linkend="stop_restart"/>.
+    </para>
+   </step>
+   <step>
+    <para>
+     If your cloud includes OpenStack-provisioned load balancers, the following
+     step is necessary to update the Amphora load balancer image used by the
+     Octavia service:
+    </para>
+<screen>ansible-playbook -i hosts/verb_hosts -vvv service-guest-image \
+  -e service_package=$(ls /srv/www/suse-12.3/x86_64/repos/PTF/openstack-octavia-amphora-image*.rpm)</screen>
+   </step>
+   <step>
+    <para>
+     After updating the Amphora image with the above playbook, the following
+     steps are recommended to confirm that load balancer functionality works
+     as expected. (This will ensure that your workloads remain available through
+     the upcoming reboots of compute nodes.)
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       Confirm using <command>neutron lbaas-loadbalancer-list</command> that any
+       existing load balances are online and reporting with state
+       <systemitem>ACTIVE</systemitem>.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Create a new load balancer with <command>neutron lbaas-loadbalancer-create
+       migration_test <replaceable>OCTAVIA-MGMT-NET-ID</replaceable></command>.
+       (The ID of OCTAVIA-MGMT-NET is available from the list reported by
+       <command>openstack network list</command>.)
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Run <command>neutron lbaas-loadbalancer-list</command> to ensure that the 
+       new load balancer appears and becomes <systemitem>ACTIVE</systemitem>,
+       then try using <command>nova delete</command> to remove its associated VM
+       and ensure that it is recreated by the failover mechanism.
+      </para>
+     </listitem>
+    </itemizedlist>
+   </step>
+   <step>
+    <para>
+     You may now proceed to reboot the compute nodes in your cloud for all
+     changes to fully take effect and re-enable normal behavior. Continue to refer
+     to the steps described in <xref linkend="stop_restart"/>.
+    </para>
+   </step>
+   <step>
+    <para>
+     At this time, the PTF and other temporary packages can be removed:
     </para>
 <screen>cd ~/scratch/ansible/next/ardana/ansible
 ansible -i hosts/verb_hosts resources --become -m shell \
@@ -1558,13 +1607,6 @@ sudo zypper dup --from Cloud</screen>
       acknowledged as you proceed.
      </para>
     </note>
-   </step>
-   <step>
-    <para>
-     Now that the upgrade has completed, it will be necessary to reboot the nodes
-     in your cloud for changes to fully take effect and re-enable normal behavior.
-     Reboot your cloud per the instructions in <xref linkend="stop_restart"/>.
-    </para>
    </step>
    <step>
     <para>
