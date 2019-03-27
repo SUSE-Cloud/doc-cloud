@@ -22,7 +22,7 @@ set -e
 # Create entries for the table of contents doc that will be generated
 declare -A summary
 summary[barbican]='Key Manager service (barbican)'
-summary[ceilometer]='Telemtry Data Collection service (ceilometer)'
+summary[ceilometer]='Telemetry Data Collection service (ceilometer)'
 summary[cinder]='Block Storage service (cinder)'
 summary[designate]='DNS service (designate)'
 summary[glance]='Image service (glance)'
