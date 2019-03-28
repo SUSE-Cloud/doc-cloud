@@ -1,0 +1,1053 @@
+<?xml version="1.0"?>
+<!DOCTYPE chapter [
+ <!ENTITY % entities SYSTEM "entity-decl.ent"> %entities;
+]>
+<chapter xml:id="OctaviaInstall"
+ xmlns="http://docbook.org/ns/docbook" version="5.1"
+ xmlns:xi="http://www.w3.org/2001/XInclude"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+ <title>Configuring Load Balancer as a Service</title>
+ <info>
+  <abstract>
+   <para>
+    The &productname; &o_netw; LBaaS service supports several load balancing
+    providers. By default, both &octavia; and the namespace &haproxy; driver are
+    configured to be used.
+   </para>
+  </abstract>
+ </info>
+ <para>
+  The &productname; &o_netw; LBaaS service supports several load balancing
+  providers. By default, both &octavia; and the namespace &haproxy; driver are
+  configured for use.
+ </para>
+ <para>
+  If you do not specify the <literal>--provider</literal> option it will
+  default to &octavia;. The &octavia; driver provides more functionality than the
+  &haproxy; namespace driver which is deprecated. The &haproxy; namespace driver
+  will be retired in a future version of &productname;.
+ </para>
+ <para>
+  There are additional drivers for third-party hardware load balancers. Please
+  refer to the vendor directly. The <command>openstack network service provider
+  list</command> command displays the currently installed load balancer
+  drivers as well as other installed services such as VPN.
+ </para>
+ <section>
+  <title>Prerequisites</title>
+  <para>
+   You need have an external network and a registered image to test LBaaS
+   functionality.
+  </para>
+  <para>
+   Creating an external network: <xref linkend="create_extnet"/>.
+  </para>
+  <para>
+   Creating and uploading a &o_img; image: <xref linkend="upload_image"/>.
+  </para>
+ </section>
+ <section>
+  <title>&octavia; Load Balancing Provider</title>
+  <para>
+   The &octavia; Load balancing provider bundled with &product; is an operator
+   grade load balancer for &ostack;. It is based on the &ostack-current;
+   version of &octavia;. It differs from the namespace driver by starting a new
+   &o_comp; virtual machine (called an <literal>amphora</literal>) to house the
+   &haproxy; load balancer software that provides the load balancer function. A
+   virtual machine for each load balancer requested provides a better
+   separation of load balancers between tenants, and simplifies increasing load
+   balancing capacity along with compute node growth.  Additionally, if the
+   virtual machine fails for any reason, &octavia; will replace it with a
+   replacement VM from a pool of spare VMs, assuming that the feature is
+   configured.
+  </para>
+  <note>
+   <para>
+    The Health Monitor will not create or replace failed amphoras. If the pool
+    of spare VMs is exhausted there will be no additional virtual machines to
+    handle load balancing requests.
+   </para>
+  </note>
+  <para>
+   &octavia; uses two-way SSL encryption to communicate with amphoras. There
+   are demo Certificate Authority (CA) certificates included with &product; in
+   <filename>~/scratch/ansible/next/ardana/ansible/roles/octavia-common/files</filename>
+   on the &clm;. For additional security in production deployments, replace all
+   certificate authorities with ones you generate by running the following
+   commands:
+  </para>
+<screen><?dbsuse-fo font-size="0.70em"?>&prompt.ardana;openssl genrsa -passout pass:foobar -des3 -out cakey.pem 2048
+&prompt.ardana;openssl req -x509 -passin pass:foobar -new -nodes -key cakey.pem -out ca_01.pem
+&prompt.ardana;openssl genrsa -passout pass:foobar -des3 -out servercakey.pem 2048
+&prompt.ardana;openssl req -x509 -passin pass:foobar -new -nodes -key cakey.pem -out serverca_01.pem</screen>
+  <para>
+   For more details refer to the
+   <link xlink:href="https://www.openssl.org/docs/manmaster/apps/openssl.html">openssl
+   man page</link>.
+  </para>
+  <note>
+   <para>
+    If you change the certificate authority and have amphoras running with an
+    old CA, you will not be able to control the amphoras. The amphoras will need
+    to be failed over so they can utilize the new certificate. If you change
+    the CA password for the server certificate, you need to change that in the
+    &octavia; configuration files as well. For more information, see
+    <xref linkend="Tuning"/>.
+   </para>
+  </note>
+ </section>
+ <section>
+  <title>Prerequisite Setup</title>
+  <para>
+   <emphasis role="bold">&octavia; Network and Management Network
+   Ports</emphasis>
+  </para>
+  <para>
+   The &octavia; management network and Management network must have access to
+   each other. If you have a configured firewall between the &octavia; management
+   network and Management network, you must open up the following ports to
+   allow network traffic between the networks.
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     From Management network to &octavia; network
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       TCP 9443 (amphora API)
+      </para>
+     </listitem>
+    </itemizedlist>
+   </listitem>
+   <listitem>
+    <para>
+     From &octavia; network to Management network
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       TCP 9876 (&octavia; API)
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       UDP 5555 (&octavia; Health Manager)
+      </para>
+     </listitem>
+    </itemizedlist>
+   </listitem>
+  </itemizedlist>
+  <para>
+   <emphasis role="bold">Installing the Amphora Image</emphasis>
+  </para>
+  <para>
+   &octavia; uses &o_comp; VMs for its load balancing function; &vendor;
+   provides images used to boot those VMs called
+   <literal>octavia-amphora</literal>.
+  </para>
+  <warning>
+   <para>
+    Without these images the &octavia; load balancer will not work.
+   </para>
+  </warning>
+  <para>
+   <emphasis role="bold">Register the image.</emphasis> The &ostack; load
+   balancing service (&octavia;) does not automatically register the Amphora
+   guest image.
+  </para>
+  <procedure>
+   <step>
+    <para>
+     The full path and name for the Amphora image is
+     <filename>/srv/www/suse-12.3/x86_64/repos/Cloud/suse/noarch/openstack-octavia-amphora-image-x86_64-0.1.0-1.21.noarch.rpm</filename>
+    </para>
+    <para>
+     Switch to the <filename>ansible</filename> directory and register the
+     image by giving the full path and name for the Amphora image as an
+     argument to <literal>service_package</literal>:
+    </para>
+<screen><?dbsuse-fo font-size="0.70em"?>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible/
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts service-guest-image.yml \
+-e service_package=\
+/srv/www/suse-12.3/x86_64/repos/Cloud/suse/noarch/openstack-octavia-amphora-image-x86_64-0.1.0-1.21.noarch.rpm</screen>
+   </step>
+   <step>
+    <para>
+     Source the service user (this can be done on a different computer)
+    </para>
+<screen>&prompt.user;source service.osrc</screen>
+   </step>
+   <step>
+    <para>
+     Verify that the image was registered (this can be done on a computer with
+     access to the &o_img; CLI client)
+    </para>
+<screen>&prompt.user;openstack image list
++--------------------------------------+------------------------+---------
+| ID                                   | Name                   | Status |
++--------------------------------------+------------------------+--------+
+...
+| 1d4dd309-8670-46b6-801d-3d6af849b6a9 | octavia-amphora-x86_64 | active |
+...</screen>
+    <important>
+     <para>
+      In the example above, the status of the
+      <literal>octavia-amphora-x86_64</literal> image is
+      <emphasis>active</emphasis> which means the image was successfully
+      registered. If a status of the images is <emphasis>queued</emphasis>, you
+      need to run the image registration again.
+     </para>
+     <para>
+      If you run the registration by accident, the system will only upload a
+      new image if the underlying image has been changed.
+     </para>
+    </important>
+    <para>
+     If you have already created load balancers, they will not receive the new
+     image. Only load balancers created after the image has been successfully
+     installed will use the new image. If existing load balancers need to be
+     switched to the new image, please follow the instructions in <xref
+     linkend="Tuning"/>.
+    </para>
+   </step>
+  </procedure>
+  <para>
+   <emphasis role="bold">Setup network, subnet, router, security and
+   IP's</emphasis>
+  </para>
+  <para>
+   If you have already created a network, subnet, router, security settings and
+   IPs you can skip the following steps and go directly to creating the load
+   balancers.
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Create a network.
+    </para>
+<screen>&prompt.user;openstack network create lb_net1
++---------------------------+--------------------------------------+
+| Field                     | Value                                |
++---------------------------+--------------------------------------+
+| admin_state_up            | True                                 |
+| id                        | 71a1ac88-30a3-48a3-a18b-d98509fbef5c |
+| mtu                       | 0                                    |
+| name                      | lb_net1                              |
+| provider:network_type     | vxlan                                |
+| provider:physical_network |                                      |
+| provider:segmentation_id  | 1061                                 |
+| router:external           | False                                |
+| shared                    | False                                |
+| status                    | ACTIVE                               |
+| subnets                   |                                      |
+| tenant_id                 | 4b31d0508f83437e83d8f4d520cda22f     |
++---------------------------+--------------------------------------+</screen>
+   </step>
+   <step>
+    <para>
+     Create a subnet.
+    </para>
+<screen><?dbsuse-fo font-size="0.70em"?>&prompt.user;openstack subnet create --name lb_subnet1 lb_net1 10.247.94.128/26 \
+  --gateway 10.247.94.129
++-------------------+----------------------------------------------------+
+| Field             | Value                                              |
++-------------------+----------------------------------------------------+
+| allocation_pools  | {"start": "10.247.94.130", "end": "10.247.94.190"} |
+| cidr              | 10.247.94.128/26                                   |
+| dns_nameservers   |                                                    |
+| enable_dhcp       | True                                               |
+| gateway_ip        | 10.247.94.129                                      |
+| host_routes       |                                                    |
+| id                | 6fc2572c-53b3-41d0-ab63-342d9515f514               |
+| ip_version        | 4                                                  |
+| ipv6_address_mode |                                                    |
+| ipv6_ra_mode      |                                                    |
+| name              | lb_subnet1                                         |
+| network_id        | 71a1ac88-30a3-48a3-a18b-d98509fbef5c               |
+| subnetpool_id     |                                                    |
+| tenant_id         | 4b31d0508f83437e83d8f4d520cda22f                   |
++-------------------+----------------------------------------------------+</screen>
+   </step>
+   <step>
+    <para>
+     Create a router.
+    </para>
+<screen>&prompt.user;openstack router create --distributed False lb_router1
++-----------------------+--------------------------------------+
+| Field                 | Value                                |
++-----------------------+--------------------------------------+
+| admin_state_up        | True                                 |
+| distributed           | False                                |
+| external_gateway_info |                                      |
+| ha                    | False                                |
+| id                    | 6aafc9a9-93f6-4d7e-94f2-3068b034b823 |
+| name                  | lb_router1                           |
+| routes                |                                      |
+| status                | ACTIVE                               |
+| tenant_id             | 4b31d0508f83437e83d8f4d520cda22f     |
++-----------------------+--------------------------------------+</screen>
+   </step>
+   <step>
+    <para>
+     Add interface to router. In the following example, the interface
+     <literal>426c5898-f851-4f49-b01f-7a6fe490410c</literal> will be added to
+     the router <literal>lb_router1</literal>.
+    </para>
+<screen>&prompt.user;openstack router add subnet lb_router1 lb_subnet1</screen>
+   </step>
+   <step>
+    <para>
+     Set gateway for router.
+    </para>
+<screen>&prompt.user;openstack router set lb_router1 ext-net</screen>
+   </step>
+   <step>
+    <para>
+     Check networks.
+    </para>
+<screen><?dbsuse-fo font-size="0.70em"?>&prompt.user;openstack network list
++-----------------------------+------------------+-----------------------------+
+| id                          | name             | subnets                     |
++-----------------------------+------------------+-----------------------------+
+| d3cb12a6-a000-4e3e-         | ext-net          | f4152001-2500-4ebe-ba9d-    |
+| 82c4-ee04aa169291           |                  | a8d6149a50df 10.247.96.0/23 |
+| 8306282a-3627-445a-a588-c18 | OCTAVIA-MGMT-NET | f00299f8-3403-45ae-ac4b-    |
+| 8b6a13163                   |                  | 58af41d57bdc                |
+|                             |                  | 10.247.94.128/26            |
+| 71a1ac88-30a3-48a3-a18b-    | lb_net1          | 6fc2572c-                   |
+| d98509fbef5c                |                  | 53b3-41d0-ab63-342d9515f514 |
+|                             |                  | 10.247.94.128/26            |
++-----------------------------+------------------+-----------------------------+</screen>
+   </step>
+   <step>
+    <para>
+     Create security group.
+    </para>
+<screen><?dbsuse-fo font-size="0.65em"?>&prompt.user;openstack security group create lb_secgroup1
++----------------+---------------------------------------------------------------------------+
+| Field          | Value                                                                     |
++----------------+---------------------------------------------------------------------------+
+| description    |                                                                           |
+| id             | 75343a54-83c3-464c-8773-802598afaee9                                      |
+| name           | lb_secgroup1                                                              |
+| security group | {"remote_group_id": null, "direction": "egress", "remote_ip_prefix": null,|
+|    rules       | "protocol": null, "tenant_id": "4b31d...da22f", "port_range_max": null,   |
+|                | "security_group_id": "75343a54-83c3-464c-8773-802598afaee9",              |
+|                | "port_range_min": null, "ethertype": "IPv4", "id": "20ae3...97a7a"}       |
+|                | {"remote_group_id": null, "direction": "egress",                          |
+|                | "remote_ip_prefix": null, "protocol": null, "tenant_id": "4b31...a22f",   |
+|                | "port_range_max": null, "security_group_id": "7534...98afaee9",           |
+|                | "port_range_min": null, "ethertype": "IPv6", "id": "563c5c...aaef9"}      |
+| tenant_id      | 4b31d0508f83437e83d8f4d520cda22f                                          |
++----------------+---------------------------------------------------------------------------+</screen>
+   </step>
+   <step>
+    <para>
+     Create icmp security group rule.
+    </para>
+<screen>&prompt.user;openstack security group rule create lb_secgroup1 --protocol icmp
++-------------------+--------------------------------------+
+| Field             | Value                                |
++-------------------+--------------------------------------+
+| direction         | ingress                              |
+| ethertype         | IPv4                                 |
+| id                | 16d74150-a5b2-4cf6-82eb-a6c49a972d93 |
+| port_range_max    |                                      |
+| port_range_min    |                                      |
+| protocol          | icmp                                 |
+| remote_group_id   |                                      |
+| remote_ip_prefix  |                                      |
+| security_group_id | 75343a54-83c3-464c-8773-802598afaee9 |
+| tenant_id         | 4b31d0508f83437e83d8f4d520cda22f     |
++-------------------+--------------------------------------+</screen>
+   </step>
+   <step>
+    <para>
+     Create TCP port 22 rule.
+    </para>
+<screen><?dbsuse-fo font-size="0.70em"?>&prompt.user;openstack security group rule create lb_secgroup1 --protocol tcp \
+  --port-range-min 22 --port-range-max 22
++-------------------+--------------------------------------+
+| Field             | Value                                |
++-------------------+--------------------------------------+
+| direction         | ingress                              |
+| ethertype         | IPv4                                 |
+| id                | 472d3c8f-c50f-4ad2-97a1-148778e73af5 |
+| port_range_max    | 22                                   |
+| port_range_min    | 22                                   |
+| protocol          | tcp                                  |
+| remote_group_id   |                                      |
+| remote_ip_prefix  |                                      |
+| security_group_id | 75343a54-83c3-464c-8773-802598afaee9 |
+| tenant_id         | 4b31d0508f83437e83d8f4d520cda22f     |
++-------------------+--------------------------------------+</screen>
+   </step>
+   <step>
+    <para>
+     Create TCP port 80 rule.
+    </para>
+<screen>&prompt.user;openstack security group rule create lb_secgroup1 --protocol tcp \
+  --port-range-min 80 --port-range-max 80
++-------------------+--------------------------------------+
+| Field             | Value                                |
++-------------------+--------------------------------------+
+| direction         | ingress                              |
+| ethertype         | IPv4                                 |
+| id                | 10a76cad-8b1c-46f6-90e8-5dddd279e5f7 |
+| port_range_max    | 80                                   |
+| port_range_min    | 80                                   |
+| protocol          | tcp                                  |
+| remote_group_id   |                                      |
+| remote_ip_prefix  |                                      |
+| security_group_id | 75343a54-83c3-464c-8773-802598afaee9 |
+| tenant_id         | 4b31d0508f83437e83d8f4d520cda22f     |
++-------------------+--------------------------------------+</screen>
+   </step>
+   <step>
+    <para>
+     If you have not already created a keypair, create one now with
+     <literal>openstack keypair create</literal>. You will use the keypair to boot
+     images.
+    </para>
+<screen>&prompt.user;openstack keypair create lb_kp1 &gt; lb_kp1.pem
+
+chmod 400 lb_kp1.pem
+
+cat lb_kp1.pem
+-----BEGIN RSA PRIVATE KEY-----
+MIIEqAIBAAKCAQEAkbW5W/XWGRGC0LAJI7lttR7EdDfiTDeFJ7A9b9Cff+OMXjhx
+WL26eKIr+jp8DR64YjV2mNnQLsDyCxekFpkyjnGRId3KVAeV5sRQqXgtaCXI+Rvd
+IyUtd8p1cp3DRgTd1dxO0oL6bBmwrZatNrrRn4HgKc2c7ErekeXrwLHyE0Pia/pz
+C6qs0coRdfIeXxsmS3kXExP0YfsswRS/OyDl8QhRAF0ZW/zV+DQIi8+HpLZT+RW1
+8sTTYZ6b0kXoH9wLER4IUBj1I1IyrYdxlAhe2VIn+tF0Ec4nDBn1py9iwEfGmn0+
+N2jHCJAkrK/QhWdXO4O8zeXfL4mCZ9FybW4nzQIDAQABAoIBACe0PvgB+v8FuIGp
+FjR32J8b7ShF+hIOpufzrCoFzRCKLruV4bzuphstBZK/0QG6Nz/7lX99Cq9SwCGp
+pXrK7+3EoGl8CB/xmTUylVA4gRb6BNNsdkuXW9ZigrJirs0rkk8uIwRV0GsYbP5A
+Kp7ZNTmjqDN75aC1ngRfhGgTlQUOdxBH+4xSb7GukekD13V8V5MF1Qft089asdWp
+l/TpvhYeW9O92xEnZ3qXQYpXYQgEFQoM2PKa3VW7FGLgfw9gdS/MSqpHuHGyKmjl
+uT6upUX+Lofbe7V+9kfxuV32sLL/S5YFvkBy2q8VpuEV1sXI7O7Sc411WX4cqmlb
+YoFwhrkCggCBALkYE7OMTtdCAGcMotJhTiiS5l8d4U/fn1x0zus43XV5Y7wCnMuU
+r5vCoK+a+TR9Ekzc/GjccAx7Wz/YYKp6G8FXW114dLcADXZjqjIlX7ifUud4sLCS
+y+x3KAJa7LqyzH53I6FOts9RaB5xx4gZ2WjcJquCTbATZWj7j1yGeNgvAoIAgQDJ
+h0r0Te5IliYbCRg+ES9YRZzH/PSLuIn00bbLvpOPNEoKe2Pxs+KI8Fqp6ZIDAB3c
+4EPOK5QrJvAny9Z58ZArrNZi15t84KEVAkWUATl+c4SmHc8sW/atgmUoqIzgDQXe
+AlwadHLY7JCdg7EYDuUxuTKLLOdqfpf6fKkhNxtEwwKCAIAMxi+d5aIPUxvKAOI/
+2L1XKYRCrkI9i/ZooBsjusH1+JG8iQWfOzy/aDhExlJKoBMiQOIerpABHIZYqqtJ
+OLIvrsK8ebK8aoGDWS+G1HN9v2kuVnMDTK5MPJEDUJkj7XEVjU1lNZSCTGD+MOYP
+a5FInmEA1zZbX4tRKoNjZFh0uwKCAIEAiLs7drAdOLBu4C72fL4KIljwu5t7jATD
+zRAwduIxmZq/lYcMU2RaEdEJonivsUt193NNbeeRWwnLLSUWupvT1l4pAt0ISNzb
+TbbB4F5IVOwpls9ozc8DecubuM9K7YTIc02kkepqNZWjtMsx74HDrU3a5iSsSkvj
+73Z/BeMupCMCggCAS48BsrcsDsHSHE3tO4D8pAIr1r+6WPaQn49pT3GIrdQNc7aO
+d9PfXmPoe/PxUlqaXoNAvT99+nNEadp+GTId21VM0Y28pn3EkIGE1Cqoeyl3BEO8
+f9SUiRNruDnH4F4OclsDBlmqWXImuXRfeiDHxM8X03UDZoqyHmGD3RqA53I=
+-----END RSA PRIVATE KEY-----</screen>
+   </step>
+   <step>
+    <para>
+     Check and boot images.
+    </para>
+<screen><?dbsuse-fo font-size="0.70em"?>&prompt.user;openstack image list
++--------------+------------------------+--------+--------+
+| ID           | Name                   | Status | Server |
++--------------+------------------------+--------+--------+
+| 0526d...7f39 | cirros-0.4.0-x86_64    | ACTIVE |        |
+| 8aa51...8f2f | octavia-amphora-x86_64 | ACTIVE |        |
++--------------+------------------------+--------+--------+</screen>
+    <para>
+     Boot first VM.
+    </para>
+<screen><?dbsuse-fo font-size="0.70em"?>&prompt.user;openstack server create --flavor 1 --image 04b1528b-b1e2-45d4-96d1-fbe04c6b2efd --key-name lb_kp1 \
+  --security-groups lb_secgroup1 --nic net-id=71a1ac88-30a3-48a3-a18b-d98509fbef5c \
+  lb_vm1 --poll
++--------------------------------------+--------------------------------------+
+| Property                             | Value                                |
++--------------------------------------+--------------------------------------+
+| OS-DCF:diskConfig                    | MANUAL                               |
+| OS-EXT-AZ:availability_zone          |                                      |
+| OS-EXT-SRV-ATTR:host                 | -                                    |
+| OS-EXT-SRV-ATTR:hypervisor_hostname  | -                                    |
+| OS-EXT-SRV-ATTR:instance_name        | instance-00000031                    |
+| OS-EXT-STS:power_state               | 0                                    |
+| OS-EXT-STS:task_state                | scheduling                           |
+| OS-EXT-STS:vm_state                  | building                             |
+| OS-SRV-USG:launched_at               | -                                    |
+| OS-SRV-USG:terminated_at             | -                                    |
+| accessIPv4                           |                                      |
+| accessIPv6                           |                                      |
+| adminPass                            | NeVvhP5E8iCy                         |
+| config_drive                         |                                      |
+| created                              | 2016-06-15T16:53:00Z                 |
+| flavor                               | m1.tiny (1)                          |
+| hostId                               |                                      |
+| id                                   | dfdfe15b-ce8d-469c-a9d8-2cea0e7ca287 |
+| image                                | cirros-0.4.0-x86_64 (0526d...7f39)   |
+| key_name                             | lb_kp1                               |
+| metadata                             | {}                                   |
+| name                                 | lb_vm1                               |
+| os-extended-volumes:volumes_attached | []                                   |
+| progress                             | 0                                    |
+| security_groups                      | lb_secgroup1                         |
+| status                               | BUILD                                |
+| tenant_id                            | 4b31d0508f83437e83d8f4d520cda22f     |
+| updated                              | 2016-06-15T16:53:00Z                 |
+| user_id                              | fd471475faa84680b97f18e55847ec0a     |
++--------------------------------------+--------------------------------------+
+
+            Server building... 100% complete
+            Finished</screen>
+    <para>
+     Boot second VM.
+    </para>
+<screen><?dbsuse-fo font-size="0.70em"?>&prompt.user;openstack server create --flavor 1 --image 04b1528b-b1e2-45d4-96d1-fbe04c6b2efd --key-name lb_kp1 \
+  --security-groups lb_secgroup1 --nic net-id=71a1ac88-30a3-48a3-a18b-d98509fbef5c \
+  lb_vm2 --poll
++--------------------------------------+---------------------------------------+
+| Property                             | Value                                 |
++--------------------------------------+---------------------------------------+
+| OS-DCF:diskConfig                    | MANUAL                                |
+| OS-EXT-AZ:availability_zone          |                                       |
+| OS-EXT-SRV-ATTR:host                 | -                                     |
+| OS-EXT-SRV-ATTR:hypervisor_hostname  | -                                     |
+| OS-EXT-SRV-ATTR:instance_name        | instance-00000034                     |
+| OS-EXT-STS:power_state               | 0                                     |
+| OS-EXT-STS:task_state                | scheduling                            |
+| OS-EXT-STS:vm_state                  | building                              |
+| OS-SRV-USG:launched_at               | -                                     |
+| OS-SRV-USG:terminated_at             | -                                     |
+| accessIPv4                           |                                       |
+| accessIPv6                           |                                       |
+| adminPass                            | 3nFXjNrTrmNm                          |
+| config_drive                         |                                       |
+| created                              | 2016-06-15T16:55:10Z                  |
+| flavor                               | m1.tiny (1)                           |
+| hostId                               |                                       |
+| id                                   | 3844bb10-2c61-4327-a0d4-0c043c674344  |
+| image                                | cirros-0.4.0-x86_64 (0526d...7f39)    |
+| key_name                             | lb_kp1                                |
+| metadata                             | {}                                    |
+| name                                 | lb_vm2                                |
+| os-extended-volumes:volumes_attached | []                                    |
+| progress                             | 0                                     |
+| security_groups                      | lb_secgroup1                          |
+| status                               | BUILD                                 |
+| tenant_id                            | 4b31d0508f83437e83d8f4d520cda22f      |
+| updated                              | 2016-06-15T16:55:09Z                  |
+| user_id                              | fd471475faa84680b97f18e55847ec0a      |
++--------------------------------------+---------------------------------------+
+
+            Server building... 100% complete
+            Finished</screen>
+   </step>
+   <step>
+    <para>
+     List the running VMs with <literal>openstack server list</literal>
+    </para>
+<screen><?dbsuse-fo font-size="0.70em"?>&prompt.user;openstack server list
++----------------+--------+--------+------------+-------------+-----------------------+
+| ID             | Name   | Status | Task State | Power State | Networks              |
++----------------+--------+--------+------------+-------------+-----------------------+
+| dfdfe...7ca287 | lb_vm1 | ACTIVE | -          | Running     | lb_net1=10.247.94.132 |
+| 3844b...674344 | lb_vm2 | ACTIVE | -          | Running     | lb_net1=10.247.94.133 |
++----------------+--------+--------+------------+-------------+-----------------------+</screen>
+   </step>
+   <step>
+    <para>
+     Check ports.
+    </para>
+<screen><?dbsuse-fo font-size="0.70em"?>&prompt.user;openstack port list
++----------------+------+-------------------+--------------------------------+
+| id             | name | mac_address       | fixed_ips                      |
++----------------+------+-------------------+--------------------------------+
+...
+| 7e5e0...36450e |      | fa:16:3e:66:fd:2e | {"subnet_id": "6fc25...5f514", |
+|                |      |                   | "ip_address": "10.247.94.132"} |
+| ca95c...b36854 |      | fa:16:3e:e0:37:c4 | {"subnet_id": "6fc25...5f514", |
+|                |      |                   | "ip_address": "10.247.94.133"} |
++----------------+------+-------------------+--------------------------------+</screen>
+   </step>
+   <step>
+    <para>
+     Create the first floating IP.
+    </para>
+<screen><?dbsuse-fo font-size="0.70em"?>&prompt.user;openstack floating ip create ext-net --port-id 7e5e0038-88cf-4f97-a366-b58cd836450e
++---------------------+--------------------------------------+
+| Field               | Value                                |
++---------------------+--------------------------------------+
+| fixed_ip_address    | 10.247.94.132                        |
+| floating_ip_address | 10.247.96.26                         |
+| floating_network_id | d3cb12a6-a000-4e3e-82c4-ee04aa169291 |
+| id                  | 3ce608bf-8835-4638-871d-0efe8ebf55ef |
+| port_id             | 7e5e0038-88cf-4f97-a366-b58cd836450e |
+| router_id           | 6aafc9a9-93f6-4d7e-94f2-3068b034b823 |
+| status              | DOWN                                 |
+| tenant_id           | 4b31d0508f83437e83d8f4d520cda22f     |
++---------------------+--------------------------------------+</screen>
+   </step>
+   <step>
+    <para>
+     Create the second floating IP.
+    </para>
+<screen><?dbsuse-fo font-size="0.70em"?>&prompt.user;openstack floating ip create ext-net --port-id ca95cc24-4e8f-4415-9156-7b519eb36854
++---------------------+--------------------------------------+
+| Field               | Value                                |
++---------------------+--------------------------------------+
+| fixed_ip_address    | 10.247.94.133                        |
+| floating_ip_address | 10.247.96.27                         |
+| floating_network_id | d3cb12a6-a000-4e3e-82c4-ee04aa169291 |
+| id                  | 680c0375-a179-47cb-a8c5-02b836247444 |
+| port_id             | ca95cc24-4e8f-4415-9156-7b519eb36854 |
+| router_id           | 6aafc9a9-93f6-4d7e-94f2-3068b034b823 |
+| status              | DOWN                                 |
+| tenant_id           | 4b31d0508f83437e83d8f4d520cda22f     |
++---------------------+--------------------------------------+</screen>
+   </step>
+   <step>
+    <para>
+     List the floating IP's.
+    </para>
+<screen><?dbsuse-fo font-size="0.70em"?>&prompt.user;openstack floating ip list
++----------------+------------------+---------------------+---------------+
+| id             | fixed_ip_address | floating_ip_address | port_id       |
++----------------+------------------+---------------------+---------------+
+| 3ce60...bf55ef | 10.247.94.132    | 10.247.96.26        | 7e5e0...6450e |
+| 680c0...247444 | 10.247.94.133    | 10.247.96.27        | ca95c...36854 |
++----------------+------------------+---------------------+---------------+</screen>
+   </step>
+   <step>
+    <para>
+     Show first Floating IP.
+    </para>
+<screen>&prompt.user;openstack floating ip show 3ce608bf-8835-4638-871d-0efe8ebf55ef
++---------------------+--------------------------------------+
+| Field               | Value                                |
++---------------------+--------------------------------------+
+| fixed_ip_address    | 10.247.94.132                        |
+| floating_ip_address | 10.247.96.26                         |
+| floating_network_id | d3cb12a6-a000-4e3e-82c4-ee04aa169291 |
+| id                  | 3ce608bf-8835-4638-871d-0efe8ebf55ef |
+| port_id             | 7e5e0038-88cf-4f97-a366-b58cd836450e |
+| router_id           | 6aafc9a9-93f6-4d7e-94f2-3068b034b823 |
+| status              | ACTIVE                               |
+| tenant_id           | 4b31d0508f83437e83d8f4d520cda22f     |
++---------------------+--------------------------------------+</screen>
+   </step>
+   <step>
+    <para>
+     Show second Floating IP.
+    </para>
+<screen>&prompt.user;openstack floating ip show 680c0375-a179-47cb-a8c5-02b836247444
++---------------------+--------------------------------------+
+| Field               | Value                                |
++---------------------+--------------------------------------+
+| fixed_ip_address    | 10.247.94.133                        |
+| floating_ip_address | 10.247.96.27                         |
+| floating_network_id | d3cb12a6-a000-4e3e-82c4-ee04aa169291 |
+| id                  | 680c0375-a179-47cb-a8c5-02b836247444 |
+| port_id             | ca95cc24-4e8f-4415-9156-7b519eb36854 |
+| router_id           | 6aafc9a9-93f6-4d7e-94f2-3068b034b823 |
+| status              | ACTIVE                               |
+| tenant_id           | 4b31d0508f83437e83d8f4d520cda22f     |
++---------------------+--------------------------------------+</screen>
+   </step>
+   <step>
+    <para>
+     <command>Ping</command> first Floating IP.
+    </para>
+<screen>&prompt.user;ping -c 1 10.247.96.26
+PING 10.247.96.26 (10.247.96.26) 56(84) bytes of data.
+64 bytes from 10.247.96.26: icmp_seq=1 ttl=62 time=3.50 ms
+
+--- 10.247.96.26 ping statistics ---
+1 packets transmitted, 1 received, 0% packet loss, time 0ms
+rtt min/avg/max/mdev = 3.505/3.505/3.505/0.000 ms</screen>
+   </step>
+   <step>
+    <para>
+     <command>Ping</command> second Floating IP.
+    </para>
+<screen>&prompt.user;ping -c 1 10.247.96.27
+PING 10.247.96.27 (10.247.96.27) 56(84) bytes of data.
+64 bytes from 10.247.96.27: icmp_seq=1 ttl=62 time=3.47 ms
+
+--- 10.247.96.27 ping statistics ---
+1 packets transmitted, 1 received, 0% packet loss, time 0ms
+rtt min/avg/max/mdev = 3.473/3.473/3.473/0.000 ms</screen>
+   </step>
+   <step>
+    <para>
+     Listing the VMs will give you both the fixed and floating IP's for each
+     virtual machine.
+    </para>
+<screen><?dbsuse-fo font-size="0.65em"?>&prompt.user;openstack server list
++---------------+--------+--------+-------+---------+-------------------------------------+
+| ID            | Name   | Status | Task  | Power   | Networks                            |
+|               |        |        | State | State   |                                     |
++---------------+--------+--------+-------+---------+-------------------------------------+
+| dfdfe...ca287 | lb_vm1 | ACTIVE | -     | Running | lb_net1=10.247.94.132, 10.247.96.26 |
+| 3844b...74344 | lb_vm2 | ACTIVE | -     | Running | lb_net1=10.247.94.133, 10.247.96.27 |
++---------------+--------+--------+-------+---------+-------------------------------------+</screen>
+   </step>
+   <step>
+    <para>
+     List Floating IP's.
+    </para>
+<screen><?dbsuse-fo font-size="0.70em"?>&prompt.user;openstack floating ip list
++---------------+------------------+---------------------+-----------------+
+| id            | fixed_ip_address | floating_ip_address | port_id         |
++---------------+------------------+---------------------+-----------------+
+| 3ce60...f55ef | 10.247.94.132    | 10.247.96.26        | 7e5e00...36450e |
+| 680c0...47444 | 10.247.94.133    | 10.247.96.27        | ca95cc...b36854 |
++---------------+------------------+---------------------+-----------------+</screen>
+   </step>
+  </procedure>
+ </section>
+ <section>
+  <title>Create Load Balancers</title>
+  <para>
+   The following steps will set up new &octavia; Load Balancers.
+  </para>
+  <note>
+   <para>
+    The following examples assume names and values from the previous section.
+   </para>
+  </note>
+  <procedure>
+   <step>
+    <para>
+     Create load balancer for subnet
+    </para>
+<screen><?dbsuse-fo font-size="0.70em"?>&prompt.user;neutron lbaas-loadbalancer-create --provider octavia \
+  --name lb1 6fc2572c-53b3-41d0-ab63-342d9515f514
++---------------------+--------------------------------------+
+| Field               | Value                                |
++---------------------+--------------------------------------+
+| admin_state_up      | True                                 |
+| description         |                                      |
+| id                  | 3d9170a1-8605-43e6-9255-e14a8b4aae53 |
+| listeners           |                                      |
+| name                | lb1                                  |
+| operating_status    | OFFLINE                              |
+| provider            | octavia                              |
+| provisioning_status | PENDING_CREATE                       |
+| tenant_id           | 4b31d0508f83437e83d8f4d520cda22f     |
+| vip_address         | 10.247.94.134                        |
+| vip_port_id         | da28aed3-0eb4-4139-afcf-2d8fd3fc3c51 |
+| vip_subnet_id       | 6fc2572c-53b3-41d0-ab63-342d9515f514 |
++---------------------+--------------------------------------+</screen>
+   </step>
+   <step>
+    <para>
+     List load balancers. You will need to wait until the load balancer
+     <literal>provisioning_status</literal>is <literal>ACTIVE</literal> before
+     proceeding to the next step.
+    </para>
+<screen><?dbsuse-fo font-size="0.70em"?>&prompt.user;neutron lbaas-loadbalancer-list
++---------------+------+---------------+---------------------+----------+
+| id            | name | vip_address   | provisioning_status | provider |
++---------------+------+---------------+---------------------+----------+
+| 3d917...aae53 | lb1  | 10.247.94.134 | ACTIVE              | octavia  |
++---------------+------+---------------+---------------------+----------+</screen>
+   </step>
+   <step>
+    <para>
+     Once the load balancer is created, create the listener. This may take some
+     time.
+    </para>
+<screen>&prompt.user;neutron lbaas-listener-create --loadbalancer lb1 \
+  --protocol HTTP --protocol-port=80 --name lb1_listener
++---------------------------+------------------------------------------------+
+| Field                     | Value                                          |
++---------------------------+------------------------------------------------+
+| admin_state_up            | True                                           |
+| connection_limit          | -1                                             |
+| default_pool_id           |                                                |
+| default_tls_container_ref |                                                |
+| description               |                                                |
+| id                        | c723b5c8-e2df-48d5-a54c-fc240ac7b539           |
+| loadbalancers             | {"id": "3d9170a1-8605-43e6-9255-e14a8b4aae53"} |
+| name                      | lb1_listener                                   |
+| protocol                  | HTTP                                           |
+| protocol_port             | 80                                             |
+| sni_container_refs        |                                                |
+| tenant_id                 | 4b31d0508f83437e83d8f4d520cda22f               |
++---------------------------+------------------------------------------------+</screen>
+   </step>
+   <step>
+    <para>
+     Create the load balancing pool. During the creation of the load balancing
+     pool, the status for the load balancer goes to
+     <literal>PENDING_UPDATE</literal>. Use <literal>neutron
+     lbaas-loadbalancer-list</literal> to watch for the change to
+     <literal>ACTIVE</literal>. Once the load balancer returns to
+     <literal>ACTIVE</literal>, proceed with the next step.
+    </para>
+<screen>&prompt.user;neutron lbaas-pool-create --lb-algorithm ROUND_ROBIN \
+  --listener lb1_listener --protocol HTTP --name lb1_pool
++---------------------+------------------------------------------------+
+| Field               | Value                                          |
++---------------------+------------------------------------------------+
+| admin_state_up      | True                                           |
+| description         |                                                |
+| healthmonitor_id    |                                                |
+| id                  | 0f5951ee-c2a0-4e62-ae44-e1491a8988e1           |
+| lb_algorithm        | ROUND_ROBIN                                    |
+| listeners           | {"id": "c723b5c8-e2df-48d5-a54c-fc240ac7b539"} |
+| members             |                                                |
+| name                | lb1_pool                                       |
+| protocol            | HTTP                                           |
+| session_persistence |                                                |
+| tenant_id           | 4b31d0508f83437e83d8f4d520cda22f               |
++---------------------+------------------------------------------------+</screen>
+   </step>
+   <step>
+    <para>
+     Create first member of the load balancing pool.
+    </para>
+<screen>&prompt.user;neutron lbaas-member-create --subnet 6fc2572c-53b3-41d0-ab63-342d9515f514 \
+  --address 10.247.94.132 --protocol-port 80 lb1_pool
++----------------+--------------------------------------+
+| Field          | Value                                |
++----------------+--------------------------------------+
+| address        | 10.247.94.132                        |
+| admin_state_up | True                                 |
+| id             | 61da1e21-e0ae-4158-935a-c909a81470e1 |
+| protocol_port  | 80                                   |
+| subnet_id      | 6fc2572c-53b3-41d0-ab63-342d9515f514 |
+| tenant_id      | 4b31d0508f83437e83d8f4d520cda22f     |
+| weight         | 1                                    |
++----------------+--------------------------------------+</screen>
+   </step>
+   <step>
+    <para>
+     Create the second member.
+    </para>
+<screen>&prompt.user;neutron lbaas-member-create --subnet 6fc2572c-53b3-41d0-ab63-342d9515f514 \
+  --address 10.247.94.133 --protocol-port 80 lb1_pool
++----------------+--------------------------------------+
+| Field          | Value                                |
++----------------+--------------------------------------+
+| address        | 10.247.94.133                        |
+| admin_state_up | True                                 |
+| id             | 459c7f21-46f7-49e8-9d10-dc7da09f8d5a |
+| protocol_port  | 80                                   |
+| subnet_id      | 6fc2572c-53b3-41d0-ab63-342d9515f514 |
+| tenant_id      | 4b31d0508f83437e83d8f4d520cda22f     |
+| weight         | 1                                    |
++----------------+--------------------------------------+</screen>
+   </step>
+   <step>
+    <para>
+     Check to make sure the load balancer is active and check the
+     pool members.
+    </para>
+<screen><?dbsuse-fo font-size="0.70em"?>&prompt.user;neutron lbaas-loadbalancer-list
++----------------+------+---------------+---------------------+----------+
+| id             | name | vip_address   | provisioning_status | provider |
++----------------+------+---------------+---------------------+----------+
+| 3d9170...aae53 | lb1  | 10.247.94.134 | ACTIVE              | octavia  |
++----------------+------+---------------+---------------------+----------+
+
+neutron lbaas-member-list lb1_pool
++---------------+---------------+---------------+--------+---------------+----------------+
+| id            | address       | protocol_port | weight | subnet_id     | admin_state_up |
++---------------+---------------+---------------+--------+---------------+----------------+
+| 61da1...470e1 | 10.247.94.132 |            80 |      1 | 6fc25...5f514 | True           |
+| 459c7...f8d5a | 10.247.94.133 |            80 |      1 | 6fc25...5f514 | True           |
++---------------+---------------+---------------+--------+---------------+----------------+</screen>
+   </step>
+   <step>
+    <para>
+     You can view the details of the load balancer, listener and pool.
+    </para>
+<screen><?dbsuse-fo font-size="0.70em"?>&prompt.user;neutron lbaas-loadbalancer-show 3d9170a1-8605-43e6-9255-e14a8b4aae53
++---------------------+------------------------------------------------+
+| Field               | Value                                          |
++---------------------+------------------------------------------------+
+| admin_state_up      | True                                           |
+| description         |                                                |
+| id                  | 3d9170a1-8605-43e6-9255-e14a8b4aae53           |
+| listeners           | {"id": "c723b5c8-e2df-48d5-a54c-fc240ac7b539"} |
+| name                | lb1                                            |
+| operating_status    | ONLINE                                         |
+| provider            | octavia                                        |
+| provisioning_status | ACTIVE                                         |
+| tenant_id           | 4b31d0508f83437e83d8f4d520cda22f               |
+| vip_address         | 10.247.94.134                                  |
+| vip_port_id         | da28aed3-0eb4-4139-afcf-2d8fd3fc3c51           |
+| vip_subnet_id       | 6fc2572c-53b3-41d0-ab63-342d9515f514           |
++---------------------+------------------------------------------------+
+
+neutron lbaas-listener-list
++-------------+-----------------+--------------+----------+---------------+----------------+
+| id          | default_pool_id | name         | protocol | protocol_port | admin_state_up |
++-------------+-----------------+--------------+----------+---------------+----------------+
+| c723...b539 | 0f595...8988e1  | lb1_listener | HTTP     |            80 | True           |
++-------------+-----------------+--------------+----------+---------------+----------------+
+
+neutron lbaas-pool-list
++--------------------------------------+----------+----------+----------------+
+| id                                   | name     | protocol | admin_state_up |
++--------------------------------------+----------+----------+----------------+
+| 0f5951ee-c2a0-4e62-ae44-e1491a8988e1 | lb1_pool | HTTP     | True           |
++--------------------------------------+----------+----------+----------------+</screen>
+   </step>
+  </procedure>
+ </section>
+ <section>
+  <title>Create Floating IPs for Load Balancer</title>
+  <para>
+   To create the floating IP's for the load balancer, you will need to list the
+   current ports to get the load balancer id. Once you have the id, you can
+   then create the floating IP.
+  </para>
+  <procedure>
+   <step>
+    <para>
+     List the current ports.
+    </para>
+<screen><?dbsuse-fo font-size="0.65em"?>&prompt.user;openstack port list
++--------------+---------------+-------------------+-----------------------------------------+
+| id           | name          | mac_address       | fixed_ips                               |
++--------------+---------------+-------------------+-----------------------------------------+
+...
+| 7e5e...6450e |               | fa:16:3e:66:fd:2e | {"subnet_id": "6fc2572c-                |
+|              |               |                   | 53b3-41d0-ab63-342d9515f514",           |
+|              |               |                   | "ip_address": "10.247.94.132"}          |
+| a3d0...55efe |               | fa:16:3e:91:a2:5b | {"subnet_id": "f00299f8-3403-45ae-ac4b- |
+|              |               |                   | 58af41d57bdc", "ip_address":            |
+|              |               |                   | "10.247.94.142"}                        |
+| ca95...36854 |               | fa:16:3e:e0:37:c4 | {"subnet_id": "6fc2572c-                |
+|              |               |                   | 53b3-41d0-ab63-342d9515f514",           |
+|              |               |                   | "ip_address": "10.247.94.133"}          |
+| da28...c3c51 | loadbalancer- | fa:16:3e:1d:a2:1c | {"subnet_id": "6fc2572c-                |
+|              | 3d917...aae53 |                   | 53b3-41d0-ab63-342d9515f514",           |
+|              |               |                   | "ip_address": "10.247.94.134"}          |
++--------------+---------------+-------------------+-----------------------------------------+</screen>
+   </step>
+   <step>
+    <para>
+     Create the floating IP for the load balancer.
+    </para>
+<screen><?dbsuse-fo font-size="0.70em"?>&prompt.user;openstack floating ip create ext-net --port-id da28aed3-0eb4-4139-afcf-2d8fd3fc3c51
+Created a new floatingip:
++---------------------+--------------------------------------+
+| Field               | Value                                |
++---------------------+--------------------------------------+
+| fixed_ip_address    | 10.247.94.134                        |
+| floating_ip_address | 10.247.96.28                         |
+| floating_network_id | d3cb12a6-a000-4e3e-82c4-ee04aa169291 |
+| id                  | 9a3629bd-b0a6-474c-abe9-89c6ecb2b22c |
+| port_id             | da28aed3-0eb4-4139-afcf-2d8fd3fc3c51 |
+| router_id           | 6aafc9a9-93f6-4d7e-94f2-3068b034b823 |
+| status              | DOWN                                 |
+| tenant_id           | 4b31d0508f83437e83d8f4d520cda22f     |
++---------------------+--------------------------------------+</screen>
+   </step>
+  </procedure>
+ </section>
+ <section>
+  <title>Testing the &octavia; Load Balancer</title>
+  <para>
+   To test the load balancers, create the following web server script to run on
+   each virtual machine. Use <literal>curl &lt;ip address&gt;</literal> to test
+   that the load balance services are responding properly.
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Start running web servers on both of the virtual machines. Create the
+     <filename>webserver.sh</filename> script with below contents. In this
+     example, the port is 80.
+    </para>
+<screen><?dbsuse-fo font-size="0.70em"?>&prompt.user;vi webserver.sh
+
+#!/bin/bash
+
+MYIP=$(/sbin/ifconfig eth0|grep 'inet addr'|awk -F: '{print $2}'| awk '{print $1}');
+while true; do
+    echo -e "HTTP/1.0 200 OK
+
+Welcome to $MYIP" | sudo nc -l -p 80
+done</screen>
+   </step>
+   <step>
+    <para>
+     Deploy the web server and run it on the first virtual machine.
+    </para>
+<screen><?dbsuse-fo font-size="0.70em"?>&prompt.ardana;ssh-keygen -R 10.247.96.26
+/home/ardana/.ssh/known_hosts updated.
+Original contents retained as /home/ardana/.ssh/known_hosts.old
+
+scp -o StrictHostKeyChecking=no -i lb_kp1.pem webserver.sh cirros@10.247.96.26:
+webserver.sh                                      100%  263     0.3KB/s   00:00
+
+ssh -o StrictHostKeyChecking=no -i lb_kp1.pem cirros@10.247.96.26 'chmod +x ./webserver.sh'
+ssh -o StrictHostKeyChecking=no -i lb_kp1.pem cirros@10.247.96.26 ./webserver.sh</screen>
+   </step>
+   <step>
+    <para>
+     Test the first web server.
+    </para>
+<screen>&prompt.user;curl 10.247.96.26
+ Welcome to 10.247.94.132</screen>
+   </step>
+   <step>
+    <para>
+     Deploy and start the web server on the second virtual machine as you did
+     in the previous steps. Once the second web server is running, list the
+     floating IPs.
+    </para>
+<screen>&prompt.user;openstack floating ip list
++----------------+------------------+---------------------+---------------+
+| id             | fixed_ip_address | floating_ip_address | port_id       |
++----------------+------------------+---------------------+---------------+
+| 3ce60...bf55ef | 10.247.94.132    | 10.247.96.26        | 7e5e0...6450e |
+| 680c0...247444 | 10.247.94.133    | 10.247.96.27        | ca95c...36854 |
+| 9a362...b2b22c | 10.247.94.134    | 10.247.96.28        | da28a...c3c51 |
++----------------+------------------+---------------------+---------------+</screen>
+   </step>
+   <step>
+    <para>
+     Display the floating IP for the load balancer.
+    </para>
+<screen>&prompt.user;openstack floating ip show 9a3629bd-b0a6-474c-abe9-89c6ecb2b22c
++---------------------+--------------------------------------+
+| Field               | Value                                |
++---------------------+--------------------------------------+
+| fixed_ip_address    | 10.247.94.134                        |
+| floating_ip_address | 10.247.96.28                         |
+| floating_network_id | d3cb12a6-a000-4e3e-82c4-ee04aa169291 |
+| id                  | 9a3629bd-b0a6-474c-abe9-89c6ecb2b22c |
+| port_id             | da28aed3-0eb4-4139-afcf-2d8fd3fc3c51 |
+| router_id           | 6aafc9a9-93f6-4d7e-94f2-3068b034b823 |
+| status              | ACTIVE                               |
+| tenant_id           | 4b31d0508f83437e83d8f4d520cda22f     |
++---------------------+--------------------------------------+</screen>
+   </step>
+   <step>
+    <para>
+     Test the load balancing.
+    </para>
+<screen>&prompt.user;curl 10.247.96.28
+Welcome to 10.247.94.132
+
+&prompt.user;curl 10.247.96.28
+Welcome to 10.247.94.133
+
+&prompt.user;curl 10.247.96.28
+Welcome to 10.247.94.132
+
+&prompt.user;curl 10.247.96.28
+Welcome to 10.247.94.133
+
+&prompt.user;curl 10.247.96.28
+Welcome to 10.247.94.132
+
+&prompt.user;curl 10.247.96.28
+Welcome to 10.247.94.133</screen>
+   </step>
+  </procedure>
+ </section>
+</chapter>
