@@ -55,7 +55,6 @@ for guide in $GUIDES ; do
     # Overwrite the index.rst from the template
     cp ${scripts_dir}/source/${guide}/index.rst{.tmpl,}
 done
-cp ${scripts_dir}/source/singlehtml/index.rst{.tmpl,}
 
 for project in $PROJECTS; do
     echo "##### ${project}"
@@ -68,12 +67,26 @@ for project in $PROJECTS; do
     fi
     cd ${OPENSTACK_REPO_DIR}/${project}
     echo "### Clear out any changes that may have come from previous runs"
-    git checkout --force ${OPENSTACK_REPO_BRANCH}
-    git reset --hard HEAD
-    git clean -fd
+    git checkout --quiet --force ${OPENSTACK_REPO_BRANCH}
+    git reset --quiet --hard HEAD
+    git clean --quiet -fdx
 
     echo "### Updating conf.py"
-    echo "html_theme = 'suse_sphinx_theme'" >> doc/source/conf.py
+    cat >> doc/source/conf.py <<EOF
+
+html_theme = 'suse_sphinx_theme'
+try:
+    exclude_patterns
+except NameError:
+    exclude_patterns = []
+
+exclude_patterns.extend([
+    'install/**',
+    'contributor/**',
+    '**/upgrade.rst',
+    'upgrade.rst',
+])
+EOF
 
     if [ -f doc/requirements.txt ]; then
         echo "### Updating doc/requirements.txt"
@@ -91,6 +104,45 @@ for project in $PROJECTS; do
     # Grab the [docs] section of tox.ini and from that pluck out the commands section
     commands=$(sed -n '/docs\]/,/^\[/ p' tox.ini |  sed -n '/^commands/,/^[^ ]/ p' | head --lines=-1)
 
+	# Hacky one-off changes to specific guides
+    if [[ $project == magnum ]] ; then
+        # Magnum admin guide has a section with a confusing title of "Installation & Operations".  Replace it with
+        # just "Operations" and adjust the underline
+        sed -i -e '/Installation & Operations/,/--/{ s/Installation & //; s/^---------------//; }' doc/source/admin/index.rst
+    fi
+
+    find doc/source -name index.rst | xargs sed -E -i \
+          -e '/^ *upgrade.rst/d' \
+          -e '/^ *install\/index(.rst)? *$/d' \
+          -e '/^ *contribut(or|ing)\/[^ ]* *$/d'
+
+    # May need to process Search also
+    for title in Install ^Contrib; do
+        find doc/source -name index.rst | grep -v -e doc.source.install -e doc.source.contrib |
+            xargs -n1 ${scripts_dir}/remove_section.py "$title"
+    done
+
+    # TODO: Upgrade
+
+	# Hacky one-off changes to specific guides
+    if [[ $project == glance ]] ; then
+        # Glance's docs have references in a table and have to be handled specially
+        sed -i -e '/\*\*Contributor\*\*/,/\* :doc:.contributor\/index./ d' \
+               -e '/:doc:.install\/index/d' \
+               -e 's/ \( \* :doc:.configuration.*\)/-\1/' \
+        doc/source/index.rst
+    elif [[ $project == horizon ]] ; then
+        # Horizon references the install guide inline in the admin index
+        sed -i -e 's/^\(APIs\.\).*/\1/' -e '/\/install\/index/d' doc/source/admin/index.rst
+    elif [[ $project == nova ]] ; then
+        sed -i -e 's/ from the :doc:`install.*`//' \
+               -e '/For Contributors/,/where we hide things/d' \
+               -e '/including role-based access control/ a * :doc:`Reference Guide <reference/index>`: Technical references on both current\n  and future looking parts of our architecture.' \
+               -e 's/^   \(# actually want in the table\)/.. \1/' \
+        doc/source/index.rst
+    fi
+
+
     # if there is only one command in tox.ini originally, such as
     #   commands = sphinx-build this
     #
@@ -107,10 +159,6 @@ for project in $PROJECTS; do
             s/^\(commands *= *\)/\1\n  /          # insert a line break after commands = if it is a single line
             P                                     # print everything up to the line break (i.e. commands = )
             D                                     # delete what we just printed, and then continue processing this modified line
-        }
-        /python.*setup.py.*build_sphinx/ {
-            p                                      # print the line as-is
-            s/$/ -b singlehtml/                     # create another copy but with output type of singlehtml
         }' tox.ini
 
     else
@@ -121,9 +169,7 @@ for project in $PROJECTS; do
             D                                     # delete what we just printed, and then continue processing this modified line
         }
         /sphinx-build.* \(doc.build.html\)/ {
-            s/ -W / / ; p                           # remove any -W flags that turn warnings into errors, then print the modified line
-            s/-b html/-b singlehtml/                # create another cpy of the line, but change the output type to singlehtml
-            s#doc/build/html#doc/build/singlehtml#  # and change its output dir. It is printed automatically by sed
+            s/ -W / /                               # remove any -W flags that turn warnings into errors, then print the modified line
         }' tox.ini
     fi
 
@@ -140,19 +186,8 @@ for project in $PROJECTS; do
             # Add a placeholder entry for the guide in the top-level document
             mkdir -p ${scripts_dir}/source/${guide}/${project}/${guide}
             print_title "$doc_title" >> ${scripts_dir}/source/${guide}/${project}/${guide}/index.rst
-
-            # Modify the title of the individual doc.  This is necessary because the document titles
-            # are very inconsistent and most do not mention the project name
-            ${scripts_dir}/fix_title.py ${OPENSTACK_REPO_DIR}/${project}/doc/source/${guide}/index.rst "$doc_title"
         fi
     done
-
-    # Add the project's guide to the top-level document catalog
-    echo "    ${project}/index.rst" >> ${scripts_dir}/source/singlehtml/index.rst
-
-    # Add a placeholder entry for the guide in the top-level document
-    mkdir -p ${scripts_dir}/source/singlehtml/${project}
-    print_title "${project^} Guide" >> ${scripts_dir}/source/singlehtml/${project}/index.rst
 
     echo "### Build the theme'd docs"
     tox ${TOX_OPTS} -e docs
@@ -182,51 +217,39 @@ for project in $PROJECTS; do
         fi
     done
 
-    # replace the placeholder doc with the output of the project doc build
-    rm -r ${scripts_dir}/build/singlehtml/${project}
-    mkdir -p ${scripts_dir}/build/singlehtml/${project}
-    rsync -a ${OPENSTACK_REPO_DIR}/${project}/doc/build/singlehtml/ ${scripts_dir}/build/singlehtml/${project}
 done
 
 
 # Remove duplicate copies of large files and folders
 echo "### Remove duplicate generated files"
-mkdir -p ${scripts_dir}/build/upstream/html/_shared \
-         ${scripts_dir}/build/singlehtml/_shared
+mkdir -p ${scripts_dir}/build/upstream/html/_shared 
 
 for project in $PROJECTS ; do
-    for doctype in singlehtml ; do
+    cd ${scripts_dir}/build/upstream/html/${project}/_static
 
-        if [[ $doctype == html ]] ; then
-            cd ${scripts_dir}/build/upstream/html/${project}/_static
-        else
-            cd ${scripts_dir}/build/singlehtml/${project}/_static
-        fi
+    for file in favicon.ico *.png *.gif *.js js/*.js fonts/* css/*.css $(find fontawesome fonts images -type f) ; do
+        if [[ -f ${file} ]] ; then
 
-        for file in favicon.ico *.png *.gif *.js js/*.js fonts/* css/*.css $(find fontawesome fonts images -type f) ; do
-            if [[ -f ${file} ]] ; then
+            # Create a link target with the appropriate number of ../ entries corresponding
+            # to the directory nesting of $file
+            link_target=../$(echo $file | sed 's#[^/]*#..#g')/_shared/$file
 
-                # Create a link target with the appropriate number of ../ entries corresponding
-                # to the directory nesting of $file
-                link_target=../$(echo $file | sed 's#[^/]*#..#g')/_shared/$file
+            # If the file is not already present in the shared area, put it there and create a symlink to it
+            if [[ ! -f ../../_shared/${file} ]] ; then
+                mkdir -p $(dirname ../../_shared/${file})
+                cp ${file} ../../_shared/${file}
+                rm ${file}
+                ln -s $link_target ${file}
 
-                # If the file is not already present in the shared area, put it there and create a symlink to it
-                if [[ ! -f ../../_shared/${file} ]] ; then
-                    mkdir -p $(dirname ../../_shared/${file})
-                    cp ${file} ../../_shared/${file}
-                    rm ${file}
-                    ln -s $link_target ${file}
-
-                # Else if the file is there and it is a duplicate of this project's version, then create a symlink to it
-                elif cmp --quiet ${file} ../../_shared/${file} ; then
-                    rm ${file}
-                    ln -s $link_target ${file}
-                fi
+            # Else if the file is there and it is a duplicate of this project's version, then create a symlink to it
+            elif cmp --quiet ${file} ../../_shared/${file} ; then
+                rm ${file}
+                ln -s $link_target ${file}
             fi
-        done
-
+        fi
     done
 done
+
 find ${scripts_dir}/build -type d -name .doctrees -o -name _sources | xargs rm -rf
 
 # Print the message with surrounding lines of hashes
