@@ -10,7 +10,7 @@
  <para>
   If the controller node you need to replace was also being used as your
   &clm; then use these steps below. If this is not a shared
-  controller then skip to the next section.
+  controller, skip to the next section.
  </para>
  <procedure>
   <step>
@@ -20,94 +20,160 @@
     lifecycle management software using the instructions from the installation
     guide:
    </para>
-   <orderedlist>
-    <listitem>
-     <para>
-      <xref linkend="sec.depl.adm_inst.add_on"/>
-     </para>
-    </listitem>
-    <listitem>
-     <para>
-      To restore your data, see <xref linkend="pit_lifecyclemanager_recovery"/>
-     </para>
-    </listitem>
-   </orderedlist>
+   <para>
+    <xref linkend="sec.depl.adm_inst.add_on"/>
+   </para>
   </step>
   <step>
    <para>
-    On the new node, update your cloud model (<literal>servers.yml</literal>)
-    with the new <literal>mac-addr</literal>, <literal>ilo-ip</literal>,
-    <literal>ilo-password</literal>, or <literal>ilo-user</literal> fields
-    where these have changed. Do not change the <literal>id</literal>,
+    Initialize the &clm; platform by running <command>ardana-init</command>.
+   </para>
+  </step>
+  <step>
+   <para>
+    To restore your data, see <xref linkend="pit_lifecyclemanager_recovery"/>.
+    At this time, restore only the backup of <systemitem>ardana</systemitem>
+    files on the system into <filename>/var/lib/ardana</filename> (the user's
+    home directory.)
+   </para>
+  </step>
+  <step>
+   <para>
+    On the new node, update your cloud model with the new
+    <literal>mac-addr</literal>, <literal>ilo-ip</literal>,
+    <literal>ilo-password</literal>, and <literal>ilo-user</literal> fields
+    to reflect the attributes of the node. Do not change the <literal>id</literal>,
     <literal>ip-addr</literal>, <literal>role</literal>, or
-    <literal>server-group</literal> settings. (Please follow the procedure for
-    updating your cloud model in the git repo)
+    <literal>server-group</literal> settings.
    </para>
   </step>
   <step>
    <para>
-    Get the <emphasis role="bold">servers.yml</emphasis> file stored in git:
+    Open the <filename>servers.yml</filename> file describing your cloud nodes:
    </para>
-<screen>cd ~/openstack/my_cloud/definition/data
-git checkout site</screen>
+<screen>&prompt.ardana;git -C ~/openstack checkout site
+&prompt.ardana;cd ~/openstack/my_cloud/definition/data
+&prompt.ardana;vi servers.yml</screen>
    <para>
-    then change, as necessary, the <literal>mac-addr</literal>,
+    Change, as necessary, the <literal>mac-addr</literal>,
     <literal>ilo-ip</literal>, <literal>ilo-password</literal>, and
-    <literal>ilo-user</literal> fields of this existing controller node. Save
-    and commit the change
+    <literal>ilo-user</literal> fields of the existing controller node. Save
+    and commit the change:
    </para>
-<screen>git commit -a -m "repaired node X"</screen>
+<screen>&prompt.ardana;git commit -a -m "repaired node X"</screen>
   </step>
   <step>
    <para>
-    Run the configuration processor as follows:
+    Run the configuration processor and ready-deployment playbooks as follows:
    </para>
-<screen>cd ~/openstack/ardana/ansible
-ansible-playbook -i hosts/localhost config-processor-run.yml</screen>
+<screen>&prompt.ardana;cd ~/openstack/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/localhost config-processor-run.yml
+&prompt.ardana;ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+  </step>
+  <step>
    <para>
-    Then run ready-deployment:
+    Run the <filename>wipe_disks.yml</filename> playbook to ensure
+    all partitions on the new node are completely wiped prior to
+    continuing with the installation. (The value to be used for
+    <literal>hostname</literal> is the host's identifier from
+    <filename>~/scratch/ansible/next/ardana/ansible/hosts/verb_hosts</filename>.)
    </para>
-<screen>cd ~/openstack/ardana/ansible
-ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
+<screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible/
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts wipe_disks.yml --limit <replaceable>deployer_node_name</replaceable></screen>
+   <para>
+    The value for <replaceable>deployer_node_name</replaceable> should be the
+    name identifying the deployer/controller being initialized as it is
+    represented in the <filename>hosts/verb_hosts</filename> file.
+   </para>
   </step>
   <step>
    <para>
     Deploy Cobbler:
    </para>
-<screen>cd ~/openstack/ardana/ansible
-ansible-playbook -i hosts/localhost cobbler-deploy.yml</screen>
-  <note>
-   <para>
-    After this step you may see failures because &mariadb; has not finished
-    syncing. If so, rerun this step.
-   </para>
-  </note>
+<screen>&prompt.ardana;cd ~/openstack/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/localhost cobbler-deploy.yml</screen>
   </step>
   <step>
    <para>
-    Delete the haproxy user:
+    Refer again to <xref linkend="pit_lifecyclemanager_recovery"/> and proceed
+    to restore all remaining backups, with the exclusion of
+    <systemitem>/var/lib/ardana</systemitem> (which was done earlier) and the
+    cobbler content in <systemitem>/var/lib/cobbler</systemitem> and
+    <systemitem>/srv/www/cobbler</systemitem>.
    </para>
-<screen>userdel haproxy</screen>
   </step>
   <step>
    <para>
-    Install the software on your new &clm;/controller node with
-    these three playbooks:
+    Install the software on your new &clm;/controller node with these playbooks:
    </para>
-<screen>cd ~/scratch/ansible/next/ardana/ansible
-ansible-playbook -i hosts/verb_hosts monasca-rebuild-pretasks.yml
-ansible-playbook -i hosts/verb_hosts osconfig-run.yml -e rebuild=True --limit=&lt;controller-hostname&gt;
-ansible-playbook -i hosts/verb_hosts ardana-deploy.yml -e rebuild=True --limit=&lt;controller-hostname&gt;,&lt;first-proxy-hostname&gt;</screen>
+<screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts monasca-rebuild-pretasks.yml
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts osconfig-run.yml \
+-e rebuild=True --limit <replaceable>deployer_node_name</replaceable>
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts ardana-deploy.yml \
+-e rebuild=True --limit <replaceable>deployer_node_name</replaceable>,localhost
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts tempest-deploy.yml</screen>
+   <important>
+    <para>
+     If you receive the message <literal>stderr: Error:
+     mnesia_not_running</literal> when running the
+     <filename>ardana-deploy.yml</filename> playbook, it is likely due to one
+     of the following conditions:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       &rabbit; was not running on the clustered node
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       The old node was not removed from the cluster
+      </para>
+     </listitem>
+    </itemizedlist>
+    <para>
+     Correct this problem with the following steps:
+    </para>
+    <procedure>
+     <step>
+      <para>
+       Of the remaining clustered nodes (<replaceable>M2</replaceable> and
+       <replaceable>M3</replaceable>), <replaceable>M2</replaceable> is the new
+       master. Make sure the application has started and M1 is no longer a
+       member. On the <replaceable>M2</replaceable> node, run:
+      </para>
+      <screen>&prompt.ardana;sudo rabbitmqctl start_app; \
+&prompt.ardana;sudo rabbitmqctl forget_cluster_node rabbit@<replaceable>M1</replaceable></screen>
+      <para>
+       Check that <replaceable>M1</replaceable> is no longer a member of the cluster.
+      </para>
+      <screen>&prompt.ardana;sudo rabbitmqctl cluster_status</screen>
+     </step>
+     <step>
+      <para>
+       On the newly installed node, <replaceable>M1</replaceable>, make sure
+       &rabbit; has stopped. On <replaceable>M1</replaceable>, run:
+      </para>
+      <screen>&prompt.ardana;sudo rabbitmqctl stop_app</screen>
+     </step>
+     <step>
+      <para>
+       Re-run the <filename>ardana-deploy.yml</filename> playbook as before.
+      </para>
+     </step>
+    </procedure>
+   </important>
   </step>
   <step>
    <para>
-    During the replacement of the node there will be alarms that show up during
+    During the replacement of the node, alarms will show up during
     the process. If those do not clear after the node is back up and healthy,
     restart the threshold engine by running the following playbooks:
    </para>
-<screen>cd ~/scratch/ansible/next/ardana/ansible
-ansible-playbook -i hosts/verb_hosts monasca-stop.yml --tags thresh
-ansible-playbook -i hosts/verb_hosts monasca-start.yml --tags thresh</screen>
+<screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts monasca-stop.yml --tags thresh
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts monasca-start.yml --tags thresh</screen>
   </step>
  </procedure>
 </section>
