@@ -11,122 +11,190 @@
   Full Disaster Recovery Test
  </para>
  <section>
-   <title>Prerequisites</title>
-   <para>&productname; platform</para>
-   <para>An external server to store backups to via SSH</para>
+  <title>Prerequisites</title>
+  <para>
+   &productname; platform
+  </para>
+  <para>
+   An external server to store backups to via SSH
+  </para>
  </section>
  <section>
-   <title>Goals</title>
-   <para>Here is a high level view of how we expect to test the disaster recovery of the platform.</para>
-   <orderedlist>
-     <listitem>
-       <para>Backup the control plane using Freezer to an SSH target</para>
-     </listitem>
-     <listitem>
-       <para>Backup the Cassandra Database</para>
-     </listitem>
-     <listitem>
-       <para>Re-install Controller 1 with the &productname; ISO</para>
-     </listitem>
-     <listitem>
-       <para>Use Freezer to recover deployment data (model …)</para>
-     </listitem>
-     <listitem>
-       <para>Re-install &productname; on Controller 1, 2, 3</para>
-     </listitem>
-     <listitem>
-       <para>Recover the backup of the &mariadb; database</para>
-     </listitem>
-     <listitem>
-       <para>Recover the Cassandra Database</para>
-     </listitem>
-   </orderedlist>
+  <title>Goals</title>
+  <para>
+   Here is a high level view of how we expect to test the disaster recovery of
+   the platform.
+  </para>
+  <orderedlist>
+   <listitem>
+    <para>
+     Backup the control plane using Freezer to an SSH target
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Backup the Cassandra Database
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Re-install Controller 1 with the &productname; ISO
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Use Freezer to recover deployment data (model …)
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Re-install &productname; on Controller 1, 2, 3
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Recover the backup of the &mariadb; database
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Recover the Cassandra Database
+    </para>
+   </listitem>
+  </orderedlist>
  </section>
  <section>
-   <title>Description of the testing environment</title>
-   <para>The testing environment is very similar to the Entry Scale model.</para>
-   <para>It used 5 servers: 3 Controllers and 2 computes.</para>
-   <para>The controller node have three disks. The first one is reserved for the system, while others are used for swift.</para>
-   <note>
-     <para>During this Disaster Recovery exercise, we have saved the data on disk 2 and 3 of the swift controllers.</para>
-     <para>This allow to restore the swift objects after the recovery.</para>
-     <para>If these disks were to be wiped as well, swift data would be lost but the procedure would not change.</para>
-     <para>The only difference is that Glance images would be lost and they will have to be re-uploaded.</para>
-   </note>
+  <title>Description of the testing environment</title>
+  <para>
+   The testing environment is very similar to the Entry Scale model.
+  </para>
+  <para>
+   It used 5 servers: 3 Controllers and 2 computes.
+  </para>
+  <para>
+   The controller node have three disks. The first one is reserved for the
+   system, while others are used for &o_objstore;.
+  </para>
+  <note>
+   <para>
+    During this Disaster Recovery exercise, we have saved the data on disk 2
+    and 3 of the &o_objstore; controllers.
+   </para>
+   <para>
+    This allow to restore the &o_objstore; objects after the recovery.
+   </para>
+   <para>
+    If these disks were to be wiped as well, &o_objstore; data would be lost
+    but the procedure would not change.
+   </para>
+   <para>
+    The only difference is that Glance images would be lost and they will have
+    to be re-uploaded.
+   </para>
+  </note>
  </section>
  <section>
-   <title>Disaster recovery test note</title>
-   <para>If it is not specified otherwise, all the commands should be executed on controller 1, which is also the deployer node.</para>
+  <title>Disaster recovery test note</title>
+  <para>
+   If it is not specified otherwise, all the commands should be executed on
+   controller 1, which is also the deployer node.
+  </para>
  </section>
  <section>
-   <title>Pre-Disaster testing</title>
-   <para>In order to validate the procedure after recovery, we need to create some workloads.</para>
-   <orderedlist>
-     <listitem>
-       <para>
-         Source the service credential file
-       </para>
+  <title>Pre-Disaster testing</title>
+  <para>
+   In order to validate the procedure after recovery, we need to create some
+   workloads.
+  </para>
+  <orderedlist>
+   <listitem>
+    <para>
+     Source the service credential file
+    </para>
 <screen>&prompt.ardana;source ~/service.osrc</screen>
-     </listitem>
-     <listitem>
-       <para>
-         Copy an image to the platform and create a Glance image with it.
-         In this example, Cirros is used
-       </para>
+   </listitem>
+   <listitem>
+    <para>
+     Copy an image to the platform and create a Glance image with it. In this
+     example, Cirros is used
+    </para>
 <screen>&prompt.ardana;openstack image create --disk-format raw --container-format bare --public --file ~/cirros-0.3.5-x86_64-disk.img cirros</screen>
-     </listitem>
-     <listitem>
-       <para>Create a network</para>
-       <screen>&prompt.ardana;openstack network create test_net</screen>
-     </listitem>
-     <listitem>
-       <para>Create a subnet</para>
+   </listitem>
+   <listitem>
+    <para>
+     Create a network
+    </para>
+<screen>&prompt.ardana;openstack network create test_net</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Create a subnet
+    </para>
 <screen>&prompt.ardana;neutron subnet-create 07c35d11-13f9-41d4-8289-fa92147b1d44 192.168.42.0/24 --name test_subnet</screen>
-     </listitem>
-     <listitem>
-       <para>Create some instances</para>
-       <screen>&prompt.ardana;openstack server create server_1 --image 411a0363-7f4b-4bbc-889c-b9614e2da52e --flavor m1.small --nic net-id=07c35d11-13f9-41d4-8289-fa92147b1d44
+   </listitem>
+   <listitem>
+    <para>
+     Create some instances
+    </para>
+<screen>&prompt.ardana;openstack server create server_1 --image 411a0363-7f4b-4bbc-889c-b9614e2da52e --flavor m1.small --nic net-id=07c35d11-13f9-41d4-8289-fa92147b1d44
 &prompt.ardana;openstack server create server_2 --image 411a0363-7f4b-4bbc-889c-b9614e2da52e --flavor m1.small --nic net-id=07c35d11-13f9-41d4-8289-fa92147b1d44
 &prompt.ardana;openstack server create server_3 --image 411a0363-7f4b-4bbc-889c-b9614e2da52e --flavor m1.small --nic net-id=07c35d11-13f9-41d4-8289-fa92147b1d44
 &prompt.ardana;openstack server create server_4 --image 411a0363-7f4b-4bbc-889c-b9614e2da52e --flavor m1.small --nic net-id=07c35d11-13f9-41d4-8289-fa92147b1d44
 &prompt.ardana;openstack server create server_5 --image 411a0363-7f4b-4bbc-889c-b9614e2da52e --flavor m1.small --nic net-id=07c35d11-13f9-41d4-8289-fa92147b1d44
 &prompt.ardana;openstack server list</screen>
-     </listitem>
-     <listitem>
-       <para>Create containers and objects</para>
-<screen>&prompt.ardana;swift upload container_1 ~/service.osrc
+   </listitem>
+   <listitem>
+    <para>
+     Create containers and objects
+    </para>
+<screen>&prompt.ardana;openstack object create container_1 ~/service.osrc
 var/lib/ardana/service.osrc
 
-&prompt.ardana;swift upload container_1 ~/backup.osrc
-swift upload container_1 ~/backup.osrc
+&prompt.ardana;openstack object create container_1 ~/backup.osrc
+openstack object create container_1 ~/backup.osrc
 
-&prompt.ardana;swift list container_1
+&prompt.ardana;openstack container list container_1
 var/lib/ardana/backup.osrc
 var/lib/ardana/service.osrc</screen>
-     </listitem>
-   </orderedlist>
+   </listitem>
+  </orderedlist>
  </section>
  <section>
-   <title>Preparation of the backup server</title>
-   <para>Preparation of the backup server</para>
-   <section> 
-     <title>Preparation to store Freezer backups</title>
-     <para>In this example, we want to store the backups on the server 192.168.69.132</para>
-     <para>Freezer will connect with the user backupuser on port 22 and store the backups in the <filename>/mnt/backups/</filename> directory.</para>
-     <orderedlist>
-     <listitem>
-       <para>Connect to the backup server</para>
-     </listitem>
-     <listitem>
-       <para>Create the user</para>
+  <title>Preparation of the backup server</title>
+  <para>
+   Preparation of the backup server
+  </para>
+  <section>
+   <title>Preparation to store Freezer backups</title>
+   <para>
+    In this example, we want to store the backups on the server 192.168.69.132
+   </para>
+   <para>
+    Freezer will connect with the user backupuser on port 22 and store the
+    backups in the <filename>/mnt/backups/</filename> directory.
+   </para>
+   <orderedlist>
+    <listitem>
+     <para>
+      Connect to the backup server
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Create the user
+     </para>
 <screen>&prompt.root;useradd backupuser --create-home --home-dir /mnt/backups/</screen>
-     </listitem>
-     <listitem>
-       <para>Switch to that user</para>
+    </listitem>
+    <listitem>
+     <para>
+      Switch to that user
+     </para>
 <screen>&prompt.root;su backupuser</screen>
-     </listitem>
-     <listitem>
-       <para>Create the SSH keypair</para>
+    </listitem>
+    <listitem>
+     <para>
+      Create the SSH keypair
+     </para>
 <screen><prompt>backupuser &gt; </prompt>ssh-keygen -t rsa
 > # Just leave the default for the first question and do not set any passphrase
 > Generating public/private rsa key pair.
@@ -151,13 +219,19 @@ var/lib/ardana/service.osrc</screen>
 > |++o              |
 > +-----------------+
 </screen>
-     </listitem>
-     <listitem>
-       <para>Add the public key to the list of the keys authorized to connect to that user on this server</para>
+    </listitem>
+    <listitem>
+     <para>
+      Add the public key to the list of the keys authorized to connect to that
+      user on this server
+     </para>
 <screen><prompt>backupuser &gt; </prompt>cat /mnt/backups/.ssh/id_rsa.pub >> /mnt/backups/.ssh/authorized_keys</screen>
-     </listitem>
-     <listitem>
-       <para>Print the private key. This is what we will use for the backup configuration (ssh_credentials.yml file)</para>
+    </listitem>
+    <listitem>
+     <para>
+      Print the private key. This is what we will use for the backup
+      configuration (ssh_credentials.yml file)
+     </para>
 <screen><prompt>backupuser &gt; </prompt>cat /mnt/backups/.ssh/id_rsa
 
 > -----BEGIN RSA PRIVATE KEY-----
@@ -169,43 +243,65 @@ var/lib/ardana/service.osrc</screen>
 > iBKVKGPhOnn4ve3dDqy3q7fS5sivTqCrpaYtByJmPrcJNjb2K7VMLNvgLamK/AbL
 > qpSTZjicKZCCl+J2+8lrKAaDWqWtIjSUs29kCL78QmaPOgEvfsw=
 > -----END RSA PRIVATE KEY-----</screen>
-     </listitem>
+    </listitem>
    </orderedlist>
-   </section>
-   <section>
-     <title>Preparation to store Cassandra backups</title>
-     <para>In this example, we want to store the backups on the server 192.168.69.132. We will store the backups in the <filename>/mnt/backups/cassandra_backups/</filename> directory.</para>
-     <orderedlist>
-       <listitem>
-         <para>Create a directory on the backup server to store cassandra backups</para>
+  </section>
+  <section>
+   <title>Preparation to store Cassandra backups</title>
+   <para>
+    In this example, we want to store the backups on the server 192.168.69.132.
+    We will store the backups in the
+    <filename>/mnt/backups/cassandra_backups/</filename> directory.
+   </para>
+   <orderedlist>
+    <listitem>
+     <para>
+      Create a directory on the backup server to store cassandra backups
+     </para>
 <screen><prompt>backupuser &gt; </prompt>mkdir /mnt/backups/cassandra_backups</screen>
-       </listitem>
-       <listitem>
-         <para>Copy private ssh key from backupserver to all controller nodes</para>
+    </listitem>
+    <listitem>
+     <para>
+      Copy private ssh key from backupserver to all controller nodes
+     </para>
 <screen><prompt>backupuser &gt; </prompt>scp /mnt/backups/.ssh/id_rsa ardana@<replaceable>CONTROLLER</replaceable>:~/.ssh/id_rsa_backup
          Password:
          id_rsa     100% 1675     1.6KB/s   00:00</screen>
-         <para><replaceable>Replace CONTROLLER with each control node e.g. doc-cp1-c1-m1-mgmt, doc-cp1-c1-m2-mgmt etc</replaceable></para>
-       </listitem>
-       <listitem>
-         <para>Login to each controller node and copy private ssh key to the root user's .ssh directory</para>
+     <para>
+      <replaceable>Replace CONTROLLER with each control node e.g.
+      doc-cp1-c1-m1-mgmt, doc-cp1-c1-m2-mgmt etc</replaceable>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Login to each controller node and copy private ssh key to the root user's
+      .ssh directory
+     </para>
 <screen>&prompt.sudo;cp /var/lib/ardana/.ssh/id_rsa_backup /root/.ssh/</screen>
-       </listitem>
-       <listitem>
-         <para>Verify that you can ssh to backup server as backup user using the private key</para>
+    </listitem>
+    <listitem>
+     <para>
+      Verify that you can ssh to backup server as backup user using the private
+      key
+     </para>
 <screen>&prompt.root;ssh -i ~/.ssh/id_rsa_backup backupuser@doc-cp1-comp0001-mgmt</screen>
-       </listitem>
-     </orderedlist>
-   </section>
+    </listitem>
+   </orderedlist>
+  </section>
  </section>
  <section>
-   <title>Perform Backups for disaster recovery test</title>
-   <para>Perform Backups for disaster recovery</para>
-   <section>
-     <title>Execute backup of Cassandra</title>
-     <para>Execute backup of Cassandra</para>
-     <para>Create cassandra-backup-extserver.sh script on all
-     controller nodes</para>
+  <title>Perform Backups for disaster recovery test</title>
+  <para>
+   Perform Backups for disaster recovery
+  </para>
+  <section>
+   <title>Execute backup of Cassandra</title>
+   <para>
+    Execute backup of Cassandra
+   </para>
+   <para>
+    Create cassandra-backup-extserver.sh script on all controller nodes
+   </para>
 <screen>&prompt.root;cat &gt; ~/cassandra-backup-extserver.sh &lt;&lt; EOF
 #!/bin/sh
 
@@ -238,32 +334,37 @@ for d in \$SNAPSHOT_DIR_LIST
 \$NODETOOL clearsnapshot monasca
 EOF</screen>
 <screen>&prompt.root;chmod +x ~/cassandra-backup-extserver.sh</screen>
-     <para>Execute following steps on all the controller nodes</para>
-     <note>
-       <para>/usr/local/sbin/cassandra-backup-extserver.sh should be
-       executed on all the three controller nodes at the same time
-       (within seconds of each other) for a successful backup
-       </para>
-     </note>
-     <orderedlist>
-       <listitem>
-         <para>Edit /usr/local/sbin/cassandra-backup-extserver.sh script</para>
-         <para>
-          Set
-          <literal>BACKUP_USER</literal> and <literal>BACKUP_SERVER</literal>
-          to the desired backup user (for example,
-          <systemitem class="username">backupuser</systemitem>) and desired
-          backup server (for example, <literal>192.168.68.132</literal>),
-          respectively.
-         </para>
+   <para>
+    Execute following steps on all the controller nodes
+   </para>
+   <note>
+    <para>
+     /usr/local/sbin/cassandra-backup-extserver.sh should be executed on all
+     the three controller nodes at the same time (within seconds of each other)
+     for a successful backup
+    </para>
+   </note>
+   <orderedlist>
+    <listitem>
+     <para>
+      Edit /usr/local/sbin/cassandra-backup-extserver.sh script
+     </para>
+     <para>
+      Set <literal>BACKUP_USER</literal> and <literal>BACKUP_SERVER</literal>
+      to the desired backup user (for example,
+      <systemitem class="username">backupuser</systemitem>) and desired backup
+      server (for example, <literal>192.168.68.132</literal>), respectively.
+     </para>
 <screen>
 BACKUP_USER=backupuser
 BACKUP_SERVER=192.168.69.132
 BACKUP_DIR=/mnt/backups/cassandra_backups/
 </screen>
-       </listitem>
-       <listitem>
-         <para>Execute ~/cassandra-backup-extserver.sh</para>
+    </listitem>
+    <listitem>
+     <para>
+      Execute ~/cassandra-backup-extserver.sh
+     </para>
 <screen>&prompt.root;~/cassandra-backup-extserver.sh (on all controller nodes which are also cassandra nodes)
 
 Requested creating snapshot(s) for [monasca] with snapshot name [cassandra-snp-2018-06-28-0251] and options {skipFlush=false}
@@ -287,9 +388,11 @@ sent 173,691 bytes  received 531 bytes  116,148.00 bytes/sec
 total size is 171,378  speedup is 0.98
 Requested clearing snapshot(s) for [monasca]
 </screen>
-       </listitem>
-       <listitem>
-         <para>Verify cassandra backup directory on backup server</para>
+    </listitem>
+    <listitem>
+     <para>
+      Verify cassandra backup directory on backup server
+     </para>
 <screen><prompt>backupuser &gt; </prompt>ls -alt /mnt/backups/cassandra_backups
 total 16
 drwxr-xr-x 4 backupuser users 4096 Jun 28 03:06 .
@@ -300,15 +403,22 @@ drwxr-xr-x 8 backupuser users 4096 Jun 27 20:56 ..
 $backupuser@backupserver> du -shx /mnt/backups/cassandra_backups/*
 6.2G    /mnt/backups/cassandra_backups/doc-cp1-c1-m1-mgmt_cassandra-snp-2018-06-28-0251
 6.3G    /mnt/backups/cassandra_backups/doc-cp1-c1-m2-mgmt_cassandra-snp-2018-06-28-0306</screen>
-       </listitem>
-     </orderedlist>
-   </section>
-   <section>
-     <title>Execute backup of &productname;</title>
-     <para>Execute backup of &productname;</para>
-     <orderedlist>
-       <listitem>
-         <para>Edit the configuration file for SSH backups (be careful to format the private key as requested: pipe on the first line and two spaces indentation). The private key is the key we created on the backup server earlier.</para>
+    </listitem>
+   </orderedlist>
+  </section>
+  <section>
+   <title>Execute backup of &productname;</title>
+   <para>
+    Execute backup of &productname;
+   </para>
+   <orderedlist>
+    <listitem>
+     <para>
+      Edit the configuration file for SSH backups (be careful to format the
+      private key as requested: pipe on the first line and two spaces
+      indentation). The private key is the key we created on the backup server
+      earlier.
+     </para>
 <screen>&prompt.ardana;vi ~/openstack/my_cloud/config/freezer/ssh_credentials.yml
 
 $ cat ~/openstack/my_cloud/config/freezer/ssh_credentials.yml
@@ -344,27 +454,40 @@ freezer_ssh_private_key: |
   SV3u3/30eS7Ch2OV9o9lr0sjMKRgBsLZcaSmKp9K0j/sotwBl0+C4nauZMUKDXqg
   uGCyWeTQdAOD9QblzGoWy6g3ZI+XZWQIMt0pH38d/ZRbuSUk5o5v
   -----END RSA PRIVATE KEY----- </screen>
-
-       </listitem>
-       <listitem>
-         <para>Save the modifications in the GIT repository</para>
+    </listitem>
+    <listitem>
+     <para>
+      Save the modifications in the GIT repository
+     </para>
 <screen>&prompt.ardana;cd ~/openstack/
 &prompt.ardana;git add -A
 &prompt.ardana;git commit -a -m "SSH backup configuration"
 &prompt.ardana;cd ~/openstack/ardana/ansible
 &prompt.ardana;ansible-playbook -i hosts/localhost config-processor-run.yml
 &prompt.ardana;ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
-       </listitem>
-       <listitem>
-         <para>Create the Freezer jobs</para>
+    </listitem>
+    <listitem>
+     <para>
+      Create the Freezer jobs
+     </para>
 <screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
 &prompt.ardana;ansible-playbook -i hosts/verb_hosts _freezer_manage_jobs.yml</screen>
-       </listitem>
-       <listitem>
-         <para>Wait until all the SSH backup jobs have finished running</para>
-           <para>Freezer backup jobs are scheduled at interval specified in job specification</para>
-           <para>You will have to wait for the scheduled time interval for the backup job to run</para>
-           <para>To find the interval:</para>
+    </listitem>
+    <listitem>
+     <para>
+      Wait until all the SSH backup jobs have finished running
+     </para>
+     <para>
+      Freezer backup jobs are scheduled at interval specified in job
+      specification
+     </para>
+     <para>
+      You will have to wait for the scheduled time interval for the backup job
+      to run
+     </para>
+     <para>
+      To find the interval:
+     </para>
 <screen>&prompt.ardana;freezer job-list | grep SSH
 
 | 34c1364692f64a328c38d54b95753844 | Ardana Default: deployer backup to SSH      |         7 | success | scheduled |       |            |
@@ -401,41 +524,51 @@ freezer_ssh_private_key: |
 | End Date    |                                                                                 |
 | Interval    | 24 hours                                                                        |
 +-------------+---------------------------------------------------------------------------------+</screen>
-<para>Swift SSH backup job has Interval of 24 hours, so the next backup would run after 24 hours.</para>
-<para>In the default installation Interval for various backup jobs are:</para>
-<table xml:id="FreezerBackupJobScheduleTable" colsep="1" rowsep="1">
-  <title>Default Interval for Freezer backup jobs</title>
-  <tgroup cols="4">
-   <colspec colname="c1" colnum="1" colwidth="1.0*"/>
-   <colspec colname="c2" colnum="2" colwidth="1.0*"/>
-   <colspec colname="c3" colnum="3" colwidth="1.0*"/>
-   <colspec colname="c4" colnum="4" colwidth="1.0*"/>
-   <thead>
-    <row>
-     <entry>Job Name</entry>
-     <entry>Interval</entry>
-    </row>
-   </thead>
-   <tbody>
-     <row>
-       <entry>Ardana Default: deployer backup to SSH</entry>
-       <entry>48 hours</entry>
-     </row>
-     <row>
-       <entry>Ardana Default: mysql backup to SSH</entry>
-       <entry>12 hours</entry>
-     </row>
-     <row>
-       <entry>Ardana Default: swift backup to SSH</entry>
-       <entry>24 hours</entry>
-     </row>
-   </tbody>
-  </tgroup>
-</table>
-<para>You will have to wait for as long as 48 hours for all the backup jobs to run</para>
-</listitem>
-<listitem>
-  <para>On the backup server, you can verify that the backup files are present</para>
+     <para>
+      &o_objstore; SSH backup job has Interval of 24 hours, so the next backup
+      would run after 24 hours.
+     </para>
+     <para>
+      In the default installation Interval for various backup jobs are:
+     </para>
+     <table xml:id="FreezerBackupJobScheduleTable" colsep="1" rowsep="1">
+      <title>Default Interval for Freezer backup jobs</title>
+      <tgroup cols="4">
+       <colspec colname="c1" colnum="1" colwidth="1.0*"/>
+       <colspec colname="c2" colnum="2" colwidth="1.0*"/>
+       <colspec colname="c3" colnum="3" colwidth="1.0*"/>
+       <colspec colname="c4" colnum="4" colwidth="1.0*"/>
+       <thead>
+        <row>
+         <entry>Job Name</entry>
+         <entry>Interval</entry>
+        </row>
+       </thead>
+       <tbody>
+        <row>
+         <entry>Ardana Default: deployer backup to SSH</entry>
+         <entry>48 hours</entry>
+        </row>
+        <row>
+         <entry>Ardana Default: mysql backup to SSH</entry>
+         <entry>12 hours</entry>
+        </row>
+        <row>
+         <entry>Ardana Default: swift backup to SSH</entry>
+         <entry>24 hours</entry>
+        </row>
+       </tbody>
+      </tgroup>
+     </table>
+     <para>
+      You will have to wait for as long as 48 hours for all the backup jobs to
+      run
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      On the backup server, you can verify that the backup files are present
+     </para>
 <screen><prompt>backupuser &gt; </prompt>ls -lah  /mnt/backups/
 total 16
 drwxr-xr-x 2 backupuser users 4096 Jun 27  2017 bin
@@ -449,34 +582,49 @@ drwxr-xr-x 2 backupuser users 4096 Jun 29 14:05 freezer_rings_backups
 2.8G    freezer_database_backups
 24G     freezer_lifecycle_manager_backups
 160K    freezer_rings_backups</screen>
-       </listitem>
-     </orderedlist>
-   </section>
+    </listitem>
+   </orderedlist>
+  </section>
  </section>
  <section>
-   <title>Restore of the first controller</title>
-   <para>Restore of the first controller</para>
-   <orderedlist>
-       <listitem>
-         <para>Edit the SSH backup configuration (re-enter the same information as earlier)</para>
+  <title>Restore of the first controller</title>
+  <para>
+   Restore of the first controller
+  </para>
+  <orderedlist>
+   <listitem>
+    <para>
+     Edit the SSH backup configuration (re-enter the same information as
+     earlier)
+    </para>
 <screen>&prompt.ardana;vi ~/openstack/my_cloud/config/freezer/ssh_credentials.yml</screen>
-       </listitem>
-       <listitem>
-         <para>Execute the restore helper. When prompted, enter the hostname the first controller had. In this example: <literal>doc-cp1-c1-m1-mgmt</literal></para>
+   </listitem>
+   <listitem>
+    <para>
+     Execute the restore helper. When prompted, enter the hostname the first
+     controller had. In this example: <literal>doc-cp1-c1-m1-mgmt</literal>
+    </para>
 <screen>&prompt.ardana;cd ~/openstack/ardana/ansible
 &prompt.ardana;ansible-playbook -i hosts/localhost _deployer_restore_helper.yml</screen>
-       </listitem>
-       <listitem>
-         <para>Execute the restore. When prompted, leave the first value empty (none) and validate the restore by typing 'yes'.</para>
+   </listitem>
+   <listitem>
+    <para>
+     Execute the restore. When prompted, leave the first value empty (none) and
+     validate the restore by typing 'yes'.
+    </para>
 <screen>&prompt.ardana;sudo su
 cd /root/deployer_restore_helper/
 ./deployer_restore_script.sh</screen>
-       </listitem>
-       <listitem>
-         <para>Create a restore file for Swift rings</para>
+   </listitem>
+   <listitem>
+    <para>
+     Create a restore file for &o_objstore; rings
+    </para>
 <screen>&prompt.ardana;nano swift_rings_restore.ini
 &prompt.ardana;cat swift_rings_restore.ini</screen>
-<para>Help:</para>
+    <para>
+     Help:
+    </para>
 <screen>[default]
 action = restore
 storage = ssh
@@ -485,7 +633,7 @@ ssh_host = <replaceable>192.168.69.132</replaceable>
 # username to connect to the backup server
 ssh_username = <replaceable>backupuser</replaceable>
 ssh_key = /etc/freezer/ssh_key
-# base directory for backups on the backup server 
+# base directory for backups on the backup server
 container = <replaceable>/mnt/backups/freezer_ring_backups</replaceable>
 backup_name = freezer_swift_builder_dir_backup
 restore_abs_path = /etc/swiftlm
@@ -493,22 +641,31 @@ log_file = /var/log/freezer-agent/freezer-agent.log
 # hostname that the controller
 hostname = <replaceable>doc-cp1-c1-m1-mgmt</replaceable>
 overwrite = True</screen>
-       </listitem>
-       <listitem>
-         <para>Execute the restore of the swift rings</para>
+   </listitem>
+   <listitem>
+    <para>
+     Execute the restore of the &o_objstore; rings
+    </para>
 <screen>&prompt.ardana;freezer-agent --config ./swift_rings_restore.ini</screen>
-       </listitem>
-     </orderedlist>
-   </section>
-   <section>
-     <title>Re-deployment of controllers 1, 2 and 3</title>
-     <para>Re-deployment of controllers 1, 2 and 3</para>
-     <orderedlist>
-       <listitem>
-         <para>Change back to the default ardana user</para>
-       </listitem>
-       <listitem>
-         <para>Deactivate the freezer backup jobs (otherwise empty backups would be added on top of the current good backups)</para>
+   </listitem>
+  </orderedlist>
+ </section>
+ <section>
+  <title>Re-deployment of controllers 1, 2 and 3</title>
+  <para>
+   Re-deployment of controllers 1, 2 and 3
+  </para>
+  <orderedlist>
+   <listitem>
+    <para>
+     Change back to the default ardana user
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Deactivate the freezer backup jobs (otherwise empty backups would be added
+     on top of the current good backups)
+    </para>
 <screen>&prompt.ardana;nano ~/openstack/my_cloud/config/freezer/activate_jobs.yml
 &prompt.ardana;cat ~/openstack/my_cloud/config/freezer/activate_jobs.yml
 
@@ -517,47 +674,72 @@ freezer_create_backup_jobs: false
 
 # If set to false, We wont create restore jobs.
 freezer_create_restore_jobs: true</screen>
-       </listitem>
-       <listitem>
-         <para>Save the modification in the GIT repository</para>
+   </listitem>
+   <listitem>
+    <para>
+     Save the modification in the GIT repository
+    </para>
 <screen>&prompt.ardana;cd ~/openstack/
 &prompt.ardana;git add -A
 &prompt.ardana;git commit -a -m "De-Activate SSH backup jobs during re-deployment"
 &prompt.ardana;ansible-playbook -i hosts/localhost config-processor-run.yml
 &prompt.ardana;ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
-       </listitem>
-       <listitem>
-         <para>Run the cobbler-deploy.yml playbook</para>
+   </listitem>
+   <listitem>
+    <para>
+     Run the cobbler-deploy.yml playbook
+    </para>
 <screen>&prompt.ardana;~/openstack/ardana/ansible
 &prompt.ardana;ansible-playbook -i hosts/localhost cobbler-deploy.xml</screen>
-       </listitem>
-       <listitem>
-         <para>Run the bm-reimage.yml playbook limited to the second and third controller</para>
+   </listitem>
+   <listitem>
+    <para>
+     Run the bm-reimage.yml playbook limited to the second and third controller
+    </para>
 <screen>&prompt.ardana;ansible-playbook -i hosts/localhost bm-reimage.yml -e nodelist=controller2,controller3</screen>
-         <para>controller2 and controller3 names can vary. You can use the bm-power-status.yml playbook in order to check the cobbler names of these nodes.</para>
-       </listitem>
-       <listitem>
-         <para>Run the site.yml playbook limited to the three controllers and localhost. In this example, this means: doc-cp1-c1-m1-mgmt, doc-cp1-c1-m2-mgmt, doc-cp1-c1-m3-mgmt and localhost</para>
+    <para>
+     controller2 and controller3 names can vary. You can use the
+     bm-power-status.yml playbook in order to check the cobbler names of these
+     nodes.
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     Run the site.yml playbook limited to the three controllers and localhost.
+     In this example, this means: doc-cp1-c1-m1-mgmt, doc-cp1-c1-m2-mgmt,
+     doc-cp1-c1-m3-mgmt and localhost
+    </para>
 <screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
 ansible-playbook -i hosts/verb_hosts site.yml --limit doc-cp1-c1-m1-mgmt,doc-cp1-c1-m2-mgmt,doc-cp1-c1-m3-mgmt,localhost</screen>
-       </listitem>
-     </orderedlist>
-   </section>
-   <section>
-     <title>Databases restore</title>
-     <para>Databases restore</para>
-     <section>
-       <title>&mariadb; database restore</title>
-       <para>&mariadb; database restore</para>
-       <orderedlist>
-         <listitem>
-           <para>Source the backup credentials file</para>
+   </listitem>
+  </orderedlist>
+ </section>
+ <section>
+  <title>Databases restore</title>
+  <para>
+   Databases restore
+  </para>
+  <section>
+   <title>&mariadb; database restore</title>
+   <para>
+    &mariadb; database restore
+   </para>
+   <orderedlist>
+    <listitem>
+     <para>
+      Source the backup credentials file
+     </para>
 <screen>&prompt.ardana;source ~/backup.osrc</screen>
-         </listitem>
-         <listitem>
-           <para>List Freezer jobs</para>
-           <para>Gather the id of the job corresponding to the first controller and with the description. For example:</para>
-           <screen>&prompt.ardana;freezer job-list | grep "mysql restore from SSH"
+    </listitem>
+    <listitem>
+     <para>
+      List Freezer jobs
+     </para>
+     <para>
+      Gather the id of the job corresponding to the first controller and with
+      the description. For example:
+     </para>
+<screen>&prompt.ardana;freezer job-list | grep "mysql restore from SSH"
 +----------------------------------+---------------------------------------------+-----------+---------+-----------+-------+------------+
 | Job ID                           | Description                                 | # Actions | Result  | Status    | Event | Session ID |
 +----------------------------------+---------------------------------------------+-----------+---------+-----------+-------+------------+
@@ -591,28 +773,33 @@ ansible-playbook -i hosts/verb_hosts site.yml --limit doc-cp1-c1-m1-mgmt,doc-cp1
 | End Date    |                                                                                 |
 | Interval    |                                                                                 |
 +-------------+---------------------------------------------------------------------------------+</screen>
-         </listitem>
-         <listitem>
-           <para>Start the job using its id</para>
+    </listitem>
+    <listitem>
+     <para>
+      Start the job using its id
+     </para>
 <screen>&prompt.ardana;freezer job-start 64715c6ce8ed40e1b346136083923260
 Start request sent for job 64715c6ce8ed40e1b346136083923260</screen>
-         </listitem>
-         <listitem>
-           <para>Wait for the job result to be success</para>
+    </listitem>
+    <listitem>
+     <para>
+      Wait for the job result to be success
+     </para>
 <screen>&prompt.ardana;freezer job-list | grep "mysql restore from SSH"
 +----------------------------------+---------------------------------------------+-----------+---------+-----------+-------+------------+
 | Job ID                           | Description                                 | # Actions | Result  | Status    | Event | Session ID |
 +----------------------------------+---------------------------------------------+-----------+---------+-----------+-------+------------+
 | 64715c6ce8ed40e1b346136083923260 | Ardana Default: mysql restore from SSH      |         1 |         | running      |       |            |</screen>
-
 <screen>&prompt.ardana;freezer job-list | grep "mysql restore from SSH"
 +----------------------------------+---------------------------------------------+-----------+---------+-----------+-------+------------+
 | Job ID                           | Description                                 | # Actions | Result  | Status    | Event | Session ID |
 +----------------------------------+---------------------------------------------+-----------+---------+-----------+-------+------------+
 | 64715c6ce8ed40e1b346136083923260 | Ardana Default: mysql restore from SSH      |         1 | success | completed |       |            |</screen>
-       </listitem>
-       <listitem>
-         <para>Verify that the files have been restored on the controller</para>
+    </listitem>
+    <listitem>
+     <para>
+      Verify that the files have been restored on the controller
+     </para>
 <screen>&prompt.ardana;sudo du -shx /tmp/mysql_restore/*
 
 16K     /tmp/mysql_restore/aria_log.00000001
@@ -651,26 +838,36 @@ Start request sent for job 64715c6ce8ed40e1b346136083923260</screen>
 4.0K    /tmp/mysql_restore/test
 8.0K    /tmp/mysql_restore/winchester
 4.0K    /tmp/mysql_restore/xtrabackup_galera_info</screen>
-       </listitem>
-       <listitem>
-         <para>Stop &productname; services on the three controllers (replace the hostnames of the controllers in the command)</para>
+    </listitem>
+    <listitem>
+     <para>
+      Stop &productname; services on the three controllers (replace the
+      hostnames of the controllers in the command)
+     </para>
 <screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
 &prompt.ardana;ansible-playbook -i hosts/verb_hosts ardana-stop.yml --limit doc-cp1-c1-m1-mgmt,doc-cp1-c1-m2-mgmt,doc-cp1-c1-m3-mgmt,localhost</screen>
-       </listitem>
-       <listitem>
-         <para>Clean the mysql directory and copy the restored backup</para>
+    </listitem>
+    <listitem>
+     <para>
+      Clean the mysql directory and copy the restored backup
+     </para>
 <screen>&prompt.root;cd /var/lib/mysql/
 &prompt.root;rm -rf ./*
 &prompt.root;cp -pr /tmp/mysql_restore/* ./</screen>
-<para>Switch back to the ardana user once the copy is finished</para>
-       </listitem>
-       </orderedlist>
-     </section>
-     <section>
-       <title>Cassandra database restore</title>
-       <para>Cassandra database restore</para>
-       <para>Create a script cassandra-restore-extserver.sh on all
-       controller nodes</para>
+     <para>
+      Switch back to the ardana user once the copy is finished
+     </para>
+    </listitem>
+   </orderedlist>
+  </section>
+  <section>
+   <title>Cassandra database restore</title>
+   <para>
+    Cassandra database restore
+   </para>
+   <para>
+    Create a script cassandra-restore-extserver.sh on all controller nodes
+   </para>
 <screen>&prompt.root;cat &gt; ~/cassandra-restore-extserver.sh &lt;&lt; EOF
 #!/bin/sh
 
@@ -718,27 +915,38 @@ cd
 \$NODETOOL clearsnapshot \$KEYSPACE
 EOF</screen>
 <screen>&prompt.root;chmod +x ~/cassandra-restore-extserver.sh</screen>
-          <para>Execute following steps on all the controller nodes</para>
-          <orderedlist>
-            <listitem>
-              <para>Edit ~/cassandra-restore-extserver.sh script</para>
-              <para>
-               Set
-               <replaceable>BACKUP_USER</replaceable>,<replaceable>BACKUP_SERVER</replaceable>
-               to the desired backup user (for example,
-               <systemitem class="username">backupuser</systemitem>) and the
-               desired backup server (for example,
-               <literal>192.168.68.132</literal>), respectively.
-              </para>
+   <para>
+    Execute following steps on all the controller nodes
+   </para>
+   <orderedlist>
+    <listitem>
+     <para>
+      Edit ~/cassandra-restore-extserver.sh script
+     </para>
+     <para>
+      Set
+      <replaceable>BACKUP_USER</replaceable>,<replaceable>BACKUP_SERVER</replaceable>
+      to the desired backup user (for example,
+      <systemitem class="username">backupuser</systemitem>) and the desired
+      backup server (for example, <literal>192.168.68.132</literal>),
+      respectively.
+     </para>
 <screen>
 BACKUP_USER=backupuser
 BACKUP_SERVER=192.168.69.132
 BACKUP_DIR=/mnt/backups/cassandra_backups/</screen>
-            </listitem>
-            <listitem>
-              <para>Execute ~/cassandra-restore-extserver.sh <replaceable>SNAPSHOT_NAME</replaceable></para>
-              <para>You will have to find out <replaceable>SNAPSHOT_NAME</replaceable> from listing of /mnt/backups/cassandra_backups.
-              All the directories are of format <replaceable>HOST</replaceable>_<replaceable>SNAPSHOT_NAME</replaceable></para>
+    </listitem>
+    <listitem>
+     <para>
+      Execute ~/cassandra-restore-extserver.sh
+      <replaceable>SNAPSHOT_NAME</replaceable>
+     </para>
+     <para>
+      You will have to find out <replaceable>SNAPSHOT_NAME</replaceable> from
+      listing of /mnt/backups/cassandra_backups. All the directories are of
+      format
+      <replaceable>HOST</replaceable>_<replaceable>SNAPSHOT_NAME</replaceable>
+     </para>
 <screen>ls -alt /mnt/backups/cassandra_backups
 total 16
 drwxr-xr-x 4 backupuser users 4096 Jun 28 03:06 .
@@ -762,49 +970,59 @@ var/cassandra/data/data/monasca/alarm_state_history-e6bbdc20488d11e8bdabc3266640
 ...
 ...
 /usr/bin/nodetool clearsnapshot monasca</screen>
-            </listitem>
-          </orderedlist>
-     </section>
-    <section>
-       <title>Restart &productname; services</title>
-       <para>Restart &productname; services</para>
-       <orderedlist>
-         <listitem>
-           <para>Restart the &mariadb; Database</para>
+    </listitem>
+   </orderedlist>
+  </section>
+  <section>
+   <title>Restart &productname; services</title>
+   <para>
+    Restart &productname; services
+   </para>
+   <orderedlist>
+    <listitem>
+     <para>
+      Restart the &mariadb; Database
+     </para>
 <screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
 &prompt.ardana;ansible-playbook -i hosts/verb_hosts galera-bootstrap.yml</screen>
-           <para>
-             On the deployer node, execute the
-             <filename>galera-bootstrap.yml</filename> playbook which will
-             automatically determine the log sequence number, bootstrap the main node,
-             and start the database cluster.
-           </para>
-           <para>
-             If this process fails to recover the database cluster, please refer to
-             <xref linkend="mysql"/>. There Scenario 3 covers the process of manually
-             starting the database.
-           </para>
-         </listitem>
-         <listitem>
-           <para>
-            Restart &productname; services limited to the three controllers (replace the
-            the hostnames of the controllers in the command).
-          </para>
+     <para>
+      On the deployer node, execute the
+      <filename>galera-bootstrap.yml</filename> playbook which will
+      automatically determine the log sequence number, bootstrap the main node,
+      and start the database cluster.
+     </para>
+     <para>
+      If this process fails to recover the database cluster, please refer to
+      <xref linkend="mysql"/>. There Scenario 3 covers the process of manually
+      starting the database.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Restart &productname; services limited to the three controllers (replace
+      the the hostnames of the controllers in the command).
+     </para>
 <screen>ansible-playbook -i hosts/verb_hosts ardana-start.yml \
  --limit doc-cp1-c1-m1-mgmt,doc-cp1-c1-m2-mgmt,doc-cp1-c1-m3-mgmt,localhost</screen>
-         </listitem>
-         <listitem>
-           <para>Re-configure &productname;</para>
+    </listitem>
+    <listitem>
+     <para>
+      Re-configure &productname;
+     </para>
 <screen>ansible-playbook -i hosts/verb_hosts ardana-reconfigure.yml</screen>
-         </listitem>
-       </orderedlist>
-    </section>
-    <section>
-      <title>Re-enable SSH backups</title>
-      <para>Re-enable SSH backups</para>
-      <orderedlist>
-        <listitem>
-          <para>Re-activate Freezer backup jobs</para>
+    </listitem>
+   </orderedlist>
+  </section>
+  <section>
+   <title>Re-enable SSH backups</title>
+   <para>
+    Re-enable SSH backups
+   </para>
+   <orderedlist>
+    <listitem>
+     <para>
+      Re-activate Freezer backup jobs
+     </para>
 <screen>&prompt.ardana;vi ~/openstack/my_cloud/config/freezer/activate_jobs.yml
 &prompt.ardana;cat ~/openstack/my_cloud/config/freezer/activate_jobs.yml
 
@@ -813,54 +1031,68 @@ freezer_create_backup_jobs: true
 
 # If set to false, We wont create restore jobs.
 freezer_create_restore_jobs: true</screen>
-        </listitem>
-        <listitem>
-          <para>Save the modifications in the GIT repository</para>
+    </listitem>
+    <listitem>
+     <para>
+      Save the modifications in the GIT repository
+     </para>
 <screen>cd ~/openstack/ardana/ansible/
 git add -A
 git commit -a -m “Re-Activate SSH backup jobs”
 ansible-playbook -i hosts/localhost config-processor-run.yml
 ansible-playbook -i hosts/localhost ready-deployment.yml</screen>
-        </listitem>
-        <listitem>
-          <para>Create Freezer jobs</para>
+    </listitem>
+    <listitem>
+     <para>
+      Create Freezer jobs
+     </para>
 <screen>cd ~/scratch/ansible/next/ardana/ansible
 ansible-playbook -i hosts/verb_hosts _freezer_manage_jobs.yml</screen>
-        </listitem>
-      </orderedlist>
-   </section>
+    </listitem>
+   </orderedlist>
+  </section>
  </section>
  <section>
-   <title>Post restore testing</title>
-     <para>Post restore testing</para>
-     <orderedlist>
-       <listitem>
-         <para>Source the service credential file</para>
+  <title>Post restore testing</title>
+  <para>
+   Post restore testing
+  </para>
+  <orderedlist>
+   <listitem>
+    <para>
+     Source the service credential file
+    </para>
 <screen>&prompt.ardana;source ~/service.osrc</screen>
-       </listitem>
-       <listitem>
-         <para>Swift</para>
-<screen>&prompt.ardana;swift list
+   </listitem>
+   <listitem>
+    <para>
+     &o_objstore;
+    </para>
+<screen>&prompt.ardana;openstack container list
 container_1
 volumebackups
 
-&prompt.ardana;swift list container_1
+&prompt.ardana;openstack container list container_1
 var/lib/ardana/backup.osrc
 var/lib/ardana/service.osrc
 
-&prompt.ardana;swift download container_1 /tmp/backup.osrc</screen>
-       </listitem>
-       <listitem>
-         <para>Neutron</para>
+&prompt.ardana;openstack container save container_1 /tmp/backup.osrc</screen>
+   </listitem>
+   <listitem>
+    <para>
+     Neutron
+    </para>
 <screen>&prompt.ardana;openstack network list
 +--------------------------------------+---------------------+--------------------------------------+
 | ID                                   | Name                | Subnets                              |
 +--------------------------------------+---------------------+--------------------------------------+
 | 07c35d11-13f9-41d4-8289-fa92147b1d44 | test-net             | 02d5ca3b-1133-4a74-a9ab-1f1dc2853ec8|
 +--------------------------------------+---------------------+--------------------------------------+</screen>
-       </listitem>
-       <listitem>
-         <para>Glance</para>
+   </listitem>
+   <listitem>
+    <para>
+     Glance
+    </para>
 <screen>&prompt.ardana;openstack image list
 +--------------------------------------+----------------------+--------+
 | ID                                   | Name                 | Status |
@@ -870,9 +1102,11 @@ var/lib/ardana/service.osrc
 &prompt.ardana;openstack image save --file /tmp/cirros f751c39b-f1e3-4f02-8332-3886826889ba
 &prompt.ardana;ls -lah /tmp/cirros
 -rw-r--r-- 1 ardana ardana 12716032 Jul  2 20:52 /tmp/cirros</screen>
-       </listitem>
-       <listitem>
-         <para>Nova</para>
+   </listitem>
+   <listitem>
+    <para>
+     Nova
+    </para>
 <screen>&prompt.ardana;openstack server list
 
 &prompt.ardana;openstack server list
@@ -920,7 +1154,7 @@ var/lib/ardana/service.osrc
 | ce7689ff-23bf-4fe9-b2a9-922d4aa9412c | server_6 | ACTIVE | n1=1.1.1.8                      | cirros-0.4.0-x86_64 | m1.small  |
 
 &prompt.ardana;openstack server delete ce7689ff-23bf-4fe9-b2a9-922d4aa9412c</screen>
-       </listitem>
-     </orderedlist>
+   </listitem>
+  </orderedlist>
  </section>
 </section>
