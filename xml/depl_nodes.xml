@@ -2838,9 +2838,12 @@ host1:/srv/nfs/share1 /mnt/nfs/share1 -o rsize=8192,wsize=8192,timeo=14,intr
    </note>
    <para>
     In combination with &ceph; or a network storage solution, deploying
-    &o_blockstore; in a cluster minimizes the potential downtime. For <guimenu>cinder-volume</guimenu> to
-    be applicable to a cluster, the role needs all &o_blockstore; backends to be configured for non-local storage. If you are using local volumes or raw devices
-    in any of your volume backends, you cannot apply <guimenu>cinder-volume</guimenu> to a cluster.
+    &o_blockstore; in a cluster minimizes the potential downtime. For
+    <guimenu>cinder-volume</guimenu> to be applicable to a cluster, the role
+    needs all &o_blockstore; backends to be configured for non-local
+    storage. If you are using local volumes or raw devices in any of your
+    volume backends, you cannot apply <guimenu>cinder-volume</guimenu> to a
+    cluster.
    </para>
   </sect2>
  </sect1>
@@ -6479,7 +6482,188 @@ Apply the &barcl; to a Control Node.
    credentials for the &ostack; &dash; are user name <literal>admin</literal>
    and password <literal>crowbar</literal>.
   </para>
- </sect1>
+  </sect1>
+
+  <sect1 xml:id="crow-ses-integration">
+   <title>&ses; integration</title>
+   <para>
+    &productname; supports integration with &ses; (SES), enabling &ceph; block
+    storage as well as image storage services in &cloud;.
+   </para>
+   <bridgehead renderas="sect2">Enabling SES Integration
+   </bridgehead>
+   <para>
+    To enable SES integration on &crow;, an SES configuration file must be
+    uploaded to &crow;. SES integration functionality is included in the
+    <literal>crowbar-core</literal> package and can be used with the &crow; UI
+    or CLI (<literal>crowbarctl</literal>). The SES configuration file
+    describes various aspects of the &ceph; environment, and keyrings for each
+    user and pool created in the &ceph; environment for &cloud-crow; services.
+   </para>
+   <bridgehead renderas="sect2">SES Configuration
+   </bridgehead>
+   <para>
+    For SES deployments that are version 5.5 and higher, a Salt runner is used
+    to create all the users and pools. It also generates a YAML
+    configuration that is needed to integrate with &cloud;. The integration
+    runner creates separate users for &o_blockstore;, &o_blockstore; backup
+    (not used by &crow; currently) and &o_img;. Both the &o_blockstore; and
+    &o_comp; services have the same user, because &o_blockstore; needs
+    access to create objects that &o_comp; uses.
+   </para>
+   <para>
+    Configure SES with the following steps:
+   </para>
+   <procedure>
+    <step>
+     <para>
+      Login as <literal>root</literal> and run the SES 5.5 Salt runner on the
+      Salt admin host.
+     </para>
+     <screen>&prompt.root;salt-run --out=yaml openstack.integrate prefix=mycloud</screen>
+     <para>
+      The prefix parameter allows pools to be created with the specified
+      prefix. By using different prefix parameters, multiple cloud deployments
+      can support different users and pools on the same SES deployment.
+     </para>
+    </step>
+    <step>
+     <para>
+      A YAML file is created with content similar to the following
+      example:
+     </para>
+     <screen>ceph_conf:
+     cluster_network: 10.84.56.0/21
+     fsid: d5d7c7cb-5858-3218-a36f-d028df7b0673
+     mon_host: 10.84.56.8, 10.84.56.9, 10.84.56.7
+     mon_initial_members: ses-osd1, ses-osd2, ses-osd3
+     public_network: 10.84.56.0/21
+cinder:
+     key: ABCDEFGaxefEMxAAW4zp2My/5HjoST2Y87654321==
+     rbd_store_pool: mycloud-cinder
+     rbd_store_user: cinder
+cinder-backup:
+     key: AQBb8hdbrY2bNRAAqJC2ZzR5Q4yrionh7V5PkQ==
+     rbd_store_pool: mycloud-backups
+     rbd_store_user: cinder-backup
+glance:
+     key: AQD9eYRachg1NxAAiT6Hw/xYDA1vwSWLItLpgA==
+     rbd_store_pool: mycloud-glance
+     rbd_store_user: glance
+nova:
+     rbd_store_pool: mycloud-nova
+radosgw_urls:
+     - http://10.84.56.7:80/swift/v1
+     - http://10.84.56.8:80/swift/v1</screen>
+    </step>
+    <step>
+     <para>
+      Upload the generated YAML file to &crow; using the UI or
+      <literal>crowbarctl</literal> CLI.
+     </para>
+    </step>
+    <step>
+     <para>
+      If the Salt runner is not available, you must manually create pools and
+      users to allow &cloud; services to use the SES/Ceph cluster. Pools and
+      users must be created for &o_blockstore;, &o_comp;, and
+      &o_img;. Instructions for creating and managing pools, users and keyrings
+      can be found in the <link
+      xlink:href="https://www.suse.com/documentation/suse-enterprise-storage-5/">
+      SUSE Enterprise Storage</link> Administration Guide in the Key Management
+      section.
+     </para>
+     <para>
+      After the required pools and users are set up on the &ses;/&ceph;
+      cluster, create an SES configuration file in YAML format (using the
+      example template above). Upload this file to &crow; using the UI or
+      <literal>crowbarctl</literal> CLI.
+     </para>
+    </step>
+    <step>
+     <para>
+      As indicated above, the SES configuration file can be uploaded to &crow;
+      using the UI or <literal>crowbarctl</literal> CLI.
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        From the main &crow; UI, the upload page is under
+        <menuchoice><guimenu>Utilities</guimenu> <guimenu>SUSE Enterprise
+        Storage</guimenu></menuchoice>.
+       </para>
+       <para>
+        If a configuration is already stored in &crow;, it will be visible in
+        the upload page. A newly uploaded configuration will replace existing
+        one. The new configuration will be applied to the cloud on the next
+        <literal>chef-client</literal> run. There is no need to reapply
+        proposals.
+       </para>
+       <para>
+        Configurations can also be deleted from &crow;. After deleting a
+        configuration, you must manually update and reapply all proposals that
+        used SES integration.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        With the <literal>crowbarctl</literal> CLI, the command <command>crowbarctl ses
+        upload <replaceable>FILE</replaceable></command> accepts a path to the
+        SES configuration file.
+       </para>
+      </listitem>
+     </itemizedlist>
+    </step>
+   </procedure>
+   <bridgehead renderas="sect2">Cloud Service Configuration
+   </bridgehead>
+   <para>
+    SES integration with &cloud; services is implemented with relevant &Barcl;s
+    and installed with the <literal>crowbar-openstack</literal> package.
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>&o_img;</term>
+     <listitem>
+      <para>
+       Set <literal>Use SES Configuration</literal> to <literal>true</literal>
+       under <literal>RADOS Store Parameters</literal>. The &o_img; &barcl;
+       pulls the uploaded SES configuration from &crow; when applying the
+       &o_img; proposal and on <literal>chef-client</literal> runs. If the SES
+       configuration is uploaded before the &o_img; proposal is created,
+       <literal>Use SES Configuration</literal> is enabled automatically
+       upon proposal creation.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>&o_blockstore;</term>
+     <listitem>
+      <para>
+       Create a new &rados; backend and set <literal>Use SES
+       Configuration</literal> to <literal>true</literal>. The &o_blockstore;
+       &barcl; pulls the uploaded SES configuration from &crow; when applying the
+       &o_blockstore; proposal and on <literal>chef-client</literal> runs. If
+       the SES configuration was uploaded before the &o_blockstore; proposal
+       was created, a <literal>ses-ceph</literal> &rados; backend is created
+       automatically on proposal creation with <literal>Use SES
+       Configuration</literal> already enabled.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>&o_comp;</term>
+     <listitem>
+      <para>
+       No special configuration is needed for &o_comp;. It uses the
+       configuration from the &o_blockstore; &barcl; to connect with volumes
+       stored in SES.
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect1>
+
  <sect1 xml:id="sec.depl.services">
   <title>Roles and Services in &productname;</title>
 
