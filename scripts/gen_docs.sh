@@ -98,50 +98,18 @@ EOF
         grep -q -x -F 'suse_sphinx_theme' test-requirements.txt || echo '-e git+https://github.com/SUSE/suse-sphinx-theme.git@master#egg=suse_sphinx_theme' >> test-requirements.txt
     fi
 
-    # Remove the -W flag on sphinx-build commands to avoid warnings terminating the build
-    echo "### Updating tox.ini"
-
     # Grab the [docs] section of tox.ini and from that pluck out the commands section
     commands=$(sed -n '/docs\]/,/^\[/ p' tox.ini |  sed -n '/^commands/,/^[^ ]/ p' | head --lines=-1)
 
-	# Hacky one-off changes to specific guides
-    if [[ $project == magnum ]] ; then
-        # Magnum admin guide has a section with a confusing title of "Installation & Operations".  Replace it with
-        # just "Operations" and adjust the underline
-        sed -i -e '/Installation & Operations/,/--/{ s/Installation & //; s/^---------------//; }' doc/source/admin/index.rst
+    patch_file=${scripts_dir}/patches/${project}.patch
+
+    if [[ -f ${patch_file} ]] ; then
+        echo "### Patching documents"
+        git apply < $patch_file
     fi
 
-    find doc/source -name index.rst | xargs sed -E -i \
-          -e '/^ *upgrade.rst/d' \
-          -e '/^ *install\/index(.rst)? *$/d' \
-          -e '/^ *contribut(or|ing)\/[^ ]* *$/d'
-
-    # May need to process Search also
-    for title in Install ^Contrib; do
-        find doc/source -name index.rst | grep -v -e doc.source.install -e doc.source.contrib |
-            xargs -n1 ${scripts_dir}/remove_section.py "$title"
-    done
-
-    # TODO: Upgrade
-
-	# Hacky one-off changes to specific guides
-    if [[ $project == glance ]] ; then
-        # Glance's docs have references in a table and have to be handled specially
-        sed -i -e '/\*\*Contributor\*\*/,/\* :doc:.contributor\/index./ d' \
-               -e '/:doc:.install\/index/d' \
-               -e 's/ \( \* :doc:.configuration.*\)/-\1/' \
-        doc/source/index.rst
-    elif [[ $project == horizon ]] ; then
-        # Horizon references the install guide inline in the admin index
-        sed -i -e 's/^\(APIs\.\).*/\1/' -e '/\/install\/index/d' doc/source/admin/index.rst
-    elif [[ $project == nova ]] ; then
-        sed -i -e 's/ from the :doc:`install.*`//' \
-               -e '/For Contributors/,/where we hide things/d' \
-               -e '/including role-based access control/ a * :doc:`Reference Guide <reference/index>`: Technical references on both current\n  and future looking parts of our architecture.' \
-               -e 's/^   \(# actually want in the table\)/.. \1/' \
-        doc/source/index.rst
-    fi
-
+    # Remove the -W flag on sphinx-build commands to avoid warnings terminating the build
+    echo "### Updating tox.ini"
 
     # if there is only one command in tox.ini originally, such as
     #   commands = sphinx-build this
