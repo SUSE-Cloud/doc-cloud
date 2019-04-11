@@ -21,7 +21,8 @@
    manila-data, manila-scheduler, manila-share, and messaging queue.
   </para>
   <para>
-   The following steps will install &o_sharefs;:
+   The following steps install &o_sharefs; if it is not already present
+   in your cloud data model:
   </para>
   <procedure>
    <step>
@@ -74,34 +75,37 @@ the changes to take effect:
    </step>
    <step>
     <para>
-     Workaround to fix manila-manage.log ownership problem &o_sharefs;
-    </para>
-<screen>on controller1:
-&prompt.ardana;cd /var/log/manila
-&prompt.ardana;sudo chown manila:manila manila-manage.log
-on &clm;:
-&prompt.ardana;ansible-playbook -i hosts/verb_hosts manila-stop.yml
-&prompt.ardana;ansible-playbook -i hosts/verb_hosts manila-start.yml</screen>
-   </step>
-   <step>
-    <para>
      Verify the &o_sharefs; installation
     </para>
 <screen>&prompt.ardana;cd
-&prompt.ardana;. manila.osrc; . service.osrc; manila api-version; manila service-list</screen>
+&prompt.ardana;. manila.osrc
+&prompt.ardana;. service.osrc
+&prompt.ardana;manila api-version
+&prompt.ardana;manila service-list</screen>
     <para>
      The &o_sharefs; CLI can be run from &clm; or controller nodes.
     </para>
    </step>
   </procedure>
+  <note>
+   <para>
+    The <literal>manila-share</literal> service component is not started by the
+    <filename>manila-deploy.yml</filename> playbook when run under default
+    conditions. This component requires that a valid backend be configured,
+    which is described in the next section.
+   </para>
+  </note>
  </section>
  <section>
   <title>Configure &o_sharefs; backend</title>
   <procedure>
    <step>
     <para>
-     Add backend to manila.conf.j2
+     Configure a backend in the &o_sharefs; configuration file, following
+     the directions and comments present in the file.
     </para>
+    <screen>&prompt.ardana;cd ~/openstack/my_cloud
+&prompt.ardana;vi config/manila/manila.conf.j2</screen>
    </step>
    <step>
     <para>
@@ -130,7 +134,7 @@ on &clm;:
      Run reconfiguration playbook.
     </para>
     <screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
-&prompt.ardana;ansible-playbook -i hosts/verb_hosts manila-reconfigure.yml</screen>   
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts manila-reconfigure.yml</screen>
    </step>
    <step>
     <para>
@@ -141,6 +145,16 @@ on &clm;:
 &prompt.ardana;ansible-playbook -i hosts/verb_hosts manila-start.yml</screen>
    </step>
   </procedure> 
+  <note>
+   <para>
+    Now that the <literal>manila-share</literal> service has been initialized
+    with a backend, it can be controlled independently of
+    <literal>manila-api</literal> by using the playbooks
+    <filename>manila-share-start.yml</filename>,
+    <filename>manila-share-stop.yml</filename>, and
+    <filename>manila-share-status.yml</filename>.
+   </para>
+  </note>
  </section>
  <section>
   <title>Creating &o_sharefs; Shares</title>
@@ -173,11 +187,11 @@ on &clm;:
 --protocol icmp
 &prompt.ardana;openstack security group rule list manila-security-group (verify manila security group)
 &prompt.ardana;openstack keypair create --public-key ~/.ssh/id_rsa.pub mykey
-&prompt.ardana;neutron net-create n1
-&prompt.ardana;neutron subnet-create --name s1 n1 <replaceable>11.11.11.0/24</replaceable>
-&prompt.ardana;neutron router-create r1
-&prompt.ardana;neutron router-interface-add r1 s1
-&prompt.ardana;neutron router-gateway-set r1 ext-net
+&prompt.ardana;openstack network create n1
+&prompt.ardana;openstack subnet create --name s1 n1 <replaceable>11.11.11.0/24</replaceable>
+&prompt.ardana;openstack router create r1
+&prompt.ardana;openstack router add subnet r1 s1
+&prompt.ardana;openstack router set r1 ext-net
 &prompt.ardana;openstack network list
 &prompt.ardana;openstack server create manila-vm --flavor m1.small \
 --image IMAGE_ID --nic net-id=N1_ID --security-group manila-security-group \
@@ -241,7 +255,7 @@ openstack-manila-share openstack-manila-scheduler
   </procedure>
   <para>
    Mode 2: The back-end is <literal>NetApp</literal>,
-   <literal>driver_handles_share_servers = True</literal> (DHSS is enabled). 
+   <literal>driver_handles_share_servers = True</literal> (DHSS is enabled).
    Procedure for driver_handles_share_servers = False is similar to Mode 1.
   </para>
   <procedure>
@@ -307,15 +321,15 @@ default_share_type = default1</screen>
   <title>Troubleshooting</title>
   <para>
    If manila-list shows share status in error, use <literal>storage aggregate
-   show</literal> to list available aggregates. Errors may be found in 
+   show</literal> to list available aggregates. Errors may be found in
    <filename>/var/log/manila/manila-share.log</filename>
   </para>
   <para>
-   if the compute nodes do not have access to manila back-end server, use the 
+   if the compute nodes do not have access to manila back-end server, use the
    manila-share service on controller nodes instead. You can do so by either running
    <literal>sudo systemctl stop openstack-manila-share</literal> on compute to turn off
-   its share service or skipping adding "manila-share" to compute hosts in the input-model 
+   its share service or skipping adding "manila-share" to compute hosts in the input-model
    (<filename>control_plane.yml</filename> in /var/lib/ardana/openstack/my_cloud/definition/data).
-  </para> 
+  </para>
  </section>
 </chapter>
