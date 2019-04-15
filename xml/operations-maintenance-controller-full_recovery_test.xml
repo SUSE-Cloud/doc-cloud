@@ -11,67 +11,75 @@
   Full Disaster Recovery Test
  </para>
  <section>
-   <title>Prerequisites</title>
-   <para>&productname; platform</para>
-   <para>An external server to store backups using SSH</para>
- </section>
- <section>
-   <title>Goals</title>
-   <para>Here is a high level view of how we expect to test the disaster recovery of the platform.</para>
-   <orderedlist>
-     <listitem>
-       <para>Backup the Cassandra Database</para>
-     </listitem>
-     <listitem>
-       <para>Re-install Controller 1 with the &productname; ISO</para>
-     </listitem>
-     <listitem>
-       <para>Re-install &productname; on Controller 1, 2, 3</para>
-     </listitem>
-     <listitem>
-       <para>Recover the backup of the &mariadb; database</para>
-     </listitem>
-     <listitem>
-       <para>Recover the Cassandra Database</para>
-     </listitem>
-   </orderedlist>
+  <title>High Level View of the Recovery Process</title>
+  <procedure>
+   <step>
+    <para>
+     Back up the control plane using the manual backup procedure
+    </para>
+   </step>
+   <step>
+    <para>
+     Backup the &cassandra; Database
+    </para>
+   </step>
+   <step>
+    <para>
+     Re-install Controller 1 with the &productname; ISO
+    </para>
+   </step>
+   <step>
+    <para>
+     Use manual restore steps to recover deployment data (and model)
+    </para>
+   </step>
+   <step>
+    <para>
+     Re-install &productname; on Controllers 1, 2, 3
+    </para>
+   </step>
+   <step>
+    <para>
+     Recover the backup of the &mariadb; database
+    </para>
+   </step>
+   <step>
+    <para>
+     Recover the &cassandra; Database
+    </para>
+   </step>
+   <step>
+    <para>
+     Verify testing
+    </para>
+   </step>
+  </procedure>
  </section>
  <section>
   <title>Description of the testing environment</title>
   <para>
-   The testing environment is very similar to the Entry Scale model.
+   The testing environment is similar to the Entry Scale model.
   </para>
   <para>
-   It used 5 servers: 3 Controllers and 2 computes.
+   It uses five servers: three &contrnode;s and two &compnode;s.
   </para>
   <para>
-   The controller node have three disks. The first one is reserved for the
-   system, while others are used for &o_objstore;.
+   The controller node has three disks. The first is reserved for the system;
+   the others are used for &swift;.
   </para>
   <note>
    <para>
-    During this Disaster Recovery exercise, we have saved the data on disk 2
-    and 3 of the &o_objstore; controllers.
+    For this Disaster Recovery test, data has been saved on disks 2 and 3
+    of the &swift; controllers, which allows for &swift; objects to be restored
+    the recovery. If these disks were also wiped, &swift; data would be lost,
+    but the procedure would not change. The only difference is that &o_img;
+    images would be lost and would have to be uploaded again.
    </para>
    <para>
-    This allow to restore the &o_objstore; objects after the recovery.
-   </para>
-   <para>
-    If these disks were to be wiped as well, &o_objstore; data would be lost
-    but the procedure would not change.
-   </para>
-   <para>
-    The only difference is that Glance images would be lost and they will have
-    to be re-uploaded.
+    Unless specified otherwise, all commands should be executed on controller
+    1, which is also the deployer node.
    </para>
   </note>
- </section>
- <section>
-  <title>Disaster recovery test note</title>
-  <para>
-   If it is not specified otherwise, all the commands should be executed on
-   controller 1, which is also the deployer node.
-  </para>
  </section>
  <section>
   <title>Pre-Disaster testing</title>
@@ -79,38 +87,45 @@
    In order to validate the procedure after recovery, we need to create some
    workloads.
   </para>
-  <orderedlist>
-   <listitem>
+  <procedure>
+   <step>
     <para>
      Source the service credential file
     </para>
 <screen>&prompt.ardana;source ~/service.osrc</screen>
-   </listitem>
-   <listitem>
+   </step>
+   <step>
     <para>
-     Copy an image to the platform and create a Glance image with it. In this
+     Copy an image to the platform and create a &o_img; image with it. In this
      example, Cirros is used
     </para>
-<screen>&prompt.ardana;openstack image create --disk-format raw --container-format bare --public --file ~/cirros-0.3.5-x86_64-disk.img cirros</screen>
-     </listitem>
-     <listitem>
-       <para>Create a network</para>
-       <screen>&prompt.ardana;openstack network create test_net</screen>
-     </listitem>
-     <listitem>
-       <para>Create a subnet</para>
+<screen>&prompt.ardana;openstack image create --disk-format raw --container-format \
+bare --public --file ~/cirros-0.3.5-x86_64-disk.img cirros</screen>
+   </step>
+   <step>
+    <para>
+     Create a network
+    </para>
+<screen>&prompt.ardana;openstack network create test_net</screen>
+   </step>
+   <step>
+    <para>
+     Create a subnet
+    </para>
 <screen>&prompt.ardana;openstack subnet create 07c35d11-13f9-41d4-8289-fa92147b1d44 192.168.42.0/24 --name test_subnet</screen>
-     </listitem>
-     <listitem>
-       <para>Create some instances</para>
-       <screen>&prompt.ardana;openstack server create server_1 --image 411a0363-7f4b-4bbc-889c-b9614e2da52e --flavor m1.small --nic net-id=07c35d11-13f9-41d4-8289-fa92147b1d44
-&prompt.ardana;openstack server create server_2 --image 411a0363-7f4b-4bbc-889c-b9614e2da52e --flavor m1.small --nic net-id=07c35d11-13f9-41d4-8289-fa92147b1d44
-&prompt.ardana;openstack server create server_3 --image 411a0363-7f4b-4bbc-889c-b9614e2da52e --flavor m1.small --nic net-id=07c35d11-13f9-41d4-8289-fa92147b1d44
-&prompt.ardana;openstack server create server_4 --image 411a0363-7f4b-4bbc-889c-b9614e2da52e --flavor m1.small --nic net-id=07c35d11-13f9-41d4-8289-fa92147b1d44
-&prompt.ardana;openstack server create server_5 --image 411a0363-7f4b-4bbc-889c-b9614e2da52e --flavor m1.small --nic net-id=07c35d11-13f9-41d4-8289-fa92147b1d44
+   </step>
+   <step>
+    <para>
+     Create some instances
+    </para>
+<screen>&prompt.ardana;openstack server create server_1 --image 411a0363-7f4b-4bbc-889c-b9614e2da52e --flavor m1.small --nic net-id=07c35d11-13f9-41d4-8289-fa92147b1d44
+&prompt.ardana;openstack server create server_2 --image 411a03...e2da52e --flavor m1.small --nic net-id=07c35d...147b1d44
+&prompt.ardana;openstack server create server_3 --image 411a03...e2da52e --flavor m1.small --nic net-id=07c35d...147b1d44
+&prompt.ardana;openstack server create server_4 --image 411a03...e2da52e --flavor m1.small --nic net-id=07c35d...147b1d44
+&prompt.ardana;openstack server create server_5 --image 411a03...e2da52e --flavor m1.small --nic net-id=07c35d...147b1d44
 &prompt.ardana;openstack server list</screen>
-   </listitem>
-   <listitem>
+   </step>
+   <step>
     <para>
      Create containers and objects
     </para>
@@ -118,66 +133,145 @@
 var/lib/ardana/service.osrc
 
 &prompt.ardana;openstack object create container_1 ~/backup.osrc
-openstack object create container_1 ~/backup.osrc
+swift upload container_1 ~/backup.osrc
 
-&prompt.ardana;openstack container list container_1
+&prompt.ardana;openstack object list container_1
 var/lib/ardana/backup.osrc
 var/lib/ardana/service.osrc</screen>
-   </listitem>
-  </orderedlist>
+   </step>
+  </procedure>
  </section>
  <section>
-   <title>Preparation of the backup server</title>
-   <para>Preparation of the backup server</para>
-   <section>
-     <title>Preparation to store Cassandra backups</title>
-     <para>In this example, we want to store the backups on the server 192.168.69.132. We will store the backups in the <filename>/mnt/backups/cassandra_backups/</filename> directory.</para>
-     <orderedlist>
-       <listitem>
-         <para>Create a directory on the backup server to store cassandra backups</para>
-<screen><prompt>backupuser &gt; </prompt>mkdir /mnt/backups/cassandra_backups</screen>
-    </listitem>
-    <listitem>
+  <title>Preparation of the test backup server</title>
+  <section>
+   <title>Preparation to store backups</title>
+   <para>
+    In this example, backups are stored on the server
+    <literal>192.168.69.132</literal>
+   </para>
+   <procedure>
+    <step>
      <para>
-      Copy private ssh key from backupserver to all controller nodes
+      Connect to the backup server
+     </para>
+    </step>
+    <step>
+     <para>
+      Create the user
+     </para>
+<screen>&prompt.root;useradd <replaceable>BACKUPUSER</replaceable> --create-home --home-dir /mnt/backups/</screen>
+    </step>
+    <step>
+     <para>
+      Switch to that user
+     </para>
+<screen>&prompt.root;su <replaceable>BACKUPUSER</replaceable></screen>
+    </step>
+    <step>
+     <para>
+      Create the SSH keypair
+     </para>
+<screen><prompt>backupuser &gt; </prompt>ssh-keygen -t rsa
+> # Leave the default for the first question and do not set any passphrase
+> Generating public/private rsa key pair.
+> Enter file in which to save the key (/mnt/backups//.ssh/id_rsa):
+> Created directory '/mnt/backups//.ssh'.
+> Enter passphrase (empty for no passphrase):
+> Enter same passphrase again:
+> Your identification has been saved in /mnt/backups//.ssh/id_rsa
+> Your public key has been saved in /mnt/backups//.ssh/id_rsa.pub
+> The key fingerprint is:
+> a9:08:ae:ee:3c:57:62:31:d2:52:77:a7:4e:37:d1:28 backupuser@padawan-ccp-c0-m1-mgmt
+> The key's randomart image is:
+> +---[RSA 2048]----+
+> |          o      |
+> |   . . E + .     |
+> |  o . . + .      |
+> | o +   o +       |
+> |  + o o S .      |
+> | . + o o         |
+> |  o + .          |
+> |.o .             |
+> |++o              |
+> +-----------------+
+</screen>
+    </step>
+    <step>
+     <para>
+      Add the public key to the list of the keys authorized to connect to that
+      user on this server
+     </para>
+<screen><prompt>backupuser &gt; </prompt>cat /mnt/backups/.ssh/id_rsa.pub >> /mnt/backups/.ssh/authorized_keys</screen>
+    </step>
+    <step>
+     <para>
+      Print the private key. This will be used for the backup configuration
+      (ssh_credentials.yml file)
+     </para>
+<screen><prompt>backupuser &gt; </prompt>cat /mnt/backups/.ssh/id_rsa
+
+> -----BEGIN RSA PRIVATE KEY-----
+> MIIEogIBAAKCAQEAvjwKu6f940IVGHpUj3ffl3eKXACgVr3L5s9UJnb15+zV3K5L
+> BZuor8MLvwtskSkgdXNrpPZhNCsWSkryJff5I335Jhr/e5o03Yy+RqIMrJAIa0X5
+> ...
+> ...
+> ...
+> iBKVKGPhOnn4ve3dDqy3q7fS5sivTqCrpaYtByJmPrcJNjb2K7VMLNvgLamK/AbL
+> qpSTZjicKZCCl+J2+8lrKAaDWqWtIjSUs29kCL78QmaPOgEvfsw=
+> -----END RSA PRIVATE KEY-----</screen>
+    </step>
+   </procedure>
+  </section>
+  <section>
+   <title>Preparation to store &cassandra; backups</title>
+   <para>
+    In this example, backups will be stored on the server
+    <literal>192.168.69.132</literal>, in the
+    <filename>/mnt/backups/cassandra_backups/</filename> directory.
+   </para>
+   <procedure>
+    <step>
+     <para>
+      Create a directory on the backup server to store &cassandra; backups.
+     </para>
+<screen><prompt>backupuser &gt; </prompt>mkdir /mnt/backups/cassandra_backups</screen>
+    </step>
+    <step>
+     <para>
+      Copy the private SSH key from the backup server to all controller nodes.
      </para>
 <screen><prompt>backupuser &gt; </prompt>scp /mnt/backups/.ssh/id_rsa ardana@<replaceable>CONTROLLER</replaceable>:~/.ssh/id_rsa_backup
-         Password:
-         id_rsa     100% 1675     1.6KB/s   00:00</screen>
+Password:
+id_rsa     100% 1675     1.6KB/s   00:00</screen>
      <para>
-      <replaceable>Replace CONTROLLER with each control node e.g.
-      doc-cp1-c1-m1-mgmt, doc-cp1-c1-m2-mgmt etc</replaceable>
+      Replace <replaceable>CONTROLLER</replaceable> with each control node e.g.
+      doc-cp1-c1-m1-mgmt, doc-cp1-c1-m2-mgmt etc
      </para>
-    </listitem>
-    <listitem>
+    </step>
+    <step>
      <para>
-      Login to each controller node and copy private ssh key to the root user's
-      .ssh directory
+      Log in to each controller node and copy the private SSH key to
+      <filename>.ssh</filename> directory of the root user.
      </para>
-<screen>&prompt.sudo;cp /var/lib/ardana/.ssh/id_rsa_backup /root/.ssh/</screen>
-    </listitem>
-    <listitem>
+<screen>&prompt.ardana; sudo cp /var/lib/ardana/.ssh/id_rsa_backup /root/.ssh/</screen>
+    </step>
+    <step>
      <para>
-      Verify that you can ssh to backup server as backup user using the private
-      key
+      Verify that you can SSH to the backup server as backupuser using the
+      private key.
      </para>
 <screen>&prompt.root;ssh -i ~/.ssh/id_rsa_backup backupuser@doc-cp1-comp0001-mgmt</screen>
-    </listitem>
-   </orderedlist>
+    </step>
+   </procedure>
   </section>
  </section>
  <section>
   <title>Perform Backups for disaster recovery test</title>
-  <para>
-   Perform Backups for disaster recovery
-  </para>
   <section>
-   <title>Execute backup of Cassandra</title>
+   <title>Execute backup of &cassandra;</title>
    <para>
-    Execute backup of Cassandra
-   </para>
-   <para>
-    Create cassandra-backup-extserver.sh script on all controller nodes
+    Create the following <filename>cassandra-backup-extserver.sh</filename>
+    script on all controller nodes.
    </para>
 <screen>&prompt.root;cat &gt; ~/cassandra-backup-extserver.sh &lt;&lt; EOF
 #!/bin/sh
@@ -193,11 +287,11 @@ BACKUP_DIR=/mnt/backups/cassandra_backups/
 DATA_DIR=/var/cassandra/data/data
 NODETOOL=/usr/bin/nodetool
 
-# e.g. cassandra-snp-2018-06-26-1003
+# example: cassandra-snp-2018-06-26-1003
 SNAPSHOT_NAME=cassandra-snp-\$(date +%F-%H%M)
 HOST_NAME=\$(/bin/hostname)_
 
-# Take a snapshot of cassandra database
+# Take a snapshot of &cassandra; database
 \$NODETOOL snapshot -t \$SNAPSHOT_NAME monasca
 
 # Collect a list of directories that make up the snapshot
@@ -216,33 +310,35 @@ EOF</screen>
    </para>
    <note>
     <para>
-     /usr/local/sbin/cassandra-backup-extserver.sh should be executed on all
-     the three controller nodes at the same time (within seconds of each other)
-     for a successful backup
+     The <filename>/usr/local/sbin/cassandra-backup-extserver.sh</filename>
+     script should be executed on all three controller nodes at the same time
+     (within seconds of each other) for a successful backup.
     </para>
    </note>
-   <orderedlist>
-    <listitem>
+   <procedure>
+    <step>
      <para>
-      Edit /usr/local/sbin/cassandra-backup-extserver.sh script
+      Edit the
+      <filename>/usr/local/sbin/cassandra-backup-extserver.sh</filename> script
      </para>
      <para>
-      Set <literal>BACKUP_USER</literal> and <literal>BACKUP_SERVER</literal>
-      to the desired backup user (for example,
-      <systemitem class="username">backupuser</systemitem>) and desired backup
-      server (for example, <literal>192.168.68.132</literal>), respectively.
+      Set <replaceable>BACKUP_USER</replaceable> and
+      <replaceable>BACKUP_SERVER</replaceable> to the desired backup user (for
+      example, <systemitem class="username">backupuser</systemitem>) and
+      desired backup server (for example, <literal>192.168.68.132</literal>),
+      respectively.
      </para>
 <screen>
 BACKUP_USER=backupuser
 BACKUP_SERVER=192.168.69.132
-BACKUP_DIR=/mnt/backups/cassandra_backups/
-</screen>
-    </listitem>
-    <listitem>
+BACKUP_DIR=/mnt/backups/cassandra_backups/</screen>
+    </step>
+    <step>
      <para>
-      Execute ~/cassandra-backup-extserver.sh
+      Execute <filename>~/cassandra-backup-extserver.sh</filename> on on all
+      controller nodes which are also &cassandra; nodes.
      </para>
-<screen>&prompt.root;~/cassandra-backup-extserver.sh (on all controller nodes which are also cassandra nodes)
+<screen>&prompt.root;~/cassandra-backup-extserver.sh
 
 Requested creating snapshot(s) for [monasca] with snapshot name [cassandra-snp-2018-06-28-0251] and options {skipFlush=false}
 Snapshot directory: cassandra-snp-2018-06-28-0251
@@ -263,12 +359,11 @@ created directory /mnt/backups/cassandra_backups//doc-cp1-c1-m1-mgmt_cassandra-s
 /var/cassandra/data/data/monasca/measurements-e29033d0488d11e8bdabc32666406af1/snapshots/cassandra-snp-2018-06-28-0306/schema.cql
 sent 173,691 bytes  received 531 bytes  116,148.00 bytes/sec
 total size is 171,378  speedup is 0.98
-Requested clearing snapshot(s) for [monasca]
-</screen>
-    </listitem>
-    <listitem>
+Requested clearing snapshot(s) for [monasca]</screen>
+    </step>
+    <step>
      <para>
-      Verify cassandra backup directory on backup server
+      Verify the &cassandra; backup directory on the backup server.
      </para>
 <screen><prompt>backupuser &gt; </prompt>ls -alt /mnt/backups/cassandra_backups
 total 16
@@ -280,14 +375,209 @@ drwxr-xr-x 8 backupuser users 4096 Jun 27 20:56 ..
 $backupuser@backupserver> du -shx /mnt/backups/cassandra_backups/*
 6.2G    /mnt/backups/cassandra_backups/doc-cp1-c1-m1-mgmt_cassandra-snp-2018-06-28-0251
 6.3G    /mnt/backups/cassandra_backups/doc-cp1-c1-m2-mgmt_cassandra-snp-2018-06-28-0306</screen>
-       </listitem>
-     </orderedlist>
+    </step>
+   </procedure>
+  </section>
+  <section>
+   <title>Execute backup of &productname;</title>
+   <procedure>
+    <step>
+     <para>
+      Back up the &clm; using the procedure at
+      <xref
+       linkend="clm_data_backup"/>
+     </para>
+    </step>
+    <step>
+     <para>
+      Back up the &mariadb; database using the procedure at
+      <xref
+       linkend="mariadb_database_backup"/>
+     </para>
+    </step>
+    <step>
+     <para>
+      Back up &swift; rings using the procedure at
+      <xref
+       linkend="swift_ring_backup"/>
+     </para>
+    </step>
+   </procedure>
+   <section>
+    <title>Restore the first controller</title>
+    <procedure>
+     <step>
+      <para>
+       Log in to the &clm;.
+      </para>
+     </step>
+     <step>
+      <para>
+       Retrieve the &clm; backups that were created with <xref
+       linkend="clm_data_backup"/>. There are multiple backups; directories are
+       handled differently than files.
+      </para>
+     </step>
+     <step>
+      <para>
+       Extract the TAR archives for each of the seven locations.
+      </para>
+<screen>&prompt.ardana;sudo tar -z --incremental --extract --ignore-zeros \
+--warning=none --overwrite --directory <replaceable>RESTORE_TARGET</replaceable> \
+-f <replaceable>BACKUP_TARGET</replaceable>.tar.gz</screen>
+      <para>
+       For example, with a directory such as
+       <replaceable>BACKUP_TARGET</replaceable>=<filename>/etc/ssh/</filename>
+      </para>
+<screen>&prompt.ardana;sudo tar -z --incremental --extract --ignore-zeros \
+--warning=none --overwrite --directory /etc/ssh/ -f ssh.tar.gz</screen>
+      <para>
+       With a file such as <replaceable>BACKUP_TARGET</replaceable>=/etc/passwd
+      </para>
+<screen>&prompt.ardana;sudo tar -z --incremental --extract --ignore-zeros --warning=none --overwrite --directory /etc/ -f passwd.tar.gz</screen>
+     </step>
+    </procedure>
    </section>
-     <section>
-       <title>Cassandra database restore</title>
-       <para>Cassandra database restore</para>
-       <para>Create a script cassandra-restore-extserver.sh on all
-       controller nodes</para>
+   <section>
+    <title>Re-deployment of controllers 1, 2 and 3</title>
+    <procedure>
+     <step>
+      <para>
+       Change back to the default ardana user.
+      </para>
+     </step>
+     <step>
+      <para>
+       Run the <filename>cobbler-deploy.yml</filename> playbook.
+      </para>
+<screen>&prompt.ardana;cd ~/openstack/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/localhost cobbler-deploy.xml</screen>
+     </step>
+     <step>
+      <para>
+       Run the <filename>bm-reimage.yml</filename> playbook limited to the
+       second and third controllers.
+      </para>
+<screen>&prompt.ardana;ansible-playbook -i hosts/localhost bm-reimage.yml -e nodelist=controller2,controller3</screen>
+      <para>
+       The names of controller2 and controller3. Use the
+       <filename>bm-power-status.yml</filename> playbook to check the cobbler
+       names of these nodes.
+      </para>
+     </step>
+     <step>
+      <para>
+       Run the <filename>site.yml</filename> playbook limited to the three
+       controllers and localhost&mdash;in this example,
+       <literal>doc-cp1-c1-m1-mgmt</literal>,
+       <literal>doc-cp1-c1-m2-mgmt</literal>,
+       <literal>doc-cp1-c1-m3-mgmt</literal>, and <literal>localhost</literal>
+      </para>
+<screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts site.yml --limit \
+doc-cp1-c1-m1-mgmt,doc-cp1-c1-m2-mgmt,doc-cp1-c1-m3-mgmt,localhost</screen>
+     </step>
+    </procedure>
+   </section>
+   <section>
+    <title>Restore Databases</title>
+    <section>
+     <title>Restore &mariadb; database</title>
+     <procedure>
+      <step>
+       <para>
+        Log in to the <emphasis role="bold">first controller node</emphasis>.
+       </para>
+      </step>
+      <step>
+       <para>
+        Retrieve the &mariadb; backup that was created with <xref
+        linkend="mariadb_database_backup"/>.
+       </para>
+      </step>
+      <step>
+       <para>
+        Create a temporary directory and extract the TAR archive (for example,
+        <filename>mydb.tar.gz</filename>).
+       </para>
+<screen>&prompt.ardana;mkdir /tmp/mysql_restore; sudo tar -z --incremental \
+--extract --ignore-zeros --warning=none --overwrite --directory /tmp/mysql_restore/ \
+-f mydb.tar.gz</screen>
+      </step>
+      <step>
+       <para>
+        Verify that the files have been restored on the controller.
+       </para>
+<screen>&prompt.ardana;sudo du -shx /tmp/mysql_restore/*
+16K     /tmp/mysql_restore/aria_log.00000001
+4.0K    /tmp/mysql_restore/aria_log_control
+3.4M    /tmp/mysql_restore/barbican
+8.0K    /tmp/mysql_restore/ceilometer
+4.2M    /tmp/mysql_restore/cinder
+2.9M    /tmp/mysql_restore/designate
+129M    /tmp/mysql_restore/galera.cache
+2.1M    /tmp/mysql_restore/glance
+4.0K    /tmp/mysql_restore/grastate.dat
+4.0K    /tmp/mysql_restore/gvwstate.dat
+2.6M    /tmp/mysql_restore/heat
+752K    /tmp/mysql_restore/horizon
+4.0K    /tmp/mysql_restore/ib_buffer_pool
+76M     /tmp/mysql_restore/ibdata1
+128M    /tmp/mysql_restore/ib_logfile0
+128M    /tmp/mysql_restore/ib_logfile1
+12M     /tmp/mysql_restore/ibtmp1
+16K     /tmp/mysql_restore/innobackup.backup.log
+313M    /tmp/mysql_restore/keystone
+716K    /tmp/mysql_restore/magnum
+12M     /tmp/mysql_restore/mon
+8.3M    /tmp/mysql_restore/monasca_transform
+0       /tmp/mysql_restore/multi-master.info
+11M     /tmp/mysql_restore/mysql
+4.0K    /tmp/mysql_restore/mysql_upgrade_info
+14M     /tmp/mysql_restore/nova
+4.4M    /tmp/mysql_restore/nova_api
+14M     /tmp/mysql_restore/nova_cell0
+3.6M    /tmp/mysql_restore/octavia
+208K    /tmp/mysql_restore/opsconsole
+38M     /tmp/mysql_restore/ovs_neutron
+8.0K    /tmp/mysql_restore/performance_schema
+24K     /tmp/mysql_restore/tc.log
+4.0K    /tmp/mysql_restore/test
+8.0K    /tmp/mysql_restore/winchester
+4.0K    /tmp/mysql_restore/xtrabackup_galera_info</screen>
+      </step>
+      <step>
+       <para>
+        Stop &productname; services on the three controllers (using the
+        hostnames of the controllers in your configuration).
+       </para>
+<screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts ardana-stop.yml --limit \
+doc-cp1-c1-m1-mgmt,doc-cp1-c1-m2-mgmt,doc-cp1-c1-m3-mgmt,localhost</screen>
+      </step>
+      <step>
+       <para>
+        Delete the files in the <filename>mysql</filename> directory and copy
+        the restored backup to that directory.
+       </para>
+<screen>&prompt.root;cd /var/lib/mysql/
+&prompt.root;rm -rf ./*
+&prompt.root;cp -pr /tmp/mysql_restore/* ./</screen>
+      </step>
+      <step>
+       <para>
+        Switch back to the <literal>ardana</literal> user when the copy is finished.
+       </para>
+      </step>
+     </procedure>
+    </section>
+    <section>
+     <title>Restore &cassandra; database</title>
+     <para>
+      Create a script called
+      <filename>cassandra-restore-extserver.sh</filename> on all controller
+      nodes
+     </para>
 <screen>&prompt.root;cat &gt; ~/cassandra-restore-extserver.sh &lt;&lt; EOF
 #!/bin/sh
 
@@ -335,39 +625,38 @@ cd
 \$NODETOOL clearsnapshot \$KEYSPACE
 EOF</screen>
 <screen>&prompt.root;chmod +x ~/cassandra-restore-extserver.sh</screen>
-   <para>
-    Execute following steps on all the controller nodes
-   </para>
-   <orderedlist>
-    <listitem>
      <para>
-      Edit ~/cassandra-restore-extserver.sh script
+      Execute following steps on all the controller nodes.
      </para>
-     <para>
-      Set
-      <replaceable>BACKUP_USER</replaceable>,<replaceable>BACKUP_SERVER</replaceable>
-      to the desired backup user (for example,
-      <systemitem class="username">backupuser</systemitem>) and the desired
-      backup server (for example, <literal>192.168.68.132</literal>),
-      respectively.
-     </para>
-<screen>
-BACKUP_USER=backupuser
+     <procedure>
+      <step>
+       <para>
+        Edit the <filename>~/cassandra-restore-extserver.sh</filename> script.
+       </para>
+       <para>
+        Set
+        <replaceable>BACKUP_USER</replaceable>,<replaceable>BACKUP_SERVER</replaceable>
+        to the desired backup user (for example,
+        <systemitem
+        class="username">backupuser</systemitem>) and the
+        desired backup server (for example, <literal>192.168.68.132</literal>),
+        respectively.
+       </para>
+<screen>BACKUP_USER=backupuser
 BACKUP_SERVER=192.168.69.132
 BACKUP_DIR=/mnt/backups/cassandra_backups/</screen>
-    </listitem>
-    <listitem>
-     <para>
-      Execute ~/cassandra-restore-extserver.sh
-      <replaceable>SNAPSHOT_NAME</replaceable>
-     </para>
-     <para>
-      You will have to find out <replaceable>SNAPSHOT_NAME</replaceable> from
-      listing of /mnt/backups/cassandra_backups. All the directories are of
-      format
-      <replaceable>HOST</replaceable>_<replaceable>SNAPSHOT_NAME</replaceable>
-     </para>
-<screen>ls -alt /mnt/backups/cassandra_backups
+      </step>
+      <step>
+       <para>
+        Execute <filename>~/cassandra-restore-extserver.sh</filename>
+        <replaceable>SNAPSHOT_NAME</replaceable>
+       </para>
+       <para>
+        Find <replaceable>SNAPSHOT_NAME</replaceable> from listing of
+        /mnt/backups/cassandra_backups. All the directories have the format
+        <replaceable>HOST</replaceable>_<replaceable>SNAPSHOT_NAME</replaceable>.
+       </para>
+<screen>&prompt.ardana;ls -alt /mnt/backups/cassandra_backups
 total 16
 drwxr-xr-x 4 backupuser users 4096 Jun 28 03:06 .
 drwxr-xr-x 3 backupuser users 4096 Jun 28 03:06 doc-cp1-c1-m2-mgmt_cassandra-snp-2018-06-28-0306</screen>
@@ -390,90 +679,84 @@ var/cassandra/data/data/monasca/alarm_state_history-e6bbdc20488d11e8bdabc3266640
 ...
 ...
 /usr/bin/nodetool clearsnapshot monasca</screen>
-    </listitem>
-   </orderedlist>
-  </section>
-  <section>
-   <title>Restart &productname; services</title>
-   <para>
-    Restart &productname; services
-   </para>
-   <orderedlist>
-    <listitem>
-     <para>
-      Restart the &mariadb; Database
-     </para>
+      </step>
+     </procedure>
+    </section>
+    <section>
+     <title>Restart &productname; services</title>
+     <procedure>
+      <step>
+       <para>
+        Restart the &mariadb; database
+       </para>
 <screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
 &prompt.ardana;ansible-playbook -i hosts/verb_hosts galera-bootstrap.yml</screen>
-     <para>
-      On the deployer node, execute the
-      <filename>galera-bootstrap.yml</filename> playbook which will
-      automatically determine the log sequence number, bootstrap the main node,
-      and start the database cluster.
-     </para>
-     <para>
-      If this process fails to recover the database cluster, please refer to
-      <xref linkend="mysql"/>. There Scenario 3 covers the process of manually
-      starting the database.
-     </para>
-    </listitem>
-    <listitem>
-     <para>
-      Restart &productname; services limited to the three controllers (replace
-      the the hostnames of the controllers in the command).
-     </para>
-<screen>ansible-playbook -i hosts/verb_hosts ardana-start.yml \
- --limit doc-cp1-c1-m1-mgmt,doc-cp1-c1-m2-mgmt,doc-cp1-c1-m3-mgmt,localhost</screen>
-    </listitem>
-    <listitem>
-     <para>
-      Re-configure &productname;
-     </para>
-<screen>ansible-playbook -i hosts/verb_hosts ardana-reconfigure.yml</screen>
-         </listitem>
-       </orderedlist>
+       <para>
+        On the deployer node, execute the
+        <filename>galera-bootstrap.yml</filename> playbook which will determine
+        the log sequence number, bootstrap the main node, and start the
+        database cluster.
+       </para>
+       <para>
+        If this process fails to recover the database cluster, refer to
+        <xref linkend="mysql"/>.
+       </para>
+      </step>
+      <step>
+       <para>
+        Restart &productname; services on the three controllers as in
+        the following example.
+       </para>
+<screen>&prompt.ardana;ansible-playbook -i hosts/verb_hosts ardana-start.yml \
+--limit doc-cp1-c1-m1-mgmt,doc-cp1-c1-m2-mgmt,doc-cp1-c1-m3-mgmt,localhost</screen>
+      </step>
+      <step>
+       <para>
+        Reconfigure &productname;
+       </para>
+<screen>&prompt.ardana;ansible-playbook -i hosts/verb_hosts ardana-reconfigure.yml</screen>
+      </step>
+     </procedure>
     </section>
- <section>
-  <title>Post restore testing</title>
-  <para>
-   Post restore testing
-  </para>
-  <orderedlist>
-   <listitem>
-    <para>
-     Source the service credential file
-    </para>
+   </section>
+   <section>
+    <title>Post restore testing</title>
+    <procedure>
+     <step>
+      <para>
+       Source the service credential file
+      </para>
 <screen>&prompt.ardana;source ~/service.osrc</screen>
-   </listitem>
-   <listitem>
-    <para>
-     &o_objstore;
-    </para>
+     </step>
+     <step>
+      <para>
+       &swift;
+      </para>
 <screen>&prompt.ardana;openstack container list
 container_1
 volumebackups
 
-&prompt.ardana;openstack container list container_1
+&prompt.ardana;openstack object list container_1
 var/lib/ardana/backup.osrc
 var/lib/ardana/service.osrc
 
-&prompt.ardana;openstack container save container_1 /tmp/backup.osrc</screen>
-   </listitem>
-   <listitem>
-    <para>
-     Neutron
-    </para>
+&prompt.ardana;openstack object save container_1 /tmp/backup.osrc</screen>
+     </step>
+     <step>
+      <para>
+       &o_netw;
+      </para>
 <screen>&prompt.ardana;openstack network list
 +--------------------------------------+---------------------+--------------------------------------+
 | ID                                   | Name                | Subnets                              |
 +--------------------------------------+---------------------+--------------------------------------+
 | 07c35d11-13f9-41d4-8289-fa92147b1d44 | test-net             | 02d5ca3b-1133-4a74-a9ab-1f1dc2853ec8|
 +--------------------------------------+---------------------+--------------------------------------+</screen>
-   </listitem>
-   <listitem>
-    <para>
-     Glance
-    </para>
+     </step>
+     <step>
+      <para>
+       &o_img;
+      </para>
 <screen>&prompt.ardana;openstack image list
 +--------------------------------------+----------------------+--------+
 | ID                                   | Name                 | Status |
@@ -483,14 +766,12 @@ var/lib/ardana/service.osrc
 &prompt.ardana;openstack image save --file /tmp/cirros f751c39b-f1e3-4f02-8332-3886826889ba
 &prompt.ardana;ls -lah /tmp/cirros
 -rw-r--r-- 1 ardana ardana 12716032 Jul  2 20:52 /tmp/cirros</screen>
-   </listitem>
-   <listitem>
-    <para>
-     Nova
-    </para>
+     </step>
+     <step>
+      <para>
+       &o_comp;
+      </para>
 <screen>&prompt.ardana;openstack server list
-
-&prompt.ardana;openstack server list
 
 &prompt.ardana;openstack server create server_6 --image 411a0363-7f4b-4bbc-889c-b9614e2da52e  --flavor m1.small --nic net-id=07c35d11-13f9-41d4-8289-fa92147b1d44
 +-------------------------------------+------------------------------------------------------------+
@@ -535,8 +816,9 @@ var/lib/ardana/service.osrc
 | ce7689ff-23bf-4fe9-b2a9-922d4aa9412c | server_6 | ACTIVE | n1=1.1.1.8                      | cirros-0.4.0-x86_64 | m1.small  |
 
 &prompt.ardana;openstack server delete ce7689ff-23bf-4fe9-b2a9-922d4aa9412c</screen>
-   </listitem>
-  </orderedlist>
+     </step>
+    </procedure>
+   </section>
+  </section>
  </section>
-</section>
 </section>

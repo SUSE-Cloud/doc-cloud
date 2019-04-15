@@ -8,71 +8,536 @@
 <section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="full_recovery">
  <title>Full Disaster Recovery</title>
  <para>
-  In this disaster scenario, you have lost everything in the cloud, including
-  Swift.
+  In this disaster scenario, you have lost everything in your cloud. In other
+  words, you have lost access to all data stored in the cloud that was not
+  backed up to an external backup location, including:
  </para>
- <section>
-  <title>Restore from a Swift backup:</title>
+ <itemizedlist>
+  <listitem>
+   <para>
+    Data in &swift; object storage
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    &o_img; images
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    &o_blockstore; volumes
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Metering, Monitoring, and Logging (MML) data
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Workloads running on compute resources
+   </para>
+  </listitem>
+ </itemizedlist>
+ <para>
+  In effect, the following recovery process creates a minimal new cloud with
+  the existing identity information. Much of the operating state and data would
+  have been lost, as would running workloads.
+ </para>
+ <important>
   <para>
-   Restoring from a Swift backup is not possible because Swift is gone.
+   We recommend backups external to your cloud for your data, including as much
+   as possible of the types of resources listed above. Most workloads that were
+   running could possibly be recreated with sufficient external backups.
+  </para>
+ </important>
+ <section>
+  <title>Install and Set Up a &clm; Node</title>
+  <para>
+   Before beginning the process of a full cloud recovery, you need to install
+   and set up a &clm; node as though you are creating a new cloud. There are
+   several steps in that process:
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Install the appropriate version of &sls;
+    </para>
+   </step>
+   <step>
+    <para>
+     Restore <literal>passwd</literal>, <literal>shadow</literal>, and
+     <literal>group</literal> files. They have User ID (UID) and group ID (GID)
+     content that will be used to set up the new cloud. If these are not
+     restored immediately after installing the operating system, the cloud
+     deployment will create new UIDs and GIDs, overwriting the existing
+     content.
+    </para>
+   </step>
+   <step>
+    <para>
+     Install &clm; software
+    </para>
+   </step>
+   <step>
+    <para>
+     Prepare the &clm;, which includes installing the necessary packages
+    </para>
+   </step>
+   <step>
+    <para>
+     Initialize the &clm;
+    </para>
+   </step>
+   <step>
+    <para>
+     Restore your OpenStack git repository
+    </para>
+   </step>
+   <step>
+    <para>
+     Adjust input model settings if the hardware setup has changed
+    </para>
+   </step>
+  </procedure>
+  <para>
+   The following sections cover these steps in detail.
   </para>
  </section>
  <section>
-  <title>Restore from an SSH backup:</title>
-  <orderedlist>
-   <listitem>
+  <title>Install the Operating System</title>
+  <para>
+   Follow the instructions for installing &sls; in
+   <xref
+   linkend="cha.depl.dep_inst"/>.
+  </para>
+ </section>
+ <section>
+  <title>Restore files with UID and GID content</title>
+  <important>
+   <para>
+    There is a risk that you may lose data completely. Restore the backups for
+    <filename>/etc/passwd</filename>, <filename>/etc/shadow</filename>, and
+    <filename>/etc/group</filename> immediately after installing &sls;.
+   </para>
+  </important>
+  <para>
+   Some backup files contain content that would no longer be valid if your
+   cloud were to be freshly deployed in the next step of a whole cloud
+   recovery. As a result, some of the backup must be restored before deploying
+   a new cloud. Three kinds of backups are involved: passwd, shadow, and group.
+   The following steps will restore those backups.
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Log in to the server where the &clm; will be installed.
+    </para>
+   </step>
+   <step>
+    <para>
+     Retrieve the &clm; backups from the remote server, which were created and
+     saved during <xref linkend="manual_backup_setup"/>.
+    </para>
+<screen>&prompt.ardana;scp <replaceable>USER@REMOTE_SERVER</replaceable>:<replaceable>TAR_ARCHIVE</replaceable></screen>
+   </step>
+   <step>
+    <para>
+     Untar the TAR archives to overwrite the three locations:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       passwd
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       shadow
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       group
+      </para>
+     </listitem>
+    </itemizedlist>
+<screen>&prompt.ardana;sudo tar -z --incremental --extract --ignore-zeros \
+--warning=none --overwrite --directory <replaceable>RESTORE_TARGET</replaceable> -f <replaceable>BACKUP_TARGET</replaceable>.tar.gz</screen>
+    <para>
+     The following are examples. Use the actual <filename>tar.gz</filename>
+     file names of the backups.
+    </para>
+    <para>
+     BACKUP_TARGET=<filename>/etc/passwd</filename>
+    </para>
+<screen>&prompt.ardana;sudo tar -z --incremental --extract --ignore-zeros \
+--warning=none --overwrite --directory /etc/ -f passwd.tar.gz</screen>
+    <para>
+     BACKUP_TARGET=<filename>/etc/shadow</filename>
+    </para>
+<screen>&prompt.ardana;sudo tar -z --incremental --extract --ignore-zeros \
+--warning=none --overwrite --directory /etc/ -f shadow.tar.gz</screen>
+    <para>
+     BACKUP_TARGET=<filename>/etc/group</filename>
+    </para>
+<screen>&prompt.ardana;sudo tar -z --incremental --extract --ignore-zeros \
+--warning=none --overwrite --directory /etc/ -f group.tar.gz</screen>
+   </step>
+  </procedure>
+ </section>
+ <section>
+  <title>Install the &clm;</title>
+  <para>
+   To ensure that you use the same version of &productname; that was previously
+   loaded on your &clm;, download and install the &clm; software using the
+   instructions from <xref linkend="sec.depl.adm_inst.add_on"/>.
+  </para>
+ </section>
+ <section>
+  <title>Prepare to deploy your cloud</title>
+  <para>
+   The following is the general process for preparing to deploy a &cloud;. You
+   may not need to perform all the steps, depending on your particular disaster
+   recovery situation.
+  </para>
+  <important>
+   <para>
+    When you install the <literal>ardana cloud pattern</literal> in the
+    following process, the <literal>ardana</literal> user and
+    <literal>ardana</literal> group will already exist in
+    <filename>/etc/passwd</filename> and <filename>/etc/group</filename>. Do
+    not re-create them.
+   </para>
+   <para>
+    When you run <literal>ardana-init</literal> in the following process,
+    <filename>/var/lib/ardana</filename> is created as a deployer account using
+    the account settings in <filename>/etc/passwd</filename> and
+    <filename>/etc/group</filename> that were restored in the previous step.
+   </para>
+  </important>
+  <xi:include xpointer="element(/1/3)" href="installation-kvm_xpointer.xml"/>
+ </section>
+ <section>
+  <title>Restore the remaining &clm; content from a remote backup</title>
+  <procedure>
+   <step>
     <para>
      Log in to the &clm;.
     </para>
-   </listitem>
-   <listitem>
+   </step>
+   <step>
     <para>
-     Edit the following file so it contains the same information as it had
-     previously:
+     Retrieve the &clm; backups from the remote server, which were created and
+     saved during <xref linkend="manual_backup_setup"/>.
     </para>
-<screen>~/openstack/my_cloud/config/freezer/ssh_credentials.yml</screen>
-   </listitem>
-   <listitem>
+<screen>&prompt.ardana;scp <replaceable>USER@REMOTE_SERVER</replaceable>:<replaceable>TAR_ARCHIVE</replaceable></screen>
+   </step>
+   <step>
     <para>
-     On the &clm; copy the following files:
+     Untar the TAR archives to overwrite the remaining four required locations:
     </para>
-<screen>cp -r ~/hp-ci/openstack/* ~/openstack/my_cloud/definition/</screen>
-   </listitem>
-   <listitem>
+    <itemizedlist>
+     <listitem>
+      <para>
+       home
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       ssh
+      </para>
+     </listitem>
+    </itemizedlist>
+<screen>&prompt.ardana;sudo tar -z --incremental --extract --ignore-zeros \
+--warning=none --overwrite --directory <replaceable>RESTORE_TARGET</replaceable> -f <replaceable>BACKUP_TARGET</replaceable>.tar.gz</screen>
     <para>
-     Run this playbook to restore the &clm; helper:
+     The following are examples. Use the actual <filename>tar.gz</filename>
+     file names of the backups.
     </para>
-<screen>cd ~/openstack/ardana/ansible/
-ansible-playbook -i hosts/localhost _deployer_restore_helper.yml</screen>
-   </listitem>
-   <listitem>
     <para>
-     Run as root, and change directories:
+     BACKUP_TARGET=<filename>/var/lib/ardana</filename>
     </para>
-<screen>sudo su
-cd /root/deployer_restore_helper/</screen>
-   </listitem>
-   <listitem>
+<screen>&prompt.ardana;sudo tar -z --incremental --extract --ignore-zeros \
+--warning=none --overwrite --directory /var/lib/ -f home.tar.gz</screen>
     <para>
-     Execute the restore:
+     BACKUP_TARGET=/etc/ssh/
     </para>
-<screen>./deployer_restore_script.sh</screen>
-   </listitem>
-   <listitem>
+<screen>&prompt.ardana;sudo tar -z --incremental --extract --ignore-zeros \
+--warning=none --overwrite --directory /etc/ssh/ -f ssh.tar.gz</screen>
+   </step>
+  </procedure>
+ </section>
+ <section>
+  <title>Re-deployment of controllers 1, 2 and 3</title>
+  <procedure>
+   <step>
     <para>
-     Run this playbook to deploy your cloud:
+     Change back to the default ardana user.
     </para>
-<screen>cd ~/scratch/ansible/next/ardana/ansible
-ansible-playbook -i hosts/verb_hosts site.yml -e '{ "freezer_backup_jobs_upload": false }'</screen>
-   </listitem>
-   <listitem>
+   </step>
+   <step>
     <para>
-     You can now perform the procedures to restore MySQL and Swift. Once
-     everything is restored, re-enable the backups from the &clm;:
+     Run the <filename>cobbler-deploy.yml</filename> playbook.
     </para>
-<screen>cd ~/scratch/ansible/next/ardana/ansible
-ansible-playbook -i hosts/verb_hosts _freezer_manage_jobs.yml</screen>
-   </listitem>
-  </orderedlist>
+<screen>&prompt.ardana;cd ~/openstack/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/localhost cobbler-deploy.yml</screen>
+   </step>
+   <step>
+    <para>
+     Run the <filename>bm-reimage.yml</filename> playbook limited to the second
+     and third controllers.
+    </para>
+<screen>&prompt.ardana;ansible-playbook -i hosts/localhost bm-reimage.yml -e nodelist=controller2,controller3</screen>
+    <para>
+     The names of controller2 and controller3. Use the
+     <filename>bm-power-status.yml</filename> playbook to check the cobbler
+     names of these nodes.
+    </para>
+   </step>
+   <step>
+    <para>
+     Run the <filename>site.yml</filename> playbook limited to the three
+     controllers and localhost&mdash;in this example,
+     <literal>doc-cp1-c1-m1-mgmt</literal>,
+     <literal>doc-cp1-c1-m2-mgmt</literal>,
+     <literal>doc-cp1-c1-m3-mgmt</literal>, and <literal>localhost</literal>
+    </para>
+<screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts site.yml --limit \
+doc-cp1-c1-m1-mgmt,doc-cp1-c1-m2-mgmt,doc-cp1-c1-m3-mgmt,localhost</screen>
+   </step>
+   <step>
+    <para>
+     You can now perform the procedures to restore &mariadb; and &swift;.
+    </para>
+   </step>
+  </procedure>
+ </section>
+ <section>
+  <title>Restore &mariadb; from a remote backup</title>
+  <procedure>
+   <step>
+    <para>
+     Log in to the first node running the &mariadb; service.
+    </para>
+   </step>
+   <step>
+    <para>
+     Retrieve the &mariadb; backup that was created with
+     <xref
+       linkend="mariadb_database_backup"/>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Create a temporary directory and extract the TAR archive (for example,
+     <filename>mydb.tar.gz</filename>).
+    </para>
+<screen>&prompt.ardana;mkdir /tmp/mysql_restore; sudo tar -z --incremental \
+--extract --ignore-zeros --warning=none --overwrite --directory /tmp/mysql_restore/ \
+-f mydb.tar.gz</screen>
+   </step>
+   <step>
+    <para>
+     Verify that the files have been restored on the controller.
+    </para>
+<screen>&prompt.ardana;sudo du -shx /tmp/mysql_restore/*
+16K     /tmp/mysql_restore/aria_log.00000001
+4.0K    /tmp/mysql_restore/aria_log_control
+3.4M    /tmp/mysql_restore/barbican
+8.0K    /tmp/mysql_restore/ceilometer
+4.2M    /tmp/mysql_restore/cinder
+2.9M    /tmp/mysql_restore/designate
+129M    /tmp/mysql_restore/galera.cache
+2.1M    /tmp/mysql_restore/glance
+4.0K    /tmp/mysql_restore/grastate.dat
+4.0K    /tmp/mysql_restore/gvwstate.dat
+2.6M    /tmp/mysql_restore/heat
+752K    /tmp/mysql_restore/horizon
+4.0K    /tmp/mysql_restore/ib_buffer_pool
+76M     /tmp/mysql_restore/ibdata1
+128M    /tmp/mysql_restore/ib_logfile0
+128M    /tmp/mysql_restore/ib_logfile1
+12M     /tmp/mysql_restore/ibtmp1
+16K     /tmp/mysql_restore/innobackup.backup.log
+313M    /tmp/mysql_restore/keystone
+716K    /tmp/mysql_restore/magnum
+12M     /tmp/mysql_restore/mon
+8.3M    /tmp/mysql_restore/monasca_transform
+0       /tmp/mysql_restore/multi-master.info
+11M     /tmp/mysql_restore/mysql
+4.0K    /tmp/mysql_restore/mysql_upgrade_info
+14M     /tmp/mysql_restore/nova
+4.4M    /tmp/mysql_restore/nova_api
+14M     /tmp/mysql_restore/nova_cell0
+3.6M    /tmp/mysql_restore/octavia
+208K    /tmp/mysql_restore/opsconsole
+38M     /tmp/mysql_restore/ovs_neutron
+8.0K    /tmp/mysql_restore/performance_schema
+24K     /tmp/mysql_restore/tc.log
+4.0K    /tmp/mysql_restore/test
+8.0K    /tmp/mysql_restore/winchester
+4.0K    /tmp/mysql_restore/xtrabackup_galera_info</screen>
+   </step>
+   <step>
+    <para>
+     Stop &productname; services on the three controllers (using the hostnames
+     of the controllers in your configuration).
+    </para>
+<screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts ardana-stop.yml --limit \
+doc-cp1-c1-m1-mgmt,doc-cp1-c1-m2-mgmt,doc-cp1-c1-m3-mgmt,localhost</screen>
+   </step>
+   <step>
+    <para>
+     Delete the files in the <filename>mysql</filename> directory and copy the
+     restored backup to that directory.
+    </para>
+<screen>&prompt.root;cd /var/lib/mysql/
+&prompt.root;rm -rf ./*
+&prompt.root;cp -pr /tmp/mysql_restore/* ./</screen>
+   </step>
+   <step>
+    <para>
+     Switch back to the <literal>ardana</literal> user when the copy is
+     finished.
+    </para>
+   </step>
+  </procedure>
+ </section>
+ <section>
+  <title>Restore &swift; from a remote backup</title>
+  <procedure>
+   <step>
+    <para>
+     Log in to the first &swift; Proxy
+     (<literal>SWF-PRX--first-member</literal>) node.
+    </para>
+    <para>
+     To find the first &swift; Proxy node:
+    </para>
+    <substeps>
+     <step>
+      <para>
+       On the &clm;
+      </para>
+<screen>&prompt.ardana;cd  ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts swift-status.yml \
+--limit SWF-PRX--first-member</screen>
+      <para>
+       At the end of the output, you will see something like the following
+       example:
+      </para>
+<screen><?dbsuse-fo font-size="0.65em"?>...
+Jun 18 20:01:49 ardana-qe102-cp1-c1-m1-mgmt swiftlm-uptime-mon[3985]: 'uptime-mon - INFO : Metric:keystone-get-token:max-latency: 0.679254770279 (at 1529352109.66)'
+Jun 18 20:01:49 ardana-qe102-cp1-c1-m1-mgmt swiftlm-uptime-mon[3985]: 'uptime-mon - INFO : Metric:keystone-get-token:avg-latency: 0.679254770279 (at 1529352109.66)'
+
+PLAY RECAP ********************************************************************
+ardana-qe102-cp1-c1-m1 : ok=12 changed=0 unreachable=0 failed=0```</screen>
+     </step>
+     <step>
+      <para>
+       Find the first node name and its IP address. For example:
+      </para>
+<screen>&prompt.ardana;cat /etc/hosts | grep ardana-qe102-cp1-c1-m1</screen>
+     </step>
+    </substeps>
+   </step>
+   <step>
+    <para>
+     Retrieve (<command>scp</command>) the &swift; backup that was created with
+     <xref linkend="swift_ring_backup"/>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Create a temporary directory and extract the TAR archive (for example,
+     <filename>swring.tar.gz</filename>).
+    </para>
+<screen>&prompt.ardana;mkdir /tmp/swift_builder_dir_restore; sudo tar -z \
+--incremental --extract --ignore-zeros --warning=none --overwrite --directory \
+/tmp/swift_builder_dir_restore/  -f swring.tar.gz</screen>
+   </step>
+   <step>
+    <para>
+     Log in to the &clm;.
+    </para>
+   </step>
+   <step>
+    <para>
+     Stop the &swift; service:
+    </para>
+<screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts swift-stop.yml</screen>
+   </step>
+   <step>
+    <para>
+     Log back in to the first &swift; Proxy
+     (<literal>SWF-PRX--first-member</literal>) node, which was determined in
+     <xref linkend="swift-nodes"/>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Copy the restored files.
+    </para>
+<screen>&prompt.ardana;sudo cp -pr /tmp/swift_builder_dir_restore/<replaceable>CLOUD_NAME</replaceable>/<replaceable>CONTROL_PLANE_NAME</replaceable>/builder_dir/* \
+    /etc/swiftlm/<replaceable>CLOUD_NAME</replaceable>/<replaceable>CONTROL_PLANE_NAME</replaceable>/builder_dir/</screen>
+    <para>
+     For example
+    </para>
+<screen>&prompt.ardana;sudo cp -pr /tmp/swift_builder_dir_restore/entry-scale-kvm/control-plane-1/builder_dir/* \
+    /etc/swiftlm/entry-scale-kvm/control-plane-1/builder_dir/</screen>
+   </step>
+   <step>
+    <para>
+     Log back in to the &clm;.
+    </para>
+   </step>
+   <step>
+    <para>
+     Reconfigure the &swift; service:
+    </para>
+<screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts swift-reconfigure.yml</screen>
+   </step>
+  </procedure>
+ </section>
+ <section>
+  <title>Restart &productname; services</title>
+  <procedure>
+   <step>
+    <para>
+     Restart the &mariadb; database
+    </para>
+<screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts galera-bootstrap.yml</screen>
+    <para>
+     On the deployer node, execute the
+     <filename>galera-bootstrap.yml</filename> playbook which will determine
+     the log sequence number, bootstrap the main node, and start the database
+     cluster.
+    </para>
+    <para>
+     If this process fails to recover the database cluster, refer to
+     <xref linkend="mysql"/>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Restart &productname; services on the three controllers as in the
+     following example.
+    </para>
+<screen>&prompt.ardana;ansible-playbook -i hosts/verb_hosts ardana-start.yml \
+--limit doc-cp1-c1-m1-mgmt,doc-cp1-c1-m2-mgmt,doc-cp1-c1-m3-mgmt,localhost</screen>
+   </step>
+   <step>
+    <para>
+     Reconfigure &productname;
+    </para>
+<screen>&prompt.ardana;ansible-playbook -i hosts/verb_hosts ardana-reconfigure.yml</screen>
+   </step>
+  </procedure>
  </section>
 </section>

@@ -1,0 +1,715 @@
+<?xml version="1.0"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entity-decl.ent"> %entities;
+]>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude"
+        xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="bura-manual_backup">
+ <title>Manual Backup and Restore Procedures</title>
+ <para>
+  Each backup requires the following steps:
+ </para>
+ <procedure>
+  <step>
+   <para>
+    Create a snapshot.
+   </para>
+  </step>
+  <step>
+   <para>
+    Mount the snapshot.
+   </para>
+  </step>
+  <step>
+   <para>
+    Generate a TAR archive and save it.
+   </para>
+  </step>
+  <step>
+   <para>
+    Unmount and delete the snapshot.
+   </para>
+  </step>
+ </procedure>
+ <section xml:id="clm_data_backup">
+  <title>&clm; Data Backup</title>
+  <para>
+   The following procedure is used for each of the seven
+   <replaceable>BACKUP_TARGETS</replaceable> (list below). Incremental backup
+   instructions follow the full backup procedure. For both full and incremental
+   backups, the last step of the procedure is to unmount and delete the
+   snapshot after the TAR archive has been created and saved. A new snapshot
+   must be created every time a backup is created.
+  </para>
+  <procedure xml:id="manual_backup_setup">
+   <title>Manual Backup Setup</title>
+   <step>
+    <para>
+     Create a snapshot on the &clm; in (<literal>ardana-vg</literal>), the
+     location where all &clm; data is stored.
+    </para>
+    <screen>&prompt.ardana;sudo lvcreate --size 2G --snapshot --permission r \
+--name lvm_clm_snapshot /dev/ardana-vg/root</screen>
+    <note>
+     <para>
+      If you have stored additional data or files in your
+      <literal>ardana-vg</literal> directory, you may need more space than the
+      2G indicated for the <literal>size</literal> parameter. In this
+      situation, create a preliminary TAR archive with the
+      <command>tar</command> command on the directory before creating a
+      snapshot. Set the <literal>size</literal> snapshot parameter larger than
+      the size of the archive.
+     </para>
+    </note>
+   </step>
+   <step>
+    <para>
+     Mount the snapshot
+    </para>
+<screen>&prompt.ardana;sudo mkdir /var/tmp/clm_snapshot
+&prompt.ardana;sudo mount -o ro /dev/ardana-vg/lvm_clm_snapshot /var/tmp/clm_snapshot</screen>
+   </step>
+   <step>
+    <para>
+     Generate a TAR archive (does not apply to incremental backups) with an
+     appropriate
+     <filename><replaceable>BACKUP_TAR_ARCHIVE_NAME</replaceable>.tar.gz</filename>
+     backup file for each of the following <replaceable>BACKUP_TARGETS</replaceable>.
+    </para>
+    <para>
+     <emphasis role="bold">Backup Targets</emphasis>
+    </para>
+    <itemizedlist xml:id="clm_backup_targets">
+     <listitem>
+      <para>
+       home
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       ssh
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       shadow
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       passwd
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       group
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       cobbler
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       www_cobbler
+      </para>
+     </listitem>
+    </itemizedlist>
+    <para>
+     The backup TAR archive should contain only the necessary data; nothing
+     extra. Some of the archives will be stored as directories, others as
+     files. The backup commands are slightly different for each type.
+    </para>
+    <para>
+     If the <replaceable>BACKUP_TARGET</replaceable>
+     is a directory, then that directory must be appended to
+     <filename>/var/tmp/clm_snapshot/</filename><replaceable>TARGET_DIR</replaceable>. If the <replaceable>BACKUP_TARGET</replaceable>
+     is a file, then its parent directory must be appended to <filename>/var/tmp/clm_snapshot/</filename>.
+    </para>
+    <para>
+     In the commands that follow, replace
+     <replaceable>BACKUP_TARGET</replaceable> with the appropriate
+     <replaceable>BACKUP_PATH</replaceable> (replacement table is below).
+    </para>
+<screen>&prompt.ardana;sudo tar --create -z --warning=none --no-check-device \
+--one-file-system --preserve-permissions --same-owner --seek \
+--ignore-failed-read --file <replaceable>BACKUP_TAR_ARCHIVE_NAME</replaceable>.tar.gz -C \
+/var/tmp/clm_snapshot<replaceable>TARGET_DIR</replaceable>|<replaceable>BACKUP_TARGET_WITHOUT_LEADING_DIR</replaceable></screen>
+    <itemizedlist>
+     <listitem>
+      <para>
+       If <replaceable>BACKUP_TARGET</replaceable> is a directory, replace
+       <replaceable>TARGET_DIR</replaceable> with
+       <replaceable>BACKUP_PATH</replaceable>.
+      </para>
+      <para>
+       For example, where
+       <replaceable>BACKUP_PATH</replaceable>=<filename>/etc/ssh/</filename> (a
+       directory):
+      </para>
+<screen>&prompt.ardana;sudo tar --create -z --warning=none --no-check-device \
+--one-file-system --preserve-permissions --same-owner --seek \
+--ignore-failed-read --file ssh.tar.gz -C /var/tmp/clm_snapshot/etc/ssh .</screen>
+     </listitem>
+     <listitem>
+      <para>
+       If <replaceable>BACKUP_TARGET</replaceable> is a file (not a directory),
+       replace <replaceable>TARGET_DIR</replaceable> with the parent directory
+       of <replaceable>BACKUP_PATH</replaceable>.
+      </para>
+      <para>
+       For example, where
+       <replaceable>BACKUP_PATH</replaceable>=<filename>/etc/passwd</filename>
+       (a file):
+      </para>
+<screen>&prompt.ardana;sudo tar --create -z --warning=none --no-check-device \
+--one-file-system --preserve-permissions --same-owner --seek \
+--ignore-failed-read --file passwd.tar.gz -C /var/tmp/clm_snapshot/etc/passwd</screen>
+     </listitem>
+    </itemizedlist>
+   </step>
+   <step>
+    <para>
+     Save the TAR archive to the remote server.
+    </para>
+    <screen>&prompt.ardana;scp <replaceable>TAR_ARCHIVE</replaceable> <replaceable>USER@REMOTE_SERVER</replaceable></screen>
+   </step>
+   <step>
+    <para>
+     Use the following commands to unmount and delete a snapshot.
+    </para>
+    <screen>&prompt.ardana;sudo umount -l -f /var/tmp/clm_snapshot; rm -rf /var/tmp/clm_snapshot
+&prompt.ardana;sudo lvremove -f /dev/ardana-vg/lvm_clm_snapshot</screen>
+   </step>
+  </procedure>
+  <para>
+   The table below shows &clm; <literal>backup_targets</literal> and their
+   respective <literal>backup_paths</literal>.
+  </para>
+  <table>
+   <title>&clm; Backup Paths</title>
+   <tgroup cols="2">
+    <colspec colnum="1" colname="1" colwidth="50*"/>
+    <colspec colnum="2" colname="2" colwidth="50*"/>
+    <thead>
+     <row>
+      <entry>
+       <para>
+        backup_name
+       </para>
+      </entry>
+      <entry>
+       <para>
+        backup_path
+       </para>
+      </entry>
+     </row>
+    </thead>
+    <tbody>
+     <row>
+      <entry>
+       <para>
+        home_backup
+       </para>
+      </entry>
+      <entry>
+       <para>
+        /var/lib/ardana (file)
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        etc_ssh_backup
+       </para>
+      </entry>
+      <entry>
+       <para>
+        /etc/ssh/ (directory)
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        shadow_backup
+       </para>
+      </entry>
+      <entry>
+       <para>
+        /etc/shadow (file)
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        passwd_backup
+       </para>
+      </entry>
+      <entry>
+       <para>
+        /etc/passwd (file)
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        group_backup
+       </para>
+      </entry>
+      <entry>
+       <para>
+        /etc/group (file)
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        cobbler_backup
+       </para>
+      </entry>
+      <entry>
+       <para>
+        /var/lib/cobbler/ (directory)
+       </para>
+      </entry>
+     </row>
+     <row>
+      <entry>
+       <para>
+        www_cobbler_backup
+       </para>
+      </entry>
+      <entry>
+       <para>
+        /srv/www/cobbler/ (directory)
+       </para>
+      </entry>
+     </row>
+    </tbody>
+   </tgroup>
+  </table>
+  <section>
+   <title>&clm; Incremental Backup</title>
+   <para>
+    Incremental backups require a <literal>meta</literal> file. If you use the
+    incremental backup option, a meta file must be included in the
+    <command>tar</command> command in the initial backup and whenever you do an
+    incremental backup. A copy of the original <literal>meta</literal> file
+    should be stored in each backup. The <literal>meta</literal> file is used
+    to determine the incremental changes from the previous backup, so it is
+    rewritten with each incremental backup.
+   </para>
+   <para>
+    Versions are useful for incremental backup because they provide a way
+    to differentiate between each backup. Versions are included in the
+    <command>tar</command> command.
+   </para>
+   <para>
+    Every incremental backup requires creating and mounting a separate
+    snapshot. After the TAR archive is created, the snapshot is unmounted and
+    deleted.
+   </para>
+   <para>
+    To prepare for incremental backup, follow the steps in <xref
+    linkend="manual_backup_setup"/> with the following differences in the
+    commands for generating a <literal>tar</literal> archive.
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      First time full backup
+     </para>
+<screen>&prompt.ardana;sudo tar --create -z --warning=none --no-check-device \
+--one-file-system --preserve-permissions --same-owner --seek \
+--ignore-failed-read <emphasis role="bold">--listed-incremental=PATH_TO_YOUR_META</emphasis> \
+--file <replaceable>BACKUP_TAR_ARCHIVE_NAME</replaceable>.tar.gz -C \
+/var/tmp/clm_snapshot<replaceable>TARGET_DIR</replaceable>|<replaceable>BACKUP_TARGET_WITHOUT_LEADING_DIR</replaceable></screen>
+     <para>
+      For example, where
+      <replaceable>BACKUP_PATH</replaceable>=<filename>/etc/ssh/</filename>
+     </para>
+<screen>&prompt.ardana;sudo tar --create -z --warning=none --no-check-device \
+--one-file-system --preserve-permissions --same-owner --seek --ignore-failed-read \
+<emphasis role="bold">--listed-incremental=mysshMeta</emphasis> --file ssh.tar.gz -C \
+/var/tmp/clm_snapshot/etc/ssh .</screen>
+    </listitem>
+    <listitem>
+     <para>
+      Incremental backup
+     </para>
+<screen>&prompt.ardana;sudo tar --create -z --warning=none --no-check-device \
+--one-file-system --preserve-permissions --same-owner --seek \
+--ignore-failed-read <emphasis role="bold">--listed-incremental=PATH_TO_YOUR_META</emphasis>\
+--file <replaceable>BACKUP_TAR_ARCHIVE_NAME</replaceable><emphasis role="bold">_VERSION</emphasis>.tar.gz -C \
+/var/tmp/clm_snapshot<replaceable>TARGET_DIR</replaceable>|<replaceable>BACKUP_TARGET_WITHOUT_LEADING_DIR</replaceable></screen>
+     <para>
+      For example, where
+      <replaceable>BACKUP_PATH</replaceable>=<filename>/etc/ssh/</filename>:
+     </para>
+<screen>&prompt.ardana;sudo tar --create -z --warning=none --no-check-device \
+--one-file-system --preserve-permissions --same-owner --seek --ignore-failed-read \
+<emphasis role="bold">--listed-incremental=mysshMeta</emphasis> --file \
+<emphasis role="bold">ssh_v1.tar.gz</emphasis> -C \
+/var/tmp/clm_snapshot/etc/ssh .</screen>
+    </listitem>
+   </itemizedlist>
+   <para>
+    After creating an incremental backup, use the following commands to unmount
+    and delete a snapshot.
+    </para>
+    <screen>&prompt.ardana;sudo umount -l -f /var/tmp/clm_snapshot; rm -rf /var/tmp/clm_snapshot
+&prompt.ardana;sudo lvremove -f /dev/ardana-vg/lvm_clm_snapshot</screen>
+  </section>
+  <section xml:id="manual_backup_encryption">
+   <title>Encryption</title>
+   <para>
+    When a key is provided, Open SSL is used to encrypt data
+    (AES-256-CFB). Backup files can be encrypted with the following command:
+   </para>
+<screen>&prompt.ardana;sudo openssl enc -aes-256-cfb -pass file:<replaceable>ENCRYPT_PASS_FILE_PATH</replaceable> -in \
+<replaceable>YOUR_BACKUP_TAR_ARCHIVE_NAME</replaceable>.tar.gz -out <replaceable>YOUR_BACKUP_TAR_ARCHIVE_NAME</replaceable>.tar.gz.enc</screen>
+   <para>
+    For example, using the <filename>ssh.tar.gz</filename> generated above:
+   </para>
+<screen>&prompt.ardana;sudo openssl enc  -aes-256-cfb -pass file:myEncFile -in ssh.tar.gz  -out ssh.tar.gz.enc</screen>
+  </section>
+ </section>
+ <section xml:id="mariadb_database_backup">
+  <title>&mariadb; Database Backup</title>
+  <para>
+   When backing up &mariadb;, the following process must be performed on
+   <emphasis role="bold">all nodes</emphasis> in the cluster. It is similar to
+   the backup procedure above for the &clm; (see <xref
+   linkend="manual_backup_setup"/>). The difference is the addition of SQL
+   commands, which are run with the <filename>spread_read_lock.yml</filename>
+   playbook.
+  </para>
+  <para>
+   Create the <filename>spread_read_lock.yml</filename> file in
+   <filename>~/scratch/ansible/next/ardana/ansible/</filename> on the deployer
+   with the following content:
+  </para>
+  <screen>- hosts: FND-MDB
+vars:
+ - snapshot_name: lvm_mysql_snapshot
+ - lvm_target: /dev/ardana-vg/mysql
+
+ tasks:
+ - name: Cleanup old snapshots
+   become: yes
+   shell: |
+    lvremove -f /dev/ardana-vg/{{ snapshot_name }}
+   ignore_errors: True
+
+ - name: Check that the node can receive queries from cluster
+   become: yes
+   shell: |
+    mysql -e "SHOW GLOBAL STATUS LIKE 'wsrep_ready';" \
+    | grep wsrep_ready | awk '{print$2}'
+   register: wsrep_ready
+
+ - name: Check the connectivity of the node
+   become: yes
+   shell: |
+    mysql -e "SHOW GLOBAL STATUS LIKE 'wsrep_connected';" \
+    | grep wsrep_connected | awk '{print$2}'
+   register: wsrep_connected
+
+ - name: Check the state of the node
+   become: yes
+   shell: |
+    mysql -e "SHOW GLOBAL STATUS LIKE 'wsrep_local_state_comment';" \
+    | grep wsrep_local_state_comment | awk '{print$2}'
+   register: wsrep_local_state_comment
+
+ - fail:
+     msg: "Please check the cluster and make sure nodes are synced."
+   when: wsrep_ready.stdout != "ON" and wsrep_connected.stdout != "ON" and
+      wsrep_local_state_comment.stdout != "Synced"
+
+ - name: Apply read-lock
+   become: yes
+   shell: |
+    mysql -e "FLUSH TABLES WITH READ LOCK;"
+
+ - name: Create snapshot
+   become: yes
+   shell: |
+    lvcreate --size 2G --snapshot --permission r --name {{ snapshot_name }} {{ lvm_target }}
+   register: snapshot_st
+   ignore_errors: True
+
+ - name: Release lock
+   become: yes
+   shell: |
+    mysql -e "UNLOCK TABLES;"
+
+ - fail:
+     msg: "Fail to create snapshot on  {{ lvm_target }}"
+   when: snapshot_st.rc != 0</screen>
+   <para>
+    <emphasis role="bold">Doing the &mariadb; backup</emphasis>
+   </para>
+  <procedure>
+   <step>
+    <para>
+     We recommend storing the &mariadb; version with your backup. The following
+     command saves the &mariadb; version as
+     <replaceable>MARIADB_VER</replaceable>.
+    </para>
+    <screen>mysql -V | grep -Eo '(\S+?)-MariaDB' &gt; <replaceable>MARIADB_VER</replaceable></screen>
+   </step>
+   <step>
+    <para>
+     Run the <filename>spread_read_lock.yml</filename> playbook created above.
+    </para>
+    <screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible/
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts spread_read_lock.yml</screen>
+   </step>
+   <step>
+    <para>
+     Mount the snapshot
+    </para>
+    <screen>dbnode&gt;&gt; mkdir /var/tmp/mysql_snapshot
+dbnode&gt;&gt; sudo mount -o ro /dev/ardana-vg/lvm_mysql_snapshot  /var/tmp/mysql_snapshot</screen>
+   </step>
+   <step>
+    <para>
+     On each database node, generate a TAR archive with an appropriate
+     <filename><replaceable>BACKUP_TAR_ARCHIVE_NAME</replaceable>.tar.gz</filename>
+     backup file for the <replaceable>BACKUP_TARGET</replaceable>.
+    </para>
+    <para>
+     The <literal>backup_name</literal> is <literal>mysql_backup</literal> and
+     the <literal>backup_path</literal>
+     (<replaceable>BACKUP_TARGET</replaceable>) is
+     <filename>/var/lib/mysql/</filename>.
+    </para>
+    <screen>dbnode&gt;&gt; sudo tar --create -z --warning=none --no-check-device \
+--one-file-system --preserve-permissions --same-owner --seek --ignore-failed-read \
+--file mydb.tar.gz /var/tmp/mysql_snapshot/var/lib/mysql .</screen>
+   </step>
+   <step>
+    <para>
+     Unmount and delete the &mariadb; snapshot on each database node.
+    </para>
+    <screen>dbnode&gt;&gt; sudo  umount -l -f /var/tmp/mysql_snapshot; \
+sudo rm -rf /var/tmp/mysql_snapshot; sudo lvremove -f /dev/ardana-vg/lvm_mysql_snapshot</screen>
+   </step>
+  </procedure>
+  <section>
+   <title>Incremental &mariadb; Database Backup</title>
+   <para>
+    Incremental backups require a <literal>meta</literal> file. If you use the
+    incremental backup option, a meta file must be included in the
+    <command>tar</command> command in the initial backup and whenever you do an
+    incremental backup. A copy of the original <literal>meta</literal> file
+    should be stored in each backup. The <literal>meta</literal> file is used
+    to determine the incremental changes from the previous backup, so it is
+    rewritten with each incremental backup.
+   </para>
+   <para>
+    Versions are useful for incremental backup because they provide a way
+    to differentiate between each backup. Versions are included in the
+    <command>tar</command> command.
+   </para>
+   <para>
+    To prepare for incremental backup, follow the steps in the previous section
+    except for the <command>tar</command> commands. Incremental backup
+    <command>tar</command> commands must have additional information.
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      First time &mariadb; database full backup
+     </para>
+     <screen>dbnode&gt;&gt; sudo tar --create -z --warning=none --no-check-device \
+--one-file-system --preserve-permissions --same-owner --seek \
+--ignore-failed-read <emphasis role="bold">--listed-incremental=PATH_TO_YOUR_DB_META</emphasis> \
+--file mydb.tar.gz -C /var/tmp/mysql_snapshot/var/lib/mysql .</screen>
+     <para>
+      For example, where
+      <replaceable>BACKUP_PATH</replaceable>=<filename>/var/lib/mysql/</filename>:
+     </para>
+     <screen>dbnode&gt;&gt; sudo tar --create -z --warning=none --no-check-device \
+--one-file-system --preserve-permissions --same-owner --seek --ignore-failed-read \
+<emphasis role="bold">--listed-incremental=mydbMeta</emphasis> --file mydb.tar.gz -C \
+/var/tmp/mysql_snapshot/var/lib/mysql .</screen>
+    </listitem>
+    <listitem>
+     <para>
+      Incremental &mariadb; database backup
+     </para>
+<screen>dbnode&gt;&gt; sudo tar --create -z --warning=none --no-check-device \
+--one-file-system --preserve-permissions --same-owner --seek \
+--ignore-failed-read <emphasis role="bold">--listed-incremental=PATH_TO_YOUR_META</emphasis>\
+--file <replaceable>BACKUP_TAR_ARCHIVE_NAME</replaceable><emphasis role="bold">_VERSION</emphasis>.tar.gz -C \
+/var/tmp/clm_snapshot<replaceable>TARGET_DIR</replaceable></screen>
+     <para>
+      For example, where
+      <replaceable>BACKUP_PATH</replaceable>=<filename>/var/lib/mysql/</filename>:
+     </para>
+<screen>dbnode&gt;&gt; sudo tar --create -z --warning=none --no-check-device \
+--one-file-system --preserve-permissions --same-owner --seek --ignore-failed-read \
+<emphasis role="bold">--listed-incremental=mydbMeta</emphasis> --file \
+<emphasis role="bold">mydb_v1.tar.gz</emphasis> -C /var/tmp/mysql_snapshot/var/lib/mysql .</screen>
+    </listitem>
+   </itemizedlist>
+   <para>
+    After creating and saving the TAR archive, unmount and delete the snapshot.
+   </para>
+   <screen>dbnode&gt;&gt; sudo  umount -l -f /var/tmp/mysql_snapshot; \
+sudo rm -rf /var/tmp/mysql_snapshot; sudo lvremove -f /dev/ardana-vg/lvm_mysql_snapshot</screen>
+  </section>
+  <section>
+   <title>&mariadb; Database Encryption</title>
+   <procedure>
+    <step>
+     <para> Encrypt your &mariadb; database backup following the instructions
+     in <xref linkend="manual_backup_encryption"/>
+     </para>
+    </step>
+    <step>
+     <para>
+      Upload your <replaceable>BACKUP_TARGET</replaceable>.tar.gz to your
+      preferred remote server.
+     </para>
+    </step>
+   </procedure>
+  </section>
+ </section>
+ <section xml:id="swift_ring_backup">
+  <title>&swift; Ring Backup</title>
+  <para>
+   The following procedure is used to back up &swift; rings. It is similar to
+   the &clm; backup (see <xref linkend="manual_backup_setup"/>).
+  </para>
+  <important>
+   <para>
+    The steps must be performed only on the building server (For more
+    information, see <xref linkend="topic_rtc_s3t_mt"/>.).
+   </para>
+  </important>
+  <para>
+   The <literal>backup_name</literal> is
+   <literal>swift_builder_dir_backup</literal> and the
+   <literal>backup_path</literal> is <filename>/etc/swiftlm/</filename>.
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Create a snapshot
+    </para>
+    <screen>&prompt.ardana;sudo lvcreate --size 2G --snapshot --permission r \
+--name lvm_root_snapshot /dev/ardana-vg/root</screen>
+   </step>
+   <step>
+    <para>
+     Mount the snapshot
+    </para>
+    <screen>&prompt.ardana;mkdir /var/tmp/root_snapshot; sudo mount -o ro \
+/dev/ardana-vg/lvm_root_snapshot /var/tmp/root_snapshot</screen>
+   </step>
+   <step>
+    <para>
+     Create the TAR archive
+    </para>
+    <screen>&prompt.ardana;sudo tar --create -z --warning=none --no-check-device \
+--one-file-system --preserve-permissions --same-owner --seek --ignore-failed-read \
+--file swring.tar.gz -C /var/tmp/root_snapshot/etc/swiftlm .</screen>
+   </step>
+   <step>
+    <para>
+     Upload your <filename>swring.tar.gz</filename> TAR archive to your preferred remote server.
+    </para>
+   </step>
+   <step>
+    <para>
+     Unmount and delete the snapshot
+    </para>
+    <screen>&prompt.ardana;sudo umount -l -f /var/tmp/root_snapshot; sudo rm -rf \
+/var/tmp/root_snapshot; sudo lvremove -f /dev/ardana-vg/lvm_root_snapshot</screen>
+   </step>
+  </procedure>
+ </section>
+ <section xml:id="manual_audit-log_bur">
+  <title>Audit Log Backup and Restore</title>
+  <section>
+   <title>Audit Log Backup</title>
+  <para>
+   The following procedure is used to back up Audit Logs. It is similar to the
+   &clm; backup (see <xref linkend="manual_backup_setup"/>). The steps must be
+   performed on all nodes; there will be a backup TAR archive for each
+   node. Before performing the following steps, run through <xref
+   linkend="topic_enable_audit_logs"/> .
+  </para>
+  <para>
+   The <literal>backup_name</literal> is
+   <literal>audit_log_backup</literal> and the
+   <literal>backup_path</literal> is <filename>/var/audit</filename>.
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Create a snapshot
+    </para>
+    <screen>&prompt.ardana;sudo lvcreate --size 2G --snapshot --permission r --name \
+lvm_root_snapshot /dev/ardana-vg/root</screen>
+   </step>
+   <step>
+    <para>
+     Mount the snapshot
+    </para>
+    <screen>&prompt.ardana;mkdir /var/tmp/root_snapshot; sudo mount -o ro \
+/dev/ardana-vg/lvm_root_snapshot /var/tmp/root_snapshot</screen>
+   </step>
+   <step>
+    <para>
+     Create the TAR archive
+    </para>
+    <screen>&prompt.ardana;sudo tar --create -z --warning=none --no-check-device \
+--one-file-system --preserve-permissions --same-owner --seek --ignore-failed-read \
+--file audit.tar.gz -C /var/tmp/root_snapshot/var/audit .</screen>
+   </step>
+   <step>
+    <para>
+     Upload your <filename>audit.tar.gz</filename> TAR archive to your
+     preferred remote server.
+    </para>
+   </step>
+   <step>
+    <para>
+     Unmount and delete a snapshot
+    </para>
+    <screen>&prompt.ardana;sudo umount -l -f /var/tmp/root_snapshot; sudo rm -rf \
+/var/tmp/root_snapshot; sudo lvremove -f /dev/ardana-vg/lvm_root_snapshot</screen>
+   </step>
+  </procedure>
+  </section>
+  <section>
+   <title>Audit Logs Restore</title>
+   <para>
+    Restore the Audit Logs backup with the following commands
+   </para>
+   <procedure>
+    <step>
+     <para>
+      Retrieve the Audit Logs TAR archive
+     </para>
+    </step>
+    <step>
+     <para>
+      Extract the TAR archive to the proper backup location
+     </para>
+     <screen>&prompt.ardana;sudo tar -z --incremental --extract --ignore-zeros \
+--warning=none --overwrite --directory /var/audit/  -f audit.tar.gz</screen>
+    </step>
+   </procedure>
+  </section>
+ </section>
+</section>
