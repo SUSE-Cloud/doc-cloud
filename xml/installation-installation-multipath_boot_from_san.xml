@@ -27,14 +27,6 @@
     change if necessary.
    </para>
   </important>
-<!-- FIXME: The following was commented in the DITA original. -->
-<!--<note type="important" id="boot-from-san-native-fcoe">
-   Boot from SAN support using QLogic-based FlexFabric adapters is latent in <keyword keyref="kw-hos-phrase"/> but
-   our testing has shown an issue which we were unable to address by the 3.0 release date and therefore we advise
-   <keyword keyref="kw-hos-phrase"/> customers to not use that configuration. The aim is to fix this outstanding
-   issue in a patch to <keyword keyref="kw-hos-phrase"/> in the near future. This issue also affects the use of QLogic
-   FCoE for Cinder volumes.
-   </note>-->
   <para>
    iSCSI boot from SAN is not supported. For more information on the use of
    Cinder with multipath, see <xref linkend="sec.3par-multipath"/>.
@@ -50,9 +42,10 @@
   <title>Install Phase Configuration</title>
   <para>
    For FC connected nodes and for FCoE nodes where the network processor used
-   is from the Emulex family such as for the 650FLB, the following changes need
-   to be made.
+   is from the Emulex family such as for the 650FLB, the following changes are
+   required.
   </para>
+<!-- removed in SCRD-8942
   <procedure>
    <step>
     <para>
@@ -93,6 +86,7 @@
 </screen>
    </step>
   </procedure>
+-->
   <para>
    Instead of using Cobbler, you need to provision a baremetal node manually
    using the following procedure.
@@ -100,7 +94,34 @@
   <procedure>
    <step>
     <para>
-     Assign a static IP to the node.
+     During manual installation of &cloudos;, select the desired SAN disk and
+     create an LVM partitioning scheme that meets &cloud; requirements: it has
+     an <literal>ardana-vg</literal> volume group and an
+     <literal>ardana-vg-root</literal> logical volume. For more information on
+     partitioning, see <xref linkend="sec.depl.adm_inst.partitioning"/>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Open the <filename>/etc/multipath/bindings</filename> file and map the
+     expected device name to the SAN disk selected during installation. In
+     &cloud;, the naming convention is mpatha, mpathb, and so on. For example:
+    </para>
+    <screen>mpatha-part1 360000000030349030-part1
+mpatha-part2 360000000030349030-part2
+mpatha-part3 360000000030349030-part3
+
+mpathb-part1 360000000030349000-part1
+mpathb-part2 360000000030349000-part2</screen>
+   </step>
+   <step>
+    <para>
+     Reboot to enable the changes.
+    </para>
+   </step>
+   <step>
+    <para>
+     Assign a static IP to the node:
     </para>
     <substeps>
      <step>
@@ -133,12 +154,11 @@
        <systemitem>/etc/sysconfig/network-scripts/ifcfg-eno1</systemitem> file
        and edit <replaceable>IPADDR</replaceable> and
        <replaceable>NETMASK</replaceable> values to match your environment.
-       Note that the <replaceable>IPADDR</replaceable> is used in the
-       corresponding stanza in <filename>servers.yml</filename>. You may also
-       need to set <literal>BOOTPROTO</literal> to <literal>none</literal>:
+       The <replaceable>IPADDR</replaceable> is used in the corresponding
+       stanza in <filename>servers.yml</filename>. You may also need to set
+       <literal>BOOTPROTO</literal> to <literal>none</literal>:
       </para>
-<screen>
-TYPE=Ethernet
+<screen>TYPE=Ethernet
 BOOTPROTO=none
 DEFROUTE=yes
 PEERDNS=yes
@@ -151,11 +171,11 @@ IPV6_PEERDNS=yes
 IPV6_PEERROUTES=yes
 IPV6_FAILURE_FATAL=no
 NAME=eno1
-UUID=36060f7a-12da-469b-a1da-ee730a3b1d7c
+UUID=360360aa-12aa-444a-a1aa-ee777a3a1a7a
 DEVICE=eno1
 ONBOOT=yes
 NETMASK=255.255.255.192
-IPADDR=10.13.111.14
+IPADDR=10.10.100.10
 </screen>
      </step>
      <step>
@@ -186,13 +206,13 @@ IPADDR=10.13.111.14
    <step>
     <para>
      When you start installation using the &clm;, or if you are adding a &slsa;
-     node to an existing cloud, you need to copy the &clm; public key to the
-     &slsa; node to enable passwordless SSH access. One way of doing this is to
-     copy the file <filename>~/.ssh/authorized_keys</filename> from
-     another node in the cloud to the same location on the &slsa; node. If you
-     are installing a new cloud, this file will be available on the nodes after
-     running the <filename>bm-reimage.yml</filename> playbook. Ensure that
-     there is global read access to the file
+     node to an existing cloud, copy the &clm; public key to the &slsa; node to
+     enable passwordless SSH access. One way of doing this is to copy the file
+     <filename>~/.ssh/authorized_keys</filename> from another node in the cloud
+     to the same location on the &slsa; node. If you are installing a new
+     cloud, this file will be available on the nodes after running the
+     <filename>bm-reimage.yml</filename> playbook. Ensure that there is global
+     read access to the file
      <filename>/var/lib/ardana/.ssh/authorized_keys</filename>.
     </para>
     <para>
@@ -207,351 +227,52 @@ IPADDR=10.13.111.14
   <procedure>
    <step>
     <para>
-     Run the configuration processor:
+     In
+     <filename>openstack/my_cloud/config/multipath/multipath_settings.yml</filename>,
+     set <literal>manual_multipath_conf</literal> to <literal>True</literal> so
+     that <literal>multipath.conf</literal> on manually installed nodes is not
+     overwritten.
     </para>
-<screen>
-&prompt.user;cd ~/openstack/ardana/ansible
+   </step>
+   <step>
+    <para>
+     Commit the changes.
+    </para>
+    <screen>&prompt.user;cd ~/openstack
+&prompt.user;git add -A
+&prompt.user;git commit -m "multipath config"</screen>
+   </step>
+   <step>
+    <para>
+     Run <literal>config-processor</literal> and
+     <literal>ready-deployment</literal>.
+    </para>
+    <screen>&prompt.user;cd ~/openstack/ardana/ansible
 &prompt.ardana;ansible-playbook -i hosts/localhost config-processor-run.yml
-</screen>
-    <para>
-     For automated installation, you can specify the required parameters. For
-     example, the following command disables encryption by the configuration
-     processor:
-    </para>
-<screen>
-    ansible-playbook -i hosts/localhost config-processor-run.yml \
-    -e encrypt="" -e rekey=""
-</screen>
+&prompt.user;ansible-playbook -i hosts/localhost ready-deployment.yml
+    </screen>
    </step>
    <step>
     <para>
-     Use the following playbook below to create a deployment directory:
+     Ensure that all existing partitions on the nodes are wiped prior to
+     installation by running the <filename>wipe_disks.yml</filename> playbook.
     </para>
-<screen>
-&prompt.user;cd ~/openstack/ardana/ansible
-&prompt.ardana;ansible-playbook -i hosts/localhost ready-deployment.yml
-</screen>
-   </step>
-   <step>
-    <para>
-     To ensure that all existing partitions on the nodes are wiped prior to
-     installation, you need to run the <filename>wipe_disks.yml</filename>
-     playbook. The <filename>wipe_disks.yml</filename> playbook is only meant
-     to be run on systems immediately after running
-     <filename>bm-reimage.yml</filename>. If used for any other case, it may
-     not wipe all of the expected partitions.
-    </para>
+    <note>
      <para>
-      This step is not required if you are using clean machines.
-    </para>
-    <para>
-     Before you run the <filename>wipe_disks.yml</filename> playbook, you need
-     to make the following changes in the deployment directory.
-    </para>
-    <itemizedlist>
-     <listitem>
-      <para>
-       In the
-       <filename>~/scratch/ansible/next/ardana/ansible/roles/diskconfig/tasks/get_disk_info.yml</filename>
-       file, locate the following line:
-      </para>
-<screen>
-shell: ls -1 /dev/mapper/ | grep "mpath" | grep -v {{ wipe_disks_skip_partition }}$ | grep -v {{ wipe_disks_skip_partition }}[0-9]
-</screen>
-      <para>
-       Replace it with:
-      </para>
-<screen>
-shell: ls -1 /dev/mapper/ | grep "mpath"  | grep -v {{ wipe_disks_skip_partition }}$ | grep -v {{ wipe_disks_skip_partition }}[0-9] | grep -v {{ wipe_disks_skip_partition }}_part[0-9]
-</screen>
-     </listitem>
-     <listitem>
-      <para>
-       In the
-       <filename>~/scratch/ansible/next/ardana/ansible/roles/multipath/tasks/install.yml</filename>
-       file, set the <literal>multipath_user_friendly_names</literal> variable
-       value to <literal>yes</literal> for all occurrences.
-      </para>
-     </listitem>
-    </itemizedlist>
-    <para>
-     Run the <filename>wipe_disks.yml</filename> playbook:
-    </para>
-<screen>
-&prompt.user;cd ~/scratch/ansible/next/ardana/ansible
-&prompt.ardana;ansible-playbook -i hosts/verb_hosts wipe_disks.yml
-</screen>
-    <para>
-     If you have used an encryption password when running the configuration
-     processor, use the command below, and enter the encryption password when
-     prompted:
-    </para>
-<screen>
-&prompt.ardana;ansible-playbook -i hosts/verb_hosts wipe_disks.yml --ask-vault-pass
-</screen>
+      Confirm that your root partition disk is not listed in disks to be wiped.
+     </para>
+    </note>
+    <screen>&prompt.user;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.user;ansible-playbook -i hosts/verb_hosts wipe_disks.yml</screen>
    </step>
    <step>
     <para>
      Run the <filename>site.yml</filename> playbook:
     </para>
-<screen>
-&prompt.user;cd ~/scratch/ansible/next/ardana/ansible
-&prompt.ardana;ansible-playbook -i hosts/verb_hosts site.yml
-</screen>
-    <para>
-     If you have used an encryption password when running the configuration
-     processor, use the command below, and enter the encryption password when
-     prompted:
-    </para>
-<screen>
-ansible-playbook -i hosts/verb_hosts site.yml --ask-vault-pass
-</screen>
-    <para>
-     The step above runs <systemitem>osconfig</systemitem> to configure the
-     cloud and <systemitem>ardana-deploy</systemitem> to deploy the cloud.
-     Depending on the number of nodes, this step may take considerable time to
-     complete.
-    </para>
+    <screen>&prompt.user;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.user;ansible-playbook -i hosts/verb_hosts site.yml</screen>
    </step>
   </procedure>
  </section>
 </section>
- <section xml:id="restriction2">
-  <title>QLogic FCoE restrictions and additional configurations</title>
-  <para>
-   If you are using network cards such as Qlogic Flex Fabric 536 and 630
-   series, there are additional OS configuration steps to support the
-   importation of LUNs as well as some restrictions on supported
-   configurations.
-  </para>
-  <para>
-   The restrictions are:
-  </para>
-  <itemizedlist>
-   <listitem>
-    <para>
-     Only one network card can be enabled in the system.
-    </para>
-   </listitem>
-   <listitem>
-    <para>
-     The FCoE interfaces on this card are dedicated to FCoE traffic. They
-     cannot have IP addresses associated with them.
-    </para>
-   </listitem>
-   <listitem>
-    <para>
-     NIC mapping cannot be used.
-    </para>
-   </listitem>
-  </itemizedlist>
-  <para>
-   In addition to the configuration options above, you also need to specify the
-   FCoE interfaces for install and for os configuration. There are 3 places
-   where you need to add additional configuration options for fcoe-support:
-  </para>
-  <itemizedlist>
-   <listitem>
-    <para>
-     In <literal>servers.yml</literal>, which is used for configuration of the
-     system during OS install, FCoE interfaces need to be specified for each
-     server. In particular, the mac addresses of the FCoE interfaces need to be
-     given, <emphasis>not</emphasis> the symbolic name (for example,
-     <literal>eth2</literal>).
-    </para>
-<screen>
-    - id: compute1
-      ip-addr: 10.245.224.201
-      role: COMPUTE-ROLE
-      server-group: RACK2
-      mac-addr: 6c:c2:17:33:4c:a0
-      ilo-ip: 10.1.66.26
-      ilo-user: linuxbox
-      ilo-password: linuxbox123
-      boot-from-san: True
-      fcoe-interfaces:
-         - <emphasis role="bold">6c:c2:17:33:4c:a1</emphasis>
-         - <emphasis role="bold">6c:c2:17:33:4c:a9</emphasis>
-</screen>
-    <important>
-     <para>
-      NIC mapping cannot be used.
-     </para>
-    </important>
-   </listitem>
-   <listitem>
-    <para>
-     For the osconfig phase, you will need to specify the
-     <literal>fcoe-interfaces</literal> as a peer of
-     <literal>network-interfaces</literal> in the
-     <literal>net_interfaces.yml</literal> file:
-    </para>
-<screen>
-    - name: CONTROLLER-INTERFACES
-      fcoe-interfaces:
-        - name: fcoe
-          devices:
-             - <emphasis role="bold">eth2</emphasis>
-             - <emphasis role="bold">eth3</emphasis>
-      network-interfaces:
-        - name: eth0
-          device:
-              name: eth0
-          network-groups:
-            - EXTERNAL-API
-            - EXTERNAL-VM
-            - GUEST
-            - MANAGEMENT
-</screen>
-    <important>
-     <para>
-      The MAC addresses specified in the <literal>fcoe-interfaces</literal>
-      stanza in <filename>servers.yml</filename> must correspond to the
-      symbolic names used in the <literal>fcoe-interfaces</literal> stanza in
-      <filename>net_interfaces.yml</filename>.
-     </para>
-     <para>
-      Also, to satisfy the FCoE restriction outlined in
-      <xref linkend="restriction2"/> above, there can be no overlap between the
-      devices in <literal>fcoe-interfaces</literal> and those in
-      <literal>network-interfaces</literal> in the
-      <filename>net_interfaces.yml</filename> file. In the example,
-      <literal>eth2</literal> and <literal>eth3</literal> are
-      <literal>fcoe-interfaces</literal> while <literal>eth0</literal> is in
-      <literal>network-interfaces</literal>.
-     </para>
-    </important>
-   </listitem>
-   <listitem>
-    <para>
-     As part of the initial install from an iso, additional parameters need to
-     be supplied on the kernel command line:
-    </para>
-<screen>
-multipath=true partman-fcoe/interfaces=&lt;mac address1&gt;,&lt;mac address2&gt; disk-detect/fcoe/enable=true --- quiet
-</screen>
-   </listitem>
-  </itemizedlist>
-  <para>
-   Since NIC mapping is not used to guarantee order of the networks across the
-   system the installer will remap the network interfaces in a deterministic
-   fashion as part of the install. As part of the installer dialogue, if DHCP
-   is not configured for the interface, it is necessary to confirm that the
-   appropriate interface is assigned the ip address. The network interfaces may
-   not be at the names expected when installing via an ISO. When you are asked
-   to apply an IP address to an interface, press <keycombo>
-   <keycap function="alt"/> <keycap>F2</keycap> </keycombo> and in the console
-   window, run the command <command>ip a</command> to examine the interfaces
-   and their associated MAC addresses. Make a note of the interface name with
-   the expected MAC address and use this in the subsequent dialog. Press
-   <keycombo> <keycap function="alt"/> <keycap>F1</keycap> </keycombo> to
-   return to the installation screen. You should note that the names of the
-   interfaces may have changed after the installation completes. These names
-   are used consistently in any subsequent operations.
-  </para>
-<!-- FIXME: The following was commented in the DITA original: -->
-<!-- You can check the mac addresses at this point by pressing
-  <keycombo><keycap function="alt"/><keycap>F2</keycap></keycombo> and querying
-  the interface assignment via <command>ip a</command>.
-  <keycombo><keycap function="alt"/><keycap>F1</keycap></keycombo> will return to the installer
-  dialogue. It may be that, as part of the install, the ip is transferred to
-  the <quote>reordered</quote> name. -->
-  <para>
-   Therefore, even if FCoE is not used for boot from SAN (for example for
-   cinder), then it is recommended that <literal>fcoe-interfaces</literal> be
-   specified as part of install (without the multipath or disk detect options).
-   Alternatively, you need to run
-   <filename>osconfig-fcoe-reorder.yml</filename> before
-   <filename>site.yml</filename> or <filename>osconfig-run.yml</filename> is
-   invoked to reorder the networks in a similar manner to the installer. In
-   this case, the nodes will need to be manually rebooted for the network
-   reorder to take effect. Run <filename>osconfig-fcoe-reorder.yml</filename>
-   in the following scenarios:
-  </para>
-  <itemizedlist>
-   <listitem>
-    <para>
-     If you have used a third-party installer to provision your bare-metal
-     nodes
-    </para>
-   </listitem>
-   <listitem>
-    <para>
-     If you are booting from a local disk (that is one that is not presented
-     from the SAN) but you want to use FCoE later, for example, for cinder.
-    </para>
-   </listitem>
-  </itemizedlist>
-  <para>
-   To run the command:
-  </para>
-<screen>
-cd ~/scratch/ansible/next/ardana/ansible
-ansible-playbook -i hosts/verb_hosts osconfig-fcoe-reorder.yml
-</screen>
-  <para>
-   If you do not run <filename>osconfig-fcoe-reorder.yml</filename>, you will
-   encounter a failure in <filename>osconfig-run.yml</filename>.
-  </para>
-  <para>
-   If you are booting from a local disk, the LUNs that will be imported over
-   FCoE will not be visible before <filename>site.yml</filename> or
-   <filename>osconfig-run.yml</filename> has been run. However, if you need to
-   import the LUNs before this, for instance, in scenarios where you need to
-   run <filename>wipe_disks.yml</filename> (run this only after first running
-   <filename>bm-reimage.yml</filename>), then you can run the
-   <literal>fcoe-enable</literal> playbook across the nodes in question. This
-   will configure FCoE and import the LUNs presented to the nodes.
-  </para>
-<screen>
-cd ~/openstack/ardana/ansible
-ansible-playbook -i hosts/verb_hosts fcoe-enable.yml
-</screen>
- </section>
- <section xml:id="install_boot_from_san">
-  <title>Installing the &product; ISO for Nodes That Support Boot From SAN</title>
-  <procedure>
-   <step>
-    <para>
-     During manual installation of &cloudos;, select the desired SAN disk and
-     create an LVM partitioning scheme that meets &productname; requirements,
-     that is it has an <literal>ardana-vg</literal> volume group and an
-     <literal>ardana-vg-root</literal> logical volume. For further information
-     on partitioning, see
-     <xref
-      linkend="sec.depl.adm_inst.partitioning"/>.
-    </para>
-   </step>
-   <step>
-    <para>
-     After the installation is completed and the system is booted up, open the
-     file <filename>/etc/multipath.conf</filename> and edit the defaults as
-     follows:
-    </para>
-<screen>defaults {
-    user_friendly_names yes
-    bindings_file "/etc/multipath/bindings"
-}</screen>
-   </step>
-   <step>
-    <para>
-     Open the <filename>/etc/multipath/bindings</filename> file and map the
-     expected device name to the SAN disk selected during installation. In
-     &productname;, the naming convention is <literal>mpatha</literal>,
-     <literal>mpathb</literal>, and so on. For example:
-    </para>
-<screen>mpatha-part1    360000000030349030-part1
-mpatha-part2    360000000030349030-part2
-mpatha-part3    360000000030349030-part3
-
-mpathb-part1    360000000030349000-part1
-mpathb-part2    360000000030349000-part2</screen>
-   </step>
-   <step>
-    <para>
-     Reboot the machine to enable the changes.
-    </para>
-   </step>
-  </procedure>
- </section>
 </chapter>
