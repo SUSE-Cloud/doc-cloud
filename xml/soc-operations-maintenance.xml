@@ -1329,4 +1329,92 @@
    </para>
   </important>
  </section>
+ <section xml:id="sec.bootstrap-galera-cluster-with-missing-node">
+   <!-- https://bugzilla.suse.com/show_bug.cgi?id=1132853 -->
+  <title>Bootstrapping the &mariadb_cluster; with &pacemaker; when a node is missing</title>
+  <para>
+    &pacemaker; does not promote a node to master until it received from all
+    nodes the latest <glossterm linkend="gloss.galera_sequence_number">Sequence number (seqno)</glossterm>.
+    That is a problem when one node of the &mariadb_cluster; is down (eg. due
+    to hardware or network problems) because the <glossterm linkend="gloss.galera_sequence_number">Sequence number</glossterm>
+    can not be received from the unavailable node.
+    To recover a &mariadb_cluster; manual steps are needed to
+    select a bootstrap node for &mariadb_cluster; and to promote that node
+    with &pacemaker;.
+  </para>
+  <important>
+    <para>
+      Selecting the correct bootstrap node (depending on the highest
+      <glossterm linkend="gloss.galera_sequence_number">Sequence number (seqno)</glossterm>)
+      is important. If the wrong node is selected data loss is possible.
+   </para>
+  </important>
+  <procedure>
+    <step>
+      <para>
+        To find out which node has the latest Sequence number, call the following
+        command on all &mariadb_cluster; nodes and select the node with the
+        highest Sequence number.
+      </para>
+      <screen language="bash">mysqld_safe --wsrep-recover
+      tail -5 /var/log/mysql/mysqld.log
+      ...
+      [Note] WSREP: Recovered position: 7a477edc-757d-11e9-a01a-d218e7381711:2490</screen>
+      <para>
+        At the end of <filename>/var/log/mysql/mysqld.log</filename> the Sequence
+        number is written (in this example, the sequence number is 2490).
+        After all Sequence numbers are collected from all nodes, the node with
+        the highest Sequence number is selected for bootstrap node.
+        In this example, the node with the highest Sequence number is called
+        <literal>node1</literal>.
+      </para>
+    </step>
+    <step>
+      <para>
+        Temporarily mark the galera &pacemaker; resource as unmanaged:
+      </para>
+      <screen language="bash">
+        crm resource unmanage galera
+      </screen>
+    </step>
+    <step>
+      <para>
+        Mark the node as bootstrap node (call the following commands from the
+        bootstrap node which is <literal>node1</literal> in this example):
+      </para>
+      <screen language="bash">
+        crm_attribute -N node1 -l reboot --name galera-bootstrap -v true
+        crm_attribute -N node1 -l reboot --name master-galera -v 100
+      </screen>
+    </step>
+    <step>
+      <para>
+        Promote the bootstrap node:
+      </para>
+      <screen language="bash">
+        crm_resource --force-promote -r galera -V
+      </screen>
+    </step>
+    <step>
+      <para>
+        Redetect the current state of the galera resource:
+      </para>
+      <screen language="bash">
+        crm resource cleanup galera
+      </screen>
+    </step>
+    <step>
+      <para>
+         Return the control to &pacemaker;:
+      </para>
+      <screen language="bash">
+        crm resource manage galera
+        crm resource start galera
+      </screen>
+    </step>
+  </procedure>
+  <para>
+    The &mariadb_cluster; is now running and &pacemaker; is handling the cluster.
+  </para>
+ </section>
 </chapter>
