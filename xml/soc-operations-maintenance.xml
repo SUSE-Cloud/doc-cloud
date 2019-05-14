@@ -1323,10 +1323,136 @@
   </para>
   <important>
    <para>
-    Keep in mind that if &compnode;s are started too long after the
+    If &compnode;s are started too long after the
     <literal>remote-*</literal> resources are started on the control plane,
-    they will be liable to fencing and so this should be avoided.
+    they are liable to fencing. This should be avoided.
    </para>
   </important>
+ </section>
+ <section xml:id="sec.bootstrap-galera-cluster-with-missing-node">
+   <!-- https://bugzilla.suse.com/show_bug.cgi?id=1132853 -->
+  <title>Bootstrapping the &mariadb_cluster; with &pacemaker; when a node is missing</title>
+  <para>
+    &pacemaker; does not promote a node to master until it received from all
+    nodes the latest <glossterm linkend="gloss.galera_sequence_number">Sequence number (seqno)</glossterm>.
+    That is a problem when one node of the &mariadb_cluster; is down (eg. due
+    to hardware or network problems) because the <glossterm linkend="gloss.galera_sequence_number">Sequence number</glossterm>
+    can not be received from the unavailable node.
+    To recover a &mariadb_cluster; manual steps are needed to
+    select a bootstrap node for &mariadb_cluster; and to promote that node
+    with &pacemaker;.
+  </para>
+  <important>
+    <para>
+      Selecting the correct bootstrap node (depending on the highest
+      <glossterm linkend="gloss.galera_sequence_number">Sequence number (seqno)</glossterm>)
+      is important. If the wrong node is selected data loss is possible.
+   </para>
+  </important>
+  <procedure>
+    <step>
+      <para>
+        To find out which node has the latest Sequence number, call the following
+        command on all &mariadb_cluster; nodes and select the node with the
+        highest Sequence number.
+      </para>
+      <screen language="bash">mysqld_safe --wsrep-recover
+      tail -5 /var/log/mysql/mysqld.log
+      ...
+      [Note] WSREP: Recovered position: 7a477edc-757d-11e9-a01a-d218e7381711:2490</screen>
+      <para>
+        At the end of <filename>/var/log/mysql/mysqld.log</filename> the Sequence
+        number is written (in this example, the sequence number is 2490).
+        After all Sequence numbers are collected from all nodes, the node with
+        the highest Sequence number is selected for bootstrap node.
+        In this example, the node with the highest Sequence number is called
+        <literal>node1</literal>.
+      </para>
+    </step>
+    <step>
+      <para>
+        Temporarily mark the galera &pacemaker; resource as unmanaged:
+      </para>
+      <screen language="bash">
+        crm resource unmanage galera
+      </screen>
+    </step>
+    <step>
+      <para>
+        Mark the node as bootstrap node (call the following commands from the
+        bootstrap node which is <literal>node1</literal> in this example):
+      </para>
+      <screen language="bash">
+        crm_attribute -N node1 -l reboot --name galera-bootstrap -v true
+        crm_attribute -N node1 -l reboot --name master-galera -v 100
+      </screen>
+    </step>
+    <step>
+      <para>
+        Promote the bootstrap node:
+      </para>
+      <screen language="bash">
+        crm_resource --force-promote -r galera -V
+      </screen>
+    </step>
+    <step>
+      <para>
+        Redetect the current state of the galera resource:
+      </para>
+      <screen language="bash">
+        crm resource cleanup galera
+      </screen>
+    </step>
+    <step>
+      <para>
+         Return the control to &pacemaker;:
+      </para>
+      <screen language="bash">
+        crm resource manage galera
+        crm resource start galera
+      </screen>
+    </step>
+  </procedure>
+  <para>
+    The &mariadb_cluster; is now running and &pacemaker; is handling the cluster.
+  </para>
+ </section>
+ <section>
+  <title>Updating &mariadb; with Galera</title>
+  <para>
+   When using &pacemaker;, updating &mariadb; with Galera must be done
+   manually. &crow; will not install updates automatically. In particular, this
+   situation applies to upgrades to &mariadb; 10.2.17 or higher from &mariadb;
+   10.2.16 or earlier. See <link
+   xlink:href="https://mariadb.com/kb/en/library/mariadb-10222-release-notes/">MariaDB
+   10.2.22 Release Notes - Notable Changes</link>.
+  </para>
+  <para>
+   Update &mariadb; with the following procedure:
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Using the &pacemaker; GUI, put the cluster into maintenance mode. Detailed
+     information about the &pacemaker; GUI and its operation is available in the
+     <link
+     xlink:href="https://www.suse.com/documentation/sle_ha/singlehtml/book_sleha/book_sleha.html#cha.ha.configuration.gui">&sle;
+     High Availability documentation</link>.
+    </para>
+   </step>
+   <step>
+    <para>
+     Perform a rolling upgrade to &mariadb; following the instructions at <link
+     xlink:href="https://mariadb.com/kb/en/library/upgrading-between-minor-versions-with-galera-cluster/">Upgrading
+     Between Minor Versions with Galera Cluster</link>. Each node must upgraded
+     individually so that the cluster is always operational.
+    </para>
+   </step>
+   <step>
+    <para>
+     Using the &pacemaker; GUI, take the cluster out of maintenance mode.
+    </para>
+   </step>
+  </procedure>
  </section>
 </chapter>
