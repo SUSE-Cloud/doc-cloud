@@ -1,0 +1,419 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+
+<!DOCTYPE chapter [
+ <!ENTITY % entities SYSTEM "entity-decl.ent"> %entities;
+ <!ENTITY % entitydecl SYSTEM "entity-decl.ent"> %entitydecl;
+]>
+<chapter xml:id="ccp-reference" xml:lang="en"
+ xmlns="http://docbook.org/ns/docbook" version="5.1"
+ xmlns:xi="http://www.w3.org/2001/XInclude"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+<title>Administration and Operations Guide</title>
+ <info>
+  <productname>&productname;</productname>
+  <productnumber>10</productnumber>
+ </info>
+<para>
+  This chapter contains extra reference information and more details about
+  the <link xlink:href="https://github.com/SUSE-Cloud/socok8s">socok8s
+  GitHub repository</link>.
+</para>
+<para>
+  For information on how to deploy Containerized SUSE OpenStack Cloud, refer
+  to <xref linkend="sec.deployment-index"/>.
+</para>
+<para>
+  For information about how to manage and operate Containerized SUSE
+  OpenStack Cloud, refer to <xref linkend="ccp-operations"/>.
+</para>
+<para>
+  For information on how to contribute to Containerized SUSE OpenStack Cloud,
+  refer to <xref linkend="ccp-contributor"/>.
+</para>
+<section xml:id="projecthistory">
+  <title>Project history</title>
+  <para>
+    This project started as a way to build and test the OpenStack-Helm
+    charts for SUSE on SUSE products: The Container as a Service
+    Platform (CaaSP) and the SUSE Enterprise Storage (SES).
+  </para>
+  <para>
+    It started as a series of shell scripts and Ansible playbooks, choosing the
+    simplest and fastest way to bring a test infrastructure for the upstream
+    charts. It was easier to start with shell scripts than writing a CLI in
+    <replaceable>insert favorite language here</replaceable>, mostly
+    because the shell scripts grew organically out of their usage and CI needs.
+  </para>
+  <para>
+    The mechanism of deployment was flexible from the beginning to allow
+    developers to test their changes independently. It would allow them
+    to override specific parts of the deployment, like other users or
+    customers would want to do.
+  </para>
+</section>
+<section xml:id="project-goals">
+  <title>Project goals</title>
+  <itemizedlist>
+    <listitem>
+      <para>
+        Simplicity
+      </para>
+    </listitem>
+    <listitem>
+      <para>
+        Stability
+      </para>
+    </listitem>
+    <listitem>
+      <para>
+        Use the latest stable products from SUSE
+      </para>
+    </listitem>
+    <listitem>
+      <para>
+        Carry the minimum amount of code to support upstream work on
+        SUSE products
+      </para>
+    </listitem>
+    <listitem>
+      <para>
+        Be packagable and installable offline
+      </para>
+    </listitem>
+    <listitem>
+      <para>
+        Leverage upstream first
+      </para>
+    </listitem>
+  </itemizedlist>
+</section>
+<section xml:id="design-considerations">
+  <title>Design considerations</title>
+  <section xml:id="workspace">
+    <title>Workspace</title>
+    <para>
+      In order to avoid polluting the developer/CI machine (called
+      localhost), all the data relevant for a deployment (like any
+      eventual override) is stored in a user-space folder, with
+      unprivileged access.
+    </para>
+    <para>
+      This also supports the use case of running behind a corporate
+      firewall. The localhost can connect to a bastion host with the
+      <literal>deployment</literal> actions happening behind the firewall.
+    </para>
+  </section>
+</section>
+<section xml:id="why...">
+  <title>Why...</title>
+  <para>
+    ... Ansible? Using Ansible is more robust than having socok8s running
+    completely on shell scripts. Its ecosystem allows a nice interface to track
+    deployment progress with <xref linkend="term-def-ara"/>, run in a CI/CD
+    like Zuul or Tower/AWX.
+  </para>
+  <para>
+    ... OpenStack on top of Kubernetes on top of OpenStack by default in
+    <filename>run.sh</filename>? SUSE has a cloud for our Engineers, and that
+    cloud is used for CI. From that point, creating a node for testing is as
+    simple as doing an API call, and creating a stack of nodes is simple as
+    reusing an existing Heat stack.
+  </para>
+  <blockquote>
+    <para>
+      The <filename>run.sh</filename> script was mainly used for developers and
+      CI. This is why the <filename>run.sh</filename> script points to
+      openstack as the default <literal>DEPLOYMENT_MECHANISM</literal>.
+    </para>
+  </blockquote>
+  <para>
+    ... OpenStack on top of Kubernetes? Robust structure
+  </para>
+  <para>
+    ... Splitting <filename>run.sh</filename> into so many steps? The current
+    interface of <filename>run.sh</filename> is flexible enough to work for
+    many different cases. It is semantically close to the actions that deploy
+    OpenStack. <filename>run.sh</filename> itself is just an interface. Behind
+    the scenes, it runs a <literal>DEPLOYMENT_MECHANISM</literal>-dependent
+    script, starting the appropriate Ansible playbooks for the step called.
+  </para>
+  <para>
+    ... A shell script for this interface? It was easier to start with a
+    shell script rather than writing a CLI in <replaceable>insert favorite language here</replaceable>, mostly because the shell script grew organically
+    out of actual use and CI needs.
+  </para>
+  <para>
+    ... Installing from sources? Neither the socok8s repo nor the
+    OpenStack-Helm project's repositories have been packaged for
+    Leap/SLE 15 yet.
+  </para>
+</section>
+<section xml:id="image-building-process">
+  <title>Image building process</title>
+  <section xml:id="upstream-process">
+    <title>Upstream process</title>
+    <para>
+      The OpenStack-Helm project tries to be neutral about the images by
+      providing the ability for deployers to override any image used in
+      the charts.
+    </para>
+    <para>
+      However, the OpenStack-Helm project has a repository, <link
+      xlink:href="https://github.com/openstack/openstack-helm-images">openstack-helm-images</link>,
+      containing a reference implementation for the images. That repository
+      holds the images used for the OpenStack-Helm project charts. All its
+      images are built with Docker.
+    </para>
+    <para>
+      The <literal>openstack-helm-images</literal> repository provides
+      Dockerfiles directly for all the non-OpenStack images.
+    </para>
+    <para>
+      For the OpenStack images, <literal>openstack-helm-images</literal>
+      contains shell scripts, situated in openstack/loci/. The
+      <filename>build.sh</filename> script is a thin wrapper around <xref
+      linkend="term-def-loci"/>. LOCI is the official OpenStack project to
+      build Lightweight Open Container Initiative (OCI) compliant images of
+      OpenStack projects. It uses docker build to construct images from
+      OpenStack sources. Their requirements are expressed in bindep files
+      (bindep.txt for rpm/apt packages, pydep.txt for Python3 packages). The
+      <filename>build.sh</filename> script runs LOCI for the master
+      branch. Other branches can be built using
+      <filename>build-<replaceable>BRANCHNAME</replaceable>.sh</filename> where
+      BRANCHNAME is the name of the OpenStack release (for example, rocky). See
+      also <xref linkend="buildlociimages"/>.
+    </para>
+    <para>
+      In the future, <literal>openstack-helm-images</literal> could add images
+      for OpenStack that would be based on packages by simply providing the
+      appropriate Dockerfiles. There is no announced plan to offer such a
+      resource.
+    </para>
+    <para>
+      Additionally, some images are not built in openstack-helm-images,
+      and they are directly consumed/fetched from upstream projects
+      official dockerfiles (such as xRally).
+    </para>
+  </section>
+  <section xml:id="socok8s-process">
+    <title>socok8s process</title>
+    <para>
+      socok8s leverages the existing OSH-images code.
+    </para>
+    <para>
+      When running the <literal>build_images</literal> step, the localhost asks
+      the deployer to build images based on the code that was checked in on the
+      deployer node using the <filename>vars/manifest.yml</filename> file.
+    </para>
+    <para>
+      For the non-LOCI images, the <literal>suse-build-images</literal> role
+      invoked in the <literal>build_images</literal> step is running a docker
+      build command.
+    </para>
+    <para>
+      For the LOCI images, the <literal>suse-build-images</literal> role runs
+      the command available in <literal>openstack-helm-images</literal> calling
+      the LOCI build.
+    </para>
+  </section>
+</section>
+<section xml:id="openstack-helm-chart-overrides">
+  <title>OpenStack-Helm chart overrides</title>
+  <section xml:id="helm-chart-values-overriding-principle">
+    <title>Helm chart values overriding principle</title>
+    <para>
+      A Helm chart installation (See the <link
+      xlink:href="https://helm.sh/docs/using_helm/#customizing-the-chart-before-installing">Helm
+      chart documentation about customization</link>) accepts an argument named
+      <literal>--values</literal> or <literal>-f</literal>.
+    </para>
+    <para>
+      This argument expects the filename of a YAML file to be present on
+      the Helm client machine. It can be specified multiple times, and
+      the rightmost file will take precedence.
+    </para>
+    <para>
+      In the following example, the different values of
+      <filename>socok8s-glance.yaml</filename> overrides would win over
+      the existing values in <filename>/tmp/glance.yaml</filename>:
+    </para>
+    <screen>helm upgrade --install glance ./glance --namespace=openstack \
+  --values=/tmp/glance.yaml --values=/tmp/socok8s-glance.yaml</screen>
+  </section>
+  <section xml:id="openstack-helm-scripts">
+    <title>OpenStack-Helm scripts</title>
+    <para>
+      The OpenStack-Helm project provides shell scripts to deploy the
+      Helm charts, with overrides per context (for example, multinode).
+    </para>
+    <para>
+      The shell scripts calling the Helm installation include an
+      environment variable to allow users to pass extra arguments.
+    </para>
+    <para>
+      See
+      <link xlink:href="https://github.com/openstack/openstack-helm/blob/c869b4ef4a0e95272155c5d5dd893c72976753cd/tools/deployment/multinode/100-glance.sh#L49">this
+      example from the openstack-helm repository</link>.
+    </para>
+  </section>
+  <section xml:id="customizing-osh-charts-for-suse-when-deploying-in-osh-only-mode">
+    <title>Customizing OSH charts for SUSE when deploying in OSH only
+    mode</title>
+    <para>
+      socok8s uses the previously explained environment variable to pass an
+      extra values file, a SUSE-specific YAML file. All the SUSE-specific files
+      are present in <filename>playbooks/roles/deploy-osh/templates/</filename>
+      (for example <filename>socok8s-glance.yml</filename>), <emphasis
+      role="strong">if they are not part of upstream yet</emphasis>.
+    </para>
+  </section>
+  <section xml:id="how-deployers-can-extend-a-custom-suse-osh-chart-in-osh-only-mode">
+    <title>How deployers can extend a custom SUSE OSH chart in OSH-only
+    mode</title>
+    <para>
+      Deployers can pass their own YAML overrides in user space by using
+      extravars to extend Helm chart behavior beyond the SUSE
+      customizations.
+    </para>
+    <para>
+      These overrides are in
+      <filename>playbooks/roles/deploy-osh/defaults/main.yml</filename>.
+    </para>
+  </section>
+  <section xml:id="customizing-osh-charts-for-suse-when-deploying-with-airship">
+    <title>Customizing OSH charts for SUSE when deploying with
+    Airship</title>
+    <para>
+      ...
+    </para>
+  </section>
+</section>
+<section xml:id="summary-deploy-on-openstack-diagrams">
+  <title>Summary <literal>Deploy on OpenStack</literal> diagrams</title>
+  <section xml:id="simplified-network-diagram">
+    <title>Simplified network diagram</title>
+  <informalfigure>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="ccp-simplified-network.png" width="75%" format="PNG"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="ccp-simplified-network.png"/>
+    </imageobject>
+   </mediaobject>
+  </informalfigure>
+    </section>
+  <section xml:id="osh-deploy-on-openstack-process">
+    <title>OSH deploy on OpenStack</title>
+    <section xml:id="setup-hosts">
+      <title>Set Up Hosts</title>
+      <para>
+        This is the sequence of steps that generates, in OpenStack, the
+        environment for deploying OSH later.
+      </para>
+  <informalfigure>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="ccp-ref-seq-setup-hosts.png" width="75%" format="PNG"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="ccp-ref-seq-setup-hosts.png"/>
+    </imageobject>
+   </mediaobject>
+  </informalfigure>
+      </section>
+    <section xml:id="setup-openstack">
+      <title>Set Up OpenStack</title>
+      <para>
+        This is the sequence of steps in your OpenStack-Helm deployment. The
+        solid lines represent Ansible plays and their connections.
+      </para>
+      <para>
+       The dotted lines represent extra connections happening on the Ansible
+       targets.
+      </para>
+  <informalfigure>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="ccp-ref-seq-setup-openstack-a.png" width="75%" format="PNG"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="ccp-ref-seq-setup-openstack-a.png"/>
+    </imageobject>
+   </mediaobject>
+  </informalfigure>
+  <informalfigure>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="ccp-ref-seq-setup-openstack-b.png" width="75%" format="PNG"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="ccp-ref-seq-setup-openstack-b.png"/>
+    </imageobject>
+   </mediaobject>
+  </informalfigure>
+  <informalfigure>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="ccp-ref-seq-setup-openstack-c.png" width="75%" format="PNG"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="ccp-ref-seq-setup-openstack-c.png"/>
+    </imageobject>
+   </mediaobject>
+  </informalfigure>
+   </section>
+  </section>
+</section>
+<section xml:id="envvars">
+  <title>Environment variables</title>
+  <section xml:id="in-socok8s">
+    <title>In socok8s</title>
+    <para>
+      <literal>run.sh</literal> behavior can be modified with
+      environment variables.
+    </para>
+    <para>
+      <literal>DEPLOYMENT_MECHANISM</literal> contains the target
+      destination of the deploy tooling. Currently set to
+      <literal>openstack</literal> by default, but will later include a
+      <literal>baremetal</literal> and <literal>kvm</literal>.
+    </para>
+    <para>
+      <literal>SOCOK8S_DEVELOPER_MODE</literal> determines if you want
+      to enter developer mode or not. This adds a step for patching
+      upstream code, builds images and then continues the deployment.
+    </para>
+    <para>
+      <literal>SOCOK8S_USE_VIRTUALENV</literal> determines if the script
+      should set up and use a virtualenv for Python3 and Ansible
+      requirements. Without this it is expected that ansible and the
+      requirements are installed via system packages. When
+      <literal>SOCOK8S_DEVELOPER_MODE</literal> is set to True, this
+      defaults to True, otherwise this defaults to False.
+    </para>
+    <para>
+      <literal>USE_ARA</literal> determines if you want to store records
+      in ARA. Set its value to 'True' for using ARA.
+    </para>
+  </section>
+  <section xml:id="ansible-environment-variables">
+    <title>Ansible environment variables</title>
+    <para>
+      You can use Ansible environment variables to alter Ansible
+      behavior, for example by being more verbose.
+    </para>
+  </section>
+  <section xml:id="openstack-helm-environment-variables">
+    <title>OpenStack-Helm environment variables</title>
+    <para>
+      OpenStack Helm deployment scripts accepts environment variables to
+      alter their behavior. Read each of the scripts to know more about
+      their override mechanisms.
+    </para>
+  </section>
+</section>
+</chapter>

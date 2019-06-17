@@ -1,0 +1,332 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entity-decl.ent"> %entities;
+]>
+<section xmlns="http://docbook.org/ns/docbook" 
+         xmlns:xi="http://www.w3.org/2001/XInclude" 
+         xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="sec.configure-cloud">
+ <title>Configure Cloud</title>
+  <informalfigure>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="ccp-configure_cloud.png" width="75%" format="PNG"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="ccp-configure_cloud.png"/>
+    </imageobject>
+   </mediaobject>
+  </informalfigure>
+<para>
+  This <xref linkend="term-def-workspace"/>, structured like an ansible-runner
+  directory, contains the following deployment artifacts:
+</para>
+<screen>socok8s-workspace
+|
+|-- inventory
+  |-- hosts.yml
+|-- env
+  |-- extravar
+|-- ses_configuration.yml
+|-- kubeconfig</screen>
+<section xml:id="configure-the-inventory">
+  <title>Configure the Inventory</title>
+  <para>
+    You can create an inventory based on the <filename>hosts.yml</filename>
+    file in the examples directory (<emphasis>examples/workdir/inventory/hosts.yml</emphasis>).
+  </para>
+  <screen>---
+caasp-admin:
+  vars:
+    ansible_user: root
+
+caasp-masters:
+  vars:
+    ansible_user: root
+
+caasp-workers:
+  vars:
+    ansible_user: root
+
+soc-deployer:
+  vars:
+    ansible_user: root
+
+ses_nodes:
+  vars:
+    ansible_user: root
+
+airship-openstack-compute-workers:
+  vars:
+    ansible_user: root
+
+airship-openstack-control-workers:
+  vars:
+    ansible_user: root
+
+airship-openstack-l3-agent-workers:
+  vars:
+    ansible_user: root
+
+airship-ucp-workers:
+  vars:
+    ansible_user: root
+
+airship-kube-system-workers:
+  vars:
+    ansible_user: root</screen>
+  <para>
+    For each group, a <literal>hosts:</literal> key should be added for each of
+    the hosts you are using. For example:
+  </para>
+  <screen>airship-openstack-control-workers:
+  hosts:
+    caasp-worker-001:
+      ansible_host: 10.86.1.144
+  vars:
+       ansible_user: root</screen>
+  <para>
+    The group <literal>airship-ucp-workers</literal> specifies the list of CaaS
+    Platform worker nodes to which the Airship Under Cloud Platform (UCP)
+    services will be deployed. The UCP services in socok8s include Armada,
+    Shipyard, Deckhand, Pegleg, Keystone, Barbican, and core infrastructure
+    services such as MariaDB, RabbitMQ, and PostgreSQL.
+  </para>
+  <para>
+    The group <literal>airship-openstack-control-workers</literal> specifies
+    the list of CaaS Platform worker nodes that make up the OpenStack control
+    plane.  The OpenStack control plane includes Keystone, Glance, Cinder,
+    Nova, Neutron, Horizon, Heat, MariaDB, and RabbitMQ.
+  </para>
+  <para>
+    The group <literal>airship-openstack-l3-agent-workers</literal> specifies
+    the list of CaaS Platform worker nodes where OpenStack Neutron L3 agent
+    runs.  This nodes have a public cidr so that tenant floating IPs can route
+    properly.
+  </para>
+  <para>
+    The group <literal>airship-openstack-compute-workers</literal> defines the
+    CaaS Platform worker nodes used as OpenStack Compute Nodes. Nova Compute,
+    Libvirt, Open vSwitch (OVS) are deployed to these nodes.
+  </para>
+  <para>
+    For most users, UCP and OpenStack control planes can share the same
+    worker nodes. The OpenStack Compute Nodes should be dedicated worker
+    nodes unless a light workload is expected.
+  </para>
+  <para>
+    See also
+    <link xlink:href="https://docs.ansible.com/ansible/2.7/user_guide/intro_inventory.html#hosts-and-groups">Ansible
+    Inventory Hosts and Groups</link>.
+  </para>
+  <note>
+   <para>
+    Do not add <literal>localhost</literal> as a host in your inventory. It is
+    a host with special meaning to Ansible. If you want to create an inventory
+    node for your local machine, add your machine's hostname inside your
+    inventory, and specify this host variable: <emphasis
+    role="bold">ansible_connection: local</emphasis>
+   </para>
+   <para>
+    If the Deployer is running as a non-root user, replace
+    <literal>ansible_user: value</literal> for the soc-deployer entry with your
+    logged in user.
+   </para>
+  </note>
+</section>
+<section xml:id="configure-for-ses-integration">
+  <title>Configure for SES Integration</title>
+  <para>
+    The SES integration configuration file
+    (<filename>ses_config.yml</filename>) is created as part of
+    deployment. Needed Ceph admin keyring and user keyring are added in the
+    file <filename>env/extravars</filename> in your workspace. In initial
+    deployment steps, all necessary Ceph pools are created and configuration is
+    made available in your workspace. Make sure that
+    <filename>env/extravars</filename> file is already present in your
+    workspace before deployment step is executed.
+  </para>
+  <para>
+    If there is a need to differentiate storage resources (pools, users)
+    associated with the deployment, then a variable can be set in
+    <filename>extravars</filename> to add a prefix to those
+    resources. Otherwise default with no specific prefix is used.
+  </para>
+  <screen>
+airship_ses_pools_prefix: &quot;mycloud-&quot;</screen>
+  <para>
+    If usage of SES salt runner script is preferred, then you can review
+    next sub-section. Otherwise skip it.
+  </para>
+</section>
+  <section xml:id="with-ses-salt-runner-usage-optional">
+    <title>SES Salt Runner Usage (Optional)</title>
+    <para>
+      In case <filename>ses_config.yml</filename> is created as output from
+      <xref linkend="sec.ses-integration"/>, then it can be copied to
+      workspace. The Ceph admin keyring and user keyring, in <emphasis
+      role="bold">base64</emphasis>, must be present in the file
+      <filename>env/extravars</filename> in your workspace.
+    </para>
+    <para>
+      The Ceph admin keyring can be obtained by running the following on
+      ceph host.
+    </para>
+    <screen>echo $( sudo ceph auth get-key client.admin ) | base64</screen>
+    <para>
+      For example:
+    </para>
+    <screen>ceph_admin_keyring_b64key: QVFDMXZ6dGNBQUFBQUJBQVJKakhuYkY4VFpublRPL1RXUEROdHc9PQo=
+ceph_user_keyring_b64key: QVFDMXZ6dGNBQUFBQUJBQVJKakhuYkY4VFpublRPL1RXUEROdHc9PQo=</screen>
+  </section>
+<section xml:id="configure-for-kubernetes">
+  <title>Configure for Kubernetes</title>
+  <para>
+    Containerized SUSE OpenStack Cloud relies on <literal>kubectl</literal> and
+    Helm commands to configure your OpenStack deployment. You need to provide a
+    <literal>kubeconfig</literal> file on the deployer node, in your
+    workspace. You can fetch this file from the Velum UI on your SUSE CaaS
+    Platform cluster.
+  </para>
+  <para>
+   If DNS is not used for SUSE CaaSP cluster and is not available on the
+   deployer, add entries for DNS resolution in the
+   <filename>/etc/hosts</filename> file on the deployer. In the following
+   example, the <literal>caasp_master_node_ip</literal> is
+   <literal>192.168.7.231</literal> and the
+   <literal>caasp_master_host_name</literal> is
+   <literal>pcloud003master</literal>. The <filename>/etc/hosts/</filename>
+   file should be edited to include:
+  </para>
+  <screen>192.168.7.231 api.infra.caasp.local
+192.168.7.231 pcloud003master</screen>
+</section>
+<section xml:id="configure-the-neutron-external-interface-and-tunnel-device">
+  <title>Configure the Neutron External Interface and Tunnel Device</title>
+  <para>
+    Add <literal>neutron_tunnel_device</literal>: with its appropriate value
+    for your environment in your <filename>env/extravars</filename>. It
+    specifies the overlay network for VM traffic. The tunnel device should be
+    available on all OpenStack controllers and compute hosts.
+  </para>
+  <para>
+    Add <literal>neutron_external_interface</literal>: with its appropriate
+    value for your environment in your <filename>env/extravars</filename>. It
+    specifies the bond which the overlay is a member of.
+  </para>
+  <para>
+    For example:
+  </para>
+  <screen>neutron_external_interface: bond0
+neutron_tunnel_device: bond0.24</screen>
+</section>
+<section xml:id="configure-the-vip-that-will-be-used-for-openstack-service-public-endpoints">
+  <title>Configure the VIP for OpenStack service Public Endpoints</title>
+  <para>
+    Add <literal>socok8s_ext_vip</literal>: with its appropriate value for your
+    environment in your <filename>env/extravars</filename>. This should be an
+    available IP on the external network (in a development environment, it can
+    be the same as CaaSP cluster network).
+  </para>
+  <para>
+    For example:
+  </para>
+  <screen>socok8s_ext_vip: &quot;10.10.10.10&quot;</screen>
+</section>
+<section>
+ <title>Set Up Retry Files Save Path</title>
+ <para>
+  Before beginning deployment, a path can be specified where Ansible retry
+  files can be saved in order to avoid potential errors. The path should point
+  to a user-writable directory. Set the path in either of the following ways:
+ </para>
+ <itemizedlist>
+  <listitem>
+   <para>
+    <literal>export
+    ANSIBLE_RETRY_FILES_SAVE_PATH=<replaceable>PATH_TO_DIRECTORY</replaceable></literal>
+    before deploying with <literal>run.sh</literal> commands.
+   </para>
+  </listitem>
+  <listitem>
+   <para>
+    Set the value of <literal>retry_files_save_path</literal> in your Ansible
+    configuration file.
+   </para>
+  </listitem>
+ </itemizedlist>
+ <para>
+  There is an option to disable creating these retry files by setting
+  <literal>retry_files_enabled = False</literal> in your Ansible configuration
+  file.
+ </para>
+</section>
+<section xml:id="configure-the-vip-that-will-be-used-for-airship-ucp-service-endpoints">
+  <title>Configure the VIP for Airship UCP Service Endpoints</title>
+  <para>
+    Add <literal>socok8s_dcm_vip</literal>: with its appropriate value for your
+    environment in your <filename>env/extravars</filename>. This should be an
+    available IP on the Data Center Management (DCM) network (in development
+    environment, it can be the same as CaaSP cluster network).
+  </para>
+  <para>
+    For example:
+  </para>
+  <screen>socok8s_dcm_vip: &quot;192.168.51.35&quot;</screen>
+</section>
+<section xml:id="configurecloudscaleprofile">
+  <title>Configure Cloud Scale Profile</title>
+  <para>
+    The Pod scale profile in socok8s allows you to specify the desired
+    number of Pods that each Airship and OpenStack service should run.
+  </para>
+  <para>
+    There are two built-in scale profiles: <literal>minimal</literal> and
+    <literal>ha</literal>. <literal>minimal</literal> will deploy exactly one
+    Pod for each service, making it suitable for demo or trial on a
+    resource-limited system. <literal>ha</literal> (High Availability) ensures
+    at least two instances of Pods for all services, and three or more Pods for
+    services that require quorum and are more heavily used.
+  </para>
+  <para>
+    To specify the scale profile to use, add <literal>scale_profile:</literal>
+    in the <filename>env/extravars</filename>.
+  </para>
+  <para>
+    For example:
+  </para>
+  <screen>scale_profile: ha</screen>
+  <para>
+    The definitions of the Pod scale profile can be found in this repository:
+    <filename>playbooks/roles/airship-deploy-ucp/files/profiles</filename>.
+  </para>
+  <para>
+    You can customize the built-in profile or create your own profile
+    following the file name convention.
+  </para>
+</section>
+<section xml:id="advanced-configuration">
+  <title>Advanced Configuration</title>
+  <para>
+    socok8s deployment variables respects Ansible general precedence.
+    Therefore all the variables can be adapted.
+  </para>
+  <para>
+    You can override most user-facing variables with host vars and group
+    vars.
+  </para>
+  <para>
+    Containerized SUSE OpenStack Cloud is flexible, and allows you to override
+    the value of any upstream Helm chart value with the appropriate
+    overrides.
+  </para>
+  <note>
+   <para>
+    Please read <xref linkend="sec.advanced-users"/> for inspiration on
+    overrides.
+   </para>
+  </note>
+</section>
+</section>

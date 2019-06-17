@@ -1,0 +1,191 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entity-decl.ent"> %entities;
+]>
+<section xmlns="http://docbook.org/ns/docbook" 
+         xmlns:xi="http://www.w3.org/2001/XInclude" 
+         xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="sec.verify-deployment">
+ <title>Verify Deployment</title>
+<section xml:id="verifyinstallation">
+  <title>Verify OpenStack Operation</title>
+  <para>
+    The cloud deployment includes Rally testing for the core Airship UCP
+    and OpenStack services by default.
+  </para>
+  <para>
+    At this point, your Deployer node should have an OpenStack
+    configuration file, and the OpenStackClient (OSC) command line
+    interface should be installed.
+  </para>
+  <para>
+    Test access to the OpenStack service via the VIP and determine that
+    the OpenStack services are functioning as expected by running the
+    following commands:
+  </para>
+  <screen>export OS_CLOUD='openstack'
+openstack endpoint list
+openstack server list</screen>
+</section>
+<section xml:id="openstack-tempest-testing">
+  <title>OpenStack Tempest Testing</title>
+  <para>
+    After the deployment of Containerized SUSE OpenStack Cloud has completed,
+    it is possible to run OpenStack Tempest tests against the core services in
+    the deployment using the <filename>run.sh</filename> script. Before running
+    Tempest tests, it will be necessary to manually configure OpenStack network
+    resources and provide a few configuration parameters in the
+    <filename>${WORKDIR}/env/extravars</filename> file.
+  </para>
+  <section xml:id="setting-up-an-external-network-and-subnet-in-openstack">
+    <title>Setting Up An External Network And Subnet in
+    OpenStack</title>
+    <para>
+      To set up an external network and subnet in OpenStack, the
+      following commands can be run from a shell on the Deployer node.
+    </para>
+    <screen>export OS_CLOUD=openstack
+openstack network create --provider-network-type flat --provider-physical-network external \
+  --external public
+openstack subnet create --network public --subnet-range 192.168.100.0/24 --allocation-pool \
+  start=192.168.100.10,end=192.168.100.200 --gateway 192.168.100.1 --no-dhcp public-subnet</screen>
+    <note>
+     <para>
+      The external public network is expected to be able to reach the
+      internet. The above values will vary based on your network
+      environment.
+     </para>
+    </note>
+    <para>
+      After the public network and subnet have been created in OpenStack, their
+      names will need to be made known to Tempest by adding the following keys
+      in the <filename>${WORKDIR}/env/extravars</filename> file:
+    </para>
+    <screen>openstack_external_network_name: &quot;public&quot;
+openstack_external_subnet_name: &quot;public-subnet&quot;</screen>
+    <para>
+      Tempest will create a private network (10.0.0.0/8) to use as the default
+      network, and it needs to know the CIDR block from which to allocate
+      project IPv4 subnets. This value should be specified with the following
+      key in the <filename>extravars</filename> file:
+    </para>
+    <screen>openstack_project_network_cidr: &quot;10.0.4.0/24&quot;</screen>
+  </section>
+  <section xml:id="configuring-tempest-test-parameters">
+    <title>Configuring Tempest Test Parameters</title>
+    <para>
+      By default, the implementation of Tempest in Containerized SUSE OpenStack
+      Cloud will run smoke tests for all deployed services including
+      compute, identity, image, network, and volume, using 4 workers.
+    </para>
+    <para>
+      To modify the number of workers, add the following key with a
+      value of your choosing to the <filename>extravars</filename> file:
+    </para>
+    <screen>tempest_workers: 6</screen>
+    <para>
+      To disable tests for specific OpenStack components, any or all of the
+      following keys can be added to the <filename>extravars</filename> file:
+    </para>
+    <screen>tempest_enable_cinder_service: false
+tempest_enable_glance_service: false
+tempest_enable_nova_service: false
+tempest_enable_neutron_service: false</screen>
+    <para>
+      To run all Tempest tests instead of just smoke tests, add the
+      following key to the <filename>extravars</filename> file:
+    </para>
+    <screen>tempest_test_type: &quot;all&quot;</screen>
+  </section>
+  <section xml:id="using-a-blacklist">
+    <title>Using a Blacklist</title>
+    <para>
+      To exclude specifc tests from the collection of tests being run
+      against the deployment, they can be added to the blacklist file
+      located at
+      <filename>socok8s/playbooks/roles/airship-deploy-tempest/files/tempest_blacklist</filename>.
+    </para>
+    <para>
+      When adding tests to the blacklist, each test should be listed on
+      a new line and should be formatted like the following example:
+    </para>
+    <screen>- (?:tempest\.api\.identity\.v3\.test_domains\.DefaultDomainTestJSON\.test_default_domain_exists)</screen>
+    <para>
+      By default, the blacklist file provided with Containerized SUSE OpenStack
+      Cloud will be used when running Tempest tests. If desired, use
+      of a blacklist can be disabled by adding the following key to
+      <filename>${WORKDIR}/env/extravars</filename>:
+    </para>
+    <screen>use_blacklist: false</screen>
+  </section>
+  <section xml:id="running-tempest-tests">
+    <title>Running Tempest Tests</title>
+    <para>
+      After all of the OpenStack network resources have been created and all
+      configuration parameters have been provided in
+      <filename>${WORKDIR}/env/extravars</filename>, Tempest testing can be
+      started by running the following command from the root of the socok8s
+      directory:
+    </para>
+    <screen>./run.sh test</screen>
+    <para>
+      Once the Tempest pods have been deployed, testing will begin
+      immediately. You can check the progress of the test pod at any
+      time by running:
+    </para>
+    <screen>kubectl get pods -n openstack | grep tempest-run</screen>
+    <para>
+      Example output:
+    </para>
+    <screen>airship-tempest-run-tests-hq6jg                          1/1     Running       0          33m</screen>
+    <para>
+      A status of <literal>Running</literal> indicates that testing is still in
+      progress.  Once testing is complete, the status of the
+      <literal>airship-tempest-run-tests</literal> pod will change to
+      <literal>Complete</literal>, indicating that all
+      <emphasis>enabled</emphasis> tests are executed.
+    </para>
+  </section>
+  <section xml:id="tempest-test-results">
+    <title>Tempest Test Results</title>
+    <para>
+      All test results can be viewed by retrieving the logs from the
+      <literal>airship-tempest-run-tests</literal> Pod by running the following
+      command:
+    </para>
+    <screen>kubectl logs -n openstack airship-tempest-run-tests-hq6jg</screen>
+    <note>
+     <para>
+      The logs can be viewed at any time, even while a current test
+      batch is still running.
+     </para>
+    </note>
+    <para>
+      After testing is complete, the logs will conclude with a summary of
+      all passed, skipped, and failed tests similar to the following:
+    </para>
+    <screen>Sample output for smoke tests execution (default value for tempest_test_type)
+
+======
+Totals
+======
+Ran: 120 tests in 1043.0000 sec.
+ - Passed: 88
+ - Skipped: 28
+ - Expected Fail: 0
+ - Unexpected Success: 0
+ - Failed: 4
+Sum of execute time for each test: 1684.2065 sec.
+
+==============
+Worker Balance
+==============
+ - Worker 0 (25 tests) =&gt; 0:06:17.321190
+ - Worker 1 (39 tests) =&gt; 0:15:52.956097
+ - Worker 2 (27 tests) =&gt; 0:17:23.015459
+ - Worker 3 (29 tests) =&gt; 0:05:19.495695</screen>
+  </section>
+</section>
+</section>
