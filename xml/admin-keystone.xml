@@ -1406,14 +1406,32 @@ domain_name_url_safe = off</screen>
                     value as the root user:</para>
             <screen language="console"># setsebool -P authlogin_nsswitch_use_ldap on</screen>
           </important>
-          <para>The Identity configuration is split into two separate back ends; identity
-                (back end for users and groups), and assignments (back end for domains,
-                projects, roles, role assignments). To configure Identity, set options
-                in the <literal>/etc/keystone/keystone.conf</literal> file. See
-                <link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="#integrate-identity-backend-ldap">Integrate Identity back end with LDAP</link> for Identity back end configuration
-                examples. Modify these examples as needed.</para>
+          <para>The Identity configuration is split into two separate back
+          ends; identity (back end for users and groups), and assignments (back
+          end for domains, projects, roles, role assignments). To configure
+          Identity, set options in the
+          <filename>/etc/keystone/keystone.conf</filename> file. See <link
+          xmlns:xl="http://www.w3.org/1999/xlink"
+          xl:href="#integrate-identity-backend-ldap">Integrate Identity back
+          end with LDAP</link> for Identity back end configuration
+          examples. Modify these examples as needed.
+          </para>
+          <important>
+           <para>
+            Manual changes to <filename>/etc/keystone/keystone.conf</filename>
+            or
+            <filename>/etc/keystone/domains/keystone.DOMAIN_NAME.conf</filename>
+            override entries made with the Keystone Barclamp (see the SUSE
+            documentation for <link
+            xlink:href="https://www.suse.com/documentation/suse-openstack-cloud-8/singlehtml/book_deployment/book_deployment.html#sec.depl.ostack.keystone">Deploying
+            Keystone</link>). Incorrect manual entries may cause errors. Some
+            LDAP integration entries are defaulted in the Keystone Barclamp, so
+            manual entries may not be necessary.
+           </para>
+          </important>
           <para>
-            <emphasis role="bold">To define the destination LDAP server</emphasis>
+            <emphasis role="bold">To define the destination LDAP
+            server</emphasis>
           </para>
           <para>Define the destination LDAP server in the <literal>/etc/keystone/keystone.conf</literal> file:</para>
           <screen language="ini">[ldap]
@@ -1821,11 +1839,123 @@ user_enabled_default = 512</screen>
                         <literal>allow</literal>, or <literal>never</literal>).</para>
             </listitem>
           </itemizedlist>
-        </section>
+         </section>
+         <section>
+          <title>Troubleshooting LDAP Integrations</title>
+          <para>
+           After deploying the Keystone Barclamp, there are several ways to
+           troubleshoot your LDAP integration. The following list has
+           suggestions for discovering and resolving errors.
+          </para>
+          <itemizedlist>
+           <listitem>
+            <para>
+             Run the command <command>openstack domain list</command>. No
+             output or errors may indicate duplicate configuration
+             parameters. Log in to a controller and check for errors. Only
+             unique options are permissible in each of the Keystone
+             configuration files:
+            </para>
+            <screen>/etc/keystone/keystone.conf
+/etc/keystone/domains/keystone.<replaceable>DOMAIN</replaceable>.conf
+/etc/keystone/keystone.d/010-keystone.conf
+/etc/keystone/keystone.d/100-keystone.conf
+/etc/keystone/keystone.d/999-keystone.conf</screen>
+            <para>
+             If there are duplicate entries, there is no output in the log file
+             <filename>/var/log/keystone/keystone.log</filename>. In addition,
+             the following error message appears in
+             <filename>/var/log/apache2/keystone-admin_error.log</filename>:
+            </para>
+            <screen>ArgsAlreadyParsedError: arguments already parsed: cannot
+             register CLI option</screen>
+           </listitem>
+           <listitem>
+            <para>
+             If you are integrating with a Microsoft Active Directory as the
+             LDAP back-end, referrals may be returned. Typically these
+             referrals should be ignored. To check if referrals are being
+             returned and followed:
+            </para>
+            <procedure>
+             <step>
+              <para>
+               Add the following lines to
+               <filename>/etc/keystone/keystone.d/999_keystone.conf</filename>:
+              </para>
+              <screen>[ldap]
+debug_level = 56</screen>
+             </step>
+             <step>
+              <para>
+               Restart Keystone and clear the Keystone logs:
+              </para>
+              <screen>$ systemctl stop apache2
+$ sleep 10
+$ ps -ef | grep keystone
+$ > /var/log/keystone/keystone.log
+$ > /var/log/apache2/keystone-admin_error.log
+$ systemctl start apache2></screen>
+             </step>
+             <step>
+              <para>
+               After Keystone restarts, run <command>$ openstack user list
+               --domain <replaceable>DOMAIN_NAME</replaceable></command>.
+              </para>
+             </step>
+             <step>
+              <para>
+               Search for returned referrals:
+              </para>
+              <screen>$ grep referrals
+              /var/log/apache2/keystone-admin_error.log \
+| sort | uniq outstanding referrals 1, parent count 0</screen>
+             </step>
+             <step>
+              <para>
+               Referrals can be ignored by adding <literal>chase_referrals =
+               False</literal> to the
+               <filename>/etc/keystone/keystone.d/999-keystone.conf</filename>
+               file.
+              </para>
+              <screen>[ldap]
+debug_level = 56
+chase_referrals = False</screen>
+             </step>
+             <step>
+              <para>
+               Restart Keystone and clear the Keystone logs as before.
+              </para>
+             </step>
+             <step>
+              <para>
+               Run <command>openstack user list --domain
+               <replaceable>DOMAIN_NAME</replaceable></command> and check the
+               logs. There should be zero outstanding referrals.
+              </para>
+             </step>
+             <step>
+              <para>
+               Remove the debug (<literal>debug_level = 56</literal>) from the
+               <filename>999-keystone.conf</filename> file. Leave in the
+               <literal>chase_referrals = False</literal> configuration option.
+              </para>
+             </step>
+             <step>
+              <para>
+               Copy the
+               <filename>/etc/keystone/keystone.d/999-keystone.conf</filename>
+               file to the other controllers.
+              </para>
+             </step>
+            </procedure>
+           </listitem>
+          </itemizedlist>
+         </section>
       </section>
       <section xml:id="upgrading-keystone" xml:base="identity-upgrading">
         <title>Upgrading Keystone</title>
-        <para>As of the Newton release, keystone supports two different approaches to
+        <para>As of the Newton release, Keystone supports two different approaches to
             upgrading across releases. The traditional approach requires a significant
             outage to be scheduled for the entire duration of the upgrade process. The more
             modern approach results in zero downtime, but is more complicated due to a
@@ -4372,7 +4502,7 @@ methods = external,password,token,mapped,openid</screen>
                 </note>
               </step>
               <step>
-                <para>Create local keystone groups and assign roles.</para>
+               <para>Create local keystone groups and assign roles.</para>
                 <important>
                   <para>The keystone requires group-based role assignments to authorize
                                 federated users. The federation mapping engine maps federated users into
