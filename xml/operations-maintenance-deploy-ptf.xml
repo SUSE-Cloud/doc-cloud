@@ -11,7 +11,7 @@
   Occasionally, in order to fix a given issue, &suse; will provide a set of
   packages known as a Program Temporary Fix (PTF). Such a PTF is fully
   supported by SUSE until the Maintenance Update containing a permanent fix has
-  been released via the regular Update repositories.  Customers running PTF
+  been released via the regular Update repositories. Customers running PTF
   fixes will be notified through the related Service Request when a permanent
   patch for a PTF has been released.
  </para>
@@ -24,28 +24,17 @@
     When &suse; has developed a PTF, you will receive a URL for that PTF. It
     will contain the entire Python virtual environment (venv). You should
     download the packages from the location provided by &suse; Support to a
-    temporary location on the &clm;. Set the variables for your Support ID and
-    password. For example:
+    temporary location on the &clm;. For example with a &o_netw; PTF:
    </para>
-   <screen>&prompt.ardana;sudo user=<replaceable>USER_NAME</replaceable>
-&prompt.ardana;sudo psw=<replaceable>PASSWORD</replaceable>
+<screen>&prompt.ardana;mkdir ~/PTF
+&prompt.ardana;cd ~/PTF
 &prompt.ardana;sudo wget --no-directories --recursive --reject "index.html*"\
---user=<replaceable>USER_NAME</replaceable> \
---password=<replaceable>PASSWORD</replaceable> \
---no-parent https://ptf.suse.com/5555ddddeeee6666/cloud9/16374/x86_64/20181030/venv-openstack-neutron-x86_64-11.0.2-13.8.1.16374.0.PTF.1113308.noarch.rpm</screen>
+--no-parent --ask- password --user=USER_NAME \
+https://ptf.suse.com/54321aaaa...dddd12345/cloud8/16374/x86_64/20181030/venv-openstack-neutron-x86_64-11.0.2-13.8.1.16374.0.PTF.111333000.noarch.rpm</screen>
   </step>
   <step>
    <para>
-    Remove any old data from the PTF repository, such as a listing for a PTF
-    repository from a migration or when previous product patches were
-    installed.
-   </para>
-   <screen>&prompt.ardana;cd /srv/www/suse-12.3/x86_64/repos/PTF/
-&prompt.ardana;sudo rm -rf *</screen>
-  </step>
-  <step>
-   <para>
-    Move the packages from the temporary download location to the following
+    Move packages from the temporary download location to the following
     directories on the CLM Server:
    </para>
    <itemizedlist>
@@ -53,29 +42,33 @@
      <para>
       PTFs with <literal>noarch</literal> packages
       (<filename>*.noarch.rpm</filename>) go into
-      <filename>/srv/www/suse-12.3/x86_64/repos/PTF/noarch/</filename>
+      <filename>/srv/www/suse-12.4/x86_64/repos/PTF/noarch/</filename>
      </para>
     </listitem>
     <listitem>
      <para>
       PTFs with <literal>x86_64</literal> packages
       (<filename>*.x86_64.rpm</filename>) go into
-      <filename>/srv/www/suse-12.3/x86_64/repos/PTF/x86_64/</filename>
+      <filename>/srv/www/suse-12.4/x86_64/repos/PTF/x86_64/</filename>
      </para>
     </listitem>
    </itemizedlist>
    <para>
-    This example is for the &o_netw; venv, so that PTF is moved to the repo.
+    Example for <literal>noarch</literal> packages.
    </para>
-   <screen>&prompt.ardana;sudo mkdir -p /srv/www/suse-12.3/x86_64/repos/PTF/noarch/
-&prompt.ardana;sudo cp venv-openstack-neutron-x86_64-11.0.2-13.8.1.16374.0.PTF.1113308.noarch.rpm
-   /srv/www/suse-12.3/x86_64/repos/PTF/noarch/</screen>
+<screen>&prompt.ardana;sudo mkdir /srv/www/suse-12.4/x86_64/repos/PTF/noarch/
+&prompt.ardana;sudo cp ~/PTF/*noarch.rpm /srv/www/suse-12.4/x86_64/repos/PTF/noarch/</screen>
+   <para>
+    Example for <literal>x86_64</literal> packages.
+   </para>
+<screen>&prompt.ardana;sudo mkdir /srv/www/suse-12.4/x86_64/repos/PTF/x86_64/
+&prompt.ardana;sudo cp ~/PTF/*noarch.rpm /srv/www/suse-12.4/x86_64/repos/PTF/x86_64/</screen>
   </step>
   <step>
    <para>
     Create or update the repository metadata:
    </para>
-   <screen>&prompt.ardana;sudo /usr/local/sbin/createrepo-cloud-ptf
+<screen>&prompt.ardana;sudo /usr/local/sbin/createrepo-cloud-ptf
 Spawning worker 0 with 1 pkgs
 Workers Finished
 Saving Primary metadata
@@ -86,7 +79,7 @@ Saving other metadata</screen>
    <para>
     Refresh the PTF repository before installing package updates on the &clm;
    </para>
-   <screen>&prompt.ardana;sudo zypper refresh -fr PTF
+<screen>&prompt.ardana;sudo zypper refresh -fr PTF
 Forcing raw metadata refresh
 Retrieving repository 'PTF' metadata ..........................................[done]
 Forcing building of repository cache
@@ -97,7 +90,7 @@ Specified repositories have been refreshed.</screen>
    <para>
     The PTF shows as available on the deployer.
    </para>
-   <screen>&prompt.ardana;sudo zypper se -r PTF
+<screen>&prompt.ardana;sudo zypper se -r PTF
 Loading repository data...
 Reading installed packages...
 
@@ -105,11 +98,31 @@ S | Name                          | Summary                                 | Ty
 --+-------------------------------+-----------------------------------------+--------
 i | venv-openstack-neutron-x86_64 | Python virtualenv for OpenStack Neutron | package</screen>
   </step>
+    <step>
+   <para>
+    Install the PTF packages on the &compnode;
+   </para>
+   <screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts ardana-update-pkgs.yml --extra-vars '{"zypper_update_method": "update", "zypper_update_repositories": ["PTF"]}' --limit comp0001-mgmt</screen>
+   <para>
+    When it has finished, you can see that the upgraded package
+    has been installed on comp0001-mgmt
+   </para>
+   <screen>&prompt.ardana;sudo zypper se --detail python-neutronclient
+Loading repository data...
+Reading installed packages...
+
+S | Name                 | Type     | Version                         | Arch   | Repository
+--+----------------------+----------+---------------------------------+--------+--------------------------------------
+i | python-neutronclient | package  | 6.5.1-4.361.042171.0.PTF.102473 | noarch | PTF
+  | python-neutronclient | package  | 6.5.0-4.361                     | noarch | SUSE-OPENSTACK-CLOUD-x86_64-GM-DVD1
+   </screen>
+  </step>
   <step>
    <para>
     Install the PTF on the &clm;
    </para>
-   <screen>&prompt.ardana;sudo zypper dup --from PTF
+<screen>&prompt.ardana;sudo zypper dup  --from PTF
 Refreshing service
 Loading repository data...
 Reading installed packages...
@@ -136,7 +149,7 @@ warning: /var/cache/zypp/packages/PTF/noarch/venv-openstack-neutron-x86_64-11.0.
    <para>
     The PTF must first be unpacked into the deployment directory:
    </para>
-   <screen>&prompt.ardana;ls -la /srv/www/suse-12.3/x86_64/repos
+<screen>&prompt.ardana;ls -la /opt/ardana_packager/ardana-9/sles_venv/
 total 898952
 drwxr-xr-x 2 root root     4096 Oct 30 16:10 .
 ...
@@ -155,7 +168,7 @@ drwxr-xr-x 2 root root     4096 Oct 30 16:10 .
    <para>
     The &compnode; before running the update playbook:
    </para>
-   <screen>&prompt.ardana;ls -la /opt/stack/venv
+<screen>&prompt.ardana;ls -la /opt/stack/venv
 total 24
 drwxr-xr-x  9 root root 4096 Jul 18 15:47 neutron-20180718T154642Z
 drwxr-xr-x  9 root root 4096 Aug 14 16:13 neutron-20180814T161306Z
@@ -166,19 +179,26 @@ drwxr-xr-x 10 root root 4096 Aug 14 16:13 nova-20180814T161306Z</screen>
    <para>
     Run the update
    </para>
-   <screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
-&prompt.ardana;ansible-playbook -i hosts/verb_hosts ardana-update.yml --limit  comp0001-mgmt</screen>
+<screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts ardana-update.yml</screen>
    <para>
     When it has finished, you can see that an additional virtual environment
-    has been installed
+    has been installed.
    </para>
-   <screen>&prompt.ardana;ls -la /opt/stack/venv
+<screen>&prompt.ardana;ls -la /opt/stack/venv
 total 28
 drwxr-xr-x  9 root root 4096 Jul 18 15:47 neutron-20180718T154642Z
 drwxr-xr-x  9 root root 4096 Aug 14 16:13 neutron-20180814T161306Z
 drwxr-xr-x  9 root root 4096 Oct 30 12:43 neutron-20181030T124310Z &lt;&lt;&lt; New venv installed
 drwxr-xr-x 10 root root 4096 May 28 09:30 nova-20180528T092954Z
-   drwxr-xr-x 10 root root 4096 Aug 14 16:13 nova-20180814T161306Z</screen>
+drwxr-xr-x 10 root root 4096 Aug 14 16:13 nova-20180814T161306Z</screen>
+  </step>
+  <step>
+   <para>
+    The PTF may also have <literal>RPM</literal> package updates in addition to
+    venv updates. To complete the update, follow the instructions at <xref
+    linkend="perform_update"/>
+   </para>
   </step>
  </procedure>
 </section>
