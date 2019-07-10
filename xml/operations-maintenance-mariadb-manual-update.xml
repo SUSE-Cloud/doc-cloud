@@ -8,38 +8,84 @@
 <section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="mariadb-manual-update">
  <title>Updating &mariadb; with Galera</title>
    <para>
-   When using Pacemaker, updating &mariadb; with Galera must be done
-   manually. &crow; will not install updates automatically. In particular, this
-   situation applies to upgrades to &mariadb; 10.2.17 or higher from &mariadb;
-   10.2.16 or earlier. See <link
+   Updating &mariadb; with Galera must be done manually. Updates are not
+   installed automatically. This is particularly an issue with upgrades to
+   &mariadb; 10.2.17 or higher from &mariadb; 10.2.16 or earlier. See <link
    xlink:href="https://mariadb.com/kb/en/library/mariadb-10222-release-notes/">MariaDB
    10.2.22 Release Notes - Notable Changes</link>.
   </para>
   <para>
-   Update &mariadb; with the following procedure:
+   Using the CLI, update &mariadb; with the following procedure:
   </para>
   <procedure>
    <step>
     <para>
-     Using the Pacemaker GUI, put the cluster into maintenance mode. Detailed
-     information about the Pacemaker GUI and its operation is available in the
-     <link
-     xlink:href="https://www.suse.com/documentation/sle_ha/singlehtml/book_sleha/book_sleha.html#cha.ha.configuration.gui">&sle;
-     High Availability documentation</link>.
+     Mark Galera as unmanaged:
     </para>
+    <screen>crm resource unmanage galera</screen>
+    <para>
+     Or put the whole cluster into maintenance mode:
+    </para>
+    <screen>crm configure property maintenance-mode=true</screen>
    </step>
    <step>
     <para>
-     Perform a rolling upgrade to &mariadb; following the instructions at <link
-     xlink:href="https://mariadb.com/kb/en/library/upgrading-between-minor-versions-with-galera-cluster/">Upgrading
-     Between Minor Versions with Galera Cluster</link>. Each node must upgraded
-     individually so that the cluster is always operational.
+     Pick a node other than the one currently targeted by the loadbalancer and
+     stop &mariadb; on that node:
     </para>
+    <screen>crm_resource --wait --force-demote -r galera -V</screen>
    </step>
    <step>
     <para>
-     Using the Pacemaker GUI, take the cluster out of maintenance mode.
+     Perform updates:
     </para>
+    <substeps>
+     <step>
+      <para>
+       Uninstall the old versions of &mariadb; and the Galera wsrep provider.
+      </para>
+     </step>
+     <step>
+      <para>
+       Install the new versions of &mariadb; and the Galera wsrep
+       provider. Select the appropriate instructions at <link
+       xlink:href="https://mariadb.com/kb/en/library/installing-mariadb-with-zypper/">Installing
+       MariaDB with zypper</link>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Change configuration options if necessary.
+      </para>
+     </step>
+    </substeps>
    </step>
+     <step>
+      <para>
+       Start &mariadb; on the node.
+      </para>
+      <screen>crm_resource --wait --force-promote -r galera -V</screen>
+     </step>
+     <step>
+      <para>
+       Run <command>mysql_upgrade</command> with the
+       <literal>--skip-write-binlog</literal> option.
+      </para>
+     </step>
+     <step>
+      <para>
+       On the other nodes, repeat the process detailed above: stop &mariadb;,
+       perform updates, start &mariadb;, run <command>mysql_upgrade</command>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Mark Galera as managed:
+      </para>
+      <screen>crm resource manage galera</screen>
+      <para>
+       Or take the cluster out of maintenance mode.
+      </para>
+     </step>
   </procedure>
 </section>
