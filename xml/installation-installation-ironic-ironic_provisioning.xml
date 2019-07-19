@@ -45,6 +45,11 @@
     pxe_ipmi
    </para>
   </listitem>
+  <listitem>
+   <para>
+    Redfish
+   </para>
+  </listitem>
  </itemizedlist>
  <para>
   Before you start, you should be aware that:
@@ -92,6 +97,74 @@
    </para>
   </listitem>
  </orderedlist>
+ <section>
+  <title>Redfish Protocol Support</title>
+  <para>
+   Redfish is a successor to the Intelligent Platform Management Interface
+   (IPMI) with the ability to scale to larger and more diverse cloud
+   deployments. It has an API that allows users to collect performance data
+   from heterogeneous server installations and more data sources than could be
+   handled previously. It is based on an industry standard protocol with a
+   RESTful interface for managing cloud assets that are compliant with the
+   <link xlink:href="https://redfish.dmtf.org/">Redfish protocol</link>.
+  </para>
+  <note>
+   <para>
+    There are two known limitations to using Redfish.
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      RAID configuration does not work due to missing HPE Smart Storage
+      Administrator CLI (HPE SSACLI) in the default deploy RAM disk. This is a
+      licensing issue.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      The ironic <literal>inspector</literal> inspect interface is not supported.
+     </para>
+    </listitem>
+   </itemizedlist>
+  </note>
+  <para>
+   Enable the Redfish driver with the following steps:
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Install the Sushy library on the ironic-conductor nodes. Sushy is a Python
+     library for communicating with Redfish-based systems with Ironic. More
+     information is available at <link
+     xlink:href="https://opendev.org/openstack/sushy/"/>.
+    </para>
+    <screen>sudo pip install sushy</screen>
+   </step>
+   <step>
+    <para>
+     Add <literal>redfish</literal> to the list of
+     <literal>enabled_hardware_types</literal>,
+     <literal>enabled_power_interfaces</literal> and
+     <literal>enabled_management_interfaces</literal> in
+     <filename>/etc/ironic/ironic.conf</filename> as shown below:
+    </para>
+    <screen>[DEFAULT]
+...
+enabled_hardware_types = ipmi,redfish
+enabled_power_interfaces = ipmitool,redfish
+enabled_management_interfaces = ipmitool,redfish</screen>
+   </step>
+   <step>
+    <para>
+     Restart the ironic-conductor service:
+    </para>
+    <screen>sudo systemctl restart openstack-ironic-conductor</screen>
+   </step>
+  </procedure>
+  <para>
+   To continue with Redfish, see <xref linkend="register-redfish-node"/>.
+  </para>
+ </section>
  <section xml:id="sec.ironic-provision.image">
   <title>Supplied Images</title>
   <para>
@@ -153,6 +226,79 @@ Deploy_ramdisk : openstack-ironic-image.x86_64-8.0.0.iso</screen>
    <literal>ironic node-update &lt;nodeid&gt;
    <replaceable>remove</replaceable></literal> will remove a property.
   </para>
+ </section>
+ <section xml:id="register-redfish-node">
+  <title>Registering a Node with the Redfish Driver</title>
+  <para>
+   Nodes configured to use the Redfish driver should have the driver property
+   set to <literal>redfish</literal>.
+  </para>
+  <para>
+   The following properties are specified in the <literal>driver_info</literal>
+   field of the node:
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term><literal>redfish_address</literal> (required)</term>
+    <listitem>
+     <para>
+      The URL address to the Redfish controller. It must include the authority
+      portion of the URL, and can optionally include the scheme. If the scheme
+      is missing, HTTPS is assumed.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>redfish_system_id</literal> (required)</term>
+    <listitem>
+     <para>
+      The canonical path to the system resource that the driver interacts
+      with. It should include the root service, version and the unique path to
+      the system resource. For example,<literal>
+      /redfish/v1/Systems/1</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>redfish_user</literal> name (recommended)</term>
+    <listitem>
+     <para>
+      User account with admin and server-profile access privilege.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>redfish_password</literal> (recommended)</term>
+    <listitem>
+     <para>
+      User account password.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term><literal>redfish_verify_ca</literal> (optional)</term>
+    <listitem>
+     <para>
+      If <literal>redfish_address</literal> has the HTTPS scheme, the driver
+      will use a secure (TLS) connection when talking to the Redfish
+      controller. By default (if this is not set or set to
+      <literal>True</literal>), the driver will try to verify the host
+      certificates. This can be set to the path of a certificate file or
+      directory with trusted certificates that the driver will use for
+      verification. To disable verifying TLS, set this to
+      <literal>False</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  <para>
+   The <command>openstack baremetal node create</command> command is used
+   to enroll a node with the Redfish driver. For example:
+  </para>
+  <screen>openstack baremetal node create --driver redfish --driver-info \
+redfish_address=https://example.com --driver-info \
+redfish_system_id=/redfish/v1/Systems/CX34R87 --driver-info \
+redfish_username=admin --driver-info redfish_password=password</screen>
  </section>
  <section xml:id="sec.ironic-provision.create-ilo">
   <title>Creating a Node Using <command>agent_ilo</command></title>
