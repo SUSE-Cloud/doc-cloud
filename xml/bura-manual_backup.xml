@@ -352,11 +352,11 @@
    <emphasis role="bold">all nodes</emphasis> in the cluster. It is similar to
    the backup procedure above for the &clm; (see <xref
    linkend="manual_backup_setup"/>). The difference is the addition of SQL
-   commands, which are run with the <filename>spread_read_lock.yml</filename>
+   commands, which are run with the <filename>create_db_snapshot.yml</filename>
    playbook.
   </para>
   <para>
-   Create the <filename>spread_read_lock.yml</filename> file in
+   Create the <filename>create_db_snapshot.yml</filename> file in
    <filename>~/scratch/ansible/next/ardana/ansible/</filename> on the deployer
    with the following content:
   </para>
@@ -372,37 +372,6 @@ vars:
     lvremove -f /dev/ardana-vg/{{ snapshot_name }}
    ignore_errors: True
 
- - name: Check that the node can receive queries from cluster
-   become: yes
-   shell: |
-    mysql -e "SHOW GLOBAL STATUS LIKE 'wsrep_ready';" \
-    | grep wsrep_ready | awk '{print$2}'
-   register: wsrep_ready
-
- - name: Check the connectivity of the node
-   become: yes
-   shell: |
-    mysql -e "SHOW GLOBAL STATUS LIKE 'wsrep_connected';" \
-    | grep wsrep_connected | awk '{print$2}'
-   register: wsrep_connected
-
- - name: Check the state of the node
-   become: yes
-   shell: |
-    mysql -e "SHOW GLOBAL STATUS LIKE 'wsrep_local_state_comment';" \
-    | grep wsrep_local_state_comment | awk '{print$2}'
-   register: wsrep_local_state_comment
-
- - fail:
-     msg: "Please check the cluster and make sure nodes are synced."
-   when: wsrep_ready.stdout != "ON" and wsrep_connected.stdout != "ON" and
-      wsrep_local_state_comment.stdout != "Synced"
-
- - name: Apply read-lock
-   become: yes
-   shell: |
-    mysql -e "FLUSH TABLES WITH READ LOCK;"
-
  - name: Create snapshot
    become: yes
    shell: |
@@ -410,14 +379,16 @@ vars:
    register: snapshot_st
    ignore_errors: True
 
- - name: Release lock
-   become: yes
-   shell: |
-    mysql -e "UNLOCK TABLES;"
-
  - fail:
      msg: "Fail to create snapshot on  {{ lvm_target }}"
    when: snapshot_st.rc != 0</screen>
+   <note>
+    <para>
+     Verify the validity of the <literal>lvm_target</literal> variable
+     (which refers to the actual database LVM volume) before proceeding with
+     the backup.
+    </para>
+   </note>
    <para>
     <emphasis role="bold">Doing the &mariadb; backup</emphasis>
    </para>
@@ -432,10 +403,30 @@ vars:
    </step>
    <step>
     <para>
-     Run the <filename>spread_read_lock.yml</filename> playbook created above.
+     Open a &mariadb; client session on all controllers.
+    </para>
+   </step>
+   <step>
+    <para>
+     Run the command to spread <literal>read lock</literal> on all controllers
+     and keep the &mariadb; session open.
+    </para>
+    <screen>&gt;&gt; FLUSH TABLES WITH READ LOCK;</screen>
+   </step>
+   <step>
+    <para>
+     Open a new terminal and run the
+     <filename>create_db_snapshot.yml</filename> playbook created above.
     </para>
     <screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible/
-&prompt.ardana;ansible-playbook -i hosts/verb_hosts spread_read_lock.yml</screen>
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts create_db_snapshot.yml</screen>
+   </step>
+   <step>
+    <para>
+     Go back to the open &mariadb; session and run the command to flush the
+     lock on all controllers.
+    </para>
+    <screen>&gt;&gt; UNLOCK TABLES;</screen>
    </step>
    <step>
     <para>
