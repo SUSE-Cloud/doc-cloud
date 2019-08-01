@@ -3,7 +3,7 @@
  <!ENTITY % entities SYSTEM "entity-decl.ent"> %entities;
 ]>
 <section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude"
-        xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="bura-manual_backup">
+        xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="bura-manual-backup">
  <title>Manual Backup and Restore Procedures</title>
  <para>
   Each backup requires the following steps:
@@ -30,7 +30,7 @@
    </para>
   </step>
  </procedure>
- <section xml:id="clm_data_backup">
+ <section xml:id="clm-data-backup">
   <title>&clm; Data Backup</title>
   <para>
    The following procedure is used for each of the seven
@@ -40,7 +40,7 @@
    snapshot after the TAR archive has been created and saved. A new snapshot
    must be created every time a backup is created.
   </para>
-  <procedure xml:id="manual_backup_setup">
+  <procedure xml:id="manual-backup-setup">
    <title>Manual Backup Setup</title>
    <step>
     <para>
@@ -78,7 +78,7 @@
     <para>
      <emphasis role="bold">Backup Targets</emphasis>
     </para>
-    <itemizedlist xml:id="clm_backup_targets">
+    <itemizedlist xml:id="clm-backup-targets">
      <listitem>
       <para>
        home
@@ -282,7 +282,7 @@
    </para>
    <para>
     To prepare for incremental backup, follow the steps in <xref
-    linkend="manual_backup_setup"/> with the following differences in the
+    linkend="manual-backup-setup"/> with the following differences in the
     commands for generating a <literal>tar</literal> archive.
    </para>
    <itemizedlist>
@@ -331,7 +331,7 @@
     <screen>&prompt.ardana;sudo umount -l -f /var/tmp/clm_snapshot; rm -rf /var/tmp/clm_snapshot
 &prompt.ardana;sudo lvremove -f /dev/ardana-vg/lvm_clm_snapshot</screen>
   </section>
-  <section xml:id="manual_backup_encryption">
+  <section xml:id="manual-backup-encryption">
    <title>Encryption</title>
    <para>
     When a key is provided, Open SSL is used to encrypt data
@@ -345,18 +345,18 @@
 <screen>&prompt.ardana;sudo openssl enc  -aes-256-cfb -pass file:myEncFile -in ssh.tar.gz  -out ssh.tar.gz.enc</screen>
   </section>
  </section>
- <section xml:id="mariadb_database_backup">
+ <section xml:id="mariadb-database-backup">
   <title>&mariadb; Database Backup</title>
   <para>
    When backing up &mariadb;, the following process must be performed on
    <emphasis role="bold">all nodes</emphasis> in the cluster. It is similar to
    the backup procedure above for the &clm; (see <xref
-   linkend="manual_backup_setup"/>). The difference is the addition of SQL
-   commands, which are run with the <filename>spread_read_lock.yml</filename>
+   linkend="manual-backup-setup"/>). The difference is the addition of SQL
+   commands, which are run with the <filename>create_db_snapshot.yml</filename>
    playbook.
   </para>
   <para>
-   Create the <filename>spread_read_lock.yml</filename> file in
+   Create the <filename>create_db_snapshot.yml</filename> file in
    <filename>~/scratch/ansible/next/ardana/ansible/</filename> on the deployer
    with the following content:
   </para>
@@ -372,37 +372,6 @@ vars:
     lvremove -f /dev/ardana-vg/{{ snapshot_name }}
    ignore_errors: True
 
- - name: Check that the node can receive queries from cluster
-   become: yes
-   shell: |
-    mysql -e "SHOW GLOBAL STATUS LIKE 'wsrep_ready';" \
-    | grep wsrep_ready | awk '{print$2}'
-   register: wsrep_ready
-
- - name: Check the connectivity of the node
-   become: yes
-   shell: |
-    mysql -e "SHOW GLOBAL STATUS LIKE 'wsrep_connected';" \
-    | grep wsrep_connected | awk '{print$2}'
-   register: wsrep_connected
-
- - name: Check the state of the node
-   become: yes
-   shell: |
-    mysql -e "SHOW GLOBAL STATUS LIKE 'wsrep_local_state_comment';" \
-    | grep wsrep_local_state_comment | awk '{print$2}'
-   register: wsrep_local_state_comment
-
- - fail:
-     msg: "Please check the cluster and make sure nodes are synced."
-   when: wsrep_ready.stdout != "ON" and wsrep_connected.stdout != "ON" and
-      wsrep_local_state_comment.stdout != "Synced"
-
- - name: Apply read-lock
-   become: yes
-   shell: |
-    mysql -e "FLUSH TABLES WITH READ LOCK;"
-
  - name: Create snapshot
    become: yes
    shell: |
@@ -410,14 +379,16 @@ vars:
    register: snapshot_st
    ignore_errors: True
 
- - name: Release lock
-   become: yes
-   shell: |
-    mysql -e "UNLOCK TABLES;"
-
  - fail:
      msg: "Fail to create snapshot on  {{ lvm_target }}"
    when: snapshot_st.rc != 0</screen>
+   <note>
+    <para>
+     Verify the validity of the <literal>lvm_target</literal> variable
+     (which refers to the actual database LVM volume) before proceeding with
+     the backup.
+    </para>
+   </note>
    <para>
     <emphasis role="bold">Doing the &mariadb; backup</emphasis>
    </para>
@@ -432,10 +403,30 @@ vars:
    </step>
    <step>
     <para>
-     Run the <filename>spread_read_lock.yml</filename> playbook created above.
+     Open a &mariadb; client session on all controllers.
+    </para>
+   </step>
+   <step>
+    <para>
+     Run the command to spread <literal>read lock</literal> on all controllers
+     and keep the &mariadb; session open.
+    </para>
+    <screen>&gt;&gt; FLUSH TABLES WITH READ LOCK;</screen>
+   </step>
+   <step>
+    <para>
+     Open a new terminal and run the
+     <filename>create_db_snapshot.yml</filename> playbook created above.
     </para>
     <screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible/
-&prompt.ardana;ansible-playbook -i hosts/verb_hosts spread_read_lock.yml</screen>
+&prompt.ardana;ansible-playbook -i hosts/verb_hosts create_db_snapshot.yml</screen>
+   </step>
+   <step>
+    <para>
+     Go back to the open &mariadb; session and run the command to flush the lock on
+     all controllers.
+    </para>
+    <screen>&gt;&gt; UNLOCK TABLES;</screen>
    </step>
    <step>
     <para>
@@ -537,7 +528,7 @@ sudo rm -rf /var/tmp/mysql_snapshot; sudo lvremove -f /dev/ardana-vg/lvm_mysql_s
    <procedure>
     <step>
      <para> Encrypt your &mariadb; database backup following the instructions
-     in <xref linkend="manual_backup_encryption"/>
+     in <xref linkend="manual-backup-encryption"/>
      </para>
     </step>
     <step>
@@ -549,16 +540,16 @@ sudo rm -rf /var/tmp/mysql_snapshot; sudo lvremove -f /dev/ardana-vg/lvm_mysql_s
    </procedure>
   </section>
  </section>
- <section xml:id="swift_ring_backup">
+ <section xml:id="swift-ring-backup">
   <title>&swift; Ring Backup</title>
   <para>
    The following procedure is used to back up &swift; rings. It is similar to
-   the &clm; backup (see <xref linkend="manual_backup_setup"/>).
+   the &clm; backup (see <xref linkend="manual-backup-setup"/>).
   </para>
   <important>
    <para>
     The steps must be performed only on the building server (For more
-    information, see <xref linkend="topic_rtc_s3t_mt"/>.).
+    information, see <xref linkend="topic-rtc-s3t-mt"/>.).
    </para>
   </important>
   <para>
@@ -603,16 +594,16 @@ sudo rm -rf /var/tmp/mysql_snapshot; sudo lvremove -f /dev/ardana-vg/lvm_mysql_s
    </step>
   </procedure>
  </section>
- <section xml:id="manual_audit-log_bur">
+ <section xml:id="manual-audit-log-bur">
   <title>Audit Log Backup and Restore</title>
   <section>
    <title>Audit Log Backup</title>
   <para>
    The following procedure is used to back up Audit Logs. It is similar to the
-   &clm; backup (see <xref linkend="manual_backup_setup"/>). The steps must be
+   &clm; backup (see <xref linkend="manual-backup-setup"/>). The steps must be
    performed on all nodes; there will be a backup TAR archive for each
    node. Before performing the following steps, run through <xref
-   linkend="topic_enable_audit_logs"/> .
+   linkend="topic-enable-audit-logs"/> .
   </para>
   <para>
    The <literal>backup_name</literal> is

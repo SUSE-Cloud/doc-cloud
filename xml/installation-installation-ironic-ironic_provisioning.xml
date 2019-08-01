@@ -45,6 +45,11 @@
     pxe_ipmi
    </para>
   </listitem>
+  <listitem>
+   <para>
+    Redfish
+   </para>
+  </listitem>
  </itemizedlist>
  <para>
   Before you start, you should be aware that:
@@ -92,7 +97,75 @@
    </para>
   </listitem>
  </orderedlist>
- <section xml:id="sec.ironic-provision.image">
+ <section>
+  <title>Redfish Protocol Support</title>
+  <para>
+   Redfish is a successor to the Intelligent Platform Management Interface
+   (IPMI) with the ability to scale to larger and more diverse cloud
+   deployments. It has an API that allows users to collect performance data
+   from heterogeneous server installations and more data sources than could be
+   handled previously. It is based on an industry standard protocol with a
+   RESTful interface for managing cloud assets that are compliant with the
+   <link xlink:href="https://redfish.dmtf.org/">Redfish protocol</link>.
+  </para>
+  <note>
+   <para>
+    There are two known limitations to using Redfish.
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      RAID configuration does not work due to missing HPE Smart Storage
+      Administrator CLI (HPE SSACLI) in the default deploy RAM disk. This is a
+      licensing issue.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      The ironic <literal>inspector</literal> inspect interface is not supported.
+     </para>
+    </listitem>
+   </itemizedlist>
+  </note>
+  <para>
+   Enable the Redfish driver with the following steps:
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Install the Sushy library on the ironic conductor nodes. Sushy is a Python
+     library for communicating with Redfish-based systems with Ironic. More
+     information is available at <link
+     xlink:href="https://opendev.org/openstack/sushy/"/>.
+    </para>
+    <screen>sudo pip install sushy</screen>
+   </step>
+   <step>
+    <para>
+     Add <literal>redfish</literal> to the list of
+     <literal>enabled_hardware_types</literal>,
+     <literal>enabled_power_interfaces</literal> and
+     <literal>enabled_management_interfaces</literal> in
+     <filename>/etc/ironic/ironic.conf</filename> as shown below:
+    </para>
+    <screen>[DEFAULT]
+...
+enabled_hardware_types = ipmi,redfish
+enabled_power_interfaces = ipmitool,redfish
+enabled_management_interfaces = ipmitool,redfish</screen>
+   </step>
+   <step>
+    <para>
+     Restart the ironic conductor service:
+    </para>
+    <screen>sudo systemctl restart openstack-ironic-conductor</screen>
+   </step>
+  </procedure>
+  <para>
+   To continue with Redfish, see <xref linkend="register-redfish-node"/>.
+  </para>
+ </section>
+ <section xml:id="sec-ironic-provision-image">
   <title>Supplied Images</title>
   <para>
    As part of the &productname; Entry-scale &o_iron; Cloud installation,
@@ -117,7 +190,7 @@ Deploy_ramdisk : openstack-ironic-image.x86_64-8.0.0.iso</screen>
    driver.
   </para>
  </section>
- <section xml:id="sec.ironic-provision.provision">
+ <section xml:id="sec-ironic-provision-provision">
   <title>Provisioning a Node</title>
   <para>
    The information required to provision a node varies slightly depending on
@@ -154,7 +227,78 @@ Deploy_ramdisk : openstack-ironic-image.x86_64-8.0.0.iso</screen>
    <replaceable>remove</replaceable></literal> will remove a property.
   </para>
  </section>
- <section xml:id="sec.ironic-provision.create-ilo">
+ <section xml:id="register-redfish-node">
+  <title>Registering a Node with the Redfish Driver</title>
+  <para>
+   Nodes configured to use the Redfish driver should have the driver property
+   set to <literal>redfish</literal>.
+  </para>
+  <para>
+   The following properties are specified in the <literal>driver_info</literal>
+   field of the node:
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term>redfish_address (required)</term>
+    <listitem>
+     <para>
+      The URL address to the Redfish controller. It must include the authority
+      portion of the URL, and can optionally include the scheme. If the scheme
+      is missing, HTTPS is assumed.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>redfish_system_id (required)</term>
+    <listitem>
+     <para>
+      The canonical path to the System resource that the driver will interact
+      with. It should include the root service, version and the unique resource
+      path to the System. For example,<literal> /redfish/v1/Systems/1</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>redfish_user name (recommended)</term>
+    <listitem>
+     <para>
+      User account with admin/server-profile access privilege.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>redfish_password (recommended)</term>
+    <listitem>
+     <para>
+      User account password.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>redfish_verify_ca (optional)</term>
+    <listitem>
+     <para>
+      If redfish_address has the HTTPS scheme, the driver will use a secure
+      (TLS) connection when talking to the Redfish controller. By default (if
+      this is not set or set to <literal>True</literal>), the driver will try
+      to verify the host certificates. This can be set to the path of a
+      certificate file or directory with trusted certificates that the driver
+      will use for verification. To disable verifying TLS, set this to
+      <literal>False</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  <para>
+   The <command>openstack baremetal node create</command> command is used
+   to enroll a node with the Redfish driver. For example:
+  </para>
+  <screen>openstack baremetal node create --driver redfish --driver-info \
+redfish_address=https://example.com --driver-info \
+redfish_system_id=/redfish/v1/Systems/CX34R87 --driver-info \
+redfish_username=admin --driver-info redfish_password=password</screen>
+ </section>
+ <section xml:id="sec-ironic-provision-create-ilo">
   <title>Creating a Node Using <command>agent_ilo</command></title>
   <para>
    If you want to use a boot mode of BIOS as opposed to UEFI, then you need to
@@ -245,7 +389,7 @@ ironic node-update <replaceable>NODE_UUID</replaceable> add \
 +------------------------+------------------------------------------------------------------+
 </screen>
  </section>
- <section xml:id="sec.ironic-provision.create-ipmi">
+ <section xml:id="sec-ironic-provision-create-ipmi">
   <title>Creating a Node Using <command>agent_ipmi</command></title>
   <para>
    Use the <literal>ironic node-create</literal> command to specify the
@@ -338,7 +482,7 @@ ironic node-update <replaceable>NODE_UUID</replaceable> add \
    <link xlink:href="http://docs.openstack.org/developer/ironic/deploy/install-guide.html#enrollment"/>.
   </para>
  </section>
- <section xml:id="sec.ironic-provision.flavor">
+ <section xml:id="sec-ironic-provision-flavor">
   <title>Creating a Flavor</title>
   <para>
    Nova uses flavors when fulfilling requests for bare-metal nodes. The Nova
@@ -391,7 +535,7 @@ openstack flavor set 645de08d-2bc6-43f1-8a5f-2315a75b1348 set capabilities:boot_
    <link xlink:href="http://docs.openstack.org/developer/ironic/deploy/install-guide.html#flavor-creation"/>.
   </para>
  </section>
- <section xml:id="sec.ironic-provision.net">
+ <section xml:id="sec-ironic-provision-net">
   <title>Creating a Network Port</title>
   <para>
    Register the MAC addresses of all connected physical network interfaces
@@ -399,11 +543,11 @@ openstack flavor set 645de08d-2bc6-43f1-8a5f-2315a75b1348 set capabilities:boot_
   </para>
 <screen>ironic port-create -a 5c:b9:01:88:f0:a4 -n ea7246fd-e1d6-4637-9699-0b7c59c22e67</screen>
  </section>
- <section xml:id="sec.ironic-provision.glance-image">
+ <section xml:id="sec-ironic-provision-glance-image">
   <title>Creating a &o_img; Image</title>
   <para>
    You can create a complete disk image using the instructions at
-   <xref linkend="sec.ironic-provision.kiwi"/>.
+   <xref linkend="sec-ironic-provision-kiwi"/>.
   </para>
   <para>
    The image you create can then be loaded into &o_img;:
@@ -439,7 +583,7 @@ openstack image create --name='leap' --disk-format=raw \
    This image will subsequently be used to boot the bare-metal node.
   </para>
  </section>
- <section xml:id="sec.ironic-provision.key">
+ <section xml:id="sec-ironic-provision-key">
   <title>Generating a Key Pair</title>
   <para>
    Create a key pair that you will use when you login to the newly booted node:
@@ -448,7 +592,7 @@ openstack image create --name='leap' --disk-format=raw \
 openstack keypair create <emphasis role="bold">ironic_kp</emphasis> &gt; ironic_kp.pem
 </screen>
  </section>
- <section xml:id="sec.ironic-provision.neutron-id">
+ <section xml:id="sec-ironic-provision-neutron-id">
   <title>Determining the &o_netw; Network ID</title>
 <screen>
 <?dbsuse-fo font-size="0.70em"?>
@@ -461,7 +605,7 @@ openstack network list
 +---------------+----------+----------------------------------------------------+
 </screen>
  </section>
- <section xml:id="sec.ironic-provision.boot">
+ <section xml:id="sec-ironic-provision-boot">
   <title>Booting the Node</title>
   <para>
    Before booting, it is advisable to power down the node:
@@ -561,7 +705,7 @@ openstack server list
   </para>
 <screen>ssh leap@192.3.15.14 -i ironic_kp.pem</screen>
  </section>
- <section xml:id="sec.ironic-provision.kiwi">
+ <section xml:id="sec-ironic-provision-kiwi">
   <title>Building &o_img; Images Using &kiwi;</title>
   <para>
    The following sections show you how to create your own images using &kiwi;,
@@ -646,7 +790,7 @@ openstack server list
    </listitem>
   </itemizedlist>
  </section>
- <section xml:id="sec.ironic-provision.opensuse">
+ <section xml:id="sec-ironic-provision-opensuse">
   <title>Creating an openSUSE Image with &kiwi;</title>
   <para>
    The following example shows how to build an &opensuse; Leap image that is
