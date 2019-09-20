@@ -1,0 +1,166 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entity-decl.ent"> %entities;
+]>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="soc-operations-networking.xml">
+ <title>Managing Networking</title>
+ <para>
+  &productname; supports PCI passthrough (PCIPT) for better network
+  performance, improving network I/O, decreasing latency, and reducing
+  processor overhead.
+ </para>
+
+ <section xml:id="crow-pci-passthrough">
+  <title>Leveraging PCI Passthrough</title>
+  <para>
+   Two parts are necessary to leverage PCI passthrough on a &cloud;
+   &productnumber; &compnode;: preparing the &compnode;, preparing &o_comp; and
+   &o_img;.
+  </para>
+  <orderedlist>
+   <listitem>
+    <para>
+     <emphasis role="bold">Preparing the &compnode;</emphasis>
+    </para>
+    <procedure>
+     <step>
+      <para>
+       There should be no kernel drivers or binaries with direct access to the
+       PCI device. If there are kernel modules, they should be blacklisted.
+      </para>
+      <para>
+       For example, it is common to have a <literal>nouveau</literal> driver
+       from when the node was installed. This driver is a graphics driver for
+       Nvidia-based GPUs. It must be blacklisted as shown in this example.
+      </para>
+<screen>&prompt.ardana;echo 'blacklist nouveau' &gt;&gt; /etc/modprobe.d/nouveau-default.conf</screen>
+      <para>
+       The file location and its contents are important; the name of the file
+       is your choice. Other drivers can be blacklisted in the same manner,
+       possibly including Nvidia drivers.
+      </para>
+     </step>
+     <step>
+      <para>
+       On the host, <literal>iommu_groups</literal> is necessary and may
+       already be enabled. To check if IOMMU is enabled:
+      </para>
+<screen>&prompt.root;virt-host-validate
+.....
+QEMU: Checking if IOMMU is enabled by kernel
+: WARN (IOMMU appears to be disabled in kernel. Add intel_iommu=on to kernel cmdline arguments)
+.....</screen>
+      <para>
+       To modify the kernel cmdline as suggested in the warning, edit the file
+       <filename>/etc/default/grub</filename> and append
+       <literal>intel_iommu=on</literal> to the
+       <literal>GRUB_CMDLINE_LINUX_DEFAULT</literal> variable. Then run
+       <literal>update-bootloader</literal>.
+      </para>
+      <para>
+       A reboot will be required for <literal>iommu_groups</literal> to be
+       enabled.
+      </para>
+     </step>
+     <step>
+      <para>
+       After the reboot, check that IOMMU is enabled:
+      </para>
+<screen>&prompt.root;virt-host-validate
+.....
+QEMU: Checking if IOMMU is enabled by kernel
+: PASS
+.....</screen>
+     </step>
+     <step>
+      <para>
+       Confirm IOMMU groups are available by finding the group associated with
+       your PCI device (for example Nvidia GPU):
+      </para>
+<screen>&prompt.ardana;lspci -nn | grep -i nvidia
+08:00.0 VGA compatible controller [0300]: NVIDIA Corporation GT218 [NVS 300] [10de:10d8] (rev a2)
+08:00.1 Audio device [0403]: NVIDIA Corporation High Definition Audio Controller [10de:0be3] (rev a1)</screen>
+      <para>
+       In this example, <literal>08:00.0</literal> and
+       <literal>08:00.1</literal> are addresses of the PCI device. The vendorID
+       is <literal>10de</literal>. The productIDs are <literal>10d8</literal>
+       and <literal>0be3</literal>.
+      </para>
+     </step>
+     <step>
+      <para>
+       Confirm that the devices are available for passthrough:
+      </para>
+<screen>&prompt.ardana;ls -ld /sys/kernel/iommu_groups/*/devices/*08:00.?/
+drwxr-xr-x 3 root root 0 Feb 14 13:05 /sys/kernel/iommu_groups/20/devices/0000:08:00.0/
+drwxr-xr-x 3 root root 0 Feb 19 16:09 /sys/kernel/iommu_groups/20/devices/0000:08:00.1/</screen>
+      <note>
+       <para>
+        With PCI passthrough, only an entire IOMMU group can be passed. Parts
+        of the group cannot be passed. In this example, the IOMMU group is
+        <literal>20</literal>.
+       </para>
+      </note>
+     </step>
+    </procedure>
+   </listitem>
+   <listitem>
+    <para>
+     <emphasis role="bold">Preparing &o_comp; and &o_img; for
+     passthrough</emphasis>
+    </para>
+    <procedure>
+      <step>
+        <para>
+          Create a new file to host configurations mentioned in
+          <link xlink:href="https://docs.openstack.org/nova/pike/admin/pci-passthrough.html"/>.
+          Both <literal>nova-compute</literal> and <literal>nova-scheduler</literal>
+          must be configured.
+        </para>
+        <note>
+          <para>
+            If you add them on the existing <literal>nova.conf</literal>, then it
+            is overwritten by the <literal>chef-client.service</literal> and
+            restored to the original version of <literal>nova.conf</literal>.
+          </para>
+        </note>
+      </step>
+      <step>
+        <para>
+          Add the following configuration to <literal>nova.conf</literal> on
+          the controller node:
+        </para>
+        <screen>
+          /etc/nova/nova.conf.d # ls
+          010-nova.conf  100-nova.conf  101-nova-placement.conf
+        </screen>
+      </step>
+      <step>
+        <para>
+          Add filter <literal>PciPassthroughFilter</literal> to <literal>enabled_filters</literal>.
+        </para>
+      </step>
+      <step>
+        <para>
+          Copy values of <literal>enabled_filters</literal> from the <literal>nova.conf</literal>
+          and append additional filter, <literal>PciPassthroughFilter</literal>. Update the
+          values in one of the attributes <literal>enabled_filters</literal> on nova proposal.
+        </para>
+      </step>
+      <step>
+        <para>
+          Create an additional file instead of modifying the <literal>100-nova.conf</literal>:
+        </para>
+        <screen>
+          /etc/nova/nova.conf.d # cat 102-nova-pcipassthru.conf [pci]
+          alias = { "vendor_id":"10de", "product_id":"1db4", "device_type":"type-PCI", "name":"a1" }
+        </screen>
+      </step>
+    </procedure>
+   </listitem>
+  </orderedlist>
+ </section>
+</chapter>
