@@ -1,0 +1,319 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<!DOCTYPE chapter [
+ <!ENTITY % entities SYSTEM "entity-decl.ent"> %entities;
+]>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude"
+ xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="ceph-config-clm">
+<title>Create Ceph Configuration for CLM</title>
+  <para>In this chapter you create the Ceph users, pools and RBDs that are required for
+    OpenStack.</para>
+    <section xml:id="config-ceph-cluster">
+      <title>Configure Ceph Cluster for OpenStack Integration</title>
+      <procedure>
+        <step>
+          <para>
+            Log onto the Ceph cluster <literal>storage-admin</literal> node
+            as the <literal>root</literal> user.
+          </para>
+          <screen>
+            ssh root@192.168.200.30
+            (password: linux)
+          </screen>
+        </step>
+        <step>
+          <para>
+            Open a terminal and enter the following command to create the
+            required Ceph users, pools and RBDs:
+          </para>
+          <screen>
+            salt-run --out=yaml openstack.integrate prefix=mycloud
+          </screen>
+          <para>
+            When the commend has completed you should see YAML output
+            displayed on the screen.
+            <note>
+              <para>If the salt-run command above returns errors, enter the
+                following command to force a resync of the nodes and then
+                rerun the previous salt-run command:
+                <screen>
+                  salt '*' saltutil.sync_all
+                </screen>
+              </para>
+            </note>
+          </para>
+          <para>
+            Copy the YAML output into a new text file named <literal>ses_config.yml</literal>.
+          </para>
+        </step>
+        <step>
+          <para>
+            Enter the following command to SCP the file to the deployer node:
+          </para>
+          <screen>
+            scp ses_config.yml ardana@192.168.200.10:~
+          </screen>
+          <para>
+            The file should have been copied to the deployer node.
+          </para>
+        </step>
+        <step>
+          <para>
+            Log out of the <literal>storage-admin</literal> node.
+          </para>
+        </step>
+     </procedure>
+    </section>
+
+    <section xml:id="update-ses-model">
+      <title>Update the Model for SES Integration</title>
+
+      <procedure><title>Enable the SES Integration</title>
+        <step>
+          <para>
+            While logged into the <literal>deployer02</literal> node as the
+            ardana user, open a terminal.
+          </para>
+        </step>
+        <step>
+          <para>
+            Enter the following command to generate a new UUID:
+          </para>
+          <screen>
+            uuidgen
+          </screen>
+        </step>
+        <step>
+          <para>
+            In the installer web UI, on the <guilabel>Review configuration files</guilabel>
+            screen, select the <guilabel>Model</guilabel> tab.
+          </para>
+        </step>
+        <step>
+          <para>
+            On the <guilabel>Model</guilabel> tab select <guilabel>Control Plane</guilabel>.
+            A file opens for editing.
+          </para>
+        </step>
+        <step>
+          <para>
+            Locate the <literal>glance-api</literal> entry and modify it to
+            match the following:
+          </para>
+          <screen>
+            - glance-api:
+                glance_default_store: 'rbd'
+          </screen>
+        </step>
+        <step>
+          <para>
+            Click <guilabel>Save</guilabel> to save the file and close the editor.
+          </para>
+        </step>
+        <step>
+          <para>
+            Select the <guilabel>Templates and services</guilabel> tab.
+          </para>
+        </step>
+        <step>
+          <para>
+            From the list of services, expand <guilabel>SES</guilabel> and
+            select <literal>settings.yml</literal>.
+            The <literal>settings.yml</literal> file opens for editing.
+          </para>
+        </step>
+        <step>
+          <para>
+            Uncomment the <literal>ses_config_path:</literal> line and edit
+            it to match the following (it is a single line with no line wrap
+            in the file):
+          </para>
+          <screen>
+            ses_config_path: /var/lib/ardana/
+          </screen>
+        </step>
+        <step>
+          <para>
+            Verify the SES config file name:
+          </para>
+          <screen>
+            ses_config_file: ses_config.yml
+          </screen>
+        </step>
+        <step>
+          <para>
+            Replace the value of the <literal>ses_secret_id:</literal> with the
+            UUID you generated above:
+          </para>
+          <screen>
+            ses_secret_id: SES_SECRET_ID
+          </screen>
+        </step>
+        <step>
+          <para>
+            Click <guilabel>Save</guilabel> to save the file and close the editor.
+          </para>
+        </step>
+     </procedure>
+
+     <procedure><title>Enable SSL Access to the RADOS Gateway</title>
+       <step>
+         <para>
+           On the <literal>deployer02</literal> node, in a terminal, while logged in
+           as the ardana user, enter the following commands to copy the RADOS
+           Gateway certs to the deployer:
+         </para>
+         <screen>
+           mkdir -p /tmp/ardana_tls_certs
+           cd /tmp/ardana_tls_certs
+           scp tux@192.168.200.1:~/course_files/SOC312/ses_integration/rgw.crt ./
+
+           mkdir -p /tmp/ardana_tls_cacerts
+           cd /tmp/ardana_tls_cacerts
+           scp tux@192.168.200.1:~/course_files/SOC312/ses_integration/yast_ca.crt
+           ./
+         </screen>
+         <para>
+           The certificates have been copied.
+         </para>
+       </step>
+    </procedure>
+   </section>
+
+   <section xml:id="config-rados-ostack-auth">
+     <title>Configure RADOS Gateway for OpenStack Authentication</title>
+     <para>In this section you enable keystone authentication for the
+       RADOS Gateway.</para>
+
+     <procedure><title>Retrieve Keystone Authentication Configuration</title>
+       <step>
+         <para>
+           On the <literal>deployer02</literal> node, while logged in as the
+           ardana user, enter the following command to display the
+           keystone Endpoint URL:
+         </para>
+         <screen>
+           grep OS_AUTH_URL ~/service.osrc | cut -d = -f 2
+         </screen>
+         <para>
+          This is the <literal>KEYSTONE_ENDPOINT</literal>.
+         </para>
+       </step>
+       <step>
+         <para>
+           Enter the following command to display the keystone Admin user:
+         </para>
+         <screen>
+           grep OS_USERNAME ~/service.osrc | cut -d = -f 2
+         </screen>
+         <para>
+           This is the <literal>KEYSTONE_ADMIN_USER</literal>.
+         </para>
+       </step>
+       <step>
+         <para>
+           Enter the following command to display the keystone Admin user:
+         </para>
+         <screen>
+           grep OS_PASSWORD ~/service.osrc | cut -d = -f 2
+         </screen>
+         <para>
+           This is the <literal>KEYSTONE_ADMIN_PASSWORD</literal>.
+         </para>
+       </step>
+       <step>
+         <para>
+          Enter the following command to display the keystone Admin user:
+         </para>
+         <screen>
+           grep OS_PROJECT_NAME ~/service.osrc | cut -d = -f 2
+         </screen>
+         <para>
+           This is the <literal>KEYSTONE_ADMIN_PROJECT</literal>.
+         </para>
+       </step>
+       <step>
+         <para>
+          Enter the following command to display the keystone Admin user:
+         </para>
+         <screen>
+           grep OS_USER_DOMAIN ~/service.osrc | cut -d = -f 2
+         </screen>
+         <para>
+           This is the <literal>KEYSTONE_ADMIN_DOMAIN</literal>.
+         </para>
+       </step>
+    </procedure>
+
+    <procedure><title>Update Ceph Configuration</title>
+      <step>
+        <para>
+          While logged into the storage-admin node as the root user open the
+          <filename>/srv/salt/ceph/configuration/files/ceph.conf.d/rgw_keystone_auth.conf</filename>.
+        </para>
+      </step>
+      <step>
+        <para>
+          Add the following to the end of the file, replacing the lab variables
+          with the values retrieved above:
+          <note>
+            <para>
+              Each line of the <literal>[client.rgw.storage01]</literal> section
+              should begin with <literal>rgw</literal>.
+            </para>
+          </note>
+        </para>
+        <screen>
+          [client.rgw.storage01]
+          rgw frontends = "civetweb port=80+443s
+          ssl_certificate=/etc/ceph/rgw.pem"
+          rgw enable usage log = true
+          rgw keystone url = KEYSTONE_ENDPOINT
+          rgw keystone admin user = KEYSTONE_ADMIN_USER
+          rgw keystone admin password = KEYSTONE_ADMIN_PASSWORD
+          rgw keystone admin project = KEYSTONE_ADMIN_PROJECT
+          rgw keystone admin domain = KEYSTONE_ADMIN_DOMAIN
+          rgw keystone api version = 3
+          rgw keystone accepted roles = admin,Member,_member_
+          rgw keystone accepted admin roles = admin
+          rgw keystone revocation interval = 0
+          rgw keystone verify ssl = false
+        </screen>
+      </step>
+      <step>
+        <para>
+          Save the file and close the text editor.
+        </para>
+      </step>
+    </procedure>
+
+    <procedure><title>Apply the Updates to the Ceph Cluster</title>
+      <step>
+        <para>
+          Enter the following commands to apply the updated configuration to the cluster:
+        </para>
+        <screen>
+          deepsea stage run ceph.stage.2
+          deepsea stage run ceph.stage.4
+        </screen>
+        <para>
+          The services should be reconfigured.
+        </para>
+      </step>
+      <step>
+        <para>
+          Enter the following command to view the status of the Ceph cluster:
+        </para>
+        <screen>
+          ceph -s
+        </screen>
+        <para>
+          You should see the rgw daemon is running (along with the other
+          Ceph services).
+        </para>
+      </step>
+    </procedure>
+  </section>
+</chapter>
