@@ -420,11 +420,149 @@
        </para>
      </step>
   </procedure>
+
   <procedure>
     <title>Issue a wildcard SSL Certificate</title>
+    <para>
+      OpenStack and wildcard SSL uses the DNS validation method by
+      validating your domain using a TXT record that can either be added
+      manually or using the many (over 3 dozen) available DNS API’s.
+    </para>
+    <note>
+      <para>
+        It's important to a wildcard certificate as you have the ability
+        to use the same one for all of your public API endpoints in the
+        OpenStack Cloud environment. Additional Cloud Native services
+        like Kubernetes can also take advantage of it as well.
+      </para>
+    </note>
     <step>
       <para>
+        The manual DNS mode is a method that displays the DNS records that
+        have to be created in your DNS servers. It is beneficial to automate
+        the injection of DNS records as the maximum days a certificate is
+        viable is 60 days.
+        In order to issue your wildcard certificate, the command without
+        optional settings is:
       </para>
+      <screen>
+        # acme.sh --issue -d yourdoman.com -d *.yourdomain.com --dns
+      </screen>
+    </step>
+    <step>
+      <para>
+        To debug or test, add the following optional settings:
+      </para>
+      <screen>
+        # acme.sh --debug --test –issue -d yourdomain.com -d *.yourdomain.com --dns
+      </screen>
+    </step>
+    <step>
+      <para>
+        A message returns. For example:
+      </para>
+      <screen>
+        Add the following TXT record:
+        Domain: '_acme-challenge.yourdomain.com'
+        TXT value: 'KZvgq3MpOCjUNW7Uzz5nE5kkFdplNk66WGfxE9-H63k'
+        Please be aware that you prepend _acme-challenge. before your domain
+        so the resulting subdomain will be: _acme-challenge.yourdomain.com
+      </screen>
+    </step>
+    <step>
+      <para>
+        Using this information, you are ready to insert this TXT record into
+        your DNS.
+      </para>
+      <note>
+        <para>
+          When setting this up for SUSE OpenStack Cloud with Crowbar you need
+          to have your external DNS server appended to <literal>/etc/resolv.conf</literal>
+          in order to resolve as crowbar has its own internal
+          DNS. It's not enough to change it in the barclamp as you need the
+          DNS server entry to be at the top of the list in <literal>resolv.conf</literal>.
+          Crowbar will return to the default after a period of time.
+          Keep in mind that if you want to automate this step every 90 days
+          then you need to ensure the <literal>resolv.conf</literal> changes
+          every time to bypass the local crowbar DNS Server.
+        </para>
+      </note>
+    </step>
+    <step>
+      <para>
+        In order to setup TXT record in bind DNS, edit the zone file so
+        it looks like the following example:
+      </para>
+      <screen>
+        yourdomain.com.     IN NS           admin.yourdomain.com.
+        _acme-challenge.yourdomain.com. IN TXT "xxxx...your TXT value string here"
+      </screen>
+    </step>
+    <step>
+      <para>
+        Restart your named services for bind.
+      </para>
+    </step>
+    <step>
+      <para>
+        Issue the acme-challenge verification of the previous step with the
+        following command:
+      </para>
+      <screen>
+        # acme.sh --renew -d yourdomain.com
+      </screen>
+    </step>
+    <step>
+      <para>
+        If the DNS validation is okay, <literal>acme.sh</literal> issues a
+        wildcard certificate and displays the certificate and private-key path.
+        For example:
+      </para>
+      <screen>
+        Your cert is in  /root/.acme.sh/susedojo.com/susedojo.com.cer  
+        Your cert key is in  /root/.acme.sh/susedojo.com/susedojo.com.key  
+        v2 chain.
+        The intermediate CA cert is in  /root/.acme.sh/susedojo.com/ca.cer  
+        And the full chain certs is there:  /root/.acme.sh/susedojo.com/fullchain.cer  
+        _on_issue_success
+      </screen>
+    </step>
+    <step>
+      <para>
+        Notice the location of your certificate and key. These are now
+        ready to be used by OpenStack Cloud.
+      </para>
+    </step>
+    <step>
+      <para>
+        To automate the process of setting up the TXT record in your DNS
+        servers and prepare it for automated validation, there is a file
+        called <filename>account.conf</filename> that holds account information
+        for the DNS Provider. After exporting the authentication variables,
+        it stores them automatically after the command is executed for later use.
+        To issue your wildcard certificate, the command without optional settings is:
+      </para>
+      <screen>
+        # export LUA_Key=”your_API_token_from_account”
+        # export LUA_Email=”cameron@yourdomain.com”
+        # acme.sh -d yourdomain.com -d *.yourdomain.com --dns dns_lua
+      </screen>
+    </step>
+    <step>
+      <para>
+       You can now view your DNS records and you will see a new TXT record
+       available. When its finished and the DNS validation is okay,
+       <literal>acme.sh</literal> issue your wildcard certificate and displays
+       your certificate and private-key path just as before.
+      </para>
+      <screen>
+        Your cert is in  /root/.acme.sh/susedojo.com/susedojo.com.cer  
+        Your cert key is in  /root/.acme.sh/susedojo.com/susedojo.com.key  
+        v2 chain.
+        The intermediate CA cert is in  /root/.acme.sh/susedojo.com/ca.cer  
+        And the full chain certs is there:  /root/.acme.sh/susedojo.com/fullchain.cer  
+        _on_issue_success
+      </screen>
     </step>
   </procedure>
 
@@ -457,20 +595,192 @@
     <title>Setup Issued Certificates in Crowbar Barclamps</title>
     <step>
       <para>
+        Set your Certificate File and Key File to the proper location, and
+        set the CA Certificates File to the <literal>/etc/ssl/ca-bundle.pem</literal>
+        in the distribution. Make sure Generate (self-signed) certificates is
+        false, and Certificate is insecure is false.
+      </para>
+      <figure>
+       <title>Database Barclamp</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="database-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="database-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+    </step>
+    <step>
+      <para>
+        Click <guilabel>Apply</guilabel>. Your changes will apply in a
+        few minutes.
+      </para>
+    </step>
+    <step>
+      <para>
+        Set your Certificate File and Key File to the proper location, and
+        set the CA Certificates File to the <literal>/etc/ssl/ca-bundle.pem</literal>
+        in the distribution. Make sure Generate (self-signed) certificates is
+        false, and Certificate is insecure is false.
+      </para>
+      <figure>
+       <title>RabbitMQ Barclamp</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="rabbitmq-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="rabbitmq-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+    </step>
+    <step>
+      <para>
+        Click <guilabel>Apply</guilabel>. Your changes will apply in a
+        few minutes.
+      </para>
+    </step>
+    <step>
+      <para>
+        Set your Certificate File and Key File to the proper location, and
+        set the CA Certificates File to the <literal>/etc/ssl/ca-bundle.pem</literal>
+        in the distribution. Make sure Generate (self-signed) certificates is
+        false, and Certificate is insecure is false.
+      </para>
+      <figure>
+       <title>Keystone Barclamp</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="keystone-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="keystone-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+    </step>
+    <step>
+      <para>
+        Click <guilabel>Apply</guilabel>. Your changes will apply in a
+        few minutes.
+      </para>
+    </step>
+    <step>
+      <para>
+        Set your Certificate File and Key File to the proper location, and
+        set the CA Certificates File to the <literal>/etc/ssl/ca-bundle.pem</literal>
+        in the distribution. Make sure Generate (self-signed) certificates is
+        false, Certificate is insecure is false, and Require Client
+        Certificates is true.
+      </para>
+      <figure>
+       <title>Glance Barclamp</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="glance-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="glance-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+    </step>
+    <step>
+      <para>
+        Click <guilabel>Apply</guilabel>. Your changes will apply in a
+        few minutes.
+      </para>
+    </step>
+    <step>
+      <para>
+        Set your Certificate File and Key File to the proper location, and
+        set the CA Certificates File to the <literal>/etc/ssl/ca-bundle.pem</literal>
+        in the distribution. Make sure Generate (self-signed) certificates is
+        false, Certificate is insecure is false, and Require Client
+        Certificates is false.
+      </para>
+      <figure>
+       <title>Cinder Barclamp</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="cinder-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="cinder-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+    </step>
+    <step>
+      <para>
+        Click <guilabel>Apply</guilabel>. Your changes will apply in a
+        few minutes.
+      </para>
+    </step>
+    <step>
+      <para>
+        Set your Certificate File and Key File to the proper location, and
+        set the CA Certificates File to the <literal>/etc/ssl/ca-bundle.pem</literal>
+        in the distribution. Make sure Generate (self-signed) certificates is
+        false, Certificate is insecure is false, and Require Client
+        Certificates is false.
+      </para>
+      <figure>
+       <title>Neutron Barclamp</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="neutron-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="neutron-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+    </step>
+    <step>
+      <para>
+        Click <guilabel>Apply</guilabel>. Your changes will apply in a
+        few minutes.
+      </para>
+    </step>
+    <step>
+      <para>
+        Set your Certificate File and Key File to the proper location, and
+        set the CA Certificates File to the <literal>/etc/ssl/ca-bundle.pem</literal>
+        in the distribution. Make sure Generate (self-signed) certificates is
+        false, Certificate is insecure is false, and Require Client
+        Certificates is false.
+      </para>
+      <figure>
+       <title>Nova Barclamp</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="nova-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="nova-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+    </step>
+    <step>
+      <para>
+        Click <guilabel>Apply</guilabel>. Your changes will apply in a
+        few minutes.
       </para>
     </step>
   </procedure>
   <para>
-    Each Crowbar barclamp that have SSL support are the same.
-    You can change the same settings and apply your certificate to the
-    remaining barclamps at this point.
-    Once you complete this process as noted earlier you will want to
-    automate this since Let’s Encrypt certificates will expire at 90 days.
-    So automating this through the use of a script to copy the certificates
-    and key files to their proper location on each node in the cluster and
-    then restarting some of the api endpoints typically just apache and the
-    openstack-*-api services (* meaning nova and others). Once there is a
-    completed automation script I will include that here as well.
-  </para>
+    Each Crowbar barclamp that have SSL support are the same. You can change
+    the same settings and apply your certificate to the remaining barclamps.</para>
+  <note>
+    <para>
+      Once this is completed, we recommend automating this process as the
+      Let's Encrypt certificates expire at 90 days.
+    </para>
+  </note>
  </section>
 </chapter>
