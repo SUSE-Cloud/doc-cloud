@@ -1,0 +1,786 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entity-decl.ent"> %entities;
+]>
+<chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="self-assign-certs">
+<title>Generate SUSE &ostack; Cloud Self Signed Certificate</title>
+ <para>
+   The purpose of this document is to help setup SSL Support for several services
+   in SUSE OpenStack Cloud. The scope of this document will cover all public
+   endpoints in your OpenStack cluster. In most cases you will want to have a
+   Secure CA or External CA where your certificates are signed. You will
+   sign with either a public CA or self signed CA, and include x509
+   extensions for Subject Alt Names since there might be a highly available
+   control plane with alternate names.
+ </para>
+
+ <section xml:id="create-root-pair">
+   <title>Create the CA Root Pair</title>
+   <para>This section demonstrates how to create the certificate on the
+     crowbar or admin node of the SUSE OpenStack Cloud Cluster.</para>
+     <note>
+       <para>
+         To avoid external access to your CA Root Pair, it is best practice to
+         put it on an air-gapped system that is permanently isolated from the
+         internet at least and to unplug the ethernet port.
+       </para>
+     </note>
+     <procedure>
+       <title>Prepare the directory structure</title>
+       <step>
+         <para>
+           Create a directory for your CA Root pair:
+         </para>
+         <screen>
+           # ssh root@crowbar
+           # mkdir -p ~/ssl/root/ca
+         </screen>
+       </step>
+       <step>
+         <para>
+           Create a directory structure and add <filename>index.txt</filename>
+           and serial files to act as flat database of all signed certificates:
+         </para>
+         <screen>
+           # cd ~/ssl/root/ca
+           # mkdir certs crl newcerts private csr
+           # chmod 700 private
+           # touch index.txt
+           # echo 1000 > serial
+         </screen>
+       </step>
+     </procedure>
+     <procedure>
+       <title>Prepare the configuration file</title>
+       <para>
+         This procedure will take you through the full setup. Note that
+         when you setup the crowbar server there is a structure already setup
+         under <literal>/etc/ssl</literal>. This is where SUSE Linux typically
+         contains the CA cert bundle created through YaST when the SMT server
+         is setup. However, if your using an external SMT server
+         you won’t have this. Also, in the same location an
+         <literal>openssl.cnf</literal> file already
+         exists,which we will create in this step.
+       </para>
+       <step>
+         <para>
+           Copy <literal>/etc/ssl/openssl.cnf</literal> file to your setup.
+           We can use this since it is completely annotated.
+         </para>
+         <screen>
+           # cp /etc/ssl/openssl.cnf ./
+         </screen>
+       </step>
+       <step>
+         <para>
+           Edit the file and change the location variable:
+         </para>
+         <screen>
+           dir             = /root/ssl/root/ca
+           # Where everything is kept
+         </screen>
+         <note>
+           <para>
+             Make sure dir is the directory we created /root/ssl/root/ca
+           </para>
+         </note>
+       </step>
+    </procedure>
+    <procedure>
+      <title>Create the root key</title>
+      <step>
+        <para>
+          Create the root key encrypted with AES 256-bit encryption
+          and a password, using 4096 bits for the creation.
+        </para>
+        <screen>
+          # cd ~/ssl/root/ca
+          # openssl genrsa -aes256 -out private/cakey.pem 4096
+        </screen>
+      </step>
+      <step>
+        <para>
+          You will be asked to enter a password here and then verify it.
+        </para>
+        <screen>
+          # chmod 400 private/cakey.pem
+        </screen>
+      </step>
+   </procedure>
+   <procedure>
+     <title>Create the root certificates</title>
+       <step>
+         <para>
+           Use the root key (<literal>cakey.pem</literal>) to create the
+           root certificate (cacert.pem). Its important to give it a long
+           expiration since all the certificates signed from it will
+           become invalid once it expires.
+         </para>
+         <screen>
+           # cd ~/ssl/root/ca
+           # openssl req -config openssl.cnf -key private/cakey.pem -new -x509 -days 10950 -sha256 -extensions v3_ca -out cacert.pem
+           Enter pass phrase for cakey.pem: enteryourpassword
+           You are about to be asked to enter information that will be incorporated
+           into your certificate request.
+           -----
+           Country Name (2 letter code) [AU]:US
+           State or Province Name []:Idaho
+           Locality Name []:Meridian
+           Organization Name []:SUSEDojo
+           Organizational Unit Name []:dojo
+           Common Name []:susedojo.com
+           Email Address []:admin@susedojo.com
+
+           # chmod 444 cacert.pem
+         </screen>
+       </step>
+    </procedure>
+    <procedure>
+      <title>Verify the root certificates</title>
+      <step>
+        <para>
+          Verify the certificate has the correct dates of validity and the
+          algorithm used, Issuer, Subject, and x509v3 extensions. The issuer
+          and subject are the same since it is self signed.
+        </para>
+        <screen>
+          # cd ~/ssl/root/ca
+          # openssl x509 -noout -text -in cacert.pem
+        </screen>
+      </step>
+    </procedure>
+  </section>
+  <section xml:id="sign-server-client-cert">
+    <title>Sign server and client certificates</title>
+    <para>
+      This section is if you are the perspective certificate authority (CA).
+    </para>
+    <procedure>
+      <title>Prepare config file</title>
+      <step>
+        <para>
+          Modify the <filename>penssl.cnf</filename> config file and add a
+          line to the <literal>[ v3_req ]</literal> section:
+        </para>
+        <screen>
+          # cd ~/ssl/root/ca
+          # vi openssl.cnf
+          find v3_req
+          Add the following line:
+          subjectAltName = DNS:public.your_server_name.your_domain.com, DNS: cluster-control.your_domain.com
+          At the bottom of the file create section server_cert with the follwing:
+          [ server_cert ]
+          subjectAltName = subjectAltName = DNS:public.your_server_name.your_domain.com, DNS: cluster-control.your_domain.com
+        </screen>
+      </step>
+      <step>
+        <para>
+          The first DNS name would be used if you only have a single node
+          controller as you need the public URL for that server in your cluster.
+          For example, <literal>public.db8-ae-ed-77-14-9e.susedojo.com</literal>.
+
+          If you had haproxy setup for your cluster or pacemaker, you have a
+          cluster URL. For example, you may have
+          <literal>public.cluster.your_domain.com</literal> and you need to
+          have <literal>cluster.your_domain.com</literal> and <literal>public.cluster.your_domain.com</literal>
+          as Alternative DNS names. This public URL can be used for all
+          endpoints unless you have multiple High Availability Clusters for
+          your control plane.
+        </para>
+      </step>
+      <step>
+        <para>
+          Save and close the file once you have those entered correctly.
+        </para>
+      </step>
+   </procedure>
+     <procedure>
+       <title>Create a key</title>
+       <step>
+         <para>
+           Create a key minus the <literal>-aes256</literal> option so that
+           you are not presented with a password each time you restart a
+           service. (i.e. Apache service) also in 2048 bit so its quicker to decrypt.
+         </para>
+         <screen>
+           # cd ~/ssl/root/ca
+           # openssl genrsa -out private/susedojo-com.key.pem 2048
+           # chmod 400 private/susedojo-com.key.pem
+         </screen>
+       </step>
+    </procedure>
+      <procedure>
+        <title>Create a certificate</title>
+        <step>
+          <para>
+            Use the private key we just created to create a certificate
+            signing request (CSR). The common name must be a fully qualified
+            domain name (i.e. www.susedojo.com) The Organization Name must be
+            the same as the Organization Name in the CA.
+          </para>
+          <screen>
+            # cd ~/ssl/root/ca
+            # openssl req -config openssl.cnf -key private/susedojo-com.key.pem -new -sha256 -out csr/susedojo-com.csr.pem
+            You are about to be asked to enter information that will be incorporated
+            into your certificate request.
+            -----
+            Country Name (2 letter code) [XX]:US
+            State or Province Name []:Idaho
+            Locality Name []:Meridian
+            Organization Name []:SUSEDojo
+            Organizational Unit Name []:dojo
+            Common Name []:susedojo.com
+            Email Address []:admin@susedojo.com
+          </screen>
+          <note>
+            <para>
+              You may be prompted for a challenge password and company name.
+              This can can be left blank.
+            </para>
+          </note>
+        </step>
+        <step>
+          <para>
+            Create the certificate using the CA to sign the CSR, using the
+            <literal>server_cert</literal> extension as this will be used
+            on a server. We will give it one year of validity.
+          </para>
+          <screen>
+            # cd ~/ssl/root/ca
+            # openssl ca -config openssl.cnf -extensions server_cert -days 365 -notext -md sha256 -in  csr/susedojo-com.csr.pem -out certs/susedojo-com.cert.pem
+              Using configuration from openssl.cnf
+              Enter pass phrase for /root/ssl/root/ca/private/cakey.pem:
+              Check that the request matches the signature
+              Signature ok
+                      Serial Number: 4096 (0x1000)
+                      Validity
+                        Not Before: Aug  8 04:21:08 2018 GMT
+            	    Not After    : Aug  8 04:21:08 2019 GMT
+                     Subject:
+                          countryName               = US
+                          stateOrProvinceName       = Idaho
+                          organizationName          = SUSEDojo
+                          organizationalUnitName    = dojo
+                          commonName                = susedojo.com
+                          emailAddress              = admin@susedojo.com
+                     X509v3 extensions:
+                         X509v3 Basic Constraints:
+                            CA:FALSE
+                        X509v3 Key Usage:
+                              Digital Signature, Non Repudiation, Key Encipherment
+                         X509v3 Subject Alternative Name:
+                             DNS:public.db8-ae-ed-77-14-9e.susedojo.com
+            Certificate is to be certified until Aug  8 04:21:08 2019 GMT (365 days)
+            Sign the certificate? [y/n]:y
+
+            1 out of 1 certificate requests certified, commit? [y/n]y
+            Write out database with 1 new entries
+            Data Base Updated
+
+            # chmod 444 certs/susedojo-com.cert.pem
+          </screen>
+        </step>
+        <step>
+          <para>
+            The <literal>index.txt</literal> file should now contain a line
+            referring to the new certificate that's been created.
+            For example, the output should look like the following:
+          </para>
+          <screen>
+            V       190808042108Z           1000    unknown
+            /C=US/ST=Idaho/O=SUSEDojo/OU=dojo/CN=susedojo.com/emailAddress=admin@susedojo.com
+          </screen>
+        </step>
+     </procedure>
+       <procedure>
+         <title>Verifying the certificate</title>
+         <step>
+           <para>
+             Enter the following in your terminal:
+           </para>
+           <screen>
+             # openssl x509 -noout -text -in certs/susedojo-com.cert.pem
+           </screen>
+         </step>
+         <step>
+           <para>
+             You will notice the Issuer is the CA and you can also see the
+             Subject Alternative Name as well in the extensions section.
+           </para>
+           <screen>
+             # openssl verify -CAfile cacert.pem certs/susedojo-com.cert.pem
+             certs/susedojo-com.cert.pem: OK
+           </screen>
+         </step>
+      </procedure>
+  </section>
+
+ <section xml:id="deploy-cert">
+   <title>Deploying the certificate</title>
+   <procedure>
+     <step>
+       <para>Now we are ready to copy the newly created certificate and key
+         to the control node or controllers in the cluster.</para>
+       <screen>
+         # scp newcerts/1000.pem control:/root/
+         # scp private/susedojo-com.key control:/root/
+       </screen>
+     </step>
+     <step>
+       <para>
+         Copy them into the right location on the controller host:
+       </para>
+       <screen>
+         # cp susedojo-com.key.pem /etc/keystone/ssl/private
+         # cp 1000.pem /etc/keystone/ssl/certs
+         # cd /etc/keystone/ssl/certs
+         # mv signing_cert.pem signing_cert.pem.todays_date
+         # cp 1000.pem signing_cert.pem
+         # cd /etc/keystone/ssl/private
+         # old signing_key.pem
+         # cp susedojo-com.key.pem signing_key.pem
+       </screen>
+     </step>
+     <step>
+       <para>
+         Rerun the Barclamp for keystone in order to apply this change to
+         the cluster.
+       </para>
+    </step>
+  </procedure>
+ </section>
+
+ <section xml:id="lets-encrypt-cert">
+   <title>Generate Public Certificate using Let’s Encrypt</title>
+   <para>
+     Let’s Encrypt is a free, automated, and open Certificate Authority.
+     Its Root is trusted by all major operating systems now. For SUSE Linux
+     Enterprise Server 12 SP3 and higher the ISRG Root X1 is available in
+     <literal>/etc/ssl/certs/ISRG_Root_X1.pem</literal>. If not, apply the
+     latest updates for your operating system.</para>
+   <para>Let’s Encrypt has several clients to choose from depending on your needs.
+     For this example, we will be using the <literal>acme.sh</literal> client,
+     which is written in bash and gives us greater flexibility and ease in our
+     solution.</para>
+  <para>The next steps walk you through the installation of <literal>acme.sh</literal> and the issue
+     of a certificate with Let’s Encrypt followed by the automated load
+     of the certificate in OpenStack for the various API endpoints available.</para>
+   <procedure>
+     <title>Installation of acme.sh letsencrypt client</title>
+     <step>
+       <para>
+         Login to your crowbar/admin server change to the root directory.
+       </para>
+     </step>
+     <step>
+       <para>
+         Create a new directory for letsencrypt and clone the
+         <literal>acme.sh</literal> repo:
+       </para>
+       <screen>
+         # mkdir letsencrypt
+         # cd letsencrypt
+         # git clone https://github.com/Neilpang/acme.sh.git
+         # cd acme.sh
+       </screen>
+     </step>
+     <step>
+       <para>
+         The system is prepared for installing <literal>acme.sh</literal>.
+       </para>
+     </step>
+     <step>
+       <para>
+         Install <literal>socat</literal>:
+       </para>
+       <screen>
+         # export BRANCH=2 #this makes sure your using the v2 api version of letsencrypt
+         # zypper in -y socat
+       </screen>
+     </step>
+     <step>
+       <para>
+         Install <literal>acme.sh</literal>:
+       </para>
+       <screen>
+         # ./acme.sh --install
+       </screen>
+     </step>
+     <step>
+       <para>
+         After the install of <literal>acme.sh</literal> is finished, you
+         should see a new directory <literal>/root/.acme.sh/</literal> where
+         <literal>acme.sh</literal> lives and all of its environment,
+         account info, and certificates are stored.
+         We recommend using this as a backup location if you are using a
+         backup tool.
+       </para>
+     </step>
+  </procedure>
+
+  <procedure>
+    <title>Issue a wildcard SSL Certificate</title>
+    <para>
+      OpenStack and wildcard SSL uses the DNS validation method by
+      validating your domain using a TXT record that can either be added
+      manually or using the many (over 3 dozen) available DNS API’s.
+    </para>
+    <note>
+      <para>
+        It's important to a wildcard certificate as you have the ability
+        to use the same one for all of your public API endpoints in the
+        OpenStack Cloud environment. Additional Cloud Native services
+        like Kubernetes can also take advantage of it as well.
+      </para>
+    </note>
+    <step>
+      <para>
+        The manual DNS mode is a method that displays the DNS records that
+        have to be created in your DNS servers. It is beneficial to automate
+        the injection of DNS records as the maximum days a certificate is
+        viable is 60 days.
+        In order to issue your wildcard certificate, the command without
+        optional settings is:
+      </para>
+      <screen>
+        # acme.sh --issue -d yourdoman.com -d *.yourdomain.com --dns
+      </screen>
+    </step>
+    <step>
+      <para>
+        To debug or test, add the following optional settings:
+      </para>
+      <screen>
+        # acme.sh --debug --test –issue -d yourdomain.com -d *.yourdomain.com --dns
+      </screen>
+    </step>
+    <step>
+      <para>
+        A message returns. For example:
+      </para>
+      <screen>
+        Add the following TXT record:
+        Domain: '_acme-challenge.yourdomain.com'
+        TXT value: 'KZvgq3MpOCjUNW7Uzz5nE5kkFdplNk66WGfxE9-H63k'
+        Please be aware that you prepend _acme-challenge. before your domain
+        so the resulting subdomain will be: _acme-challenge.yourdomain.com
+      </screen>
+    </step>
+    <step>
+      <para>
+        Using this information, you are ready to insert this TXT record into
+        your DNS.
+      </para>
+      <note>
+        <para>
+          When setting this up for SUSE OpenStack Cloud with Crowbar you need
+          to have your external DNS server appended to <literal>/etc/resolv.conf</literal>
+          in order to resolve as crowbar has its own internal
+          DNS. It's not enough to change it in the barclamp as you need the
+          DNS server entry to be at the top of the list in <literal>resolv.conf</literal>.
+          Crowbar will return to the default after a period of time.
+          Keep in mind that if you want to automate this step every 90 days
+          then you need to ensure the <literal>resolv.conf</literal> changes
+          every time to bypass the local crowbar DNS Server.
+        </para>
+      </note>
+    </step>
+    <step>
+      <para>
+        In order to setup TXT record in bind DNS, edit the zone file so
+        it looks like the following example:
+      </para>
+      <screen>
+        yourdomain.com.     IN NS           admin.yourdomain.com.
+        _acme-challenge.yourdomain.com. IN TXT "xxxx...your TXT value string here"
+      </screen>
+    </step>
+    <step>
+      <para>
+        Restart your named services for bind.
+      </para>
+    </step>
+    <step>
+      <para>
+        Issue the acme-challenge verification of the previous step with the
+        following command:
+      </para>
+      <screen>
+        # acme.sh --renew -d yourdomain.com
+      </screen>
+    </step>
+    <step>
+      <para>
+        If the DNS validation is okay, <literal>acme.sh</literal> issues a
+        wildcard certificate and displays the certificate and private-key path.
+        For example:
+      </para>
+      <screen>
+        Your cert is in  /root/.acme.sh/susedojo.com/susedojo.com.cer
+        Your cert key is in  /root/.acme.sh/susedojo.com/susedojo.com.key
+        v2 chain.
+        The intermediate CA cert is in  /root/.acme.sh/susedojo.com/ca.cer
+        And the full chain certs is there:  /root/.acme.sh/susedojo.com/fullchain.cer
+        _on_issue_success
+      </screen>
+    </step>
+    <step>
+      <para>
+        Notice the location of your certificate and key. These are now
+        ready to be used by OpenStack Cloud.
+      </para>
+    </step>
+    <step>
+      <para>
+        To automate the process of setting up the TXT record in your DNS
+        servers and prepare it for automated validation, there is a file
+        called <filename>account.conf</filename> that holds account information
+        for the DNS Provider. After exporting the authentication variables,
+        it stores them automatically after the command is executed for later use.
+        To issue your wildcard certificate, the command without optional settings is:
+      </para>
+      <screen>
+        # export LUA_Key=”your_API_token_from_account”
+        # export LUA_Email=”cameron@yourdomain.com”
+        # acme.sh -d yourdomain.com -d *.yourdomain.com --dns dns_lua
+      </screen>
+    </step>
+    <step>
+      <para>
+       You can now view your DNS records and you will see a new TXT record
+       available. When its finished and the DNS validation is okay,
+       <literal>acme.sh</literal> issue your wildcard certificate and displays
+       your certificate and private-key path just as before.
+      </para>
+      <screen>
+        Your cert is in  /root/.acme.sh/susedojo.com/susedojo.com.cer
+        Your cert key is in  /root/.acme.sh/susedojo.com/susedojo.com.key
+        v2 chain.
+        The intermediate CA cert is in  /root/.acme.sh/susedojo.com/ca.cer
+        And the full chain certs is there:  /root/.acme.sh/susedojo.com/fullchain.cer
+        _on_issue_success
+      </screen>
+    </step>
+  </procedure>
+
+  <procedure>
+    <title>Setup Certificate Store on Control and Compute Nodes</title>
+    <step>
+      <para>
+        Create a shared location for all Certificates on the control nodes.
+        Execute these commands on all control nodes and compute nodes:
+      </para>
+      <screen>
+        mkdir -p /etc/cloud/ssl/certs
+        mkdir -p /etc/cloud/ssl/private
+      </screen>
+    </step>
+    <step>
+      <para>
+        Copy all certificates to their shared locations on the control nodes
+        and compute nodes:
+      </para>
+      <screen>
+        # scp /root/.acme.sh/susedojo.com/susedojo.com.cer \ root@control:/etc/cloud/ssl/certs
+        # scp /root/.acme.sh/susedojo.com/ca.cer root@control:/etc/cloud/ssl/certs
+        # scp /root/.acme.sh/susedojo.com/fullchain.cer root@control:/etc/cloud/ssl/certs
+        # scp /root/.acme.sh/susedojo.com/susedojo.com.key \ root@control:/etc/cloud/ssl/private
+      </screen>
+    </step>
+  </procedure>
+  <procedure>
+    <title>Setup Issued Certificates in Crowbar Barclamps</title>
+    <step>
+      <para>
+        Set your Certificate File and Key File to the proper location, and
+        set the CA Certificates File to the <literal>/etc/ssl/ca-bundle.pem</literal>
+        in the distribution. Make sure Generate (self-signed) certificates is
+        false, and Certificate is insecure is false.
+      </para>
+      <figure>
+       <title>Database Barclamp</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="database-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="database-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+    </step>
+    <step>
+      <para>
+        Click <guilabel>Apply</guilabel>. Your changes will apply in a
+        few minutes.
+      </para>
+    </step>
+    <step>
+      <para>
+        Set your Certificate File and Key File to the proper location, and
+        set the CA Certificates File to the <literal>/etc/ssl/ca-bundle.pem</literal>
+        in the distribution. Make sure Generate (self-signed) certificates is
+        false, and Certificate is insecure is false.
+      </para>
+      <figure>
+       <title>RabbitMQ Barclamp</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="rabbitmq-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="rabbitmq-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+    </step>
+    <step>
+      <para>
+        Click <guilabel>Apply</guilabel>. Your changes will apply in a
+        few minutes.
+      </para>
+    </step>
+    <step>
+      <para>
+        Set your Certificate File and Key File to the proper location, and
+        set the CA Certificates File to the <literal>/etc/ssl/ca-bundle.pem</literal>
+        in the distribution. Make sure Generate (self-signed) certificates is
+        false, and Certificate is insecure is false.
+      </para>
+      <figure>
+       <title>Keystone Barclamp</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="keystone-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="keystone-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+    </step>
+    <step>
+      <para>
+        Click <guilabel>Apply</guilabel>. Your changes will apply in a
+        few minutes.
+      </para>
+    </step>
+    <step>
+      <para>
+        Set your Certificate File and Key File to the proper location, and
+        set the CA Certificates File to the <literal>/etc/ssl/ca-bundle.pem</literal>
+        in the distribution. Make sure Generate (self-signed) certificates is
+        false, Certificate is insecure is false, and Require Client
+        Certificates is true.
+      </para>
+      <figure>
+       <title>Glance Barclamp</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="glance-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="glance-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+    </step>
+    <step>
+      <para>
+        Click <guilabel>Apply</guilabel>. Your changes will apply in a
+        few minutes.
+      </para>
+    </step>
+    <step>
+      <para>
+        Set your Certificate File and Key File to the proper location, and
+        set the CA Certificates File to the <literal>/etc/ssl/ca-bundle.pem</literal>
+        in the distribution. Make sure Generate (self-signed) certificates is
+        false, Certificate is insecure is false, and Require Client
+        Certificates is false.
+      </para>
+      <figure>
+       <title>Cinder Barclamp</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="cinder-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="cinder-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+    </step>
+    <step>
+      <para>
+        Click <guilabel>Apply</guilabel>. Your changes will apply in a
+        few minutes.
+      </para>
+    </step>
+    <step>
+      <para>
+        Set your Certificate File and Key File to the proper location, and
+        set the CA Certificates File to the <literal>/etc/ssl/ca-bundle.pem</literal>
+        in the distribution. Make sure Generate (self-signed) certificates is
+        false, Certificate is insecure is false, and Require Client
+        Certificates is false.
+      </para>
+      <figure>
+       <title>Neutron Barclamp</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="neutron-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="neutron-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+    </step>
+    <step>
+      <para>
+        Click <guilabel>Apply</guilabel>. Your changes will apply in a
+        few minutes.
+      </para>
+    </step>
+    <step>
+      <para>
+        Set your Certificate File and Key File to the proper location, and
+        set the CA Certificates File to the <literal>/etc/ssl/ca-bundle.pem</literal>
+        in the distribution. Make sure Generate (self-signed) certificates is
+        false, Certificate is insecure is false, and Require Client
+        Certificates is false.
+      </para>
+      <figure>
+       <title>Nova Barclamp</title>
+       <mediaobject>
+        <imageobject role="fo">
+         <imagedata fileref="nova-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+        <imageobject role="html">
+         <imagedata fileref="nova-barclamp.png" width="100%" format="png"/>
+        </imageobject>
+       </mediaobject>
+      </figure>
+    </step>
+    <step>
+      <para>
+        Click <guilabel>Apply</guilabel>. Your changes will apply in a
+        few minutes.
+      </para>
+    </step>
+  </procedure>
+  <para>
+    Each Crowbar barclamp that have SSL support are the same. You can change
+    the same settings and apply your certificate to the remaining barclamps.</para>
+  <note>
+    <para>
+      Once this is completed, we recommend automating this process as the
+      Let's Encrypt certificates expire at 90 days.
+    </para>
+  </note>
+ </section>
+</chapter>
