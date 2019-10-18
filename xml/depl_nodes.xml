@@ -1630,6 +1630,209 @@ and admins can see the available options in the barclamp -->
     configuration&mdash;it is sufficient to deploy it on a cluster.
    </para>
   </sect2>
+
+  <sect2 xml:id="sec-depl-ostack-keystone-openidc">
+   <title>OpenID Connect Setup for &o_ident;</title>
+   <para>
+    &o_ident; supports WebSSO by federating with an external identity
+    provider (IdP) using  <link xlink:href="https://github.com/zmartzone/mod_auth_openidc">auth_openidc</link> module.
+   </para>
+   <para>
+    There are two steps to enable this feature:
+   </para>
+   <orderedlist>
+     <listitem>
+      <para>
+       Configure the <literal>"federation"</literal> and <literal>"openidc"</literal> attributes for the Keystone Barclamp in Crowbar.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Create the Identity Provider, Protocol, and Mapping resource in
+       &o_ident; using <guimenu>OpenStack Command Line Tool (CLI)</guimenu>.
+      </para>
+     </listitem>
+   </orderedlist>
+   <sect3 xml:id="sec-depl-ostack-keystone-openidc-crowbar">
+   <title>&o_ident; Barclamp Configuration</title>
+   <para>
+    Configurating OpenID Connect is done in the <guimenu>Raw</guimenu> view,
+    under the <guimenu>federation</guimenu> section. The global attributes,
+    namely <guimenu>trusted_dashboards</guimenu> and <guimenu>websso_keystone_url</guimenu>
+    are not specific to OpenID Connect. Rather, they are designed to help
+    facilitate WebSSO browser redirects with external IdPs in a complex cloud
+    deployment environment.
+   </para>
+   <para>
+    If the cloud deployment does not have any external proxies or load
+    balancers, where the public keystone and horizon (Dashboard service)
+    endpoints are directly managed by Crowbar, <guimenu>trusted_dashboards</guimenu>
+    and <guimenu>websso_keystone_url</guimenu> does not need to be provided.
+    However, in a complex cloud deployment where the public Keystone and
+    Horizon endpoints are handled by external load balancers or proxies, and
+    they are not directly managed by Crowbar, <guimenu>trusted_dashboards</guimenu>
+    and <guimenu>websso_keystone_url</guimenu> must be provided and they must
+    correctly reflect the external public endpoints.
+   </para>
+   <para>
+    To configure OpenID Connect, edit the attributes in the <guimenu>openidc</guimenu> subsection.
+   </para>
+   <procedure>
+    <step>
+     <para>
+      Set <guimenu>"enabled":true</guimenu>
+     </para>
+    </step>
+    <step>
+     <para>
+      Provide the name for the <guimenu>identity_provider</guimenu>.
+      This must be the same as the identity provider to be created in Keystone
+      using the <guimenu>OpenStack Command Line Tool (CLI)</guimenu>.
+      For example, if the identity provider is <literal>foo</literal>,
+      create the identity provider with the name via Openstack CLI (i.e.
+      <guimenu>openstack identity provider create foo</guimenu>).
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>response_type</guimenu> corresponds to
+      <link xlink:href="https://github.com/zmartzone/mod_auth_openidc/blob/master/auth_openidc.conf">auth_openidc OIDCResponseType</link>.
+      In most cases, it should be <literal>id_token</literal>.
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>scope</guimenu> corresponds to
+      <link xlink:href="https://github.com/zmartzone/mod_auth_openidc/blob/master/auth_openidc.conf">auth_openidc OIDCScope</link>. 
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>metadata_url</guimenu> corresponds to
+      <link xlink:href="https://github.com/zmartzone/mod_auth_openidc/blob/master/auth_openidc.conf">auth_openidc OIDCProviderMetadataURL</link>.          
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>client_id</guimenu> corresponds to
+      <link xlink:href="https://github.com/zmartzone/mod_auth_openidc/blob/master/auth_openidc.conf">auth_openidc OIDCClientID</link>.
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>client_secret</guimenu> corresponds to
+      <link xlink:href="https://github.com/zmartzone/mod_auth_openidc/blob/master/auth_openidc.conf">auth_openidc OIDCClientSecret</link>.
+     </para>
+    </step>
+    <step>
+     <para>
+      <guimenu>redirect_uri</guimenu> corresponds to
+      <link xlink:href="https://github.com/zmartzone/mod_auth_openidc/blob/master/auth_openidc.conf">auth_openidc OIDCRedirectURI</link>.
+      In a cloud deployment where all the external endpoints are directly
+      managed by Crowbar, this attribute can be left blank as it will be
+      auto-populated by Crowbar. However, in a complex cloud deployment where
+      the public Keystone endpoint is handled by an external load balancer
+      or proxy, this attribute must reflect the external Keystone auth endpoint
+      for the OpenID Connect IdP. For example,
+      <literal>"https://keystone-public-endpoint.foo.com/v3/OS-FEDERATION/identity_providers/foo/protocols/openid/auth"</literal>
+     </para>
+     <warning>
+      <para>
+       Some OpenID Connect IdPs such as Google require the hostname in the
+       <guimenu>redirect_uri</guimenu> to be a public FQDN. In that case,
+       the hostname in Keystone public endpoint must also be a public FQDN
+       and must match the one specified in the <guimenu>redirect_uri</guimenu>.
+      </para>
+     </warning>
+    </step>
+   </procedure>
+   </sect3>
+   <sect3 xml:id="sec-depl-ostack-keystone-openidc-cli">
+   <title>Create Identity Provider, Protocol, and Mapping</title>
+   <para>
+    To fully enable OpenID Connect, the <literal>Identity Provider</literal>,
+    <literal>Protocol</literal>, and <literal>Mapping</literal> for the given
+    IdP must be created in Keystone. This is done by using the
+    <guimenu>OpenStack Command Line Tool</guimenu>, on a controller node, and
+    using the Keystone <emphasis role="bold">admin</emphasis> credential.
+   </para>
+   <procedure>
+    <step>
+     <para>
+      Login to a controller node as <literal>root</literal> user.
+     </para>
+    </step>
+    <step>
+     <para>
+      Use the Keystone <emphasis role="bold">admin</emphasis> credential. 
+     </para>
+     <screen>source ~/.openrc</screen>
+    </step>
+    <step>
+     <para>
+      Create the <emphasis role="bold">Identity Provider</emphasis>. For example:
+     </para>
+     <screen>openstack identity provider create foo</screen>
+     <warning>
+      <para>
+       The name of the Identity Provider must be exactly the same as the
+        <guilabel>identity_provider</guilabel> attribute given when configuring
+        Keystone in the previous section.
+      </para>
+     </warning>
+    </step>
+    <step>
+     <para>
+      Next, create the Mapping for the Identity Provider. Prior to creating the
+      Mapping, one must fully grasp the intricacies
+      of <link xlink:href="https://docs.openstack.org/keystone/latest/admin/federation/mapping_combinations.html">Mapping Combinations</link>
+      as it may have profound security implications if done incorrectly.
+      Here's an example of a mapping file.
+     </para>
+<screen>[
+    {
+        "local": [
+            {
+                "user": {
+                    "name": "{0}",
+                    "email": "{1}",
+                    "type": "ephemeral"
+                 },
+                 "group": {
+                    "domain": {
+                        "name": "Default"
+                    },
+                    "name": "openidc_demo"
+                }
+             }
+         ],
+         "remote": [
+             {
+                 "type": "REMOTE_USER"
+             },
+             {
+                 "type": "HTTP_OIDC_EMAIL"
+             }
+
+        ]
+    }
+]</screen>
+     <para>
+      Once the mapping file is created, now create the mapping resource in Keystone. For example:
+     </para>
+<screen>openstack mapping create --rule oidc_mapping.json oidc_mapping</screen>
+    </step>
+    <step>
+     <para>
+      Lastly, create the Protocol for the Identity Provider and its mapping.
+      For OpenID Connect, the protocol name must be <emphasis role="bold">openid</emphasis>. For example:
+     </para>
+<screen>openstack federation protocol create --identity-provider google --mapping oidc_mapping openid</screen>
+    </step>
+   </procedure>
+   </sect3>
+  </sect2>
+
  </sect1>
  <sect1 xml:id="sec-depl-ostack-swift">
   <title>Deploying &o_objstore; (optional)</title>
