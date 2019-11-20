@@ -1,0 +1,300 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="urn:x-suse:xslt:profiling:docbook51-profile.xsl"
+ type="text/xml"
+ title="Profiling step"?>
+<!DOCTYPE section [
+ <!ENTITY % entities SYSTEM "entity-decl.ent"> %entities;
+]>
+<section xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:id="gpu-passthrough">
+  <title>GPU passthrough</title>
+  <para>
+    &productname; GPU passthrough functionality provides the nova instance direct access to the GPU device for
+    better performance.
+  </para>
+  <para>
+    This section demonstrates the steps to pass
+    through a Nvidia GPU card supported by &productname;,
+  </para>
+  <note>
+  <para>
+   When using PCI Passthrough, resizing the VM to the same host with the same
+   PCI card is not supported.
+  </para>
+  </note>
+  <para>
+    The following steps are necessary to leverage PCI passthrough on a &cloud;
+    &productnumber; &compnode;: preparing the &compnode;, preparing &o_comp; via the input model updates and
+    &o_img;.
+  </para>
+  <orderedlist>
+  <listitem>
+      <para>
+        <emphasis role="bold">Preparing the &compnode;</emphasis>
+      </para>
+      <procedure>
+        <step>
+          <para>
+            There should be no kernel drivers or binaries with direct access to the
+            PCI device. If there are kernel modules, they should be blacklisted.
+          </para>
+          <para>
+            For example, it is common to have a <literal>nouveau</literal> driver
+            from when the node was installed. This driver is a graphics driver for
+            Nvidia-based GPUs. It must be blacklisted as shown in this example.
+          </para>
+          <screen>&prompt.ardana;echo 'blacklist nouveau' &gt;&gt; /etc/modprobe.d/nouveau-default.conf
+          </screen>
+          <para>
+            The file location and its contents are important, however the name of the file
+            is your choice. Other drivers can be blacklisted in the same manner,
+            possibly including Nvidia drivers.
+          </para>
+        </step>
+        <step>
+          <para>
+            On the host, <literal>iommu_groups</literal> is necessary and may
+            already be enabled. To check if IOMMU is enabled:
+          </para>
+          <screen>&prompt.root;virt-host-validate
+            .....
+            QEMU: Checking if IOMMU is enabled by kernel
+            : WARN (IOMMU appears to be disabled in kernel. Add intel_iommu=on to kernel cmdline arguments)
+            .....
+          </screen>
+          <para>
+            To modify the kernel cmdline as suggested in the warning, edit the file
+            <filename>/etc/default/grub</filename>
+            and append
+            <literal>intel_iommu=on</literal>
+            to the
+            <literal>GRUB_CMDLINE_LINUX_DEFAULT</literal>
+            variable. Then run
+            <literal>update-bootloader</literal>.
+          </para>
+          <para>
+            A reboot will be required for <literal>iommu_groups</literal> to be
+            enabled.
+          </para>
+        </step>
+        <step>
+          <para>
+            After the reboot, check that IOMMU is enabled:
+          </para>
+          <screen>&prompt.root;virt-host-validate
+            .....
+            QEMU: Checking if IOMMU is enabled by kernel
+            : PASS
+            .....
+          </screen>
+        </step>
+        <step>
+          <para>
+            Confirm IOMMU groups are available by finding the group associated with
+            your PCI device (for example Nvidia GPU):
+          </para>
+          <screen>&prompt.ardana;lspci -nn | grep -i nvidia
+            84:00.0 3D controller [0302]: NVIDIA Corporation GV100GL [Tesla V100 PCIe 16GB] [10de:1db4] (rev
+            a1)
+          </screen>
+          <para>
+            In this example, <literal>84:00.0</literal> is the address of the PCI device. The vendorID
+            is <literal>10de</literal>. The productID is <literal>1db4</literal>.
+          </para>
+        </step>
+        <step>
+          <para>
+            Confirm that the devices are available for passthrough:
+          </para>
+          <screen>&prompt.ardana;ls -ld /sys/kernel/iommu_groups/*/devices/*84:00.?/
+            drwxr-xr-x 3 root root 0 Nov 19 17:00 /sys/kernel/iommu_groups/56/devices/0000:84:00.0/
+          </screen>
+        </step>
+      </procedure>
+    </listitem>
+    <listitem>
+      <para>
+        <emphasis role="bold">Preparing &o_comp; via the input model updates</emphasis>
+      </para>
+      <para>
+        To implement the required configuration, log into the &clm; node and update
+        the &clm; model files to enable GPU passthrough for compute nodes.
+      </para>
+      <para>
+        <emphasis role="bold">Edit servers.yml</emphasis>
+      </para>
+      <para>
+        Add the <literal>pass-through</literal> section after the definition of servers section in the yaml file.
+        The following example shows only the relevant sections:
+      </para>
+      <screen>
+
+        ---
+        product:
+        version: 2
+
+        baremetal:
+        netmask: 255.255.255.0
+        subnet: 192.168.100.0
+
+
+        servers:
+        .
+        .
+        .
+        .
+
+          - id: compute-0001
+            ip-addr: 192.168.75.5
+            role: COMPUTE-ROLE
+            server-group: RACK3
+            nic-mapping: HP-DL360-4PORT
+            ilo-ip: ****
+            ilo-user: ****
+            ilo-password: ****
+            mac-addr: ****
+          .
+          .
+          .
+
+          - id: compute-0008
+            ip-addr: 192.168.75.7
+            role: COMPUTE-ROLE
+            server-group: RACK2
+            nic-mapping: HP-DL360-4PORT
+            ilo-ip: ****
+            ilo-user: ****
+            ilo-password: ****
+            mac-addr: ****
+
+        pass-through:
+          servers:
+            - id: compute-0001
+              data:
+                gpu:
+                  - vendor_id: 10de
+                    product_id: 1db4
+                    bus_address: 0000:84:00.0
+                    pf_mode: type-PCI
+                    name: a1
+                  - vendor_id: 10de
+                    product_id: 1db4
+                    bus_address: 0000:85:00.0
+                    pf_mode: type-PCI
+                    name: b1
+            - id: compute-0008
+              data:
+                gpu:
+                  - vendor_id: 10de
+                    product_id: 1db4
+                    pf_mode: type-PCI
+                    name: c1
+      </screen>
+      <procedure>
+        <para>
+        To make the edits:
+        </para>
+        <step>
+          <para>
+            Check out the site branch of the local git repository and change to the
+            correct directory:
+          </para>
+          <screen>
+            &prompt.ardana;cd ~/openstack
+            &prompt.ardana;git checkout site
+            &prompt.ardana;cd ~/openstack/my_cloud/definition/data/
+          </screen>
+        </step>
+        <step>
+          <para>
+            Open the file containing the servers list, e.g. servers.yml
+            with vim or another editor and make the necessary changes.
+            Save the changes to the file, then commit to the local git repository:
+          </para>
+          <screen>
+            &prompt.ardana;git add -A
+          </screen>
+          <para> Confirm that the changes to the tree are relevant changes and commit</para>
+          <screen>
+            &prompt.ardana;git status
+            &prompt.ardana;git commit -m "your commit message goes here in quotes"
+          </screen>
+        </step>
+        <step>
+          <para>
+            Have the &clm; enable your changes by running the necessary
+            playbooks:
+          </para>
+          <screen>
+            &prompt.ardana;cd ~/openstack/ardana/ansible
+            &prompt.ardana;ansible-playbook -i hosts/localhost config-processor-run.yml
+            &prompt.ardana;ansible-playbook -i hosts/localhost ready-deployment.yml
+            &prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+          </screen>
+          <para>If you are enabling GPU passthrough for your compute nodes during your initial installation, run
+          the following command</para>
+          <screen>
+            &prompt.ardana;ansible-playbook -i hosts/verb_hosts site.yml
+          </screen>
+          <para>If you are enabling GPU passthrough for your compute nodes post-installation, run the following
+          command
+          </para>
+          <screen>
+            &prompt.ardana;ansible-playbook -i hosts/verb_hosts nova-reconfigure.yml
+          </screen>
+        </step>
+      </procedure>
+      <para>
+        The above procedure updates the configuration for the nova api, nova compute and scheduler as defined in
+        <link xlink:href="https://docs.openstack.org/nova/rocky/admin/pci-passthrough.html"/>.
+      </para>
+      <para>
+        The following is the [pci] configuration for compute0001 node using the above example post-playbook run:
+      </para>
+      <screen>
+        [pci]
+        passthrough_whitelist = [{"address": "0000:84:00.0"}, {"address": "0000:85:00.0"}]
+        alias = {"vendor_id": "10de", "name": "a1", "device_type": "type-PCI", "product_id": "1db4"}
+        alias = {"vendor_id": "10de", "name": "b1", "device_type": "type-PCI", "product_id": "1db4"}
+      </screen>
+      <para>
+        The following is the [pci] configuration for compute0008 node using the above example post-playbook run:
+      </para>
+      <screen>
+        [pci]
+        passthrough_whitelist = [{"vendor_id": "10de", "product_id": "1db4"}]
+        alias = {"vendor_id": "10de", "name": "c1", "device_type": "type-PCI", "product_id": "1db4"}
+      </screen>
+      <note>
+        <para>
+          After running the <filename>site.yml</filename> playbook above, you must
+          reboot the compute nodes that are configured with Intel PCI devices.
+        </para>
+      </note>
+    </listitem>
+
+    <listitem>
+      <para>
+        <emphasis role="bold">Create a flavor</emphasis>
+      </para>
+      <para>
+        For GPU passthrough, set the <literal>pci_passthrough:alias</literal> property. You can do so for an existing flavor or
+        create a new flavor as shown in the example below:
+      </para>
+      <screen>
+        &prompt.ardana;openstack flavor create --ram 8192 --disk 100 --vcpu 8 gpuflavor
+        &prompt.ardana;openstack flavor set gpuflavor --property "pci_passthrough:alias"="a1:1"
+      </screen>
+      <para>Here the a1 references the alias name as provided in the model while the 1 tells Nova that a single GPU
+        should be assigned.
+      </para>
+    </listitem>
+    <listitem>
+      <para>
+        <emphasis role="bold">Boot an instance using the flavor created above as in example</emphasis>
+      </para>
+      <screen>
+         &prompt.ardana;openstack server create --flavor gpuflavor --image sles12sp4 --key-name key --nic net-id=$net_id gpu-instance-1
+      </screen>
+    </listitem>
+  </orderedlist>
+</section>
