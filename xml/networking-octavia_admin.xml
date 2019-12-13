@@ -403,6 +403,146 @@ Updated port: 0b0301b9-4ee8-4fb6-a47c-2690594173f4</screen>
    </para>
   </warning>
  </section>
+ <section xml:id="octavia-admin-delete">
+   <title>Removing load balancers</title>
+   <para>
+     The following procedure demonstrates how to delete a load
+     balancer that is in the <literal>ERROR</literal>,
+     <literal>PENDING_CREATE</literal>, or
+     <literal>PENDING_DELETE</literal> state.
+   </para>
+   <procedure>
+     <title>Manually deleting load balancers</title>
+     <step>
+       <para>
+         Query the Octavia service for the loadbalancer ID:
+       </para>
+       <screen>
+&prompt.ardana;openstack loadbalancer list --column id --column name --column provisioning_status
++--------------------------------------+---------+---------------------+
+| id                                   | name    | provisioning_status |
++--------------------------------------+---------+---------------------+
+| d8ac085d-e077-4af2-b47a-bdec0c162928 | test-lb | ERROR               |
++--------------------------------------+---------+---------------------+
+       </screen>
+     </step>
+     <step>
+       <para>
+         Query the Octavia service for the amphora IDs (in this
+         example we use <literal>ACTIVE/STANDBY</literal> topology with 1 spare Amphora):
+       </para>
+       <screen>
+&prompt.ardana;openstack loadbalancer amphora list
++--------------------------------------+--------------------------------------+-----------+--------+---------------+-------------+
+| id                                   | loadbalancer_id                      | status    | role   | lb_network_ip | ha_ip       |
++--------------------------------------+--------------------------------------+-----------+--------+---------------+-------------+
+| 6dc66d41-e4b6-4c33-945d-563f8b26e675 | d8ac085d-e077-4af2-b47a-bdec0c162928 | ALLOCATED | BACKUP | 172.30.1.7    | 192.168.1.8 |
+| 1b195602-3b14-4352-b355-5c4a70e200cf | d8ac085d-e077-4af2-b47a-bdec0c162928 | ALLOCATED | MASTER | 172.30.1.6    | 192.168.1.8 |
+| b2ee14df-8ac6-4bb0-a8d3-3f378dbc2509 | None                                 | READY     | None   | 172.30.1.20   | None        |
++--------------------------------------+--------------------------------------+-----------+--------+---------------+-------------+
+       </screen>
+     </step>
+     <step>
+       <para>
+         Query the Octavia service for the loadbalancer pools:
+       </para>
+       <screen>
+&prompt.ardana;openstack loadbalancer pool list
++--------------------------------------+-----------+----------------------------------+---------------------+----------+--------------+----------------+
+| id                                   | name      | project_id                       | provisioning_status | protocol | lb_algorithm | admin_state_up |
++--------------------------------------+-----------+----------------------------------+---------------------+----------+--------------+----------------+
+| 39c4c791-6e66-4dd5-9b80-14ea11152bb5 | test-pool | 86fba765e67f430b83437f2f25225b65 | ACTIVE              | TCP      | ROUND_ROBIN  | True           |
++--------------------------------------+-----------+----------------------------------+---------------------+----------+--------------+----------------+
+       </screen>
+     </step>
+     <step>
+       <para>
+         Connect to the octavia database:
+       </para>
+       <screen>mysql&gt; use octavia</screen>
+     </step>
+     <step>
+       <para>
+         Delete any listeners, pools, health monitors, and members
+         from the load balancer:
+       </para>
+       <screen>
+mysql&gt; delete from listener where load_balancer_id = 'd8ac085d-e077-4af2-b47a-bdec0c162928';
+Query OK, 1 row affected (0.01 sec)
+mysql&gt; delete from health_monitor where pool_id = '39c4c791-6e66-4dd5-9b80-14ea11152bb5';
+Query OK, 1 row affected (0.00 sec)
+mysql&gt; delete from member where pool_id = '39c4c791-6e66-4dd5-9b80-14ea11152bb5';
+Query OK, 2 rows affected (0.01 sec)
+mysql&gt; delete from pool where load_balancer_id = 'd8ac085d-e077-4af2-b47a-bdec0c162928';
+Query OK, 1 row affected (0.01 sec)
+       </screen>
+     </step>
+     <step>
+       <para>
+         Delete the amphora entries in the database:
+       </para>
+       <screen>
+mysql&gt; delete from amphora_health where amphora_id = '6dc66d41-e4b6-4c33-945d-563f8b26e675';
+Query OK, 1 row affected (0.01 sec)
+mysql&gt; update amphora set status = 'DELETED' where id = '6dc66d41-e4b6-4c33-945d-563f8b26e675';
+Query OK, 1 row affected (0.00 sec)
+mysql&gt; delete from amphora_health where amphora_id = '1b195602-3b14-4352-b355-5c4a70e200cf';
+Query OK, 1 row affected (0.01 sec)
+mysql&gt; update amphora set status = 'DELETED' where id = '1b195602-3b14-4352-b355-5c4a70e200cf';
+Query OK, 1 row affected (0.00 sec)
+       </screen>
+     </step>
+     <step>
+       <para>
+         Delete the load balancer instance:
+       </para>
+       <screen>
+mysql&gt; update load_balancer set provisioning_status = 'DELETED' where id = 'd8ac085d-e077-4af2-b47a-bdec0c162928';
+Query OK, 0 rows affected (0.00 sec)
+       </screen>
+     </step>
+     <step>
+       <para>
+         The following script automates the above steps:
+       </para>
+       <screen>
+#!/bin/bash
+
+if (( $# != 1 )); then
+  echo "Please specify a loadbalancer ID"
+  exit 1
+fi
+
+LB_ID=$1
+
+set -u -e -x
+
+readarray -t AMPHORAE &lt; &lt;(openstack loadbalancer amphora list \
+  --format value \
+  --column id \
+  --column loadbalancer_id \
+  | grep ${LB_ID} \
+  | cut -d ' ' -f 1)
+
+readarray -t POOLS &lt; &lt;(openstack loadbalancer show ${LB_ID} \
+  --format value \
+  --column pools)
+
+mysql octavia --execute "delete from listener where load_balancer_id = '${LB_ID}';"
+for p in "${POOLS[@]}"; do
+  mysql octavia --execute "delete from health_monitor where pool_id = '${p}';"
+  mysql octavia --execute "delete from member where pool_id = '${p}';"
+done
+mysql octavia --execute "delete from pool where load_balancer_id = '${LB_ID}';"
+for a in "${AMPHORAE[@]}"; do
+  mysql octavia --execute "delete from amphora_health where amphora_id = '${a}';"
+  mysql octavia --execute "update amphora set status = 'DELETED' where id = '${a}';"
+done
+mysql octavia --execute "update load_balancer set provisioning_status = 'DELETED' where id = '${LB_ID}';"
+       </screen>
+     </step>
+   </procedure>
+ </section>
  <section xml:id="idg-all-networking-octavia-admin-xml-10">
   <title>For More Information</title>
   <para>
