@@ -7,16 +7,6 @@
 <!-- Converted by suse-upgrade version 1.1 -->
 <chapter xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0" xml:id="cha-depl-ostack">
  <title>Deploying the &ostack; Services</title>
- <info>
-  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
-   <dm:maintainer>fs</dm:maintainer>
-   <dm:status>editing</dm:status>
-   <dm:deadline/>
-   <dm:priority/>
-   <dm:translation>no</dm:translation>
-   <dm:languages/>
-  </dm:docmanager>
- </info>
  <para>
   After the nodes are installed and configured you can start deploying the
   &ostack; components to finalize the installation. The components need to be
@@ -104,7 +94,7 @@
 <!-- Neutrum -->
   <listitem>
    <para>
-    <xref linkend="sec-depl-ostack-quantum" xrefstyle="select:title nopage"/>
+    <xref linkend="sec-depl-ostack-neutron" xrefstyle="select:title nopage"/>
    </para>
   </listitem>
 <!-- nova -->
@@ -153,6 +143,12 @@
   <listitem>
    <para>
     <xref linkend="sec-depl-ostack-monasca" xrefstyle="select:title nopage"/>
+   </para>
+  </listitem>
+<!-- lbaas -->
+  <listitem>
+   <para>
+    <xref linkend="sec-depl-ostack-octavia" xrefstyle="select:title nopage"/>
    </para>
   </listitem>
  </orderedlist>
@@ -3140,7 +3136,7 @@ host1:/srv/nfs/share1 /mnt/nfs/share1 -o rsize=8192,wsize=8192,timeo=14,intr
    </para>
   </sect2>
  </sect1>
- <sect1 xml:id="sec-depl-ostack-quantum">
+ <sect1 xml:id="sec-depl-ostack-neutron">
   <title>Deploying &o_netw;</title>
 
   <para>
@@ -4040,7 +4036,6 @@ openstack router add subnet <replaceable>router2</replaceable> priv-net-sub</scr
        Existing <literal>nova-compute-*</literal> nodes can be changed in a
        production &cloud; without service interruption. You need to
        <quote>evacuate</quote>
-<!-- (see TODO) -->
        the node, re-assign a new <literal>nova-compute</literal> role via the
        &o_comp; &barcl; and <guimenu>Apply</guimenu> the change.
        <guimenu>nova-compute-vmware</guimenu> can only be deployed on a single
@@ -6202,11 +6197,619 @@ monitoring</guimenu>
    </mediaobject>
   </figure>
  </sect1>
+ <sect1 xml:id="sec-depl-ostack-octavia">
+  <title>Deploying Octavia</title>
+  <para>
+    &productname; &productnumber; provides &octavia; Load Balancing as a Service
+    (LBaaS). It is used to manage a fleet of virtual machines, containers, or
+    bare metal servers—collectively known as amphorae — which it spins up on
+    demand.
+  </para>
+  <note>
+    <para>
+      Starting with the &productname; &productnumber; release, we recommend
+      running &octavia; as a standalone load balancing solution. Neutron LBaaS
+      is deprecated in the OpenStack Queens release, and &octavia; is its
+      replacement. Whenever possible, operators are strongly advised to
+      migrate to &octavia;.
+      For further information on OpenStack Neutron LBaaS deprecation, refer
+      to https://wiki.openstack.org/wiki/Neutron/LBaaS/Deprecation.
+    </para>
+  </note>
+  <important>
+    <para>
+      Deploying the &octavia; barclamp does not automatically run all tasks
+      required to complete the migration from Neutron LBaaS.
+    </para>
+    <para>
+      Please refer to <xref linkend="sec-depl-ostack-octavia-migrate-users"/>
+      for instructions on migrating existing users to allow them to access
+      the Octavia load balancer API after the &octavia; barclamp is deployed.
+    </para>
+    <para>
+      Please refer to <xref linkend="sec-depl-ostack-octavia-migrate"/> for
+      instructions on migrating existing Neutron LBaaS load balancer instances
+      to &octavia; and on disabling the deprecated Neutron LBaaS provider
+      after the &octavia; barclamp is deployed.
+    </para>
+  </important>
+  <para>
+    &octavia; consists of the following major components:
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term>amphorae</term>
+    <listitem>
+     <para>
+       Amphorae are the individual virtual machines, containers, or bare metal
+       servers that accomplish the delivery of load balancing services to
+       tenant application environments.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>controller</term>
+    <listitem>
+     <para>
+       The controller is the brains of &octavia;. It consists of five
+       sub-components as individual daemons. They can be run on
+       separate back-end infrastructure.
+     </para>
+     <itemizedlist>
+       <listitem>
+         <para>
+           The API Controller is a subcomponent that
+           runs &octavia;’s API. It takes API requests, performs simple
+           sanitizing on them, and ships them off to the controller worker
+           over the Oslo messaging bus.
+         </para>
+       </listitem>
+       <listitem>
+         <para>
+           The controller worker subcomponent takes sanitized API commands
+           from the API controller and performs the actions necessary to
+           fulfill the API request.
+         </para>
+       </listitem>
+       <listitem>
+         <para>
+           The health manager subcomponent monitors individual amphorae
+           to ensure they are up and running, and healthy. It
+           also handles failover events if amphorae fail unexpectedly.
+         </para>
+       </listitem>
+       <listitem>
+         <para>
+           The housekeeping manager subcomponent cleans up stale (deleted)
+           database records, manages the spares pool, and manages amphora
+           certificate rotation.
+         </para>
+       </listitem>
+       <listitem>
+         <para>
+           The driver agent subcomponent receives status and statistics
+           updates from provider drivers.
+         </para>
+       </listitem>
+     </itemizedlist>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>network</term>
+    <listitem>
+     <para>
+       Octavia cannot accomplish what it does without manipulating the
+       network environment. Amphorae are spun up with a network
+       interface on the <literal>load balancer network</literal>. They
+       can also plug directly into tenant networks to reach back-end
+       pool members, depending on how any given load balancing service
+       is deployed by the tenant.
+     </para>
+    </listitem>
+   </varlistentry>
+ </variablelist>
+ <para>The &ostack; &octavia; team has created a glossary of terms used within
+   the context of the &octavia; project and Neutron LBaaS version 2.
+   This glossary is available here: <link
+   xlink:href="https://docs.openstack.org/octavia/rocky/reference/glossary.html">Octavia Glossary</link>.</para>
+    <para>In accomplishing its role, &octavia; requires OpenStack services
+      managed by other barclamps to be already deployed:</para>
+    <itemizedlist>
+      <listitem>
+        <para>
+          Nova - For managing amphora lifecycle and spinning up compute
+          resources on demand.
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          Neutron - For network connectivity between amphorae, tenant
+          environments, and external networks.
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          Barbican - For managing TLS certificates and credentials, when TLS
+          session termination is configured on the amphorae.
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          Keystone - For authentication against the Octavia API, and for
+          &octavia; to authenticate with other &ostack; projects.
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          Glance - For storing the amphora virtual machine image.
+        </para>
+      </listitem>
+    </itemizedlist>
+  <para>
+    The &octavia; barclamp component consists of following roles:
+  </para>
+  <variablelist>
+    <varlistentry>
+      <term>octavia-api</term>
+      <listitem>
+        <para>
+          The &octavia; API.
+        </para>
+      </listitem>
+    </varlistentry>
+    <varlistentry>
+      <term>octavia-backend</term>
+      <listitem>
+       <para>
+        &octavia; worker, health-manager and house-keeping.
+        </para>
+      </listitem>
+    </varlistentry>
+  </variablelist>
+  <sect2 xml:id="sec-depl-ostack-octavia-prereqs">
+    <title>Prerequisites</title>
+    <para>
+      Before configuring and applying the &octavia; barclamp, there are a couple
+      of prerequisites that have to be prepared: the Neutron management network
+      used by the Octavia control plane services to communicate with Amphorae
+      and the certificates needed to secure this communication.
+    </para>
+    <sect3 xml:id="sec-depl-ostack-octavia-mgmtnet">
+      <title>Management network</title>
+      <para>
+        Octavia uses a load balancer network,
+        <literal>lb-mgmt-net</literal>, as a management network that the
+        controller uses to communicate with the amphorae. The amphorae
+        that &octavia; deploys have interfaces and IP addresses on this
+        network. It’s important that the subnet deployed on this network
+        be sufficiently large to allow for the maximum number of
+        amphorae and controllers likely to be deployed throughout the
+        lifespan of the cloud installation.
+      </para>
+      <para>
+        At the present time, though IPv4 subnets are used by default for
+        the LB Network (for example: 172.16.0.0/12), IPv6 subnets can be
+        used for the LB Network. The LB Network is isolated from tenant
+        networks on the amphorae by means of network namespaces on the
+        amphorae. Therefore, operators need not be concerned about
+        overlapping subnet ranges with tenant networks.
+      </para>
+      <para>
+        For more information, see the <link
+        xlink:href="https://docs.openstack.org/octavia/rocky/contributor/guides/dev-quick-start.html#load-balancer-network-configuration">Load
+        Balancer Network Configuration</link> section from the &ostack;
+        documentation.
+      </para>
+      <para>
+        By default the name is <literal>lb-mgmt-net</literal>, this can
+        be overridden in the <literal>raw</literal> mode of the
+        barclamp.
+      </para>
+      <para>
+        The backend services (deployed by the
+        <literal>octavia-backend</literal> role) needs to be able to
+        talk to amphorae over the <literal>lb-mgmt-net</literal>.
+        Connect the <literal>lb-mgmt-net</literal> network to an
+        external network outside the cloud network, or a network that
+        the backend can connect through. Ensure the backend nodes know
+        how to route to it.
+      </para>
+      <para>
+        Connect the network to a neutron router and ensure any physical
+        firewall rules are in place in order for the backend
+        communication to work.
+      </para>
+    </sect3>
+    <sect3 xml:id="sec-depl-ostack-octavia-certificates">
+      <title>Certificates</title>
+      <para>
+        Octavia administrators set up certificate authorities for the
+        two-way TLS authentication used in Octavia for command and
+        control of amphorae. For more information, see the <link
+        xlink:href="https://docs.openstack.org/octavia/stein/admin/guides/certificates.html">Octavia
+        Certificate Configuration Guide</link> <!-- or <xref
+        linkend="self-assign-certs"/>-->.
+      </para>
+      <para>
+        The following certificates need to be generated and stored on all
+        controller nodes where Octavia is deployed under
+        <literal>/etc/octavia/certs</literal>, in a relative path matching the
+        certificate location attribute values configured in the Octavia barclamp:
+      </para>
+      <variablelist>
+       <varlistentry>
+        <term>Server CA certificate</term>
+        <listitem>
+         <para>
+           The Certificate Authority (CA) certificate that is used by
+           the Octavia controller(s) to sign the generated Amphora server
+           certificates. The Octavia control plane services also validate
+           the server certificates presented by Amphorae during the TLS handshake
+           against this CA certificate.
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>Server CA key</term>
+        <listitem>
+         <para>
+           The private key associated with the server CA certificate. This key
+           must be encrypted with a non-empty passphrase that also needs to
+           be provided as a separate barclamp attribute. The private key is
+           required alongside the server CA certificate on the Octavia
+           controller(s), to sign the generated Amphora server certificates.
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>Passphrase</term>
+        <listitem>
+         <para>
+           The passphrase used to encrypt the server CA key.
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>Client CA certificate</term>
+        <listitem>
+         <para>
+           The CA certificate used to sign the client certificates installed on
+           the Octavia controller nodes and presented by Octavia control plane
+           services during the TLS handshake. This CA certificate is stored on the
+           Amphorae, which use it to validate the client certificate presented by
+           the Octavia control plane services during the TLS handshake.
+           The same CA certificate may be used for both client and server roles,
+           but this is perceived as a security weakness and recommended against,
+           as a server certificate from an amphora could be used to impersonate a
+           controller.
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>Client certificate concat key</term>
+        <listitem>
+         <para>
+           The client certificate, signed with the client CA certificate, bundled
+           together with the client certificate key, that is presented by
+           the Octavia control plane services during the TLS handshake.
+         </para>
+        </listitem>
+       </varlistentry>
+      </variablelist>
+      <para>
+        All Octavia barclamp attributes listed above, with the exception of the
+        pasphrase are paths relative to <literal>/etc/octavia/certs</literal>.
+        The required certificates must be present in their corresponding locations
+        on all controller nodes where the Octavia barclamp will be deployed.
+      </para>
+      <important>
+        <para>
+          &crow; will automatically change the filesystem ownership settings for
+          these files to match the username and group used by the Octavia
+          services, but it is otherwise the responsibility of the cloud
+          administrator to ensure that access to these files on the controller
+          nodes is properly restricted.
+        </para>
+      </important>
+    </sect3>
+  </sect2>
+  <sect2 xml:id="sec-depl-ostack-octavia-raw-mode">
+    <title>Barclmap raw mode</title>
+    <para>
+      If a user wants to be able to debug or get access to an amphora,
+      you can provide an SSH keyname to the barclamp via the
+      <literal>raw mode</literal>. This is a keyname to a key that has
+      been uploaded to openstack. For example:
+    </para>
+    <screen>
+      openstack keypair create --public-key /etc/octavia/.ssh/id_rsa_amphora.pub octavia_key
+    </screen>
+    <para>
+      Note that the keypair has to be owned by the octavia user.
+    </para>
+  </sect2>
+  <sect2 xml:id="sec-depl-ostack-octavia-migrate-users">
+    <title>Migrating Users to Octavia</title>
+    <para>
+      Octavia employs a set of specialized roles to control access to the
+      load balancer API:
+    </para>
+    <variablelist>
+     <varlistentry>
+      <term>load-balancer_observer</term>
+      <listitem>
+       <para>
+         User has access to load-balancer read-only APIs.
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>load-balancer_global_observer</term>
+      <listitem>
+       <para>
+         User has access to load-balancer read-only APIs including resources
+         owned by others.
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>load-balancer_member</term>
+      <listitem>
+       <para>
+         User has access to load-balancer read and write APIs.
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>load-balancer_quota_admin</term>
+      <listitem>
+       <para>
+         User is considered an admin for quota APIs only.
+       </para>
+      </listitem>
+     </varlistentry>
+     <varlistentry>
+      <term>load-balancer_admin</term>
+      <listitem>
+       <para>
+         User is considered an admin for all load-balancer APIs including
+         resources owned by others.
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+    <important>
+      <para>
+        This behaviour is not backwards compatible with the legacy Neutron LBaaS
+        API policy, as non-admin OpenStack users will not be allowed to run
+        <literal>openstack loadbalancer</literal> CLI commands or use
+        the load balancer horizon dashboard unless their accounts are explicitly
+        reconfigured to be associated with one or more of these roles.
+      </para>
+    </important>
+  </sect2>
+  <sect2 xml:id="sec-depl-ostack-octavia-migrate">
+    <title>Migrating Neutron LBaaS Instances to Octavia</title>
+    <para>
+      The migration procedure documented in this section is only relevant if
+      LBaaS was already enabled in the Neutron barclamp, with either the HAProxy
+      or H5 provider configured, before Octavia was deployed.
+      The procedure should be followed by operators to migrate and/or delete all
+      load balancer instances using the Neutron LBaaS provider that are still
+      active, and concluded the switch to Octavia by reconfiguring or disabling
+      the deprecated Neutron LBaaS feature.
+    </para>
+    <para>
+      Octavia is a replacement for the Neutron LBaaS feature, that is deprecated
+      in the &productname; &productnumber; release. However, deploying the
+      Octavia barclamp does not automatically disable the legacy Neutron LBaaS
+      provider, if one is already configured in the Neutron barclamp.
+    </para>
+    <para>
+      Both Octavia and Neutron LBaaS need to be enabled at the same time,
+      to facilitate the load balancer migration process. This way, operators
+      have a migration path they can use to gradually decommission Neutron LBaaS
+      load balancers that use the HAProxy or F5 provider and replace them with
+      Octavia load balancers.
+    </para>
+    <para>
+      With Octavia deployed and Neutron LBaaS enabled, both load balancer
+      providers can be used simultaneously:
+    </para>
+    <itemizedlist>
+      <listitem>
+        <para>
+          The (deprecated) <literal>neutron lbaas-...</literal> CLI
+          commands can be used to manage load balancer instances using the
+          legacy Neutron LBaaS provider configured in the Neutron barclamp.
+          Note that the legacy Neutron LBaaS instances will not be visible in
+          the load balancer horizon dashboard.
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          The <literal>openstack loadbalancer</literal> CLI commands as well
+          as the load balancer horizon dashboard can be used to manage Octavia
+          load balancers. Also note that OpenStack users are required to have
+          special roles associated with their projects to be able to access
+          the Octavia API, as covered in
+          <xref linkend="sec-depl-ostack-octavia-migrate-users"/>.
+        </para>
+      </listitem>
+    </itemizedlist>
+    <note>
+      <para>
+        (Optional): to prevent regular users from creating or changing the
+        configuration of currently running legacy Neutron LBaaS load balancer
+        instances during the migration process, the neutron API policy should be
+        temporarily changed to prevent these operations. For this purpose, a
+        <literal>neutron-lbaas.json</literal> file can be created in the
+        <literal>/etc/neutron/policy.d</literal> folder on all neutron-server
+        nodes (no service restart required):
+      </para>
+      <screen>
+mkdir /etc/neutron/policy.d
+cat > /etc/neutron/policy.d/neutron-lbaas.json &lt;&lt;EOF
+{
+  "context_is_admin": "role:admin",
+  "context_is_advsvc": "role:advsvc",
+  "default": "rule:admin_or_owner",
+  "create_loadbalancer": "rule:admin_only",
+  "update_loadbalancer": "rule:admin_only",
+  "get_loadbalancer": "!",
+  "delete_loadbalancer": "rule:admin_only",
+  "create_listener": "rule:admin_only",
+  "get_listener": "",
+  "delete_listener": "rule:admin_only",
+  "update_listener": "rule:admin_only",
+  "create_pool": "rule:admin_only",
+  "get_pool": "",
+  "delete_pool": "rule:admin_only",
+  "update_pool": "rule:admin_only",
+  "create_healthmonitor": "rule:admin_only",
+  "get_healthmonitor": "",
+  "update_healthmonitor": "rule:admin_only",
+  "delete_healthmonitor": "rule:admin_only",
+  "create_pool_member": "rule:admin_only",
+  "get_pool_member": "",
+  "update_pool_member": "rule:admin_only",
+  "delete_pool_member": "rule:admin_only"
+}
+EOF
+chown -R root:neutron /etc/neutron/policy.d
+chmod 640 /etc/neutron/policy.d/neutron-lbaas.json
+      </screen>
+    </note>
+    <para>
+      With all of the above in check, the actual migration process consists of
+      replacing Neutron LBaaS instances with Octavia instances. There are many
+      different ways to accomplish this, depending on the size and purpose of
+      the cloud deployment, the number of load balancers that need to be
+      migrated, the project and user configuration etc. This section only gives
+      a few pointers and recommendations on how to approach this tasks, but
+      the actual execution needs to be attuned to each particular situation.
+    </para>
+    <para>
+      Migrating a single load balancer instance is generally comprised of these
+      steps:
+    </para>
+    <itemizedlist>
+      <listitem>
+        <para>
+          Use the <literal>neutron lbaas-...</literal> CLI to
+          retrieve information about the load balancer configuration,
+          including the complete set of related listener, pool, member
+          and health monitor instances
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          Use the <literal>openstack loadbalancer</literal> CLI or the
+          load balancer horizon dashboard to create an Octavia load
+          balancer and its associated listener, pool, member and health
+          monitor instances to accurately match the project and Neutron LBaaS
+          load balancer configuration extracted during the previous step.
+          Note that the Octavia load balancer instance and the Neutron
+          LBaaS instance cannot share the same VIP address value if
+          both instances are running at the same time. This could be a
+          problem, if the load balancer VIP address is accessed directly
+          (i.e. as opposed to being accessed via a floating IP).
+          In this case, the legacy load balancer instance needs to be
+          deleted first, which incurs a longer interruption in service
+          availability.
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          Once the Octavia instance is up and running, if a floating IP
+          is associated with the Neutron LBaaS load balancer VIP
+          address, re-associate the floating IP with the Octavia load
+          balancer VIP address. Using a floating IP has the advantage
+          that the migration can be performed with minimal downtime.
+          If the load balancer VIP address needs to be accessed directly
+          (e.g. from another VM attached to the same Neutron network or
+          router), then all the remote affected services need to be
+          reconfigured to use the new VIP address.
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          The two load balancer instances can continue to run in parallel,
+          while the operator or owner verifies the Octavia load balancer
+          operation. If any problems occur, the change can be reverted by
+          undoing the actions performed during the previous step. If a
+          floating IP is involved, this could be as simple as switching it
+          back to the Neutron LBaaS load balancer instance.
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          When it's safe, delete the Neutron LBaaS load balancer instance,
+          along with all its related listener, pool, member and health
+          monitor instances.
+        </para>
+      </listitem>
+    </itemizedlist>
+    <para>
+      Depending on the number of load balancer instances that need to
+      be migrated and the complexity of the overall setup that they are
+      integrated into, the migration may be performed by the cloud
+      operators, the owners themselves, or a combination of both. It is
+      generally recommended that the load balancer owners have some involvement
+      in this process or at least be notified of this migration procedure,
+      because the load balancer migration is not an entirely seamless operation.
+      One or more of the load balancer configuration attributes listed below may
+      change during the migration and there may be other operational components,
+      managed by OpenStack or otherwise (e.g. OpenStack heat stacks,
+      configuration management scripts, database entries or non-persistent
+      application states, etc.), that only the owner(s) may be aware
+      of:
+    </para>
+    <itemizedlist>
+      <listitem>
+        <para>
+          The load balancer UUID value, along with the UUID values of every
+          other related object (listeners, pools, members etc.). Even though the
+          name values may be preserved by the migration, the UUID values will be
+          different.
+        </para>
+      </listitem>
+      <listitem>
+        <para>
+          The load balancer VIP address will change during a non-disruptive
+          migration. This is especially relevant if there is no floating IP
+          associated with the previous VIP address.
+        </para>
+      </listitem>
+    </itemizedlist>
+    <para>
+      When the load balancer migration is complete, the Neutron LBaaS provider
+      can either be switched to Octavia or turned off entirely in the Neutron
+      barclamp, to finalize the migration process.
+    </para>
+    <para>
+      The only advantage of having Octavia configured as the Neutron LBaaS
+      provider is that it continues to allow users to manage Octavia load
+      balancers via the deprecated <literal>neutron lbaas-...</literal> CLI, but
+      it is otherwise recommended to disable LBaaS in the Neutron barclamp.
+    </para>
+    <important>
+      <para>
+        Disabling LBaaS or switching the LBaaS provider in the Neutron barclamp
+        to Octavia is not possible while there are load balancers still running
+        under the previous Neutron LBaaS provider and will result in a Neutron
+        barclamp redeployment failure. To avoid this, ensure that load balancer
+        instances that are running under the old provider are either migrated
+        or deleted.
+      </para>
+    </important>
+  </sect2>
+ </sect1>
 
 <sect1 xml:id="sec-depl-ostack-ironic">
  <title>Deploying &o_iron; (optional)</title>
  <para>
-  &o_iron; is the &ostack; bare metal service for provisioning physical
+  Ironic is the &ostack; bare metal service for provisioning physical
   machines. Refer to the &ostack; <link
   xlink:href="https://docs.openstack.org/ironic/latest/">developer and admin
   manual</link> for information on drivers, and administering &o_iron;.
