@@ -1163,7 +1163,7 @@
      </para>
      <screen>&prompt.root;crowbarctl upgrade nodes resume</screen>
      <para>
-      And finish the upgrade with either <command>crowbarctl upgrade nodes
+      Finish the upgrade with either <command>crowbarctl upgrade nodes
       all</command> or upgrade nodes one node by one with <command>crowbarctl
       upgrade nodes <replaceable>NODE_NAME</replaceable></command>.
      </para>
@@ -1188,6 +1188,66 @@
      upgrade process.
     </para>
    </note>
+     <section xml:id="sec-depl-maintenance-parallel-upgrade-cmdl">
+   <title>Simultaneous Upgrade of Multiple Nodes</title>
+   <para>
+    It is possible to select more &compnode;s for selective upgrade instead of
+    just one. Upgrading multiple nodes simultaneously significantly reduces the
+    time required for the upgrade.
+   </para>
+   <para>
+    To upgrade multiple nodes simultaneously, use the following command:
+   </para>
+<screen>&prompt.root;crowbarctl upgrade nodes <replaceable>NODE_NAME_1</replaceable>,<replaceable>NODE_NAME_2</replaceable>,<replaceable>NODE_NAME_3</replaceable></screen>
+   <para>
+    Node names can be separated by comma, semicolon, or space. When using
+    space as separator, put the part containing node names in quotes.
+   </para>
+   <para>
+    Use the following command to find the names of the nodes that haven't been upgraded:
+   </para>
+<screen>&prompt.root;crowbarctl upgrade status nodes</screen>
+   <para>
+    Since the simultaneous upgrade is intended to be non-disruptive, all
+    &compnode;s targeted for a simultaneous upgrade must be cleared of any
+   running instances.</para>
+   <note>
+    <para>
+     You can check what instances are running on a specific
+    node using the following command:
+    </para>
+<screen>&prompt.user;nova list --all-tenants --host <replaceable>NODE_NAME</replaceable></screen>
+    </note>
+   <para>
+    This means that it is not possible to pick an arbitrary number of
+    &compnode;s for the simultaneous upgrade operation: you have to make sure
+    that it is possible to live-migrate every instance away from the batch of
+    nodes that are supposed to be upgraded in parallel. In case of high load
+    on all &compnode;s, it might not be possible to upgrade more than one node
+    at a time. Therefore, it is recommended to perform the following steps for
+    each node targeted for the simultaneous upgrade prior to running the
+    <command>crowbarctl upgrade nodes</command> command.
+   </para>
+   <procedure>
+    <step>
+     <para>
+      Disable the &compnode; so it's not used as a target during
+      live-evacuation of any other node:
+     </para>
+<screen>&prompt.user;openstack compute service set --disable <replaceable>"NODE_NAME"</replaceable> nova-compute</screen>
+    </step>
+    <step>
+     <para>
+      Evacuate all running instances from the node:
+     </para>
+<screen>&prompt.user;nova host-evacuate-live <replaceable>"NODE_NAME"</replaceable></screen>
+    </step>
+   </procedure>
+   <para>
+    After completing these steps, you can perform a simultaneous upgrade of
+    the selected nodes.
+   </para>
+  </section>
   </section>
  </section>
 
@@ -1658,5 +1718,291 @@
       </para>
      </step>
   </procedure>
+  <section xml:id="sec-depl-maintenance-upgrade-troubleshooting">
+   <title>Troubleshooting Upgrade Issues</title>
+    <qandaset>
+     <qandaentry>
+      <question>
+       <para>
+        Upgrade of the admin server has failed.
+       </para>
+      </question>
+      <answer>
+       <para>
+        Check for empty, broken, and not signed repositories in the &admserv;
+        upgrade log file <filename>/var/log/crowbar/admin-server-upgrade.log</filename>. Fix the
+        repository setup. Upgrade then remaining packages manually to &cloudos;
+        and &cloud; &productnumber; using the command <command>zypper dup</command>. Reboot the &admserv;.
+       </para>
+      </answer>
+     </qandaentry>
+     <qandaentry>
+      <question>
+       <para>
+        An upgrade step repeatedly fails due to timeout.
+       </para>
+      </question>
+      <answer>
+       <para>
+        Timeouts for most upgrade operations can be adjusted in the
+        <filename>/etc/crowbar/upgrade_timeouts.yml</filename> file. If the
+        file doesn't exist, use the following template, and modify it to your needs:
+       </para>
+       <screen>
+        :prepare_repositories: 120
+        :pre_upgrade: 300
+        :upgrade_os: 1500
+        :post_upgrade: 600
+        :shutdown_services: 600
+        :shutdown_remaining_services: 600
+        :evacuate_host: 300
+        :chef_upgraded: 1200
+        :router_migration: 600
+        :lbaas_evacuation: 600
+        :set_network_agents_state: 300
+        :delete_pacemaker_resources: 600
+        :delete_cinder_services: 300
+        :delete_nova_services: 300
+        :wait_until_compute_started: 60
+        :reload_nova_services: 120
+        :online_migrations: 1800
+       </screen>
+       <para>
+        The following entries may require higher values (all values are
+        specified in seconds):
+       </para>
+        <itemizedlist>
+         <listitem>
+          <para>
+           <literal>upgrade_os</literal> Time allowed for upgrading all packages of one node.
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>chef_upgraded</literal> Time allowed for initial
+           <literal>crowbar_join</literal> and <literal>chef-client</literal>
+           run on a node that has been upgraded and rebooted.
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>evacuate_host</literal> Time allowed for live migrate all VMs from a host.
+          </para>
+         </listitem>
+        </itemizedlist>
+      </answer>
+     </qandaentry>
+     <qandaentry xml:id="live-migration-failed">
+      <question>
+       <para>
+        Node upgrade has failed during live migration.
+       </para>
+      </question>
+      <answer>
+       <para>
+        The problem may occur when it is not possible to live migrate certain
+        VMs anywhere. It may be necessary to shut down or suspend other VMs to
+        make room for migration. Note that the Bash shell script that starts
+        the live migration for the &compnode; is executed from the
+        &contrnode;. An error message generated by the <command>crowbarctl
+        upgrade status</command> command contains the exact names of both
+        nodes. Check the <filename>/var/log/crowbar/node-upgrade.log</filename>
+        file on the &contrnode; for the information that can help you with
+        troubleshooting. You might also need to check &ostack-bare; logs in
+        <filename>/var/log/nova</filename> on the &compnode; as well as on the
+        &contrnode;s.
+       </para>
+       <para>
+        It is possible that live-migration of a certain VM takes too long. This
+        can happen if instances are very large or network connection between
+        compute hosts is slow or overloaded. If this case, try to raise the
+        global timeout in
+        <filename>/etc/crowbar/upgrade_timeouts.yml</filename>.
+       </para>
+       <para>
+        We recommend to perform the live migration manually first. After it is
+        completed successfully, call the <command>crowbarctl upgrade</command>
+        command again.
+       </para>
+       <para>
+        The following commands can be helpful for analyzing issues with live migrations:
+       </para>
+       <screen>
+        nova server-migration-list
+        nova server-migration-show
+        nova instance-action-list
+        nova instance-action
+       </screen>
+       <para>
+        Note that these commands require &ostack-bare; administrator privileges.
+       </para>
+       <para>
+        The following log files may contain useful information:
+       </para>
+       <itemizedlist>
+        <listitem>
+         <para>
+          <filename>/var/log/nova/nova-compute</filename> on the &compnode;s
+          that the migration is performed from and to.
+         </para>
+        </listitem>
+        <listitem>
+         <para>
+          <filename>/var/log/nova/*.log</filename> (especially log files for the
+          conductor, scheduler and placement services) on the &contrnode;s.
+         </para>
+        </listitem>
+       </itemizedlist>
+       <para>
+        It can happen that active instances and instances with heavy
+        loads cannot be live migrated in a reasonable time. In that case, you
+        can abort a running live-migration operation using the <command>nova
+        live-migration-abort <replaceable>MIGRATION-ID</replaceable></command>
+        command. You can then perform the upgrade of the specific node at a
+        later time.
+       </para>
+       <para>
+        Alternatively, it is possible to force the completion of
+        the live migration by using the <command>nova
+        live-migration-force-complete
+        <replaceable>MIGRATION-ID</replaceable></command> command. However,
+        this might pause the instances for a prolonged period of time and have
+        a negative impact on the workload running inside the instance.
+       </para>
+      </answer>
+     </qandaentry>
+     <qandaentry>
+      <question>
+       <para>
+        Node has failed during OS upgrade.
+       </para>
+      </question>
+      <answer>
+       <para>
+        Possible reasons include an incorrect repository setup or package
+        conflicts. Check the <filename>/var/log/crowbar/node-upgrade.log</filename> log file on the
+        affected node. Check the repositories on node using the <command>zypper
+        lr</command> command. Make sure the required repositories are
+        available. To test the setup, install a package manually or run the
+        <command>zypper dup</command> command (this command is executed by the
+        upgrade script). Fix the repository setup and run the failed upgrade
+        step again. If custom package versions or version locks are in place,
+        make sure that they don't interfere with the <command>zypper dup</command> command.
+       </para>
+      </answer>
+     </qandaentry>
+     <qandaentry>
+      <question>
+       <para>
+        Node does not come up after reboot.
+       </para>
+      </question>
+      <answer>
+       <para>
+        In some cases, a node can take too long to reboot causing a timeout. We
+        recommend to check the node manually, make sure it is online, and repeat the step.
+       </para>
+      </answer>
+     </qandaentry>
+     <qandaentry>
+      <question>
+       <para>
+        N number of nodes were provided to compute upgrade using
+        <command>crowbarctl upgrade nodes node_1,node_2,...,node_N</command>,
+        but less then N were actually upgraded.
+       </para>
+      </question>
+      <answer>
+       <para>
+        If the live migration cannot be performed for certain nodes due to a timeout,
+        &crow; upgrades only the nodes that it was able to
+        live-evacuate in the specified time. Because some nodes have been upgraded, it is possible that
+        more resources will be available for live-migration when you try to run this
+        step again. See also <xref linkend="live-migration-failed"/>.
+       </para>
+      </answer>
+     </qandaentry>
+     <qandaentry>
+      <question>
+       <para>
+        Node has failed at the initial chef client run stage.
+       </para>
+      </question>
+      <answer>
+       <para>
+        An unsupported entry in the configuration file may prevent a service
+        from starting. This causes the node to fail at the initial
+        chef client run stage. Checking the
+        <filename>/var/log/crowbar/crowbar_join/chef.*</filename> log files on
+        the node is a good starting point.
+       </para>
+      </answer>
+     </qandaentry>
+     <qandaentry>
+      <question>
+       <para>
+        I need to change &ostack-bare; configuration during the upgrade but I cannot access &crow;.
+       </para>
+      </question>
+      <answer>
+       <para>
+        &crow; &wi; is accessible only when an upgrade is completed or
+        when it is postponed. Postponing the upgrade can be done only after
+        upgrading all &contrnode;s using the <command>crowbarctl upgrade nodes
+        postpone</command> command. You can then access &crow; and
+        save your modifications. Before you can continue with the upgrade of
+        rest of the nodes, resume the upgrade using the <command>crowbarctl
+        upgrade nodes resume</command> command.
+       </para>
+      </answer>
+     </qandaentry>
+     <qandaentry>
+      <question>
+       <para>
+        Failure occurred when evacuating routers.
+       </para>
+      </question>
+      <answer>
+       <para>
+        Check the <filename>/var/log/crowbar/node-upgrade.log</filename> file on
+        the node that performs the router evacuation (it should be mentioned in
+        the error message). The ID of the router that failed to migrate (or the
+        affected network port) is logged to
+        <filename>/var/log/crowbar/node-upgrade.log</filename>. Use the
+        &ostack-bare; CLI tools to check the state of the affected router and
+        its ports. Fix manually, if necessary. This can be done by bringing the
+        router or port up and down again. The following
+        commands can be useful for solving the issue:
+       </para>
+       <screen>
+        openstack router show <replaceable>ID</replaceable>
+        openstack port list --router <replaceable>ROUTER-ID</replaceable>
+        openstack port show <replaceable>PORT-ID</replaceable>
+        openstack port set
+       </screen>
+        <para>
+         Resume the upgrade by running the failed upgrade step
+        again to continue with the router migration.
+       </para>
+      </answer>
+     </qandaentry>
+     <qandaentry>
+      <question>
+       <para>
+        Some non-controller nodes were upgraded after performing <command>crowbarctl upgrade nodes
+        controllers</command>.
+       </para>
+      </question>
+      <answer>
+       <para>
+        In the current upgrade implementation, &ostack-bare; nodes are divided
+        into &compnode;s and other nodes. The <command>crowbarctl upgrade nodes
+        controllers</command> command starts the upgrade of all the nodes that
+        do not host compute services. This includes the controllers.
+       </para>
+      </answer>
+     </qandaentry>
+    </qandaset>
+   </section>
  </section>
 </chapter>
