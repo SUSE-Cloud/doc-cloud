@@ -2,6 +2,8 @@
 
 set -x -u
 
+pwd
+
 pip install gitlint
 wget https://raw.githubusercontent.com/openSUSE/doc-ci/develop/gitlint/gitlint.ini
 wget https://raw.githubusercontent.com/openSUSE/doc-ci/develop/gitlint/extra-gitlint-rules.py
