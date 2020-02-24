@@ -54,6 +54,12 @@
  </para>
  <orderedlist spacing="normal">
   <listitem>
+<!-- Designate -->
+   <para>
+    <xref linkend="sec-depl-ostack-designate" xrefstyle="select:title nopage"/>
+   </para>
+  </listitem>
+  <listitem>
 <!-- Pacemaker -->
    <para>
     <xref linkend="sec-depl-ostack-pacemaker" xrefstyle="select:title nopage"/>
@@ -150,6 +156,567 @@
    </para>
   </listitem>
  </orderedlist>
+ <sect1 xml:id="sec-depl-ostack-designate">
+  <title>Deploying Designate</title>
+  <para>
+    &desig; provides &productname; DNS as a Service (DNSaaS). It is used to
+    create and propagate zones and records over the network using pools of DNS
+    servers. Deployment defaults are in place, so not much is required to
+    configure &desig;. &o_netw; needs additional settings for integration with
+    &desig;, which are also present in the <literal>[designate]</literal> section in &o_netw; configuration.
+  </para>
+  <para>
+    The &desig; barclamp relies heavily on the DNS barclamp and expects
+    it to be applied without any failures.
+  </para>
+  <note>
+   <para>
+    In order to deploy &desig;, at least one node is necessary in the DNS
+    barclamp that is not the admin node. The admin node is not added to the
+    public network. So another node is needed that can be attached to the public
+    network and appear in the designate default pool.
+   </para>
+   <para>
+    We recommend that DNS services are running in a cluster in highly available
+    deployments where Designate services are running in a cluster.
+    For example, in a typical HA deployment where the controllers
+    are deployed in a 3-node cluster, the DNS barclamp should be applied to all
+    the controllers, in the same manner as Designate.
+   </para>
+  </note>
+  <variablelist>
+    <varlistentry>
+      <term>designate-server role</term>
+      <listitem>
+        <para>
+          Installs the &desig; server packages and configures the mini-dns (mdns)
+          service required by &desig;.
+        </para>
+      </listitem>
+    </varlistentry>
+    <varlistentry>
+      <term>designate-worker role</term>
+      <listitem>
+       <para>
+        Configures a &desig; worker on the selected nodes. &desig; uses the
+        workers to distribute its workload.
+        </para>
+      </listitem>
+    </varlistentry>
+  </variablelist>
+  <para>
+    <literal>&desig; Sink</literal> is an optional service and is not configured as part
+    of this barclamp.
+  </para>
+  <para>
+    &desig; uses pool(s) over which it can distribute zones and
+    records. Pools can have varied configuration. Any misconfiguration can lead to
+    information leakage.
+  </para>
+  <para>
+    The &desig; barclamp creates default Bind9 pool out of the box, which can be
+    modified later as needed. The default Bind9 pool configuration is created by &crow;
+    on a node with <literal>designate-server</literal> role in
+    <filename>/etc/designate/pools.crowbar.yaml</filename>. You can copy
+    this file and edit it according to your requirements. Then provide this
+    configuration to &desig; using the command:
+  </para>
+  <screen>&prompt.ardana;designate-manage pool update --file /etc/designate/pools.crowbar.yaml</screen>
+  <para>
+    The <literal>dns_domain</literal> specified in &o_netw; configuration in <literal>[designate]</literal> section
+    is the default Zone where DNS records for &o_netw; resources are created via
+    &o_netw;-&desig; integration. If this is desired, you have to create this zone
+    explicitly using the following command:
+  </para>
+  <screen>&prompt.ardana;openstack zone create &lt; email &gt; &lt; dns_domain &gt;</screen>
+  <para>
+   Editing the &desig; proposal:
+  </para>
+  <informalfigure>
+   <mediaobject>
+    <textobject><phrase>Edit &desig; Proposal</phrase>
+    </textobject>
+    <imageobject role="fo">
+     <imagedata fileref="designate-edit-proposal.png" width="100%" format="png"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="designate-edit-proposal.png" width="75%" format="png"/>
+    </imageobject>
+   </mediaobject>
+  </informalfigure>
+  <sect2 xml:id="sec-depl-ostack-designate-powerdns">
+   <title>Using PowerDNS Backend</title>
+   <para>
+    Designate uses Bind9 backend by default. It is also possible to
+    use PowerDNS backend in addition to, or as an alternative, to Bind9 backend.
+    To do so PowerDNS must be manually deployed as The &desig; barclamp
+    currently does not provide any facility to automatically install and
+    configure PowerDNS. This section outlines the steps to deploy PowerDNS
+    backend.
+   </para>
+   <note>
+    <para>
+     If PowerDNS is already deployed, you may skip the
+     <xref linkend="sec-depl-ostack-install-powerdns"/> section and jump to
+     the <xref linkend="sec-depl-ostack-designate-use-powerdns-backend"/>
+     section.
+    </para>
+   </note>
+   <sect3 xml:id="sec-depl-ostack-install-powerdns">
+    <title>Install PowerDNS</title>
+    <para>
+     Follow these steps to install and configure PowerDNS on a Crowbar node.
+     Keep in mind that PowerDNS must be deployed with MySQL backend.
+    </para>
+    <note>
+     <para>
+      We recommend that PowerDNS are running in a cluster in highly
+      availability deployments where Designate services are running in a
+      cluster. For example, in a typical HA deployment
+      where the controllers are deployed in a 3-node cluster, PowerDNS should
+      be running on all the controllers, in the same manner as Designate.
+     </para>
+    </note>
+    <procedure xml:id="pro-deploy-powerdns">
+     <step>
+      <para>
+       Install PowerDNS packages.
+      </para>
+      <screen>&prompt.root;zypper install pdns pdns-backend-mysql</screen>
+     </step>
+     <step>
+      <para>
+       Edit <literal>/etc/pdns/pdns.conf</literal> and provide these options:
+       (See
+       <link xlink:href="https://doc.powerdns.com/authoritative/settings.html"/> for a complete reference).
+      </para>
+      <variablelist>
+       <varlistentry>
+        <term>api</term>
+        <listitem>
+         <para>
+          Set it to <literal>yes</literal> to enable Web service Rest API.
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>api-key</term>
+        <listitem>
+         <para>
+          Static Rest API access key. Use a secure random string here.
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>launch</term>
+        <listitem>
+         <para>
+          Must set to <literal>gmysql</literal> to use MySQL backend.
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>gmysql-host</term>
+        <listitem>
+         <para>
+          Hostname (i.e. FQDN) or IP address of the MySQL server.
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>gmysql-user</term>
+        <listitem>
+         <para>
+          MySQL user which have full access to the PowerDNS database.
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>gmysql-password</term>
+        <listitem>
+         <para>
+          Password for the MySQL user.
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>gmysql-dbname</term>
+        <listitem>
+         <para>
+          MySQL database name for PowerDNS.
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>local-port</term>
+        <listitem>
+         <para>
+          Port number where PowerDNS is listening for upcoming requests.
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>setgid</term>
+        <listitem>
+         <para>
+          The group where the PowerDNS process is running under.
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>setuid</term>
+        <listitem>
+         <para>
+          The user where the PowerDNS process is running under.
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>webserver</term>
+        <listitem>
+         <para>
+          Must set to <literal>yes</literal> to enable web service RestAPI.
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>webserver-address</term>
+        <listitem>
+         <para>
+          Hostname (FQDN) or IP address of the PowerDNS web service.
+         </para>
+        </listitem>
+       </varlistentry>
+       <varlistentry>
+        <term>webserver-allow-from</term>
+        <listitem>
+         <para>
+          List of IP addresses (IPv4 or IPv6) of the nodes that are permitted
+          to talk to the PowerDNS web service. These must include the IP
+          address of the Designate worker nodes.
+         </para>
+        </listitem>
+       </varlistentry>
+      </variablelist>
+      <para>
+       For example:
+      </para>
+      <screen>
+api=yes
+api-key=Sfw234sDFw90z
+launch=gmysql
+gmysql-host=mysql.acme.com
+gmysql-user=powerdns
+gmysql-password=SuperSecured123
+gmysql-dbname=powerdns
+local-port=54
+setgid=pdns
+setuid=pdns
+webserver=yes
+webserver-address=192.168.124.83
+webserver-allow-from=0.0.0.0/0,::/0
+      </screen>
+     </step>
+     <step>
+      <para>
+       Login to MySQL from a Crowbar MySQL node and create the PowerDNS database
+       and the user which has full access to the PowerDNS database. Remember,
+       the database name, username, and password must match
+       <literal>gmysql-dbname</literal>, <literal>gmysql-user</literal>,
+       and <literal>gmysql-password</literal> that were specified above
+       respectively.
+      </para>
+      <para>
+       For example:
+      </para>
+      <screen>
+&prompt.root;mysql
+Welcome to the MariaDB monitor.  Commands end with ; or \g.
+Your MariaDB connection id is 20075
+Server version: 10.2.29-MariaDB-log SUSE package
+
+Copyright (c) 2000, 2018, Oracle, MariaDB Corporation Ab and others.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+MariaDB [(none)]> CREATE DATABASE powerdns;
+Query OK, 1 row affected (0.01 sec)
+
+MariaDB [(none)]> GRANT ALL ON powerdns.* TO 'powerdns'@'localhost' IDENTIFIED BY 'SuperSecured123';
+Query OK, 0 rows affected (0.00 sec)
+
+MariaDB [(none)]> GRANT ALL ON powerdns.* TO 'powerdns'@'192.168.124.83' IDENTIFIED BY 'SuperSecured123';
+Query OK, 0 rows affected, 1 warning (0.02 sec)
+
+MariaDB [(none)]> FLUSH PRIVILEGES;
+Query OK, 0 rows affected (0.01 sec)
+
+MariaDB [(none)]> exit
+Bye
+      </screen>
+     </step>
+     <step>
+      <para>
+       Create a MySQL schema file, named <literal>powerdns-schema.sql</literal>,
+       with the following content:
+      </para>
+      <screen>
+/*
+ SQL statements to create tables in designate_pdns DB.
+ Note: This file is taken as is from:
+ https://raw.githubusercontent.com/openstack/designate/master/devstack/designate_plugins/backend-pdns4-mysql-db.sql
+*/
+CREATE TABLE domains (
+  id                    INT AUTO_INCREMENT,
+  name                  VARCHAR(255) NOT NULL,
+  master                VARCHAR(128) DEFAULT NULL,
+  last_check            INT DEFAULT NULL,
+  type                  VARCHAR(6) NOT NULL,
+  notified_serial       INT DEFAULT NULL,
+  account               VARCHAR(40) DEFAULT NULL,
+  PRIMARY KEY (id)
+) Engine=InnoDB;
+ 
+CREATE UNIQUE INDEX name_index ON domains(name);
+ 
+ 
+CREATE TABLE records (
+  id                    INT AUTO_INCREMENT,
+  domain_id             INT DEFAULT NULL,
+  name                  VARCHAR(255) DEFAULT NULL,
+  type                  VARCHAR(10) DEFAULT NULL,
+  -- Changed to "TEXT", as VARCHAR(65000) is too big for most MySQL installs
+  content               TEXT DEFAULT NULL,
+  ttl                   INT DEFAULT NULL,
+  prio                  INT DEFAULT NULL,
+  change_date           INT DEFAULT NULL,
+  disabled              TINYINT(1) DEFAULT 0,
+  ordername             VARCHAR(255) BINARY DEFAULT NULL,
+  auth                  TINYINT(1) DEFAULT 1,
+  PRIMARY KEY (id)
+) Engine=InnoDB;
+ 
+CREATE INDEX nametype_index ON records(name,type);
+CREATE INDEX domain_id ON records(domain_id);
+CREATE INDEX recordorder ON records (domain_id, ordername);
+ 
+ 
+CREATE TABLE supermasters (
+  ip                    VARCHAR(64) NOT NULL,
+  nameserver            VARCHAR(255) NOT NULL,
+  account               VARCHAR(40) NOT NULL,
+  PRIMARY KEY (ip, nameserver)
+) Engine=InnoDB;
+ 
+ 
+CREATE TABLE comments (
+  id                    INT AUTO_INCREMENT,
+  domain_id             INT NOT NULL,
+  name                  VARCHAR(255) NOT NULL,
+  type                  VARCHAR(10) NOT NULL,
+  modified_at           INT NOT NULL,
+  account               VARCHAR(40) NOT NULL,
+  -- Changed to "TEXT", as VARCHAR(65000) is too big for most MySQL installs
+  comment               TEXT NOT NULL,
+  PRIMARY KEY (id)
+) Engine=InnoDB;
+ 
+CREATE INDEX comments_domain_id_idx ON comments (domain_id);
+CREATE INDEX comments_name_type_idx ON comments (name, type);
+CREATE INDEX comments_order_idx ON comments (domain_id, modified_at);
+ 
+ 
+CREATE TABLE domainmetadata (
+  id                    INT AUTO_INCREMENT,
+  domain_id             INT NOT NULL,
+  kind                  VARCHAR(32),
+  content               TEXT,
+  PRIMARY KEY (id)
+) Engine=InnoDB;
+ 
+CREATE INDEX domainmetadata_idx ON domainmetadata (domain_id, kind);
+ 
+ 
+CREATE TABLE cryptokeys (
+  id                    INT AUTO_INCREMENT,
+  domain_id             INT NOT NULL,
+  flags                 INT NOT NULL,
+  active                BOOL,
+  content               TEXT,
+  PRIMARY KEY(id)
+) Engine=InnoDB;
+ 
+CREATE INDEX domainidindex ON cryptokeys(domain_id);
+ 
+ 
+CREATE TABLE tsigkeys (
+  id                    INT AUTO_INCREMENT,
+  name                  VARCHAR(255),
+  algorithm             VARCHAR(50),
+  secret                VARCHAR(255),
+  PRIMARY KEY (id)
+) Engine=InnoDB;
+ 
+CREATE UNIQUE INDEX namealgoindex ON tsigkeys(name, algorithm);
+      </screen>
+     </step>
+     <step>
+      <para>
+       Create the PowerDNS schema for the database using <literal>mysql</literal>
+       CLI. For example:
+      </para>
+      <screen>&prompt.root;mysql powerdns &lt; powerdns-schema.sql</screen>
+     </step>
+     <step>
+      <para>
+       Enable <literal>pdns</literal> systemd service.
+      </para>
+      <screen>
+&prompt.root;systemctl enable pdns
+&prompt.root;systemctl start pdns
+      </screen>
+      <para>
+       If <literal>pdns</literal> is successfully running, you should see the
+       following logs by running <literal>journalctl -u pdns</literal> command.
+      </para>
+      <screen>
+Feb 07 01:44:12 d52-54-77-77-01-01 systemd[1]: Started PowerDNS Authoritative Server.
+Feb 07 01:44:12 d52-54-77-77-01-01 pdns_server[21285]: Done launching threads, ready to distribute questions
+      </screen>
+     </step>
+    </procedure>
+   </sect3>
+   <sect3 xml:id="sec-depl-ostack-designate-use-powerdns-backend">
+    <title>Configure Designate To Use PowerDNS Backend</title>
+    <para>
+     Configure Designate to use PowerDNS backend by appending the PowerDNS
+     servers to <literal>/etc/designate/pools.crowbar.yaml</literal> file
+     on a Designate worker node.
+    </para>
+    <note>
+     <para>
+      If we are replacing Bind9 backend with PowerDNS backend, make sure to
+      remove the <literal>bind9</literal> entries from
+      <literal>/etc/designate/pools.crowbar.yaml</literal>.
+     </para>
+     <para>
+      In HA deployment, there should be multiple PowerDNS entries.
+     </para>
+     <para>
+      Also, make sure the <literal>api_token</literal> matches the
+      <literal>api-key</literal> that was specified in the
+      <literal>/etc/pdns/pdns.conf</literal> file earlier.
+     </para>
+    </note>
+    <para>
+     Append the PowerDNS entries to the end of
+     <literal>/etc/designate/pools.crowbar.yaml</literal>. For example:
+    </para>
+    <screen>
+---
+- name: default-bind
+  description: Default BIND9 Pool
+  id: 794ccc2c-d751-44fe-b57f-8894c9f5c842
+  attributes: {}
+  ns_records:
+  - hostname: public-d52-54-77-77-01-01.virtual.cloud.suse.de.
+    priority: 1
+  - hostname: public-d52-54-77-77-01-02.virtual.cloud.suse.de.
+    priority: 1
+  nameservers:
+  - host: 192.168.124.83
+    port: 53
+  - host: 192.168.124.81
+    port: 53
+  also_notifies: []
+  targets:
+  - type: bind9
+    description: BIND9 Server
+    masters:
+    - host: 192.168.124.83
+      port: 5354
+    - host: 192.168.124.82
+      port: 5354
+    - host: 192.168.124.81
+      port: 5354
+    options:
+      host: 192.168.124.83
+      port: 53
+      rndc_host: 192.168.124.83
+      rndc_port: 953
+      rndc_key_file: "/etc/designate/rndc.key"
+  - type: bind9
+    description: BIND9 Server
+    masters:
+    - host: 192.168.124.83
+      port: 5354
+    - host: 192.168.124.82
+      port: 5354
+    - host: 192.168.124.81
+      port: 5354
+    options:
+      host: 192.168.124.81
+      port: 53
+      rndc_host: 192.168.124.81
+      rndc_port: 953
+      rndc_key_file: "/etc/designate/rndc.key"
+  - type: pdns4
+    description: PowerDNS4 DNS Server
+    masters:
+      - host: 192.168.124.83
+        port: 5354
+      - host: 192.168.124.82
+        port: 5354
+      - host: 192.168.124.81
+        port: 5354
+    options:
+      host: 192.168.124.83
+      port: 54
+      api_endpoint: http://192.168.124.83:8081
+      api_token: Sfw234sDFw90z
+    </screen>
+    <para>
+     Update the pools using <literal>designate-manage</literal> CLI.
+    </para>
+    <screen>&prompt.user;designate-manage pool update --file /etc/designate/pools.crowbar.yaml</screen>
+    <para>
+     Once Designate sync up with PowerDNS, you should see the domains in the
+     PowerDNS database which reflects the zones in Designate.
+    </para>
+    <note>
+     <para>
+      It make take a few minutes for Designate to sync with PowerDNS.
+     </para>
+    </note>
+    <para>
+     We can verify that the domains are successfully sync up with Designate
+     by inpsecting the <literal>domains</literal> table in the database.
+     For example:
+    </para>
+    <screen>
+&prompt.root;mysql powerdns
+Reading table information for completion of table and column names
+You can turn off this feature to get a quicker startup with -A
+ 
+Welcome to the MariaDB monitor.  Commands end with ; or \g.
+Your MariaDB connection id is 21131
+Server version: 10.2.29-MariaDB-log SUSE package
+ 
+Copyright (c) 2000, 2018, Oracle, MariaDB Corporation Ab and others.
+ 
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+ 
+MariaDB [powerdns]> select * from domains;
++----+---------+--------------------------------------------------------------+------------+-------+-----------------+---------+
+| id | name    | master                                                       | last_check | type  | notified_serial | account |
++----+---------+--------------------------------------------------------------+------------+-------+-----------------+---------+
+|  1 | foo.bar | 192.168.124.81:5354 192.168.124.82:5354 192.168.124.83:5354  |       NULL | SLAVE |            NULL |         |
++----+---------+--------------------------------------------------------------+------------+-------+-----------------+---------+
+1 row in set (0.00 sec)
+    </screen>
+   </sect3>
+  </sect2>
+ </sect1>
  <sect1 xml:id="sec-depl-ostack-pacemaker">
   <title>Deploying Pacemaker (Optional, &haSetup; Only)</title>
 
