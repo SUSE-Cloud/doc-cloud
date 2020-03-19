@@ -476,10 +476,10 @@ CREATE TABLE domains (
   account               VARCHAR(40) DEFAULT NULL,
   PRIMARY KEY (id)
 ) Engine=InnoDB;
- 
+
 CREATE UNIQUE INDEX name_index ON domains(name);
- 
- 
+
+
 CREATE TABLE records (
   id                    INT AUTO_INCREMENT,
   domain_id             INT DEFAULT NULL,
@@ -495,20 +495,20 @@ CREATE TABLE records (
   auth                  TINYINT(1) DEFAULT 1,
   PRIMARY KEY (id)
 ) Engine=InnoDB;
- 
+
 CREATE INDEX nametype_index ON records(name,type);
 CREATE INDEX domain_id ON records(domain_id);
 CREATE INDEX recordorder ON records (domain_id, ordername);
- 
- 
+
+
 CREATE TABLE supermasters (
   ip                    VARCHAR(64) NOT NULL,
   nameserver            VARCHAR(255) NOT NULL,
   account               VARCHAR(40) NOT NULL,
   PRIMARY KEY (ip, nameserver)
 ) Engine=InnoDB;
- 
- 
+
+
 CREATE TABLE comments (
   id                    INT AUTO_INCREMENT,
   domain_id             INT NOT NULL,
@@ -520,12 +520,12 @@ CREATE TABLE comments (
   comment               TEXT NOT NULL,
   PRIMARY KEY (id)
 ) Engine=InnoDB;
- 
+
 CREATE INDEX comments_domain_id_idx ON comments (domain_id);
 CREATE INDEX comments_name_type_idx ON comments (name, type);
 CREATE INDEX comments_order_idx ON comments (domain_id, modified_at);
- 
- 
+
+
 CREATE TABLE domainmetadata (
   id                    INT AUTO_INCREMENT,
   domain_id             INT NOT NULL,
@@ -533,10 +533,10 @@ CREATE TABLE domainmetadata (
   content               TEXT,
   PRIMARY KEY (id)
 ) Engine=InnoDB;
- 
+
 CREATE INDEX domainmetadata_idx ON domainmetadata (domain_id, kind);
- 
- 
+
+
 CREATE TABLE cryptokeys (
   id                    INT AUTO_INCREMENT,
   domain_id             INT NOT NULL,
@@ -545,10 +545,10 @@ CREATE TABLE cryptokeys (
   content               TEXT,
   PRIMARY KEY(id)
 ) Engine=InnoDB;
- 
+
 CREATE INDEX domainidindex ON cryptokeys(domain_id);
- 
- 
+
+
 CREATE TABLE tsigkeys (
   id                    INT AUTO_INCREMENT,
   name                  VARCHAR(255),
@@ -556,7 +556,7 @@ CREATE TABLE tsigkeys (
   secret                VARCHAR(255),
   PRIMARY KEY (id)
 ) Engine=InnoDB;
- 
+
 CREATE UNIQUE INDEX namealgoindex ON tsigkeys(name, algorithm);
       </screen>
      </step>
@@ -697,15 +697,15 @@ Feb 07 01:44:12 d52-54-77-77-01-01 pdns_server[21285]: Done launching threads, r
 &prompt.root;mysql powerdns
 Reading table information for completion of table and column names
 You can turn off this feature to get a quicker startup with -A
- 
+
 Welcome to the MariaDB monitor.  Commands end with ; or \g.
 Your MariaDB connection id is 21131
 Server version: 10.2.29-MariaDB-log SUSE package
- 
+
 Copyright (c) 2000, 2018, Oracle, MariaDB Corporation Ab and others.
- 
+
 Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
- 
+
 MariaDB [powerdns]> select * from domains;
 +----+---------+--------------------------------------------------------------+------------+-------+-----------------+---------+
 | id | name    | master                                                       | last_check | type  | notified_serial | account |
@@ -6998,7 +6998,6 @@ Apply the &barcl; to a Control Node.
    &vmguest; one last step remains to be done&mdash;uploading an image to the
    &o_img; component. Refer to the &cloudsuppl;, chapter <citetitle>Manage
    images</citetitle>
-<!--<xref linkend="sec-adm-cli-img"/>-->
    for instructions.
   </para>
 
@@ -7009,6 +7008,206 @@ Apply the &barcl; to a Control Node.
    and password <literal>crowbar</literal>.
   </para>
  </sect1>
+
+ <sect1 xml:id="crow-ses-integration">
+  <title>&ses; integration</title>
+  <para>
+   &productname; supports integration with &ses; (SES), enabling &ceph; block
+   storage as well as image storage services in &cloud;.
+  </para>
+  <bridgehead renderas="sect2">Enabling SES Integration
+  </bridgehead>
+  <para>
+   To enable SES integration on &crow;, an SES configuration file must be
+   uploaded to &crow;. SES integration functionality is included in the
+   <literal>crowbar-core</literal> package and can be used with the &crow; UI
+   or CLI (<literal>crowbarctl</literal>). The SES configuration file
+   describes various aspects of the &ceph; environment, and keyrings for each
+   user and pool created in the &ceph; environment for &cloud-crow; services.
+  </para>
+  <bridgehead renderas="sect2">SES Configuration
+  </bridgehead>
+  <para>
+   For SES deployments that are version 5.5 and higher, a Salt runner is used
+   to create all the users and pools. It also generates a YAML
+   configuration that is needed to integrate with &cloud;. The integration
+   runner creates separate users for &o_blockstore;, &o_blockstore; backup
+   (not used by &crow; currently) and &o_img;. Both the &o_blockstore; and
+   &o_comp; services have the same user, because &o_blockstore; needs
+   access to create objects that &o_comp; uses.
+  </para>
+  <para>
+   Configure SES with the following steps:
+  </para>
+  <procedure>
+   <step>
+    <para>
+     Login as <literal>root</literal> and run the SES 5.5 Salt runner on the
+     Salt admin host.
+    </para>
+    <screen>&prompt.root;salt-run --out=yaml openstack.integrate prefix=mycloud</screen>
+    <para>
+     The prefix parameter allows pools to be created with the specified
+     prefix. By using different prefix parameters, multiple cloud deployments
+     can support different users and pools on the same SES deployment.
+    </para>
+   </step>
+   <step>
+    <para>
+     A YAML file is created with content similar to the following
+     example:
+    </para>
+    <screen>ceph_conf:
+    cluster_network: 10.84.56.0/21
+    fsid: d5d7c7cb-5858-3218-a36f-d028df7b0673
+    mon_host: 10.84.56.8, 10.84.56.9, 10.84.56.7
+    mon_initial_members: ses-osd1, ses-osd2, ses-osd3
+    public_network: 10.84.56.0/21
+cinder:
+    key: ABCDEFGaxefEMxAAW4zp2My/5HjoST2Y87654321==
+    rbd_store_pool: mycloud-cinder
+    rbd_store_user: cinder
+cinder-backup:
+    key: AQBb8hdbrY2bNRAAqJC2ZzR5Q4yrionh7V5PkQ==
+    rbd_store_pool: mycloud-backups
+    rbd_store_user: cinder-backup
+glance:
+    key: AQD9eYRachg1NxAAiT6Hw/xYDA1vwSWLItLpgA==
+    rbd_store_pool: mycloud-glance
+    rbd_store_user: glance
+nova:
+    rbd_store_pool: mycloud-nova
+radosgw_urls:
+    - http://10.84.56.7:80/swift/v1
+    - http://10.84.56.8:80/swift/v1</screen>
+   </step>
+   <step>
+    <para>
+     Upload the generated YAML file to &crow; using the UI or
+     <literal>crowbarctl</literal> CLI.
+    </para>
+   </step>
+   <step>
+    <para>
+     If the Salt runner is not available, you must manually create pools and
+     users to allow &cloud; services to use the SES/Ceph cluster. Pools and
+     users must be created for &o_blockstore;, &o_comp;, and
+     &o_img;. Instructions for creating and managing pools, users and keyrings
+     can be found in the <link
+     xlink:href="https://documentation.suse.com/ses/5.5/">
+     SUSE Enterprise Storage</link> Administration Guide in the Key Management
+     section.
+    </para>
+    <para>
+     After the required pools and users are set up on the &ses;/&ceph;
+     cluster, create an SES configuration file in YAML format (using the
+     example template above). Upload this file to &crow; using the UI or
+     <literal>crowbarctl</literal> CLI.
+    </para>
+   </step>
+   <step>
+    <para>
+     As indicated above, the SES configuration file can be uploaded to &crow;
+     using the UI or <literal>crowbarctl</literal> CLI.
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       From the main &crow; UI, the upload page is under
+       <menuchoice><guimenu>Utilities</guimenu> <guimenu>SUSE Enterprise
+       Storage</guimenu></menuchoice>.
+      </para>
+      <para>
+       If a configuration is already stored in &crow;, it will be visible in
+       the upload page. A newly uploaded configuration will replace existing
+       one. The new configuration will be applied to the cloud on the next
+       <literal>chef-client</literal> run. There is no need to reapply
+       proposals.
+      </para>
+      <para>
+       Configurations can also be deleted from &crow;. After deleting a
+       configuration, you must manually update and reapply all proposals that
+       used SES integration.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       With the <literal>crowbarctl</literal> CLI, the command <command>crowbarctl ses
+       upload <replaceable>FILE</replaceable></command> accepts a path to the
+       SES configuration file.
+      </para>
+     </listitem>
+    </itemizedlist>
+   </step>
+  </procedure>
+  <bridgehead renderas="sect2">Cloud Service Configuration</bridgehead>
+  <para>
+   SES integration with &cloud; services is implemented with relevant &Barcl;s
+   and installed with the <literal>crowbar-openstack</literal> package.
+  </para>
+  <variablelist>
+   <varlistentry>
+    <term>&o_img;</term>
+    <listitem>
+     <para>
+      Set <literal>Use SES Configuration</literal> to <literal>true</literal>
+      under <literal>RADOS Store Parameters</literal>. The &o_img; &barcl;
+      pulls the uploaded SES configuration from &crow; when applying the
+      &o_img; proposal and on <literal>chef-client</literal> runs. If the SES
+      configuration is uploaded before the &o_img; proposal is created,
+      <literal>Use SES Configuration</literal> is enabled automatically
+      upon proposal creation.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>&o_blockstore;</term>
+    <listitem>
+     <para>
+      Create a new &rados; backend and set <literal>Use SES
+      Configuration</literal> to <literal>true</literal>. The &o_blockstore;
+      &barcl; pulls the uploaded SES configuration from &crow; when applying the
+      &o_blockstore; proposal and on <literal>chef-client</literal> runs. If
+      the SES configuration was uploaded before the &o_blockstore; proposal
+      was created, a <literal>ses-ceph</literal> &rados; backend is created
+      automatically on proposal creation with <literal>Use SES
+      Configuration</literal> already enabled.
+     </para>
+    </listitem>
+   </varlistentry>
+   <varlistentry>
+    <term>&o_comp;</term>
+    <listitem>
+     <para>
+      To connect with volumes stores in SES, &o_comp; uses the configuration
+      from the &o_blockstore; &barcl;.
+      For ephemeral storage, &o_comp; re-uses the <literal>rbd_store_user</literal>
+      and <literal>key</literal> from &o_blockstore; but has a separate <literal>rbd_store_pool</literal>
+      defined in the SES configuration. Ephemeral storage on SES can be
+      enabled or disabled by setting <option>Use Ceph RBD Ephemeral Backend</option>
+      in &o_comp; proposal. In new deployments it is enabled by default.
+      In existing ones it is disabled for compatibility reasons.
+     </para>
+    </listitem>
+   </varlistentry>
+</variablelist>
+  <bridgehead renderas="sect2">&rgw; Integration</bridgehead>
+    <para>
+     Besides block storage, the SES cluster can also be used as a &o_objstore;
+     replacement for object storage. If <literal>radosgw_urls</literal> section is present
+     in uploaded SES configuration, first of the URLs is registered
+     in the &o_ident; catalog as the "&swift;"/"object-store" service. Some
+     configuration is needed on SES side to fully integrate with &o_ident;
+     auth.
+     If SES integration is enabled on a cloud with &o_objstore; deployed,
+     SES object storage service will get higher priority by default. To
+     override this and use &o_objstore; for object storage instead, remove
+     <literal>radosgw_urls</literal> section from the SES configuration file and re-upload it
+     to &crow;. Re-apply &o_objstore; proposal or wait for next periodic
+     chef-client run to make changes effective.
+   </para>
+ </sect1>
+
  <sect1 xml:id="sec-depl-services">
   <title>Roles and Services in &productname;</title>
 
