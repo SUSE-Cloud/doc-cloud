@@ -35,10 +35,10 @@
        <para>Re-install &kw-hos; on Controller 1, 2, 3</para>
      </listitem>
      <listitem>
-       <para>Recover the backup of the &mariadb; database</para>
+       <para>Recover the Cassandra Database</para>
      </listitem>
      <listitem>
-       <para>Recover the Cassandra Database</para>
+       <para>Recover the backup of the &mariadb; database</para>
      </listitem>
    </orderedlist>
  </section>
@@ -205,7 +205,10 @@ var/lib/ardana/service.osrc</screen>
      <title>Execute backup of Cassandra</title>
      <para>Execute backup of Cassandra</para>
      <para>Create cassandra-backup-extserver.sh script on all
-     controller nodes</para>
+     controller nodes where Cassandra runs, which can be determined
+     by running this command on deployer</para>
+<screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible FND-CDB --list-hosts</screen>
 <screen>&prompt.root;cat &gt; ~/cassandra-backup-extserver.sh &lt;&lt; EOF
 #!/bin/sh
 
@@ -543,7 +546,106 @@ ansible-playbook -i hosts/verb_hosts site.yml --limit doc-cp1-c1-m1-mgmt,doc-cp1
        </listitem>
      </orderedlist>
    </section>
-   <section>
+     <section>
+       <title>Cassandra database restore</title>
+       <para>Cassandra database restore</para>
+       <para>Create a script cassandra-restore-extserver.sh on all
+       controller nodes</para>
+<screen>&prompt.root;cat &gt; ~/cassandra-restore-extserver.sh &lt;&lt; EOF
+#!/bin/sh
+
+# backup user
+BACKUP_USER=backupuser
+# backup server
+BACKUP_SERVER=192.168.69.132
+# backup directory
+BACKUP_DIR=/mnt/backups/cassandra_backups/
+
+# Setup variables
+DATA_DIR=/var/cassandra
+NODETOOL=/usr/bin/nodetool
+
+HOST_NAME=\$(/bin/hostname)_
+
+#Get snapshot name from command line.
+if [ -z "\$*"  ]
+then
+  echo "usage \$0 &lt;snapshot to restore&gt;"
+  exit 1
+fi
+SNAPSHOT_NAME=\$1
+
+# restore
+rsync -av -e "ssh -i /root/.ssh/id_rsa_backup" \$BACKUP_USER@\$BACKUP_SERVER:\$BACKUP_DIR/\$HOST_NAME\$SNAPSHOT_NAME/ /
+
+# set ownership of newley restored files
+chown -R cassandra:cassandra \$DATA_DIR
+
+# Get a list of snapshot directories that have files to be restored.
+RESTORE_LIST=\$(find \$DATA_DIR -type d -name \$SNAPSHOT_NAME)
+
+# use RESTORE_LIST to move snapshot files back into place of database.
+for d in \$RESTORE_LIST
+do
+  cd \$d
+  mv * ../..
+  KEYSPACE=\$(pwd | rev | cut -d '/' -f4 | rev)
+  TABLE_NAME=\$(pwd | rev | cut -d '/' -f3 |rev | cut -d '-' -f1)
+  \$NODETOOL refresh \$KEYSPACE \$TABLE_NAME
+done
+cd
+# Cleanup snapshot directories
+\$NODETOOL clearsnapshot \$KEYSPACE
+EOF</screen>
+<screen>&prompt.root;chmod +x ~/cassandra-restore-extserver.sh</screen>
+          <para>Execute following steps on all the controller nodes</para>
+          <orderedlist>
+            <listitem>
+              <para>Edit ~/cassandra-restore-extserver.sh script</para>
+              <para>
+               Set
+               <replaceable>BACKUP_USER</replaceable>,<replaceable>BACKUP_SERVER</replaceable>
+               to the desired backup user (for example,
+               <systemitem class="username">backupuser</systemitem>) and the
+               desired backup server (for example,
+               <literal>192.168.68.132</literal>), respectively.
+              </para>
+<screen>
+BACKUP_USER=backupuser
+BACKUP_SERVER=192.168.69.132
+BACKUP_DIR=/mnt/backups/cassandra_backups/</screen>
+            </listitem>
+            <listitem>
+              <para>Execute ~/cassandra-restore-extserver.sh <replaceable>SNAPSHOT_NAME</replaceable></para>
+              <para>You will have to find out <replaceable>SNAPSHOT_NAME</replaceable> from listing of /mnt/backups/cassandra_backups.
+              All the directories are of format <replaceable>HOST</replaceable>_<replaceable>SNAPSHOT_NAME</replaceable></para>
+<screen>ls -alt /mnt/backups/cassandra_backups
+total 16
+drwxr-xr-x 4 backupuser users 4096 Jun 28 03:06 .
+drwxr-xr-x 3 backupuser users 4096 Jun 28 03:06 doc-cp1-c1-m2-mgmt_cassandra-snp-2018-06-28-0306</screen>
+<screen>&prompt.root;~/cassandra-restore-extserver.sh cassandra-snp-2018-06-28-0306
+
+receiving incremental file list
+./
+var/
+var/cassandra/
+var/cassandra/data/
+var/cassandra/data/data/
+var/cassandra/data/data/monasca/
+var/cassandra/data/data/monasca/alarm_state_history-e6bbdc20488d11e8bdabc32666406af1/
+var/cassandra/data/data/monasca/alarm_state_history-e6bbdc20488d11e8bdabc32666406af1/snapshots/
+var/cassandra/data/data/monasca/alarm_state_history-e6bbdc20488d11e8bdabc32666406af1/snapshots/cassandra-snp-2018-06-28-0306/
+var/cassandra/data/data/monasca/alarm_state_history-e6bbdc20488d11e8bdabc32666406af1/snapshots/cassandra-snp-2018-06-28-0306/manifest.json
+var/cassandra/data/data/monasca/alarm_state_history-e6bbdc20488d11e8bdabc32666406af1/snapshots/cassandra-snp-2018-06-28-0306/mc-37-big-CompressionInfo.db
+var/cassandra/data/data/monasca/alarm_state_history-e6bbdc20488d11e8bdabc32666406af1/snapshots/cassandra-snp-2018-06-28-0306/mc-37-big-Data.db
+...
+...
+...
+/usr/bin/nodetool clearsnapshot monasca</screen>
+            </listitem>
+          </orderedlist>
+     </section>
+    <section>
      <title>Databases restore</title>
      <para>Databases restore</para>
      <section>
@@ -653,117 +755,25 @@ Start request sent for job 64715c6ce8ed40e1b346136083923260</screen>
 4.0K    /tmp/mysql_restore/xtrabackup_galera_info</screen>
        </listitem>
        <listitem>
+         <para>Repeat steps 2-5 on the other two controllers where the 
+               MariaDB/Galera database is running, which can be 
+               determined by running below command on deployer</para>
+<screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
+&prompt.ardana;ansible FND-MDB --list-hosts</screen>
+       </listitem>
+       <listitem>
          <para>Stop &kw-hos; services on the three controllers (replace the hostnames of the controllers in the command)</para>
 <screen>&prompt.ardana;cd ~/scratch/ansible/next/ardana/ansible
 &prompt.ardana;ansible-playbook -i hosts/verb_hosts ardana-stop.yml --limit doc-cp1-c1-m1-mgmt,doc-cp1-c1-m2-mgmt,doc-cp1-c1-m3-mgmt,localhost</screen>
        </listitem>
        <listitem>
-         <para>Clean the mysql directory and copy the restored backup</para>
+         <para>Clean the mysql directory and copy the restored backup on all three controllers where MariaDB/Galera database is running</para>
 <screen>&prompt.root;cd /var/lib/mysql/
 &prompt.root;rm -rf ./*
 &prompt.root;cp -pr /tmp/mysql_restore/* ./</screen>
 <para>Switch back to the ardana user once the copy is finished</para>
        </listitem>
        </orderedlist>
-     </section>
-     <section>
-       <title>Cassandra database restore</title>
-       <para>Cassandra database restore</para>
-       <para>Create a script cassandra-restore-extserver.sh on all
-       controller nodes</para>
-<screen>&prompt.root;cat &gt; ~/cassandra-restore-extserver.sh &lt;&lt; EOF
-#!/bin/sh
-
-# backup user
-BACKUP_USER=backupuser
-# backup server
-BACKUP_SERVER=192.168.69.132
-# backup directory
-BACKUP_DIR=/mnt/backups/cassandra_backups/
-
-# Setup variables
-DATA_DIR=/var/cassandra/data/data
-NODETOOL=/usr/bin/nodetool
-
-HOST_NAME=\$(/bin/hostname)_
-
-#Get snapshot name from command line.
-if [ -z "\$*"  ]
-then
-  echo "usage \$0 &lt;snapshot to restore&gt;"
-  exit 1
-fi
-SNAPSHOT_NAME=\$1
-
-# restore
-rsync -av -e "ssh -i /root/.ssh/id_rsa_backup" \$BACKUP_USER@\$BACKUP_SERVER:\$BACKUP_DIR/\$HOST_NAME\$SNAPSHOT_NAME/ /
-
-# set ownership of newley restored files
-chown -R cassandra:cassandra \$DATA_DIR/monasca/*
-
-# Get a list of snapshot directories that have files to be restored.
-RESTORE_LIST=\$(find \$DATA_DIR -type d -name \$SNAPSHOT_NAME)
-
-# use RESTORE_LIST to move snapshot files back into place of database.
-for d in \$RESTORE_LIST
-do
-  cd \$d
-  mv * ../..
-  KEYSPACE=\$(pwd | rev | cut -d '/' -f4 | rev)
-  TABLE_NAME=\$(pwd | rev | cut -d '/' -f3 |rev | cut -d '-' -f1)
-  \$NODETOOL refresh \$KEYSPACE \$TABLE_NAME
-done
-cd
-# Cleanup snapshot directories
-\$NODETOOL clearsnapshot \$KEYSPACE
-EOF</screen>
-<screen>&prompt.root;chmod +x ~/cassandra-restore-extserver.sh</screen>
-          <para>Execute following steps on all the controller nodes</para>
-          <orderedlist>
-            <listitem>
-              <para>Edit ~/cassandra-restore-extserver.sh script</para>
-              <para>
-               Set
-               <replaceable>BACKUP_USER</replaceable>,<replaceable>BACKUP_SERVER</replaceable>
-               to the desired backup user (for example,
-               <systemitem class="username">backupuser</systemitem>) and the
-               desired backup server (for example,
-               <literal>192.168.68.132</literal>), respectively.
-              </para>
-<screen>
-BACKUP_USER=backupuser
-BACKUP_SERVER=192.168.69.132
-BACKUP_DIR=/mnt/backups/cassandra_backups/</screen>
-            </listitem>
-            <listitem>
-              <para>Execute ~/cassandra-restore-extserver.sh <replaceable>SNAPSHOT_NAME</replaceable></para>
-              <para>You will have to find out <replaceable>SNAPSHOT_NAME</replaceable> from listing of /mnt/backups/cassandra_backups.
-              All the directories are of format <replaceable>HOST</replaceable>_<replaceable>SNAPSHOT_NAME</replaceable></para>
-<screen>ls -alt /mnt/backups/cassandra_backups
-total 16
-drwxr-xr-x 4 backupuser users 4096 Jun 28 03:06 .
-drwxr-xr-x 3 backupuser users 4096 Jun 28 03:06 doc-cp1-c1-m2-mgmt_cassandra-snp-2018-06-28-0306</screen>
-<screen>&prompt.root;~/cassandra-restore-extserver.sh cassandra-snp-2018-06-28-0306
-
-receiving incremental file list
-./
-var/
-var/cassandra/
-var/cassandra/data/
-var/cassandra/data/data/
-var/cassandra/data/data/monasca/
-var/cassandra/data/data/monasca/alarm_state_history-e6bbdc20488d11e8bdabc32666406af1/
-var/cassandra/data/data/monasca/alarm_state_history-e6bbdc20488d11e8bdabc32666406af1/snapshots/
-var/cassandra/data/data/monasca/alarm_state_history-e6bbdc20488d11e8bdabc32666406af1/snapshots/cassandra-snp-2018-06-28-0306/
-var/cassandra/data/data/monasca/alarm_state_history-e6bbdc20488d11e8bdabc32666406af1/snapshots/cassandra-snp-2018-06-28-0306/manifest.json
-var/cassandra/data/data/monasca/alarm_state_history-e6bbdc20488d11e8bdabc32666406af1/snapshots/cassandra-snp-2018-06-28-0306/mc-37-big-CompressionInfo.db
-var/cassandra/data/data/monasca/alarm_state_history-e6bbdc20488d11e8bdabc32666406af1/snapshots/cassandra-snp-2018-06-28-0306/mc-37-big-Data.db
-...
-...
-...
-/usr/bin/nodetool clearsnapshot monasca</screen>
-            </listitem>
-          </orderedlist>
      </section>
     <section>
        <title>Restart &kw-hos; services</title>
