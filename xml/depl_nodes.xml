@@ -6837,8 +6837,7 @@ monitoring</guimenu>
     <sect3 xml:id="sec-depl-ostack-octavia-mgmtnet">
       <title>Management network</title>
       <para>
-        Octavia uses a load balancer network,
-        <literal>lb-mgmt-net</literal>, as a management network that the
+        Octavia needs a neutron provider network as a management network that the
         controller uses to communicate with the amphorae. The amphorae
         that &octavia; deploys have interfaces and IP addresses on this
         network. It’s important that the subnet deployed on this network
@@ -6847,37 +6846,74 @@ monitoring</guimenu>
         lifespan of the cloud installation.
       </para>
       <para>
-        At the present time, though IPv4 subnets are used by default for
-        the LB Network (for example: 172.16.0.0/12), IPv6 subnets can be
-        used for the LB Network. The LB Network is isolated from tenant
-        networks on the amphorae by means of network namespaces on the
-        amphorae. Therefore, operators need not be concerned about
-        overlapping subnet ranges with tenant networks.
+        To configure the &octavia; management network, the network configuration
+        must be initialized or updated to include an <literal>octavia</literal>
+        network entry. The &octavia; &barcl; uses this information to automatically
+        create the neutron provider network used for management traffic.
       </para>
+
+       <procedure>
+        <step>
+         <para>
+          If you have not yet deployed &crow;, add the following configuration to
+          <filename>/etc/crowbar/network.json</filename>
+          to set up the &octavia; management network, using the applicable VLAN
+          ID, and network address values. If you have already deployed &crow;, then add
+          this configuration to the <guimenu>Raw</guimenu> view of the Network &Barcl;.
+         </para>
+         <screen>"octavia": {
+              "conduit": "intf1",
+              "vlan": <replaceable>450</replaceable>,
+              "use_vlan": true,
+              "add_bridge": false,
+              "subnet": "<replaceable>172.31.0.0</replaceable>",
+              "netmask": "<replaceable>255.255.0.0</replaceable>",
+              "broadcast": "<replaceable>172.31.255.255</replaceable>",
+              "ranges": {
+                "host": { "start": "<replaceable>172.31.0.1</replaceable>",
+                   "end": "<replaceable>172.31.0.255</replaceable>" },
+                "dhcp": { "start": "<replaceable>172.31.1.1</replaceable>",
+                   "end": "<replaceable>172.31.255.254</replaceable>" }
+              }
+        },</screen>
+         <important>
+           <para>
+             Care should be taken to ensure the IP subnet doesn't overlap with any of those
+             configured for the other networks. The chosen VLAN ID must not be used within the &cloud;
+             network and not used by &o_netw; (i.e. if deploying neutron with VLAN support - using the plugins
+             linuxbridge or openvswitch plus VLAN - ensure that the VLAN ID doesn't overlap with the range of
+             VLAN IDs allocated for the <literal>nova-fixed</literal> neutron network).
+           </para>
+         </important>
+         <para>
+          The <literal>host</literal> range will be used to allocate IP addresses to
+          the controller nodes where &octavia; services are running, so it needs to
+          accommodate the maximum number of controller nodes likely to be deployed
+          throughout the lifespan of the cloud installation.
+         </para>
+         <para>
+          The <literal>dhcp</literal> range will be reflected in the configuration of the
+          actual neutron provider network used for &octavia; management traffic and its
+          size will determine the maximum number of amphorae and therefore the maximum
+          number of load balancer instances that can be running at the same time.
+         </para>
+         <para>
+          See <xref linkend="sec-depl-inst-admserv-post-network"/> for detailed instructions
+          on how to customize the network configuration.
+         </para>
+        </step>
+         <step>
+         <para>
+           If &crow; is already deployed, it is also necessary to re-apply both the &o_netw;
+           &Barcl; and the &o_comp; &Barcl; for the configuration to take effect before applying
+           the &octavia; &Barcl;.
+       </para>
+        </step>
+       </procedure>
+
       <para>
-        For more information, see the <link
-        xlink:href="https://docs.openstack.org/octavia/rocky/contributor/guides/dev-quick-start.html#load-balancer-network-configuration">Load
-        Balancer Network Configuration</link> section from the &ostack;
-        documentation.
-      </para>
-      <para>
-        By default the name is <literal>lb-mgmt-net</literal>, this can
-        be overridden in the <literal>raw</literal> mode of the
-        barclamp.
-      </para>
-      <para>
-        The backend services (deployed by the
-        <literal>octavia-backend</literal> role) needs to be able to
-        talk to amphorae over the <literal>lb-mgmt-net</literal>.
-        Connect the <literal>lb-mgmt-net</literal> network to an
-        external network outside the cloud network, or a network that
-        the backend can connect through. Ensure the backend nodes know
-        how to route to it.
-      </para>
-      <para>
-        Connect the network to a neutron router and ensure any physical
-        firewall rules are in place in order for the backend
-        communication to work.
+        Aside from configuring the physical switches to allow VLAN traffic to be correctly forwarded,
+        no additional external network configuration is required.
       </para>
     </sect3>
     <sect3 xml:id="sec-depl-ostack-octavia-certificates">
