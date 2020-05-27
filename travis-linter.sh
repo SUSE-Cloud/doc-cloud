@@ -35,8 +35,8 @@ travis_fold() {
 travis_fold "Setting Up Tooling"
 
 pip install gitlint
-wget https://raw.githubusercontent.com/openSUSE/doc-ci/develop/gitlint/gitlint.ini
-wget https://raw.githubusercontent.com/openSUSE/doc-ci/develop/gitlint/extra-gitlint-rules.py
+wget https://raw.githubusercontent.com/openSUSE/doc-ci/master/gitlint/gitlint.ini
+wget https://raw.githubusercontent.com/openSUSE/doc-ci/master/gitlint/extra-gitlint-rules.py
 
 travis_fold -
 
