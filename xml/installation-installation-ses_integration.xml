@@ -12,17 +12,24 @@
   (SES). Integrating &ses; enables &ceph; to provide RADOS Block Device (RBD),
   block storage, image storage, object storage via RADOS Gateway (RGW),
   and CephFS (file storage) in &productname;. The following documentation
-  outlines integration for &ses; 5 , 5.5, and 6.0
+  outlines integration for &ses; 5 , 5.5, 6.0, and 7.0.
  </para>
+ <important>
+   <para>Support for &ses; 5 and 5.5 is deprecated. The documentation for
+	 integrating these versions is included for customers who may not
+	 yet have upgraded to newer versions of &ses; . These versions
+	 are no longer officially supported.
+   </para>
+ </important>
  <note>
-    <para>Integration with &ses; 6.0 is configured using the same
-    steps as &ses; 5.5 except that salt-api queries authenticating with the 
-    <literal>sharedsecret=</literal> parameter should be updated to use 
-    <literal>password=</literal> 
+    <para>Integration with &ses; 5.5 is configured using the same
+    steps as &ses; 6.0 except that salt-api queries authenticating with the 
+    <literal>password=</literal> parameter should be updated to use 
+    <literal>sharedsecret=</literal> 
   </para>
  </note>
  <para>
-   &ses; 5.5 uses a Salt runner that creates users and pools. Salt generates
+   &ses; 6.0 uses a Salt runner that creates users and pools. Salt generates
    a yaml configuration that is needed to integrate with &cloud;.
    The integration runner creates separate users for &o_blockstore;,
    &o_blockstore; backup, and &o_img;. Both the &o_blockstore;
@@ -35,14 +42,51 @@
  </para>
  <para>
   For more information on &ses;, see
-  the <link xlink:href="https://documentation.suse.com/ses/5.5"/>.
+  the <link xlink:href="https://documentation.suse.com/ses/6"/>.
  </para>
 
+  <section xml:id="ses-7-installation">
+  <title>Enabling &ses; 7.0 Integration</title>
+  <para>The following instructions detail integrating &ses; 7.0 with &cloud;.</para>
+  <procedure>
+    <step><para>Create the osd pools on the &ses; admin node (the names provided here are examples)</para>
+<screen>
+ceph osd pool create ses-cloud-volumes 16 &amp;&amp; \
+ceph osd pool create ses-cloud-backups 16 &amp;&amp; \
+ceph osd pool create ses-cloud-images 16 &amp;&amp;\
+ceph osd pool create ses-cloud-vms 16
+</screen>
+     </step>
+     <step><para>Enable the osd pools</para>
+<screen>
+ceph osd pool application enable ses-cloud-volumes rbd &amp;&amp; \
+ceph osd pool application enable ses-cloud-backups rbd &amp;&amp; \
+ceph osd pool application enable ses-cloud-images rbd &amp;&amp; \
+ceph osd pool application enable ses-cloud-vms rbd
+</screen>
+     </step>
+     <step><para>Configure permissions on the &cloud; deployer</para>
+<screen>
+ceph-authtool -C /etc/ceph/ceph.client.ses-cinder.keyring --name client.ses-cinder --add-key $(ceph-authtool --gen-print-key) --cap mon "allow r" --cap osd "allow class-read object_prefix rbd_children, allow rwx pool=ses-cloud-volumes, allow rwx pool=ses-cloud-vms, allow rwx pool=ses-cloud-images"
+ceph-authtool -C /etc/ceph/ceph.client.ses-cinder-backup.keyring --name client.ses-cinder-backup --add-key $(ceph-authtool --gen-print-key) --cap mon "allow r" --cap osd "allow class-read object_prefix rbd_children, allow rwx pool=ses-cloud-cinder-backups"
+ceph-authtool -C /etc/ceph/ceph.client.ses-glance.keyring --name client.ses-glance --add-key $(ceph-authtool --gen-print-key) --cap mon "allow r" --cap osd "allow class-read object_prefix rbd_children, allow rwx pool=ses-cloud-images"
+</screen>
+     </step>
+     <step><para>Import the updated keyrings into Ceph</para>
+<screen>
+ceph auth import -i /etc/ceph/ceph.client.ses-cinder-backup.keyring &amp;&amp; \
+ceph auth import -i /etc/ceph/ceph.client.ses-cinder.keyring &amp;&amp; \
+ceph auth import -i /etc/ceph/ceph.client.ses-glance.keyring
+</screen>
+     </step>
+   </procedure>
+  </section>
+
   <section xml:id="ses-installation">
-  <title>Enabling &ses; 5.5 Integration</title>
-  <para>The following instructions detail integrating &ses; 5.5 with &cloud;.</para>
+  <title>Enabling &ses; 6.0 Integration</title>
+  <para>The following instructions detail integrating &ses; 6.0 &amp; 5.5 with &cloud;.</para>
   <para>
-   Log in as root to run the SES 5.5 Salt runner on the salt admin host:
+   Log in as root to run the SES 6 Salt runner on the salt admin host:
   </para>
   <para>If no prefix is specified (as the below command shows), by default
     pool names are prefixed with <literal>cloud-</literal> and are more
@@ -106,8 +150,8 @@ radosgw_urls:
   </section>
 
 <section xml:id="ses-config">
-  <title>Enabling &ses; 5 Integration</title>
- <para>The following instructions detail integrating &ses; 5 with &cloud;.</para>
+  <title>Enabling &ses; 7, 6, 5 Integration</title>
+ <para>The following instructions detail integrating &ses; 7, 6, 5 with &cloud;.</para>
  <para>
   The &ses; integration is provided through the <package>ardana-ses</package>
   RPM package. This package is included in the
@@ -319,6 +363,11 @@ ses_config_file: ses_config.yml
 &prompt.ardana;ansible-playbook -i hosts/verb_hosts ardana-reconfigure.yml</screen>
     </step>
    </procedure>
+   <important>
+     <para>When configuring &ses; integration, be aware of
+       <link xlink:href="https://docs.ceph.com/en/latest/security/CVE-2021-20288/">
+       CVE-2021-20288</link> relating to Unauthorized global_id re-use.</para>
+   </important>
   </section>
   <section>
    <title>Add Missing Swift Endpoints</title>
@@ -399,8 +448,20 @@ rgw keystone accepted admin roles = admin
 rgw keystone revocation interval = 0
 rgw keystone verify ssl = false # If keystone is using self-signed
    certificate</screen>
+   <important><para>When integrating with &ses; 7, the ceph.conf file only contains the
+           minimal setup, the remainder of the configuration data is stored in
+	   the Ceph database.</para>
+   </important>
+   <para>To update the configuration for &ses; 7 use the
+       <literal>ceph config</literal> CLI. It is possible to import a yaml
+       formatted configuration as follows
+   </para>
+<screen>
+ceph config assimilate-conf -i configuration_file.yml
+</screen>
    <para>
-    After making these changes to <filename>ceph.conf</filename>, the &rados;
+    After making these changes to <filename>ceph.conf</filename>, (and in the case
+    of &ses; 7 importing the configuration) the &rados;
     gateway service needs to be restarted.
    </para>
    <para>
